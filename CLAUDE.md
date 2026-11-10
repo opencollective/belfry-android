@@ -44,6 +44,7 @@ minSdk 26, JDK 17.
     exposes `StateFlow`s and suspend actions; the app talks only to this).
 - `app/` — the Compose app, package `sh.belfry.app`. `data/` (SQLite `Store`, Keystore-encrypted
   secrets), `ui/` (theme, kit, screens). The seeded demo community is `core/.../engine/Demo.kt`.
+- `screenshots/` (git-ignored): the last CI screenshots, downloaded with `gh run download`.
 - `app/src/test`: Robolectric screenshot tests (demo mode). PNGs land in
   `app/build/outputs/roborazzi/`.
 
