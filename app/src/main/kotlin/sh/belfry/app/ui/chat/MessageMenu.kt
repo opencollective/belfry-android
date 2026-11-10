@@ -201,7 +201,7 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
                 icon = BelfryIcons.Link,
             )
         }
-        val title = todoTitle(m)
+        val title = world.todoTitle(m)
         if (title.isNotEmpty() && !world.todosBySource(groupId).containsKey(m.id)) {
             BusyRow("Turn into a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
         }

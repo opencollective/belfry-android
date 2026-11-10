@@ -54,9 +54,9 @@ object PodShapes {
 fun World.todosBySource(groupId: String): Map<String, Task> =
     tasks(groupId).filter { it.source != null }.associateBy { it.source!! }
 
-/** The title a message gives its to-do: its text without mentions, on one line, 300 chars. */
-fun todoTitle(m: Message): String =
-    m.text.replace(Regex("nostr:npub1[02-9ac-hj-np-z]+"), "").replace(Regex("\\s+"), " ").trim().sliceUnits(300)
+/** The title a message gives its to-do: its text without mentions, channels as "#name", on one line, 300 chars. */
+fun World.todoTitle(m: Message): String =
+    plainRefs(m.text, "").replace(Regex("\\s+"), " ").trim().sliceUnits(300)
 
 /** What a to-do's mark on its message reads. */
 fun World.todoChip(t: Task): String = when {
@@ -163,9 +163,9 @@ private fun membersWord(n: Int) = "$n ${if (n == 1) "member" else "members"}"
 private fun cap(s: String) = s.replaceFirstChar { it.uppercase() }
 
 /** A pinned message as one plain line. */
-fun pinLine(m: Message): String =
-    (m.text.ifEmpty { if (m.media.isNotEmpty()) "A photo or file" else "" })
-        .replace(Regex("nostr:npub1[02-9ac-hj-np-z]+"), "@…").replace(Regex("[*_`#>]"), "").split('\n').first()
+fun World.pinLine(m: Message): String =
+    plainRefs(m.text.ifEmpty { if (m.media.isNotEmpty()) "A photo or file" else "" })
+        .replace(Regex("[*_`>]"), "").replace(Regex("(^|\\s)#(?=\\s|$)"), "$1").split('\n').first()
 
 /**
  * The line, picked in this order: the topic the feed is filtered on; (a proposal's chat: its

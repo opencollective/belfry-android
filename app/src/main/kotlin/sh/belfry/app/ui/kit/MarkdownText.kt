@@ -44,7 +44,9 @@ import sh.belfry.core.crypto.Bech32
 import sh.belfry.core.markdown.Block
 import sh.belfry.core.markdown.Inline
 import sh.belfry.core.markdown.Markdown
+import sh.belfry.core.model.ChannelRefs
 import sh.belfry.core.model.Topics
+import sh.belfry.core.model.channelOfRef
 import sh.belfry.core.model.World
 
 /**
@@ -59,13 +61,16 @@ private class MdContext(
     val onMention: (String) -> Unit,
     val onTopic: ((String) -> Unit)?,
     val onLink: (String) -> Unit,
+    val onChannel: (String) -> Unit,
 )
 
 /**
  * The chat's Markdown subset (SPEC 9), never as HTML. `rich = true` (chat messages) also shows
  * `nostr:npub…` as @Name (highlighted when it is me; a tap opens the profile unless [onMention]
  * is given) and #topics (a tap calls [onTopic] when given). `rich = false` is for descriptions
- * and a profile's "about". Only http(s) and mailto links open.
+ * and a profile's "about". Only http(s) and mailto links open. A channel reference
+ * (`nostr:naddr1…` of a group) shows as "#name" and opens the channel; one this belfry does not
+ * know reads "#channel", any other naddr "Nostr address": the raw naddr never shows.
  */
 @Composable
 fun MarkdownText(
@@ -88,6 +93,7 @@ fun MarkdownText(
         onMention = onMention ?: { pk -> nav.go(Routes.profile(pk)) },
         onTopic = onTopic,
         onLink = { href -> if (isSafeLink(href)) try { uri.openUri(href) } catch (e: Exception) { } },
+        onChannel = { id -> nav.openChannel(id) },
     )
     val line = (fontSize.value * 1.4f).sp
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -166,6 +172,15 @@ private fun AnnotatedString.Builder.add(nodes: List<Inline>, ctx: MdContext) {
                     withLink(LinkAnnotation.Clickable("topic", TextLinkStyles(style)) { onTopic(Topics.norm(n.name)) }) { append("#${n.name}") }
                 } else {
                     withStyle(style) { append("#${n.name}") }
+                }
+            }
+            is Inline.ChannelRef -> {
+                val g = ctx.world?.channelOfRef(n.naddr)
+                if (g != null) {
+                    val style = SpanStyle(fontWeight = FontWeight.Medium, background = c.surface2)
+                    withLink(LinkAnnotation.Clickable("channel", TextLinkStyles(style)) { ctx.onChannel(g.id) }) { append(g.icon + g.name) }
+                } else {
+                    withStyle(SpanStyle(color = c.muted)) { append(if (ChannelRefs.groupOf(n.naddr) != null) "#channel" else "Nostr address") }
                 }
             }
             is Inline.Nsite -> {

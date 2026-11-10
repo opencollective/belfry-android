@@ -18,6 +18,10 @@ data class WorldContext(
     val bridgeKey: String? = null,
     /** For day separators and all-day calendar events. */
     val zone: ZoneId = ZoneId.systemDefault(),
+    /** The groups relay's address: the relay hint in a channel reference (`nostr:naddr1…`). */
+    val groupsRelay: String = "",
+    /** belfry.json `agents`: a member's own agent → that member (both 64-hex keys). */
+    val agents: Map<String, String> = emptyMap(),
 )
 
 data class Profile(val name: String? = null, val picture: String? = null, val nip05: String? = null, val about: String = "", val at: Long = 0)

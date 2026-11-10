@@ -50,6 +50,7 @@ import sh.belfry.core.crypto.Bech32
 import sh.belfry.core.model.Group
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.World
+import sh.belfry.core.model.refLabel
 
 private class DrawerRow(val g: Group, val depth: Int)
 
@@ -157,10 +158,10 @@ private fun ChannelItem(world: World, g: Group, depth: Int, on: Boolean, onClick
 private fun preview(world: World, m: Message): String {
     val text = m.body.ifEmpty { m.text }
     if (text.isNotEmpty()) {
-        return Markdown.plain(text) { npub ->
+        return Markdown.plain(text, { npub ->
             val name = Bech32.npubToHex(npub)?.let { world.realName(it) }.orEmpty()
             "@" + name.ifEmpty { "…" }
-        }
+        }, { world.refLabel(it) })
     }
     if (m.media.isNotEmpty()) return "Photo"
     return m.created?.let { "Created $it" } ?: ""

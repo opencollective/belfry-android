@@ -20,6 +20,8 @@ sealed interface Inline {
     data class Topic(val name: String) : Inline
     /** `nsite:npub1…[/name]` in a chat message: a link to its preview on the belfry ([source] is the text as written). */
     data class Nsite(val npub: String, val name: String?, val source: String) : Inline
+    /** `nostr:naddr1…` (without `nostr:`): a channel reference when it is a group's kind 39000 address. */
+    data class ChannelRef(val naddr: String) : Inline
 }
 
 sealed interface Block {
@@ -71,8 +73,9 @@ object Markdown {
         "(\\*\\*([^*]+)\\*\\*|__([^_]+)__|`([^`]+)`|~~([^~]+)~~|\\[([^\\]]+)\\]\\(([^)$W]+)\\)|\\*([^*$W][^*]*)\\*|_([^_$W][^_]*)_|(https?://[^$W<>()]+[^$W<>().,;:!?'\"]))"
     )
     private val RICH = Pattern.compile(
-        "nsite:(npub1[02-9ac-hj-np-z]{58})(?:/([a-z0-9-]{1,13}))?|nostr:(npub1[02-9ac-hj-np-z]{58})|(^|[^\\p{L}\\p{N}_&/])#([\\p{L}\\p{N}_][\\p{L}\\p{N}_-]{0,48})"
+        "nsite:(npub1[02-9ac-hj-np-z]{58})(?:/([a-z0-9-]{1,13}))?|nostr:(npub1[02-9ac-hj-np-z]{58})|(^|[^\\p{L}\\p{N}_&/])#([\\p{L}\\p{N}_][\\p{L}\\p{N}_-]{0,48})|nostr:(naddr1[02-9ac-hj-np-z]{20,400})"
     )
+    private val NADDR_IN_TEXT = Pattern.compile("nostr:(naddr1[02-9ac-hj-np-z]{20,400})")
     private val FENCE = Pattern.compile("^```")
     private val HEADING = Pattern.compile("^(#{1,3})[$W]+(.*)\\z", Pattern.DOTALL)
     private val LIST_ITEM = Pattern.compile("^[$W]*([-*+]|\\d+[.)])[$W]+")
@@ -98,7 +101,12 @@ object Markdown {
         while (m.find()) {
             val nsite = m.group(1)
             val npub = m.group(3)
-            if (nsite != null) {
+            val naddr = m.group(6)
+            if (naddr != null) {
+                if (m.start() > last) out.add(Inline.Text(t.substring(last, m.start())))
+                out.add(Inline.ChannelRef(naddr))
+                last = m.end()
+            } else if (nsite != null) {
                 if (m.start() > last) out.add(Inline.Text(t.substring(last, m.start())))
                 out.add(Inline.Nsite(nsite, m.group(2), m.group()))
                 last = m.end()
@@ -224,17 +232,18 @@ object Markdown {
     }
 
     /** The readable text of inline nodes, without marks. [mention] names an npub (default "@…"). */
-    fun text(nodes: List<Inline>, mention: (String) -> String = { "@…" }): String = nodes.joinToString("") { n ->
+    fun text(nodes: List<Inline>, mention: (String) -> String = { "@…" }, channel: (String) -> String = { "#…" }): String = nodes.joinToString("") { n ->
         when (n) {
             is Inline.Text -> n.text
-            is Inline.Bold -> text(n.children, mention)
-            is Inline.Italic -> text(n.children, mention)
-            is Inline.Strike -> text(n.children, mention)
+            is Inline.Bold -> text(n.children, mention, channel)
+            is Inline.Italic -> text(n.children, mention, channel)
+            is Inline.Strike -> text(n.children, mention, channel)
             is Inline.Code -> n.text
-            is Inline.Link -> text(n.children, mention)
+            is Inline.Link -> text(n.children, mention, channel)
             is Inline.Mention -> mention(n.npub)
             is Inline.Topic -> "#" + n.name
             is Inline.Nsite -> n.source
+            is Inline.ChannelRef -> channel(n.naddr)
         }
     }
 
@@ -242,10 +251,13 @@ object Markdown {
      * One line without Markdown marks, for previews (channel list, thread snippets, notifications):
      * `**` `__` `~~` and backticks removed, mentions named by [mention] (default "@…"), new lines
      * as spaces. Same as the previews of the iPhone app; the web strips mentions the same way.
+     * Channel references (`nostr:naddr1…`) are named by [channel] (given the bare naddr; the
+     * app passes `World.plainRefs`'s "#name").
      */
-    fun plain(text: String, mention: (String) -> String = { "@…" }): String {
+    fun plain(text: String, mention: (String) -> String = { "@…" }, channel: (String) -> String = { "#…" }): String {
         val noMarks = MARKS.matcher(text).replaceAll("")
-        val named = Js.replace(NPUB_IN_TEXT, noMarks) { m -> mention(m.group().removePrefix("nostr:")) }
+        val refs = Js.replace(NADDR_IN_TEXT, noMarks) { m -> channel(m.group(1)) }
+        val named = Js.replace(NPUB_IN_TEXT, refs) { m -> mention(m.group().removePrefix("nostr:")) }
         return Js.trim(named.replace("\r\n", "\n").replace('\r', '\n').replace('\n', ' '))
     }
 

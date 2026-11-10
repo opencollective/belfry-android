@@ -212,6 +212,13 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     }
 
     private val groupById: Map<String, Group> by lazy { groups.associateBy { it.id } }
+
+    /** Who signed each channel's metadata (kind 39000, the relay's key), by group id: the author of a channel reference. */
+    val metaAuthors: Map<String, String> by lazy {
+        val out = HashMap<String, String>()
+        for (e in ofKind(39000)) { val d = e.t("d"); if (!d.isNullOrEmpty()) out[d] = e.pubkey }
+        out
+    }
     fun group(id: String): Group? = groupById[id]
 
     /** Sub-groups announced in this channel or pod. */
@@ -306,7 +313,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** What the delete confirmation shows of the message (240 chars, mentions hidden). */
     fun deletePreview(m: Message): String {
         val t = m.text.ifEmpty { if (m.media.isEmpty()) "" else if (m.media.size == 1) "A photo or file" else "${m.media.size} photos or files" }
-        return Mentions.hide(t).sliceUnits(240)
+        return plainRefs(t).sliceUnits(240)
     }
 
     /** An announcement: tagged `t announcement` by one of the channel's admins. */
@@ -402,12 +409,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** The local calendar day of a time (ISO date), in the context's zone. */
     fun dayOf(at: Long): LocalDate = Instant.ofEpochSecond(at).atZone(ctx.zone).toLocalDate()
 
-    /** A resurfaced thread's first line: the root's text (80 chars; "a photo" when it has none), mentions hidden. */
+    /** A resurfaced thread's first line: the root's text (80 chars; "a photo" when it has none), mentions hidden, channel references named. */
     fun activitySnippet(root: Message): String {
         val base = root.text.ifEmpty { if (root.media.isNotEmpty()) "a photo" else "" }
-        return Mentions.hide(base).sliceUnits(80) + if (root.text.length > 80) "…" else ""
+        return plainRefs(base).sliceUnits(80) + if (root.text.length > 80) "…" else ""
     }
-    fun activityReply(last: Message): String = Mentions.hide(last.text.ifEmpty { "a photo" }).sliceUnits(140)
+    fun activityReply(last: Message): String = plainRefs(last.text.ifEmpty { "a photo" }).sliceUnits(140)
 
     /** Topics a message carries that its text doesn't show (sent inside an open topic), except the open one. */
     fun extraTopics(m: Message, openTopic: String? = null): List<String> {
