@@ -2,6 +2,7 @@ package sh.belfry.app.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -81,10 +82,11 @@ object Belfry {
     val buttonRadius = 8.dp
 }
 
-private fun typography(c: BelfryColors): Typography {
+// No colours in the text styles: Text takes LocalContentColor (buttons set their own).
+private fun typography(): Typography {
     val f = FontFamily.Default
-    fun s(size: Int, weight: FontWeight = FontWeight.Normal, line: Int = (size * 1.4f).toInt(), color: Color = c.text) =
-        TextStyle(fontFamily = f, fontSize = size.sp, fontWeight = weight, lineHeight = line.sp, color = color)
+    fun s(size: Int, weight: FontWeight = FontWeight.Normal, line: Int = (size * 1.4f).toInt()) =
+        TextStyle(fontFamily = f, fontSize = size.sp, fontWeight = weight, lineHeight = line.sp)
     return Typography(
         displaySmall = s(28, FontWeight.SemiBold),
         headlineLarge = s(26, FontWeight.SemiBold),
@@ -95,7 +97,7 @@ private fun typography(c: BelfryColors): Typography {
         titleSmall = s(15, FontWeight.SemiBold),
         bodyLarge = s(16),
         bodyMedium = s(15),
-        bodySmall = s(13, color = c.muted),
+        bodySmall = s(13),
         labelLarge = s(15, FontWeight.Medium),
         labelMedium = s(13, FontWeight.Medium),
         labelSmall = s(12, FontWeight.Medium),
@@ -157,6 +159,9 @@ fun BelfryTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -
         )
     }
     CompositionLocalProvider(LocalBelfryColors provides c) {
-        MaterialTheme(colorScheme = scheme, typography = typography(c), shapes = BelfryShapes, content = content)
+        MaterialTheme(colorScheme = scheme, typography = typography(), shapes = BelfryShapes) {
+            // text is readable also outside a Surface
+            CompositionLocalProvider(LocalContentColor provides c.text, content = content)
+        }
     }
 }
