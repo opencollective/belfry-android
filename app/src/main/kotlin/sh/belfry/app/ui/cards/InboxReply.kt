@@ -123,7 +123,7 @@ internal object ReplyQueue {
 
     /** Tests start clean. */
     fun reset() {
-        pending = null; sent = null; failed = null; reopen = null; drafts.clear()
+        pending = null; sent = null; failed = null; reopen = null; hosts = 0; drafts.clear()
     }
 }
 
@@ -136,7 +136,7 @@ internal fun UndoSendHost(groupId: String) {
     DisposableEffect(groupId) {
         ReplyQueue.hosts++
         onDispose {
-            ReplyQueue.hosts--
+            ReplyQueue.hosts = (ReplyQueue.hosts - 1).coerceAtLeast(0)
             val p = ReplyQueue.pending
             if (p != null && p.channel == groupId) ReplyQueue.fire(session, p)
         }

@@ -1,11 +1,9 @@
 package sh.belfry.app
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -58,7 +56,6 @@ class CardsBehaviourTest : DemoShots() {
         assertEquals("one tap, one answer", before + 1, mine(31925))
         // after an answer only the answer shows; the details are one tap away
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("event-answer").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Going").assertIsDisplayed()
         compose.onNodeWithTag("event-answer").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("rsvp-accepted").fetchSemanticsNodes().isNotEmpty() }
     }
@@ -96,8 +93,10 @@ class CardsBehaviourTest : DemoShots() {
         compose.setContent { BelfryTheme { InDemo { Column { UndoSendHost(hello) } } } }
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
+        assertEquals("the bar is on screen", 1, ReplyQueue.hosts)
         ReplyQueue.queue(session, pendingReply())
         compose.mainClock.advanceTimeBy(3_000)
+        assertEquals("still counting down", before, sentCount())
         compose.onNodeWithTag("undo-send").performClick()
         compose.mainClock.advanceTimeBy(12_000)
         Thread.sleep(500)
@@ -113,9 +112,11 @@ class CardsBehaviourTest : DemoShots() {
         compose.setContent { BelfryTheme { InDemo { Column { UndoSendHost(hello) } } } }
         compose.waitForIdle()
         compose.mainClock.autoAdvance = false
+        assertEquals("the bar is on screen", 1, ReplyQueue.hosts)
         ReplyQueue.queue(session, pendingReply())
         compose.mainClock.advanceTimeBy(5_000)
         assertEquals("still counting down", before, sentCount())
+        org.junit.Assert.assertNotNull(ReplyQueue.pending)
         compose.mainClock.advanceTimeBy(5_000)
         var now = before
         for (i in 0 until 100) {

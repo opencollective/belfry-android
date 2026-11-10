@@ -152,11 +152,8 @@ class CardsShotsTest : DemoShots() {
     fun undoSendBar() {
         val m = inboxCard
         val card = m.special as Special.InboxCard
-        ReplyQueue.hosts = 1
         ReplyQueue.pending = PendingReply(hello, card.from, card.name.split(' ').first(), "Re: " + card.subject, "Thursday at ten works for us.", card.messageId, m.id)
         demoShot("inbox-undo-send") { ChannelScreen(hello) }
-        ReplyQueue.reset()
-        ReplyQueue.hosts = 0
     }
 
     @Test
