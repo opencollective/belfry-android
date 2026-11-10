@@ -528,7 +528,7 @@ text), and "It disappears for everyone, with its reactions. This can't be undone
 - A guest who was removed (9001 for them, at or after the join) **without ever writing** in the
   group (no kind 9 or 1111 by them) leaves no join line.
 - "Am I a guest": some join of mine, in any group, without the `member` label. Guests cannot
-  create guest links, are not offered "Message", and cannot be made admin while every join of
+  create guest links; a guest's profile has no "Message" button; a guest cannot be made admin while every join of
   theirs is unsaved ("This guest has no e-mail yet…"); an agent never ("An agent cannot be an
   admin."). The server answers the same with `guest_not_saved` / `agent` / `not_member`.
 
