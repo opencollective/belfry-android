@@ -72,7 +72,9 @@ class InfoBehaviourTest : DemoShots() {
         }
         compose.onNode(hasSetTextAction()).performTextInput("tom")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-send").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Not in this channel", substring = true).assertIsDisplayed()
+        // an open channel: every member can open it already, the link is sent as a message
+        compose.onNodeWithText("Can already open it", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Send the link").assertIsDisplayed()
         val send = compose.onAllNodesWithTag("invite-send").onFirst()
         send.performClick()
         send.performClick()
@@ -93,7 +95,8 @@ class InfoBehaviourTest : DemoShots() {
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-send").fetchSemanticsNodes().isNotEmpty() }
         val send = compose.onAllNodesWithTag("invite-send").onFirst()
         send.performClick()
-        send.performClick()
+        // a second tap: the button is locked, or already replaced by "Link sent"
+        runCatching { send.performClick() }
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Link sent").fetchSemanticsNodes().isNotEmpty() }
         compose.waitUntil(10_000) { session.dms.value.thread(conv).size > before }
         Thread.sleep(300)

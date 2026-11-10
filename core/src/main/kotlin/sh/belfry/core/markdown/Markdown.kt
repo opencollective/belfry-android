@@ -232,14 +232,14 @@ object Markdown {
     }
 
     /** The readable text of inline nodes, without marks. [mention] names an npub (default "@…"). */
-    fun text(nodes: List<Inline>, mention: (String) -> String = { "@…" }, channel: (String) -> String = { "#…" }): String = nodes.joinToString("") { n ->
+    fun text(nodes: List<Inline>, channel: (String) -> String = { "#…" }, mention: (String) -> String = { "@…" }): String = nodes.joinToString("") { n ->
         when (n) {
             is Inline.Text -> n.text
-            is Inline.Bold -> text(n.children, mention, channel)
-            is Inline.Italic -> text(n.children, mention, channel)
-            is Inline.Strike -> text(n.children, mention, channel)
+            is Inline.Bold -> text(n.children, channel, mention)
+            is Inline.Italic -> text(n.children, channel, mention)
+            is Inline.Strike -> text(n.children, channel, mention)
             is Inline.Code -> n.text
-            is Inline.Link -> text(n.children, mention, channel)
+            is Inline.Link -> text(n.children, channel, mention)
             is Inline.Mention -> mention(n.npub)
             is Inline.Topic -> "#" + n.name
             is Inline.Nsite -> n.source
@@ -252,9 +252,9 @@ object Markdown {
      * `**` `__` `~~` and backticks removed, mentions named by [mention] (default "@…"), new lines
      * as spaces. Same as the previews of the iPhone app; the web strips mentions the same way.
      * Channel references (`nostr:naddr1…`) are named by [channel] (given the bare naddr; the
-     * app passes `World.plainRefs`'s "#name").
+     * app passes `World.refLabel`). [mention] stays last, so a trailing lambda still names mentions.
      */
-    fun plain(text: String, mention: (String) -> String = { "@…" }, channel: (String) -> String = { "#…" }): String {
+    fun plain(text: String, channel: (String) -> String = { "#…" }, mention: (String) -> String = { "@…" }): String {
         val noMarks = MARKS.matcher(text).replaceAll("")
         val refs = Js.replace(NADDR_IN_TEXT, noMarks) { m -> channel(m.group(1)) }
         val named = Js.replace(NPUB_IN_TEXT, refs) { m -> mention(m.group().removePrefix("nostr:")) }

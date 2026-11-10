@@ -100,7 +100,7 @@ private fun HitRow(hit: SearchHit, words: List<String>, showChannel: Boolean, no
     val m = hit.m
     val mark = SpanStyle(background = c.orange.copy(alpha = 0.28f), fontWeight = FontWeight.SemiBold)
     val text = remember(m, words) {
-        val plain = Markdown.plain(m.text, { npub -> "@" + (Bech32.npubToHex(npub)?.let { world.realName(it).ifEmpty { world.displayName(it) } } ?: "…") }, { world.refLabel(it) })
+        val plain = Markdown.plain(m.text, channel = { world.refLabel(it) }) { npub -> "@" + (Bech32.npubToHex(npub)?.let { world.realName(it).ifEmpty { world.displayName(it) } } ?: "…") }
         snippet(plain.ifEmpty { m.media.joinToString(", ") { it.name ?: "Photo" } }, words, mark)
     }
     Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 10.dp).testTag("search-hit"), verticalAlignment = Alignment.Top) {
