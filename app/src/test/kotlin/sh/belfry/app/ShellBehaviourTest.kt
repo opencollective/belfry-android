@@ -84,9 +84,7 @@ class ShellBehaviourTest : DemoShots() {
         compose.waitForIdle()
         // Nothing is deleted yet: the app asks, showing the message.
         compose.onNodeWithText("Delete this message?").assertIsDisplayed()
-        // (a deleted message never comes back, so waiting is as strict as asserting at once; a world
-        // snapshot can lag for a moment while the channel's own "seen" event is being written)
-        compose.waitUntil(5_000) { world.message(general, mine.id) != null }
+        assertNotNull(world.message(general, mine.id))
         // (the sheet slides in: wait for its preview rather than assert at once)
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Wrong channel, sorry").fetchSemanticsNodes().size >= 2 }
         compose.onNodeWithText("Delete").performClick()

@@ -59,8 +59,11 @@ abstract class DemoShots : Shots() {
         // Its id changes when it leaves the outbox (local id → event id): wait for the published one.
         repeat(200) {
             settle()
-            val m = world.messages(channel).lastOrNull { it.pubkey == session.me && it.text == text }
-            if (m != null && !world.isPending(m.id)) return m
+            // One snapshot for both questions: with two reads, the message could be taken from a world
+            // where it is still queued (local id) and judged against the next one, where it is out.
+            val w = world
+            val m = w.messages(channel).lastOrNull { it.pubkey == session.me && it.text == text }
+            if (m != null && !w.isPending(m.id)) return m
             Thread.sleep(25)
         }
         error("the message never left the demo outbox")
