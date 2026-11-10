@@ -116,7 +116,7 @@ internal fun EventCardView(e: CalEvent, api: ApiEvent?, modifier: Modifier = Mod
         modifier.padding(top = 4.dp).widthIn(max = 360.dp).fillMaxWidth().clip(shape).background(c.surface).border(1.dp, c.line, shape)
             .clickable { nav.go(Routes.event(key)) }.testTag("event-card"),
     ) {
-        if (e.cover != null) EventCover(e.cover, Modifier.fillMaxWidth().aspectRatio(2f))
+        e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(2f)) }
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
             DateChip(world, e.start)
             GapW(12)

@@ -163,7 +163,7 @@ private fun EventRow(e: CalEvent) {
             .padding(horizontal = 16.dp, vertical = 10.dp).testTag("event-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (e.cover != null) EventCover(e.cover, Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))) else DateChip(world, e.start)
+        e.cover?.let { cv -> EventCover(cv, Modifier.size(46.dp).clip(RoundedCornerShape(10.dp))) } ?: DateChip(world, e.start)
         GapW(12)
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -257,7 +257,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
         actions = { IconAction(BelfryIcons.More, "More", { sheet = EventSheet.Menu }, Modifier.testTag("event-more")) },
     ) {
         PageColumn {
-            if (e.cover != null) EventCover(e.cover, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)))
+            e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))) }
             EventLine(e, p, st, asking, going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
 
             Panel(Modifier.testTag("event-details")) {
@@ -267,7 +267,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(BelfryIcons.MapPin, contentDescription = "Where", tint = c.muted, modifier = Modifier.size(16.dp))
                         GapW(6)
-                        Text(e.location, fontSize = 15.sp, color = c.text)
+                        Text(e.location ?: "", fontSize = 15.sp, color = c.text)
                     }
                 }
                 for (link in e.links.filter { isSafeLink(it) }) {
