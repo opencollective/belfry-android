@@ -32,17 +32,12 @@ private val AVATAR_COLORS = listOf(
 )
 
 /**
- * A person's colour: one of the web chat's seven, picked by a hash of the whole key so that
- * people are spread evenly over them (the web takes the first 6 hex digits modulo 7).
+ * A person's colour: the web chat's rule exactly (first 6 hex digits of the key modulo 7), so
+ * someone has the same colour in every client.
  */
 fun avatarColor(pubkey: String): Color {
-    var h = pubkey.hashCode()
-    h = h xor (h ushr 16)
-    h *= -0x7a143595
-    h = h xor (h ushr 13)
-    h *= -0x3d4d51cb
-    h = h xor (h ushr 16)
-    return AVATAR_COLORS[Math.floorMod(h, AVATAR_COLORS.size)]
+    val n = pubkey.take(6).toIntOrNull(16) ?: 0
+    return AVATAR_COLORS[n % AVATAR_COLORS.size]
 }
 
 /** Who to draw: the key (colour), the display name (initial) and an optional https picture. */
