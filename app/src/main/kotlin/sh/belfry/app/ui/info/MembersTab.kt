@@ -47,7 +47,7 @@ fun MembersTab(g: Group) {
     var labelling by remember { mutableStateOf<MemberRow?>(null) }
 
     if (reviewing.isNotEmpty()) {
-        SectionTitle("Asking to join · ${reviewing.size}", Modifier.padding(top = 0.dp))
+        Text("Asking to join · ${reviewing.size}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted, modifier = Modifier.padding(bottom = 6.dp))
         reviewing.forEach { a ->
             InfoCard(Modifier.padding(bottom = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

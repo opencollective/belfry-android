@@ -85,7 +85,8 @@ class ShellBehaviourTest : DemoShots() {
         // Nothing is deleted yet: the app asks, showing the message.
         compose.onNodeWithText("Delete this message?").assertIsDisplayed()
         assertNotNull(world.message(general, mine.id))
-        assertTrue(compose.onAllNodesWithText("Wrong channel, sorry").fetchSemanticsNodes().size >= 2)
+        // (the sheet slides in: wait for its preview rather than assert at once)
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Wrong channel, sorry").fetchSemanticsNodes().size >= 2 }
         compose.onNodeWithText("Delete").performClick()
         compose.waitUntil(10_000) { world.message(general, mine.id) == null }
     }

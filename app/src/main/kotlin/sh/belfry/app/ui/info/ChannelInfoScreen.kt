@@ -294,9 +294,10 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
     ActionGroup {
         SwitchRow(
             "E-mails from anyone", openMail, { openMail = it }, icon = BelfryIcons.Inbox, enabled = !busy.busy,
-            sub = "Mail to ${world.mailAddress(g.id)} from outside lands here as cards; admins answer as the channel. Off: only members' mail comes in.",
+            sub = "Mail from outside lands here as cards; admins answer as the channel.",
         )
     }
+    Hint("The address is ${world.mailAddress(g.id)}. Off: only members' mail comes in, as their message.", Modifier.padding(top = 6.dp))
     Spacer(Modifier.height(16.dp))
     BusyButton(
         "Save",
