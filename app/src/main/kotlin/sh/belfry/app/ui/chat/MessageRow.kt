@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import sh.belfry.app.ui.cards.EventCards
 import sh.belfry.app.ui.cards.SpecialCard
 import sh.belfry.app.ui.kit.Avatar
 import sh.belfry.app.ui.kit.AvatarStack
@@ -169,6 +170,7 @@ fun MessageRow(
             } else {
                 SpecialCard(groupId, m)
             }
+            EventCards(m)
             if (!first && m.edited != null) Text("edited", fontSize = 12.sp, color = c.faint)
             val extra = world.extraTopics(m, chat.topic)
             if (extra.isNotEmpty()) {

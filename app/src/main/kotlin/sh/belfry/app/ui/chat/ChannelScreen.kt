@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import sh.belfry.app.ui.cards.ChannelBars
+import sh.belfry.app.ui.cards.EventHandoff
 import sh.belfry.app.ui.kit.ActionGroup
 import sh.belfry.app.ui.kit.ActionRow
 import sh.belfry.app.ui.kit.Banner
@@ -117,6 +118,15 @@ fun ChannelScreen(
     val now = session.now()
 
     LaunchedEffect(groupId, g != null) { if (g != null) session.markSeen(groupId) }
+    // a new event made from this channel's ＋: its URL waits in the composer, ready to send
+    val handed = EventHandoff.pending
+    LaunchedEffect(handed, groupId) {
+        EventHandoff.take(groupId)?.let { url ->
+            val t = composer.value.text.trimEnd()
+            composer.set((if (t.isEmpty()) "" else "$t ") + url + " ", composer.picked.toList())
+            composer.focus?.invoke()
+        }
+    }
 
     val openRoots = chat.openThreads.keys.filter { !it.startsWith("act:") }.toSet()
     val rows = remember(world, groupId, chat.topic, openRoots) { world.feedRows(groupId, chat.topic, openRoots) }

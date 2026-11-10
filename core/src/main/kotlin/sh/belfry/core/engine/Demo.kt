@@ -243,11 +243,6 @@ object Demo {
         for ((i, p) in listOf(maya, tomas, lena, joris, aroha, sam, ines, kofi).withIndex()) post(p, now - (i + 1) * 2 * h, Actions.seen(GENERAL))
         post(me, now - 7 * h, Actions.seen(GENERAL))
         // the event's RSVPs
-        soFar.calEvent(swapCoord)?.let { cal ->
-            post(joris, now - 2 * day, EventActions.rsvp(cal, Rsvp.ACCEPTED, joris.pubkey))
-            post(aroha, now - 2 * day + 60, EventActions.rsvp(cal, Rsvp.ACCEPTED, aroha.pubkey))
-            post(ines, now - 2 * day + 120, EventActions.rsvp(cal, Rsvp.TENTATIVE, ines.pubkey))
-        }
         soFar.calEvent(coord)?.let { cal ->
             post(maya, d1 + 6100, Actions.rsvp(cal, Rsvp.ACCEPTED, maya.pubkey))
             post(lena, d1 + 6200, Actions.rsvp(cal, Rsvp.ACCEPTED, lena.pubkey))
@@ -265,6 +260,11 @@ object Demo {
         lists("ev-$SWAP_D", now - 3 * day + 5, listOf(listOf("name", "Seed swap"), listOf("about", "Bring seeds in **paper envelopes**, labelled.")), listOf(maya), listOf(maya))
         val swapCoord = "31923:${maya.pubkey}:$SWAP_D"
         post(maya, now - 3 * day + 60, Actions.postMessage(GARDEN, "Seed swap on Sunday, all welcome: ${EventLinks.url(DOMAIN, SWAP_SLUG)}").let { it.copy(tags = it.tags + listOf(listOf("a", swapCoord, mr))) })
+        World(events.toList(), emptyList(), WorldContext(me.pubkey, DOMAIN, NAME, emptySet(), groups.pubkey, bridge.pubkey, ZoneOffset.UTC)).calEvent(swapCoord)?.let { cal ->
+            post(joris, now - 2 * day, EventActions.rsvp(cal, Rsvp.ACCEPTED, joris.pubkey))
+            post(aroha, now - 2 * day + 60, EventActions.rsvp(cal, Rsvp.ACCEPTED, aroha.pubkey))
+            post(ines, now - 2 * day + 120, EventActions.rsvp(cal, Rsvp.TENTATIVE, ines.pubkey))
+        }
         val repairStart = ((now + 9 * day) / day) * day + 14 * h
         val repair = EventForm(
             title = "Repair café", description = "Bring something broken. We have **six tables** and two soldering irons.",

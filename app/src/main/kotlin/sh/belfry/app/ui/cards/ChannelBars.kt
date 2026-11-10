@@ -35,6 +35,7 @@ fun ChannelBars(groupId: String) {
     Column {
         UndoSendHost(groupId)
         if (g != null && g.isPod && world.me !in g.members) JoinBar(g)
+        if (g != null && g.isEvent) EventChatBar(groupId)
     }
 }
 

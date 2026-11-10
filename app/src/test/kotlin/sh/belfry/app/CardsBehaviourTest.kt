@@ -55,10 +55,8 @@ class CardsBehaviourTest : DemoShots() {
         compose.waitUntil(10_000) { world.calEvent(coord)?.let { world.myRsvp(it) } == Rsvp.ACCEPTED }
         settle()
         assertEquals("one tap, one answer", before + 1, mine(31925))
-        // after an answer only the answer shows; the details are one tap away
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("event-answer").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("event-answer").performClick()
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("rsvp-accepted").fetchSemanticsNodes().isNotEmpty() }
+        // after an answer the event's line says so
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("You’re going", substring = true).fetchSemanticsNodes().isNotEmpty() }
     }
 
     @Test

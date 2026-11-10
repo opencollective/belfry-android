@@ -82,25 +82,8 @@ private fun CardTitle(text: String) {
 
 @Composable
 internal fun EventCard(coord: String, fallback: String, modifier: Modifier = Modifier) {
-    val world = LocalWorld.current
-    val session = LocalSession.current
-    val nav = LocalNav.current
-    val e = world.calEvent(coord) ?: return Fallback(fallback, modifier)
-    val mine = world.myRsvp(e)
-    CardFrame(modifier.testTag("event-card"), onClick = { nav.go(Routes.event(coord)) }) {
-        DateChip(world, e.start)
-        GapW(12)
-        Column(Modifier.weight(1f)) {
-            CardTitle(e.title)
-            Muted(
-                CardFormat.dayAndWhen(world, e, session.now()) +
-                    (if (!e.location.isNullOrEmpty()) " · " + e.location else "") +
-                    (if (e.links.isNotEmpty()) " · online" else ""),
-                maxLines = 2,
-            )
-            Muted((if (mine != null) mine.label + " · " else "") + "${e.going} going", maxLines = 1)
-        }
-    }
+    val e = LocalWorld.current.calEvent(coord) ?: return Fallback(fallback, modifier)
+    EventCardView(e, null, modifier)
 }
 
 @Composable

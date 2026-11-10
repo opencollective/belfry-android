@@ -53,6 +53,21 @@ import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.engine.ActionException
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.EventForm
+import sh.belfry.core.model.EventLinks
+import sh.belfry.core.model.SlugCheck
+import sh.belfry.core.model.Visibility
+import sh.belfry.core.model.eventByKey
+import sh.belfry.app.ui.chat.Photos
+import sh.belfry.app.ui.kit.ButtonKind
+import sh.belfry.app.ui.kit.rememberBusy
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 import sh.belfry.core.model.NewEvent
 import sh.belfry.core.model.NewProposal
 import sh.belfry.core.model.PodAccess
@@ -254,27 +269,71 @@ private fun PickTime(initial: LocalTime, onDismiss: () -> Unit, onPick: (LocalTi
 
 private enum class Picking { None, StartDate, StartTime, EndDate, EndTime }
 
-/** Test hook: which picker the form shows when it opens ("start-date" for the screenshot). */
+/**
+ * Make an event, or edit one ([edit] = its coordinate): title, cover, when (all day or times),
+ * where, online link, Markdown description, who sees it, who can come (anyone, or by
+ * application with a question; editing: the Tickets sheet), its custom URL checked as it is
+ * typed. From a channel's ＋ ([channel]), the new event's URL is put in that channel's composer
+ * to send (no automatic post). Test hooks: [openPicker] ("start-date"), [showErrors].
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: Boolean = false) {
+fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: Boolean = false, edit: String? = null) {
     val session = LocalSession.current
     val world = LocalWorld.current
     val nav = LocalNav.current
+    val context = LocalContext.current
     val zone = world.ctx.zone
-    val first = remember { Instant.ofEpochSecond(session.now()).atZone(zone).plusHours(1).withMinute(0).withSecond(0).withNano(0) }
-    var title by remember { mutableStateOf("") }
-    var allDay by remember { mutableStateOf(false) }
+    val old = remember(edit) { edit?.let { world.eventByKey(it) } }
+    if (edit != null && old == null) {
+        CardScreen("Edit the event") { sh.belfry.app.ui.kit.EmptyState("This event is not here (yet)", icon = BelfryIcons.Calendar) }
+        return
+    }
+    val first = remember { old?.let { Instant.ofEpochSecond(it.start).atZone(zone) } ?: Instant.ofEpochSecond(session.now()).atZone(zone).plusHours(1).withMinute(0).withSecond(0).withNano(0) }
+    val last = remember { old?.let { o -> o.end?.let { Instant.ofEpochSecond(it).atZone(zone) } } ?: first.plusHours(1) }
+    var title by remember { mutableStateOf(old?.title ?: "") }
+    var allDay by remember { mutableStateOf(old?.allDay ?: false) }
     var startDate by remember { mutableStateOf(first.toLocalDate()) }
     var startTime by remember { mutableStateOf(first.toLocalTime()) }
-    var endDate by remember { mutableStateOf(first.plusHours(1).toLocalDate()) }
-    var endTime by remember { mutableStateOf(first.plusHours(1).toLocalTime()) }
-    var location by remember { mutableStateOf("") }
-    var online by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
+    var endDate by remember { mutableStateOf(last.toLocalDate()) }
+    var endTime by remember { mutableStateOf(last.toLocalTime()) }
+    var location by remember { mutableStateOf(old?.location ?: "") }
+    var online by remember { mutableStateOf(old?.links?.firstOrNull() ?: "") }
+    var description by remember { mutableStateOf(old?.description ?: "") }
+    var cover by remember { mutableStateOf(old?.cover) }
+    var visibility by remember { mutableStateOf(old?.visibility ?: Visibility.MEMBERS) }
+    var byApplication by remember { mutableStateOf(false) }
+    var question by remember { mutableStateOf("") }
+    var slug by remember { mutableStateOf(old?.slug ?: "") }
+    var slugEdited by remember { mutableStateOf(old?.slug != null) }
+    var slugState by remember { mutableStateOf<SlugCheck?>(null) }
+    var slugChecking by remember { mutableStateOf(false) }
     var tried by remember { mutableStateOf(showErrors) }
     var error by remember { mutableStateOf<String?>(null) }
+    var coverError by remember { mutableStateOf<String?>(null) }
+    val coverBusy = rememberBusy()
     var picking by remember { mutableStateOf(if (openPicker == "start-date") Picking.StartDate else if (openPicker == "start-time") Picking.StartTime else Picking.None) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) coverBusy.run(onError = { coverError = shown(it) }) {
+            coverError = null
+            val photo = Photos.load(context, uri, 0) ?: throw ActionException("photo", "This picture could not be read.")
+            cover = session.uploadPicture(photo.attachment.bytes, "cover.jpg", photo.attachment.mime)
+        }
+    }
+
+    // the custom URL: from the title until edited; checked as it is typed
+    LaunchedEffect(title) { if (!slugEdited && old == null) slug = EventLinks.slugOf(title) }
+    LaunchedEffect(slug) {
+        slugState = null
+        if (slug.isEmpty() || slug == old?.slug) return@LaunchedEffect
+        val problem = EventLinks.slugProblem(slug)
+        if (problem != null) { slugState = SlugCheck(false, slug, problem); return@LaunchedEffect }
+        slugChecking = true
+        delay(350)
+        slugState = try { session.events.slugFree(slug, old?.d ?: "") } catch (e: Exception) { null }
+        slugChecking = false
+    }
 
     val start = ZonedDateTime.of(startDate, startTime, zone)
     val end = ZonedDateTime.of(endDate, endTime, zone)
@@ -282,11 +341,30 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
     val linkBad = link.isNotEmpty() && !link.startsWith("https://")
     val endsBefore = if (allDay) endDate.isBefore(startDate) else end.isBefore(start)
     val places = remember(channel, world) { world.eventPlaces(channel).take(8) }
-    val where = world.group(channel)
+    val where = if (channel == Routes.NO_CHANNEL) null else world.group(channel)
+    val slugTaken = slugState?.free == false
 
-    CardScreen("Post an event") {
+    CardScreen(if (old != null) "Edit the event" else "New event") {
         PageColumn {
-            BelfryTextField(title, { title = it }, Modifier.fillMaxWidth().testTag("event-title"), label = "Title", placeholder = "e.g. Nix workshop", error = if (tried && title.isBlank()) "Give the event a title" else null, keyboardOptions = words)
+            BelfryTextField(title, { title = it.take(200) }, Modifier.fillMaxWidth().testTag("event-title"), label = "Title", placeholder = "e.g. Garden day", error = if (tried && title.isBlank()) "Give the event a title" else null, keyboardOptions = words)
+            Column {
+                val cv = cover
+                if (cv != null) {
+                    EventCover(cv, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)))
+                    Gap(8)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BusyButton("Change the cover", onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, kind = ButtonKind.Ghost, small = true, busy = coverBusy)
+                        BusyButton("Remove", onClick = { cover = null }, kind = ButtonKind.Ghost, small = true)
+                    }
+                } else {
+                    BusyButton(
+                        if (coverBusy.busy) "Uploading…" else "Add a cover picture",
+                        onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        modifier = Modifier.fillMaxWidth().testTag("event-cover"), kind = ButtonKind.Ghost, icon = BelfryIcons.Image, busy = coverBusy,
+                    )
+                }
+                coverError?.let { Gap(6); ErrorLine(it) }
+            }
             ActionGroup { SwitchRow("All day", allDay, { allDay = it }, icon = BelfryIcons.Calendar) }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 PickerField("Starts", DATE.format(startDate), BelfryIcons.Calendar, "start-date", Modifier.weight(1.5f)) { picking = Picking.StartDate }
@@ -301,6 +379,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                     Gap(6)
                     ErrorLine("It ends before it starts")
                 }
+                if (!allDay) { Gap(6); Muted("Time zone: " + zone.id.replace('_', ' ')) }
             }
             Column {
                 BelfryTextField(location, { location = it }, Modifier.fillMaxWidth(), label = "Where", placeholder = "A place, or leave empty if online only", keyboardOptions = words)
@@ -314,7 +393,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
             Column {
                 BelfryTextField(
                     online, { online = it }, Modifier.fillMaxWidth().testTag("event-online"), label = "Online",
-                    placeholder = "Paste a Google Meet, Zoom or other link",
+                    placeholder = "A Jitsi, Google Meet or Zoom link",
                     error = if (linkBad) "The link should start with https://" else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
@@ -322,35 +401,75 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                 Chip("New Jitsi link", icon = BelfryIcons.Link, onClick = { online = Actions.jitsiLink(title.ifBlank { "meeting" }) })
             }
             BelfryTextField(description, { description = it }, Modifier.fillMaxWidth(), label = "Description", placeholder = "Markdown: **bold**, *italic*, - lists, [links](https://…)", singleLine = false, minLines = 3, maxLines = 8, keyboardOptions = words)
+            Column {
+                Text("Who sees it", fontSize = 13.sp, color = Belfry.colors.muted)
+                Gap(6)
+                Segmented(Visibility.entries.map { it.label }, visibility.ordinal, { visibility = Visibility.entries[it] }, Modifier.testTag("event-visibility"))
+                Gap(4)
+                Muted(visibility.hint)
+            }
+            if (old == null) {
+                Column {
+                    Text("Who can come", fontSize = 13.sp, color = Belfry.colors.muted)
+                    Gap(6)
+                    Segmented(listOf("Anyone: one tap", "By application"), if (byApplication) 1 else 0, { byApplication = it == 1 }, Modifier.testTag("event-access"))
+                    if (byApplication) {
+                        Gap(8)
+                        BelfryTextField(question, { question = it.take(500) }, Modifier.fillMaxWidth().testTag("event-question"), label = "The question applicants answer", placeholder = "Why would you like to come?", singleLine = false, minLines = 2, keyboardOptions = words)
+                        Gap(4)
+                        Muted("The hosts approve each application. More tickets (places, members only) in the event’s menu.")
+                    }
+                }
+            }
+            Column {
+                BelfryTextField(
+                    slug, { slugEdited = true; slug = EventLinks.cleanSlug(it) }, Modifier.fillMaxWidth().testTag("event-slug"), label = "URL",
+                    placeholder = old?.d ?: "garden-day",
+                    error = if (slugTaken) slugState?.problem ?: "Taken. Try ${slugState?.suggestion}" else null,
+                    hint = when {
+                        slug.isEmpty() -> null
+                        slugChecking -> "Checking…"
+                        slugState?.free == true -> "Free"
+                        else -> null
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                )
+                Gap(4)
+                Muted(EventLinks.url(world.ctx.domain, slug.ifEmpty { old?.d ?: "…" }))
+            }
             error?.let { ErrorLine(it) }
             BusyButton(
-                "Post event",
+                if (old != null) "Save" else "Create the event",
                 onClick = {
                     tried = true
                     error = null
-                    if (title.isNotBlank() && !linkBad && !endsBefore) {
-                        val n = NewEvent(
-                            title = title.trim(),
-                            description = description.trim(),
-                            location = location.trim(),
-                            allDay = allDay,
-                            start = start.toEpochSecond(),
-                            end = end.toEpochSecond(),
-                            startDate = startDate.toString(),
-                            endDate = endDate.toString(),
-                            online = link.ifEmpty { null },
-                            tzid = zone.id,
-                            whenLabel = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT).format(start),
+                    if (title.isNotBlank() && !linkBad && !endsBefore && !slugTaken) {
+                        val n = EventForm(
+                            title = title.trim(), description = description.trim(), allDay = allDay,
+                            start = start.toEpochSecond(), end = end.toEpochSecond(),
+                            startDate = startDate.toString(), endDate = endDate.toString(), tz = zone.id,
+                            location = location.trim(), online = link, visibility = visibility, slug = slug.trim('-'), cover = cover,
+                            applicationPrompt = if (byApplication && old == null) question.trim().ifEmpty { "Why would you like to come?" } else null,
                         )
-                        val coord = session.createEvent(n, channel)
-                        nav.back()
-                        nav.go(Routes.event(coord))
+                        if (old != null) {
+                            session.events.edit(old, n)
+                            nav.back()
+                        } else {
+                            val made = session.events.create(n)
+                            nav.back()
+                            if (where != null) EventHandoff.hand(channel, EventLinks.url(world.ctx.domain, made))
+                            else nav.go(Routes.event(made))
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth().testTag("create-submit"),
+                enabled = !coverBusy.busy,
                 onError = { error = shown(it) },
             )
-            Muted("Posted in #${where?.name ?: channel}. The event gets its own chat.")
+            Muted(
+                if (old != null) "Everyone who RSVPed sees the change."
+                else "It gets its own chat, photos and to-dos." + if (where != null) " Its URL goes in #${where.name}’s message box, ready to send." else " Send its URL in a channel to show it there.",
+            )
         }
     }
 

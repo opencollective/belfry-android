@@ -51,6 +51,9 @@ import sh.belfry.core.model.Group
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.World
 import sh.belfry.core.model.refLabel
+import sh.belfry.core.model.EventStatus
+import sh.belfry.core.model.yourEvents
+import sh.belfry.app.ui.chat.ChatFormat
 
 private class DrawerRow(val g: Group, val depth: Int)
 
@@ -81,7 +84,8 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
     val world = LocalWorld.current
     val session = LocalSession.current
     val dms = LocalDms.current
-    val (rows, events) = tree(world)
+    val (rows, _) = tree(world)
+    val mine = world.yourEvents(session.now())
     val name = world.ctx.communityName.ifEmpty { session.community.name }
     Column(modifier.fillMaxSize().background(c.bg)) {
         TopBar(name, actions = { IconAction(BelfryIcons.Plus, "New channel", { go(Routes.CREATE_CHANNEL) }) })
@@ -95,7 +99,7 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
                 )
             }
             item(key = "<events>") {
-                DrawerItem(icon = { ChannelIcon(ChannelGlyph.Event) }, title = "All events", sub = "Every channel's events", onClick = { go(Routes.events(null)) })
+                DrawerItem(icon = { ChannelIcon(ChannelGlyph.Event) }, title = "All events", sub = "Upcoming, yours, the ones you host", onClick = { go(Routes.events(null)) })
             }
             item(key = "<channels>") { Section("Channels", rows.size) }
             for (r in rows) {
@@ -106,9 +110,15 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
                     Text("No channels yet. They appear here once the belfry answers.", fontSize = 14.sp, color = c.muted, modifier = Modifier.padding(16.dp))
                 }
             }
-            if (events.isNotEmpty()) {
-                item(key = "<event-chats>") { Section("Event chats", events.size) }
-                for (g in events) item(key = g.id) { ChannelItem(world, g, 0, g.id == current) { onPick(g.id) } }
+            // Belfry events I host or have a place at (the web's "Your events"; older event chats are reached from their event)
+            if (mine.isNotEmpty()) {
+                item(key = "<your-events>") { Section("Your events", mine.size) }
+                for (e in mine) item(key = "ev:" + e.coord) {
+                    val last = world.messages(e.groupId).lastOrNull()
+                    val sub = ChatFormat.day(world, e.start, session.now()) +
+                        if (e.status == EventStatus.CANCELLED) " · cancelled" else if (last != null) " · " + preview(world, last) else ""
+                    DrawerItem(icon = { ChannelIcon(ChannelGlyph.Event) }, title = e.title, sub = sub, on = e.groupId == current, onClick = { go(Routes.event(e.coord)) })
+                }
             }
             item(key = "<create>") {
                 Box(Modifier.padding(16.dp)) {
