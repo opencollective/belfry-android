@@ -475,3 +475,172 @@ Rules for comparing: ids and keys are hex; sets are given sorted; `_label` field
    belfry for mentions, DMs and e-mail. See `SERVER-NEEDS.md`.
 8. **NIP-46 encryption.** Does Keycast answer in NIP-44 only, or may it answer NIP-04?
 9. **Client tag.** Should native apps send `["client","belfry-ios"]` or reuse the web's value?
+
+---
+
+## 19. Additions since the iOS spec
+
+Written for the Android app (2026-11-10) from the web chat's source at `belfry-chat` 85ccbd4
+(`src/core/model.ts`, `actions.ts`, `people.ts`, `ui/Chat.tsx`, `ui/MailPost.tsx`). Everything
+here is protocol, not layout, and is meant to be ported back into sections 7 to 13. The Android
+core implements it in `core/src/main/kotlin/sh/belfry/core/model/` (`World`, `Actions`).
+
+`KINDS_GROUPS` (section 4) now also has **1010** (edits).
+
+### 19.1 Message edits (kind 1010)
+
+- Edit **my own** message (kind 9) or thread reply (kind 1111): a kind 1010 event in the group,
+  `[["h",g],["e",<message id>],["k","<kind of the message>"], <kept imeta tags…>, ["t",topic]…,
+  <mention p tags of the new text>]`, content = the new text, then the kept media URLs, one per
+  line (`[text, ...urls].filter(non-empty).join("\n")`).
+  - Kept from the **original** event: every `imeta` tag, and every `t` tag that the text shown
+    before the edit did not spell as a #hashtag (the topic it was sent in, `announcement`).
+    `t` tags = those kept ones, then the hashtags of the new text (deduplicated, lowercased).
+- Reading: per message id, the edit with the greatest `created_at` (ties: greatest id) that is
+  not deleted and **whose author is the message's author**. The message is then shown with the
+  edit's content, `imeta` and `t` tags (parsed exactly like a message), keeps its own id, author
+  and time (reactions, threads and links hang off the original id), and is marked "edited"
+  (with the edit's time). Clients that do not know kind 1010 show the first version.
+  (The web picks the latest 1010 of any author and then drops it if the author differs, so a
+  later foreign 1010 hides the author's own edit there; Android ignores foreign edits first.
+  Suggested for all clients.)
+- An edit can be deleted by its author (kind 5): the previous edit, or the original, shows again.
+- Only a plain message can be edited: mine, already sent (not in the outbox), with text, and not
+  an event / pod / proposal card, an e-mail, an inbox card or an answer sent as the channel.
+
+### 19.2 Deleting my message
+
+Kind 5 `[["h",g],["e",id]]` as before. The client MUST ask first, in the app (no system
+dialog), showing the message: author name and the first 240 characters of the text with
+`nostr:npub…` runs replaced by `@…` (or "A photo or file" / "N photos or files" when it has no
+text), and "It disappears for everyone, with its reactions. This can't be undone."
+
+### 19.3 Guests: labels, agents, lines that disappear
+
+- The join event (kind 9000 with `invited-by`, section 13) may carry `["agent","1"]` (an agent
+  invited by a member: "joined as an agent") and `["unsaved","1"]` (an account without an e-mail
+  yet: "guest · not saved").
+- The belfry labels a guest with kind 1985 events in the same group:
+  `["h",g],["L","belfry/guest"],["l","saved","belfry/guest"],["p",guest]` once they proved an
+  e-mail address (clears "not saved"), and `["l","member","belfry/guest"]` once an admin made
+  them a member (`POST /admins`): from then on they are **not called a guest** anywhere (chips,
+  profile, members list); their join line stays in the feed.
+- A guest who was removed (9001 for them, at or after the join) **without ever writing** in the
+  group (no kind 9 or 1111 by them) leaves no join line.
+- "Am I a guest": some join of mine, in any group, without the `member` label. Guests cannot
+  create guest links; a guest's profile has no "Message" button; a guest cannot be made admin while every join of
+  theirs is unsaved ("This guest has no e-mail yet…"); an agent never ("An agent cannot be an
+  admin."). The server answers the same with `guest_not_saved` / `agent` / `not_member`.
+
+### 19.4 Guest links without a code
+
+_(Filled in from the sign-in work: `https://chat.<domain>/join/<token>`,
+`GET <api>/channel-invites/<token>`, `POST …/join`.)_
+
+### 19.5 Profiles: tags and places (kind 30078, `d` = `belfry:profile`)
+
+- One replaceable event per member on the **community relay** (members only):
+  `[["d","belfry:profile"]]`, content JSON
+  `{"tags":[…],"share":"city"|"country"|"none","place":{"id","name","region","country","lat","lon"}}`.
+  The newest per author counts.
+- Tags: trimmed, lowercased, leading `#` removed, whitespace runs → `-`, only letters, digits,
+  `_`, `-` kept, at most 32 characters each, deduplicated, at most 30.
+- `share`: anything but `country` / `none` reads as `city`. `none` → no place. `country` → only
+  `{country}`. A place needs `country` matching `^[A-Z]{2}$`; `id` ≤ 40, `name`/`region` ≤ 80
+  characters, `lat` (|x| ≤ 90) and `lon` (|x| ≤ 180) rounded to 2 decimals. A place is a city's
+  point from the belfry's list (`GET <api>/places?q=&limit=8`, no auth; answer
+  `{places:[…], attribution}`) or one a member added (`POST <api>/places` NIP-98
+  `{name,country,near:<id of the nearest listed city>}` → `{place}`; error `bad_country`).
+  Never the device's GPS.
+- Suggestions when adding tags: every member's tags by use (ties alphabetical).
+- Name, about (Markdown), picture stay in kind 0 on the community relay: saving keeps the other
+  fields of my latest kind 0 and sets `name` = `display_name` (≤ 100) and `about` (≤ 2000);
+  a new picture is uploaded (resized to 512 px, JPEG) and set as `picture`.
+- "Admin of the belfry" switch on a profile (belfry admins only): `POST <api>/admins` NIP-98
+  `{pubkey, admin}`; errors `not_member`, `guest_not_saved`, `agent`, `last_admin`,
+  `not_admin`, each with a fixed message. Afterwards reload `belfry.json` (its `admins`).
+
+### 19.6 Special posts (precise rules)
+
+A kind 9 message is, in this order of precedence:
+
+1. **Inbox card**: author = the groups key, has `mail-from` and `["client","belfry-mail"]`.
+   Tags: `mail-from`, `mail-name`, `subject`, `message-id`, `belfry-auth` (`pass` = verified),
+   optional `["mail-original", https url, key, nonce]` (the whole mail, AES-256-GCM on Blossom).
+2. **Sent as the channel**: author = the groups key with `["client","belfry-mail-out"]`; tags
+   `e` (the card it answers), `mail-to`, `subject`, `sent-by` (the member who wrote it).
+3. **Event card**: first `a` tag starts with `31922:` or `31923:`.
+4. **Pod card**: `["pod", id]` with id starting `pod-`. 5. **Proposal card**: `["proposal", id]`
+   with id starting `prop-`.
+6. **Member's e-mail**: `["client","belfry-mail"]` (not from the groups key): "via e-mail",
+   `subject`, optional `mail-original`.
+
+For 1 and 6 the text shown drops a leading `**<subject>**` line. Cards 3 to 5 always show
+their author with the line "Created an event / a pod / a proposal". A message with
+`["client","belfry-drop"]` from a key without a profile is named "Drop box".
+
+**Inbox card state** (per card id = the `e` tag of the events below, in log order, deleted ones
+skipped): kind 1985 with `["L","belfry/inbox"]` and `["l",x,"belfry/inbox"]`: `open` / `closed`
+set the status, `assigned` sets the assignee to its `p` tag (none = nobody); each "sent as the
+channel" post counts as an answer and turns `open` into `waiting` (shown "Answered").
+Actions: `[["h",g],["L","belfry/inbox"],["l","open"|"closed","belfry/inbox"],["e",card]]`;
+assigning adds `["l","assigned","belfry/inbox"],["e",card],["p",assignee]`.
+
+### 19.7 Feed layout rules (shared by clients)
+
+- With a topic open the feed has only that topic's messages (no joins, no resurfaced threads);
+  the topic `announcement` shows admins' announcements only.
+- A message starts a block (avatar, name, time) on a new day, after a non-message item, after
+  another author, after more than 300 s, right after a message whose thread is unfolded, and
+  always when it is an announcement, an e-mail or a card.
+- "Topics a message carries but does not spell" (sent inside an open topic) are shown as chips
+  under it, except the open topic and `announcement`.
+
+### 19.8 Pods, events, proposals, drop links, task list (events as the web writes them)
+
+- **Pod**: id `pod-` + slug(name)[:24] + `-` + 4 hex. 9007 `[["h",id]]`; 9002
+  `[["h",id],["name",…],["about",…],["open"]]` or `…,["closed"],["prompt",question]`
+  (default question "Why do you want to join, and what would you bring?"); then in the parent
+  kind 9 `⬡ New pod: <name>[ · <about>]` with `[["h",parent],["pod",id]]`. Admit an applicant:
+  9000 `[["h",id],["p",pk,"member"]]`; decline / remove: 9001 `[["h",id],["p",pk]]`.
+- **Event**: `x` = 8 hex; chat `ws-<x>` (9007 + 9002, about = first line of the description or
+  "Chat for this event"); on the **community relay** kind 31923 (timed) or 31922 (all-day):
+  `[["d","session-<x>"],["title",…],["h","ws-<x>",<groups relay>],["start",…],["start_tzid",tz],
+  ["end",…],["end_tzid",tz],["location",…],["r",https link]]` (all-day: ISO dates, no tzid),
+  content = description; then in the channel kind 9 `📅 <title> · <when>[ · <location>]` with
+  `[["h",channel],["a","<kind>:<me>:session-<x>",<community relay>]]`.
+  Reading: latest per coordinate; deleted by kind 5 `a`; `channel` = the `h` of the first
+  non-deleted kind 9 linking it outside `ws-` groups (default `general`); group = its `h` tag or
+  `ws-` + d without `session-`. RSVP: kind 31925 on the community relay
+  `[["d",sha256hex("<me>:<author>:<d>")[:30]],["a",coord],["e",event id],["status",
+  "accepted"|"tentative"|"declined"],["p",author]]`, latest per person. Delete: kind 5
+  `[["a",coord],["e",id]]` on the community relay. Upcoming = end (or start) ≥ today 00:00 local.
+- **Proposal**: `x` = 6 hex; chat `prop-` + slug(title)[:24] + `-<x>`; text = kind 30023 on the
+  community relay `[["d","proposal-<x>"],["title",…],["summary",…],["t","proposal"],
+  ["h",chat,<groups relay>],["version","1"],["status",s],["published_at",now]]`; card in the
+  parent: kind 9 `📝 Proposal: <title>[ · <summary>]` with `[["h",parent],["proposal",chat],
+  ["a",coord,<community relay>]]`. New version: same `d`, `version` + 1, and in its chat kind 9
+  `📝 Version N[: note]` with `[["h",chat],["a",coord,relay],["version","N"]]`. Status: the
+  latest kind 1985 in its chat `[["h",chat],["L","belfry/proposal-status"],["l",s,
+  "belfry/proposal-status"],["a",coord]]` by the author or an admin of the chat or of its
+  parent (`draft feedback voting passed rejected closed`; before any label, the text's `status`
+  tag). Vote: kind 1068 in its chat `[["h",chat],["a",coord],["version",N],["polltype",
+  "singlechoice"],["option","yes","Yes"],["option","no","No"],["option","abstain","Abstain"]]`,
+  content `<title> (version N): do you approve?`, opened when the status becomes `voting` (and
+  again for a new version under vote); answers kind 1018 `[["h",chat],["e",poll id],
+  ["response",option]]`, latest per person; the latest poll counts and voting is open only
+  while its version is the text's version.
+- **Drop box link**: kind 30078 in the group `[["d","drop:<token>"],["h",g],["expiration",ts],
+  ["login"]?,["alt",…]]`, token = 16 random bytes base64url; live while not deleted (kind 5 by
+  its author with `e` and `a` = `30078:<author>:drop:<token>`) and `expiration` > now. The page
+  is `https://<domain>/drop/<token>`. Choices: 1 day / 1 week / 1 month; anyone / signed in.
+- **Pinned topics**: `[["h",g],["L","#t"],["l",topic,"#t"]…]` (kind 1985), the whole list each
+  time; any member may pin.
+- **Member labels** (per channel): kind 1985 `[["h",g],["L","osv/member-label"],
+  ["l",label,"osv/member-label"]…,["p",member]]`, latest per member. (The namespace keeps the
+  web's historical name.)
+- **Task list** (tasklist.sh): list id = `sha256hex("osv-village:"+group)[:16]`; kinds 2100
+  (task, content = title ≤ 300), 2101 (`["e",task],["action","claim|unclaim|done|undone|delete"]`),
+  2103 (comment), each with `["t",list id],["h",group]`.
+- **Following a channel by e-mail** is not an event: `GET/POST <api>/me/follows` (NIP-98).
+- The web chat has **no unread count per channel** (only for direct messages and e-mail).
