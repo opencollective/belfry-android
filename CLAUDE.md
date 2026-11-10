@@ -43,7 +43,7 @@ minSdk 26, JDK 17.
     HTTP API), `engine/` (`Session`: relays + subscriptions + outbox + DMs behind one object that
     exposes `StateFlow`s and suspend actions; the app talks only to this).
 - `app/` — the Compose app, package `sh.belfry.app`. `data/` (SQLite `Store`, Keystore-encrypted
-  secrets), `ui/` (theme, components, screens), `demo/` (the seeded demo community).
+  secrets), `ui/` (theme, kit, screens). The seeded demo community is `core/.../engine/Demo.kt`.
 - `app/src/test`: Robolectric screenshot tests (demo mode). PNGs land in
   `app/build/outputs/roborazzi/`.
 

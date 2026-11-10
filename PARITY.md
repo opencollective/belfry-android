@@ -1,0 +1,142 @@
+# Parity with the web chat
+
+Reference: `village-app`, branch `belfry-chat`, at commit 30e775b (2026-11-10), Belfry theme.
+Status words: **done** (built, rendered in demo mode in CI, covered by a screenshot and, where
+noted, a behaviour test), **partial** (what is missing is named), **not yet**.
+
+Read this first: **nothing has run on a phone or an emulator, and nothing has talked to a real
+belfry.** "Done" means the code is written against the protocol contract (SPEC.md + the shared
+vectors, which the core passes), compiles, passes lint, and renders correctly with the seeded
+demo community under Robolectric. Sign-in against a live belfry, the signer (NIP-46), real
+relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
+in the real world.
+
+## Protocol core (`core/`, JVM tests)
+
+| Area | Status | Notes |
+|---|---|---|
+| Events, ids, BIP-340, bech32, NIP-44 v2, NIP-59 unwrap | done | All of `events.json` and `nip44.json` (except the 10 MB invalid-length case). |
+| Channels, messages, reactions, threads, mentions, actions, active members, admin rights | done | Every case of groups / messages / reactions / threads / mentions / actions / recently-active / can-admin `.json`. |
+| Markdown subset, MIME, mail threads, outbox pass | done | Every case of markdown / mime / mail-threads / outbox `.json`. `htmlText` is regex-based (the web uses the browser's parser). |
+| Relay (NIP-42, backoff, re-subscribe), remote signer (NIP-46), discovery, PKCE sign-in, HTTP API (NIP-98) | done | Tested against fakes (MockWebServer, a fake signer) only. |
+| Sync engine: subscriptions, access verdict, outbox that survives restarts and flaky relays, attachments upload | done | Engine tests against a fake relay. Not covered by a test: `CLOSED restricted` on a subscription, the 15 s watchdog, online/offline flapping. |
+| DMs (NIP-17), old DMs (kind 4, read), e-mail (Nostr Mail), delivery reports, large mails | done | Round trips with local signers. Large mails (AES-GCM from Blossom), kind 4 and `sendAsChannel` have no test. |
+
+## Sign-in and joining
+
+| Web feature | Status | Notes |
+|---|---|---|
+| Sign in with e-mail + code through `/connect` (code + PKCE → bunker) | done, never run live | Custom Tab → `sh.belfry.app://connect`. Reads only `code` / `state` / `error`; fixed messages. The happy path (token exchange then bunker connect) has no automated test. |
+| Opens offline from the saved session | done | Session key and bunker URL encrypted with an Android Keystore key (cannot run under Robolectric; untested). |
+| Guest link `https://chat.<domain>/join/<token>`: join as a new guest with a name | done, never run live | One session key per invite kept until the join succeeds. Needs `assetlinks.json` to open in the app (SERVER-NEEDS 1); hosts fixed to `chat.belfry.sh`, `chat.enspiral.eu`. |
+| Guest link opened by an existing account: joins as itself | done, never run live | Confirmation sheet → `joinWithAccount` → opens the channel. |
+| Closed / expired link, no-access screen | done | Fixed messages. |
+| Save your account (guest: e-mail + code) | done | Bar above the composer after the first action, and a card on Me. Only layouts tested. |
+| Sign out | partial | Wipes the device and revokes the session through the sessions API (see SERVER-NEEDS 4). Does not open the belfry's logout address, so the browser session stays signed in (the web ends it). |
+| Demo mode (`?backend=demo`) | done | "Try the demo" on the sign-in screen: a seeded local community, no network. |
+
+## Layout and navigation
+
+| Web feature | Status | Notes |
+|---|---|---|
+| ☰ channel drawer (push drawer), Messages with unread count, you at the bottom | done | `ModalNavigationDrawer`; channel tree with pod shapes; "All events". |
+| Laptop layout (≥ 900 px: list stays) | partial | Permanent drawer at ≥ 840 dp: compiled, never rendered or tried. |
+| Back arrows are hierarchical, never push | done | `popBackStack` only; predictive back enabled in the manifest (untried on a device). |
+| One summary line under the channel name + pull-down (Pinned, Coming up, To decide, To do, Pods, Topics, people) | done | Priority order and counts as the web, unit-tested. Differences: in a proposal's chat the vote is a pill that opens the proposal page (the web votes inside the pull-down); "Review" / "All to-dos" open channel info (no deep link to a tab); day labels are fixed English, 24 h. |
+| Pod marks: a polygon with one side per member | partial | In the drawer, the line and the pull-down. Channel info, pod page and cards still use the generic pod glyph. |
+| Connection states (offline, waiting, signer trouble) | done | Banner from the engine's status. |
+
+## Channel feed
+
+| Web feature | Status | Notes |
+|---|---|---|
+| Messages, day separators, grouping, Markdown, links (http/https/mailto only) | done | |
+| Mentions (@ picker, highlight when it is me, tap → profile) | done | |
+| #topics in text (tap filters the channel) | done | Hold a #hashtag to pin/unpin: not yet (pinning is on the Topics page instead). |
+| Photos in messages, full-screen viewer | done, never run live | System photo picker, downscaled to ≤ 2048 px JPEG. Orientation is not corrected on Android 8.0 / 8.1. |
+| Other files as attachments | not yet | The composer attaches photos only; received files show as rows that open in the browser. |
+| Reactions (quick row, most used first, add, undo) | done | |
+| Threads: chip, inline unfold (latest 3, show earlier, reply box), "Open thread" screen, resurfacing lines | done | |
+| Edit my message (kind 1010), "edited" mark | done | Behaviour test. Foreign edits are ignored before picking the latest (the web lets one hide the author's own: SPEC 19.1). |
+| Delete my message, with an in-app confirmation showing the message | done | Behaviour test. |
+| Message menu as a list (Reply, Open thread, Edit, Copy text, Copy link, Message the author, Delete) | done | Bottom sheet, Discord-style rows. |
+| Pin to the channel / Unpin (admins), pinned mark | done | Behaviour test. The web shows no mark on the message; here it does. |
+| Turn into a to-do; the mark on the message ticks it off | done | Behaviour test (one 2101 per tick). |
+| "Make this the website" (admins, messages with an nsite link) | done, never run live | Row in the menu → `publishWebsite`. `nsite:` links render as links to the preview host. |
+| Outbox states on messages: Sending… / Waiting for connection… / Not sent · Retry, Discard | done | Send cannot fire twice (behaviour test). |
+| Announcements (admins), marked in the feed | done | |
+| Guest join lines ("joined as a guest / an agent, invited by …"), promoted members not called guests, "not saved" | done | Kind 1985 `belfry/guest` labels. |
+| "Created a pod / an event / a proposal" line + card | done | See cards below. |
+| Empty channel with "Invite people" | done | |
+| ＋ menu: Photo, Event, Pod, Proposal, To-do, Drop box link | done | |
+| Seen events (every 6 h) and "active this month" | done | |
+| Search (this channel / all, accent-folded, marks, opens on the message) | done | Behaviour test. Snippets keep `*italic*` marks. |
+
+## Channel info
+
+| Web feature | Status | Notes |
+|---|---|---|
+| About: description, e-mail address, active in the last 30 days, events, pods, proposals | done | A page behind the title (the web's full pull-down view). |
+| Members: list, guests / agents / not saved, invited by, admin mark, labels editor | done | |
+| Members map (Leaflet) | not yet | A list with each person's place instead (per channel and community-wide, grouped by country). |
+| To-dos: add, tick, take / let go, comments, delete own | done | Screenshots only, no driven test. |
+| Files: photos grid, files, drop box links | partial | Photos open in the viewer; other files open in the browser (no in-app download). |
+| Settings (admins): name, description, pod open/closed + question, "E-mails from anyone" | done | |
+| Join / ask to join / leave a pod; admit / decline applications | done | |
+| Invite: member link, QR, copy, share | done | System share sheet. |
+| Guest link: one person / up to 50; 1 day / 1 week / 1 month; QR | done | Behaviour test (button locks; one request). Controls lock while a link is made (the web lets a newer choice win). |
+| Follow (bell): off / as they happen / monthly, my other follows | done, never run live | |
+| Drop box links: new (duration, anyone / members), QR, share, end | done | The drop page itself is the belfry's web page. |
+| Topics: list with counts, pin / unpin, filter the channel | done | A page (the web uses a hold menu). No admin check for pinning, as on the web. |
+
+## Pods, events, proposals
+
+| Web feature | Status | Notes |
+|---|---|---|
+| Event card, events list (Going / Maybe / All, past folded) | done | The answer reads "Going". |
+| Event page: RSVP, folds to the answer, people by answer, meeting link, open chat, delete | partial | The web's Chat / To-dos / Files tabs inside the page are not here (the chat is its own channel, one tap away). Behaviour test: RSVP fires once. |
+| Create event: all day, date / time pickers, place suggestions, Jitsi link | partial | No "New Google Meet" link. The date picker's header looked too wide in the render (unknown whether real). |
+| Pod card, pod page (about, access, requests, members, join / apply / leave), create pod | done | The pod page is Android's own (the web shows it in channel info). |
+| Proposal card and page: text, status, tally, vote, change status, new version | done | Behaviour test: one vote. Open proposals = draft, feedback, voting (SPEC 19.13 question). |
+| Create channel, create proposal | done | Create proposal also offers "Votes" as a start (the web: Draft, Feedback). |
+
+## E-mail in channels (shared inbox)
+
+| Web feature | Status | Notes |
+|---|---|---|
+| A member's e-mail shown as their message ("via e-mail", subject) | done | |
+| "Full e-mail" (original from Blossom, AES-GCM) | partial | Coded, never run against a real mail; fails with a fixed message in the demo. |
+| Inbox cards: sender, verified, subject, status (Open / Answered / Closed), take / let go, close / reopen | done | |
+| Thread chip on an inbox card ("Start a thread / Thread · N") | not yet | Threads work on ordinary messages. |
+| Reply by e-mail as the channel, 8 s Undo send, delivery line | done, never run live | Admins only, as the web. Behaviour tests for Undo (sends nothing) and elapse (sends once). |
+| Not on the web either: review drafts, rules, team notification e-mails | n/a | |
+
+## People and messages
+
+| Web feature | Status | Notes |
+|---|---|---|
+| Profile: picture, name, address, about (Markdown), tags, place, guest chips, shared channels, Message | done | |
+| Edit profile: name, username (`POST /username`), about, picture, tags with suggestions, place (city search, add a place, country only, nothing) | done, never run live | Full screen instead of a sheet. Picture: system picker → ≤ 512 px. Never device GPS. |
+| "Admin of the belfry" switch, with the guest rules (`guest_not_saved`, `agent`, `not_member`, `last_admin`) | done, never run live | Behaviour test: disabled with the reason for an unsaved guest. |
+| Me: my card, username, key copy, devices, outbox counts, sign out | done | |
+| Connections (signed-in devices): list, this device, end one | done, never run live | Titled "Signed-in devices". |
+| Messages list (DMs + e-mail threads, unread) | done | |
+| New conversation (name, name@domain, npub / hex, e-mail address) | done | |
+| Conversation (NIP-17): Markdown, state line, Retry | done | Behaviour test: a DM cannot be sent twice. The @ picker shows but a pick stays plain text. |
+| E-mail threads: by subject / references, verified sender, delivery state, new e-mail needs a subject | done | |
+| E-mail attachments | partial | Listed with sizes; a tap saves through the system file saver (never run). No preview. |
+
+## Not in the web chat, or out of scope
+
+| Item | Status | Notes |
+|---|---|---|
+| Notifications | not yet | Later milestone; needs the server (SERVER-NEEDS 3). The app syncs when opened; there is no background service. |
+| OSV access grants (kinds 8534-8538), the OSV admin screen | n/a | Hidden in the Belfry theme on the web too. |
+| Release build: signing key, R8 rules, Play listing | not yet | CI builds a debug APK (artifact `belfry-debug-apk`). |
+
+## Known rough edges seen in the renders
+
+- The seeded photo is a grey placeholder (network pictures are off in tests).
+- `AvatarStack` leaves a small gap at its right (thread chip, About).
+- Vote rows have no leading icon until one is mine.
+- Emoji and text render in Robolectric; spinners show as a dot (frozen animation clock).
