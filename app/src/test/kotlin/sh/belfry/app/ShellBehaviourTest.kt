@@ -49,12 +49,25 @@ class ShellBehaviourTest : DemoShots() {
         started()
         val mine = myMessage("See you on Thurdsay")
         val chat = ChatState(general).apply { menu(mine) }
-        compose.setContent { BelfryTheme { InDemo { ChannelScreen(general, chat = chat) } } }
+        val composer = ComposerState()
+        compose.setContent { BelfryTheme { InDemo { ChannelScreen(general, chat = chat, composer = composer) } } }
         compose.onNodeWithTag("menu-edit").performClick()
-        compose.waitForIdle()
+        compose.waitUntil(5_000) { chat.editing != null && chat.acting == null }
+        assertEquals("the composer holds the message to edit", "See you on Thurdsay", composer.value.text)
         compose.onNodeWithTag("composer-field").performTextReplacement("See you on Thursday")
+        compose.waitUntil(5_000) { composer.value.text == "See you on Thursday" }
         compose.onNodeWithTag("composer-send").performClick()
-        compose.waitUntil(10_000) { world.message(general, mine.id)?.text == "See you on Thursday" }
+        compose.waitUntil(10_000) { chat.editing == null && composer.value.text.isEmpty() }
+        try {
+            compose.waitUntil(10_000) { world.message(general, mine.id)?.text == "See you on Thursday" }
+        } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
+            val w = world
+            throw AssertionError(
+                "the edit did not show: message=" + w.message(general, mine.id)?.text + " pending=" + w.isPending(mine.id) +
+                    " outbox=" + w.outboxItems.map { it.kind.toString() + ":" + it.status + ":" + it.error } +
+                    " edits=" + w.all.filter { it.kind == 1010 }.map { it.createdAt - NOW } + " msgAt=" + (mine.at - NOW),
+            )
+        }
         val edited = world.message(general, mine.id)
         assertNotNull(edited?.edited)
         compose.waitUntil(5_000) { compose.onAllNodesWithText("edited").fetchSemanticsNodes().isNotEmpty() }
