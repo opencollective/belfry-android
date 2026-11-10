@@ -1,5 +1,10 @@
 package sh.belfry.app.ui.shell
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
@@ -19,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import sh.belfry.app.ui.chat.ChannelScreen
+import sh.belfry.app.ui.chat.ThreadScreen
 import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.theme.Belfry
@@ -26,7 +32,7 @@ import sh.belfry.app.ui.theme.Belfry
 /**
  * Home: the channel drawer and the open channel. A phone gets a modal drawer (☰, edge swipe,
  * back closes it); 840 dp and wider keeps the channel list at the left, like the web's laptop
- * layout.
+ * layout; 1200 dp and wider opens a thread in a third column beside its channel (web 4d5682d).
  */
 @Composable
 fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
@@ -34,7 +40,9 @@ fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
     val nav = LocalNav.current
     val session = LocalSession.current
     val scope = rememberCoroutineScope()
-    val wide = LocalConfiguration.current.screenWidthDp >= 840
+    val width = LocalConfiguration.current.screenWidthDp
+    val wide = width >= 840
+    val three = width >= 1200
 
     // Remember the open channel for next time.
     LaunchedEffect(shell.channel) {
@@ -49,7 +57,20 @@ fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
                 }
             },
         ) {
-            ChannelScreen(shell.channel, focusMessage = shell.focusMessage, onFocusDone = { shell.focusMessage = null })
+            val thread = shell.thread
+            Row(Modifier.fillMaxSize()) {
+                ChannelScreen(
+                    shell.channel, modifier = Modifier.weight(1f), focusMessage = shell.focusMessage, onFocusDone = { shell.focusMessage = null },
+                    // another thread replaces the open one (no history entry per thread)
+                    onOpenThread = if (three) ({ shell.thread = it }) else null,
+                )
+                if (three && thread != null) {
+                    Box(Modifier.width(1.dp).fillMaxHeight().background(c.line))
+                    Box(Modifier.width(400.dp).fillMaxHeight()) {
+                        ThreadScreen(shell.channel, thread, onClose = { shell.thread = null })
+                    }
+                }
+            }
         }
     } else {
         val drawer = rememberDrawerState(if (drawerOpen) DrawerValue.Open else DrawerValue.Closed)

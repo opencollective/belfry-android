@@ -102,11 +102,14 @@ fun ChannelScreen(
     onFocusDone: () -> Unit = {},
     chat: ChatState = rememberChatState(groupId),
     composer: ComposerState = rememberComposerState(groupId),
+    /** A large screen: threads open beside the channel instead of on their own screen. */
+    onOpenThread: ((rootId: String) -> Unit)? = null,
 ) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
     val nav = LocalNav.current
+    val openThread: (String) -> Unit = { id -> if (onOpenThread != null) onOpenThread(id) else nav.go(Routes.thread(groupId, id)) }
     val status = LocalStatus.current
     val dms = LocalDms.current
     val g = world.group(groupId)
@@ -201,7 +204,7 @@ fun ChannelScreen(
             } else {
                 LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp)) {
                     items(reversed, key = { it.item.key }) { row ->
-                        FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, now, row.item.key in afterPending, row.item.key in pinnedIds, todos[row.item.key])
+                        FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, now, row.item.key in afterPending, row.item.key in pinnedIds, todos[row.item.key], openThread)
                     }
                 }
             }
@@ -274,7 +277,7 @@ fun ChannelScreen(
     MessageSheets(
         groupId, chat,
         onReply = { m -> chat.toggleThread(m.id, focus = true) },
-        onOpenThread = { m -> nav.go(Routes.thread(groupId, m.id)) },
+        onOpenThread = { m -> openThread(m.id) },
         onEdit = startEdit,
     )
     if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false }, onTodo = { chat.newTodo = true })
@@ -283,7 +286,7 @@ fun ChannelScreen(
 }
 
 @Composable
-private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: sh.belfry.core.model.ThreadInfo?, highlight: Boolean, now: Long, ownBlock: Boolean, pinned: Boolean, todo: Task?) {
+private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: sh.belfry.core.model.ThreadInfo?, highlight: Boolean, now: Long, ownBlock: Boolean, pinned: Boolean, todo: Task?, openThread: (String) -> Unit) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current
@@ -297,11 +300,11 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                     groupId, m, row.first || ownBlock, chat,
                     announcement = row.announcement, highlight = highlight, thread = thread, threadOpen = open,
                     onToggleThread = { chat.toggleThread(m.id) },
-                    onOpenThread = { nav.go(Routes.thread(groupId, m.id)) },
+                    onOpenThread = { openThread(m.id) },
                     pinned = pinned, todo = todo,
                 )
                 if (open) {
-                    InlineThread(groupId, m, chat, focus = chat.openThreads[m.id] == true, onHide = { chat.openThreads.remove(m.id) }, onOpen = { nav.go(Routes.thread(groupId, m.id)) })
+                    InlineThread(groupId, m, chat, focus = chat.openThreads[m.id] == true, onHide = { chat.openThreads.remove(m.id) }, onOpen = { openThread(m.id) })
                 }
             }
             is FeedItem.Join -> {
@@ -338,7 +341,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                     if (!open) Text(unmarked(world.activityReply(item.last)), fontSize = 15.sp, color = c.text, maxLines = 3, modifier = Modifier.padding(start = 23.dp, top = 2.dp))
                 }
                 if (open) {
-                    InlineThread(groupId, item.root, chat, focus = chat.openThreads[key] == true, onHide = { chat.openThreads.remove(key) }, onOpen = { nav.go(Routes.thread(groupId, item.root.id)) })
+                    InlineThread(groupId, item.root, chat, focus = chat.openThreads[key] == true, onHide = { chat.openThreads.remove(key) }, onOpen = { openThread(item.root.id) })
                 }
             }
         }

@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sh.belfry.app.ui.kit.BackButton
+import sh.belfry.app.ui.kit.BelfryIcons
+import sh.belfry.app.ui.kit.IconAction
 import sh.belfry.app.ui.kit.EmptyState
 import sh.belfry.app.ui.kit.Hairline
 import sh.belfry.app.ui.kit.TopBar
@@ -36,7 +38,14 @@ import sh.belfry.core.model.Message
 
 /** A thread on its own screen: the message it hangs off, every reply, a reply box (NIP-22). */
 @Composable
-fun ThreadScreen(groupId: String, rootId: String, chat: ChatState = rememberChatState("thread:$groupId:$rootId"), composer: ComposerState = rememberComposerState(rootId)) {
+fun ThreadScreen(
+    groupId: String,
+    rootId: String,
+    chat: ChatState = rememberChatState("thread:$groupId:$rootId"),
+    composer: ComposerState = rememberComposerState(rootId),
+    /** Shown as the third column beside its channel (a large screen): a close button, no back arrow. */
+    onClose: (() -> Unit)? = null,
+) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -48,7 +57,11 @@ fun ThreadScreen(groupId: String, rootId: String, chat: ChatState = rememberChat
     LaunchedEffect(replies.size) { if (replies.isNotEmpty()) list.scrollToItem(replies.size + 1) }
 
     Column(Modifier.fillMaxSize().background(c.bg).imePadding()) {
-        TopBar("Thread", subtitle = g?.name ?: groupId, navigation = { BackButton { nav.back() } })
+        if (onClose != null) {
+            TopBar("Thread", subtitle = g?.name ?: groupId, actions = { IconAction(BelfryIcons.Close, "Close the thread", onClose) })
+        } else {
+            TopBar("Thread", subtitle = g?.name ?: groupId, navigation = { BackButton { nav.back() } })
+        }
         Hairline()
         if (root == null) {
             Box(Modifier.weight(1f)) { EmptyState("This message is gone", text = "It was deleted, or it has not reached this device yet.") }

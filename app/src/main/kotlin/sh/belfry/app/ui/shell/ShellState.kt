@@ -11,12 +11,15 @@ class ShellState(initialChannel: String = "general") {
     var channel by mutableStateOf(initialChannel)
         private set
     var focusMessage by mutableStateOf<String?>(null)
+    /** A large screen: the thread open in the third column (root message id), in [channel]. */
+    var thread by mutableStateOf<String?>(null)
     /** The person picked a channel themselves (the saved "last open" no longer applies). */
     var touched = false
         private set
 
     fun open(id: String, messageId: String? = null) {
         touched = true
+        if (id != channel) thread = null
         channel = id
         focusMessage = messageId
     }
