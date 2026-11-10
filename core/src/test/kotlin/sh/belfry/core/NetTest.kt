@@ -113,8 +113,9 @@ class FakeRelay(private val requireAuth: Boolean = false) : WebSocketListener() 
                     send(webSocket, "CLOSED", sub, "auth-required: sign in first")
                     return
                 }
-                val kinds = (arr[2] as JsonObject)["kinds"].arr()?.mapNotNull { it.int() }
-                for (e in stored) if (kinds == null || e.kind in kinds) send(webSocket, "EVENT", sub, e)
+                // every filter of the REQ counts (by kinds only)
+                val kindSets = arr.drop(2).mapNotNull { it as? JsonObject }.map { f -> f["kinds"].arr()?.mapNotNull { it.int() } }
+                for (e in stored) if (kindSets.any { it == null || e.kind in it }) send(webSocket, "EVENT", sub, e)
                 send(webSocket, "EOSE", sub)
             }
             "EVENT" -> {

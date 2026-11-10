@@ -534,8 +534,43 @@ text), and "It disappears for everyone, with its reactions. This can't be undone
 
 ### 19.4 Guest links without a code
 
-_(Filled in from the sign-in work: `https://chat.<domain>/join/<token>`,
-`GET <api>/channel-invites/<token>`, `POST …/join`.)_
+(`src/core/auth.ts` inviteInfo / joinAsNew, `src/core/sync.ts` joinWithAccount, `src/ui/Login.tsx`
+JoinScreen, `src/ui/Invite.tsx`; server `guests.py`.) This replaces the hand-off code of earlier
+versions: there is no `/api/guest-sessions` any more.
+
+- **The link**: `https://chat.<domain>/join/<token>` (the web chat also reads `…/#/join/<token>`).
+  `<token>` matches `[A-Za-z0-9_-]{20,}`. A native app registers for these links (Android App
+  Links, iOS universal links) and MUST take only the domain and the token from the address;
+  nothing else of the address is ever shown.
+- **Making one** (any member, not a guest): `POST <api.channel_invites>` (NIP-98) with
+  `{"channel": id, "people": 1 | 50, "link_days": 1 | 7 | 30}` (defaults 1 and 1). Answer
+  `{url, agent_url?, days, people, link_days, expires_at}`; `days` is how long a guest stays
+  (30). Errors as in section 13. The invite sheet offers "How many: one person / up to 50" and
+  "Link works for: 1 day / 1 week / 1 month", shows the link as text, QR code and share sheet.
+- **Reading one** (no sign-in): `GET <api.channel_invites>/<token>` →
+  `{community, channel, channel_name, about, inviter, state, days}`; `state` is `open`, `used`,
+  `expired` or `revoked` (fixed messages: "This invite was used already / has expired / was
+  withdrawn. Ask for a new one."). 404 → "This invite link is not known here. Ask for a new one."
+- **Joining as someone new** (not signed in): the device makes a **session key** (a fresh
+  secp256k1 secret), and sends `POST <api.channel_invites>/<token>/join` with body
+  `{"name": "<their name>"}` and a NIP-98 header **signed by that session key** (not by a
+  member key: there is none yet). Answer `{bunker_url, channel, pubkey?}`: the belfry made the
+  account in its signer and bound its first NIP-46 session to the session key, which is from
+  then on the client key of section 3. The guest is in `channel` only, `saved: false`.
+  - **One session key per invite**, kept in secure storage until the join succeeds: the server
+    is idempotent per signing key, so a second tap, a retry after a timeout or an app restart
+    gets the **same** account, never a second one. Forget the key after success.
+  - `409` (the key is another account's in the signer): forget the key; the next try makes a new
+    one. Other errors by `error` code: `name_needed`, `closed`, `unsupported`, `relay`, `failed`.
+- **Joining with an account** (signed in, member or guest): the same `POST …/join` with body
+  `{}` and a NIP-98 header signed **as the member** (through the bunker). Answer
+  `{channel, already, guest?}`: the account gets the channel (a member: a 9000 in the group; a
+  guest: one more guest pass on the same person); `already: true` when they were in (the link
+  is not used up). No second account is ever made. A link opened while signed out is kept
+  (pending invite) through sign-in and used right after.
+- A guest saves their account with `POST <api>/guest/save` `{email}` then
+  `POST <api>/guest/save/verify` `{email, code}` (both NIP-98 as the guest); the groups key then
+  labels them `saved` (19.3).
 
 ### 19.5 Profiles: tags and places (kind 30078, `d` = `belfry:profile`)
 
@@ -644,3 +679,23 @@ assigning adds `["l","assigned","belfry/inbox"],["e",card],["p",assignee]`.
   2103 (comment), each with `["t",list id],["h",group]`.
 - **Following a channel by e-mail** is not an event: `GET/POST <api>/me/follows` (NIP-98).
 - The web chat has **no unread count per channel** (only for direct messages and e-mail).
+
+### 19.9 Engine rules the Android app adds or pins down
+
+- **Subscriptions** follow today's web chat: `KINDS_GROUPS` includes `1010`, and the community
+  relay gets one more filter, `{kinds:[30078], "#d":["belfry:profile"], since: latest − 3600,
+  limit: 2000}` (19.5). After a disconnect the `since` values are computed again from the log.
+- **Mail threads do not depend on arrival order.** Wraps are back-dated at random and read newest
+  first, so an answer can be decrypted before the mail it answers. After each batch every
+  incoming mail is placed again, oldest first, with the rule of section 10 (the web places a
+  mail once, when it is read).
+- **Demo mode** (`localOnly`): no relay and no HTTP at all. A flush signs with the local key and
+  adds the event to the log; a 9007 / 9002 also yields the 39000 / 39002 a relay would write;
+  attachments stay on the device and are addressed as `https://blob.local/<key>` (never
+  fetched); e-mails report "Demo mode sends no e-mail."
+- **Sign-out**: the app ends its own session with `POST <api>/me/sessions/revoke`
+  `{bunker_pubkey: <the bunker URL's key>}` (NIP-98, best effort, 3 s): `/connect/token` gives
+  no refresh token to revoke.
+- **Signed GETs** to the same address are spaced by more than a second: the belfry refuses a
+  NIP-98 event id it has seen, and two identical GETs in one second share an id.
+
