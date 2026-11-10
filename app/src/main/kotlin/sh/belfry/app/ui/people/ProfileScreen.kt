@@ -50,6 +50,8 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.crypto.Hex
 import sh.belfry.core.engine.ActionException
 import sh.belfry.core.model.People
+import sh.belfry.core.model.agentOwner
+import sh.belfry.core.model.isGuest
 
 /**
  * Someone's page, reached by tapping a name or a face anywhere. Yours has Edit; belfry admins
@@ -76,12 +78,19 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
     val x = world.extras[pubkey]
     val about = world.aboutOf(pubkey)
     val joins = world.guestJoinsOf(pubkey)
-    val guest = joins.firstOrNull()
+    // a member's own agent (a member while its member is one), or a guest agent that can become mine
+    val owner = world.agentOwner(pubkey)
+    val guest = joins.firstOrNull()?.takeIf { owner == null }
+    val guestAgent = owner == null && joins.any { it.agent }
+    val canOwn = guestAgent && !world.isGuest(world.me) && world.agentOwner(world.me) == null && (world.isCommunityAdmin || joins.any { it.by == world.me })
+    val canDrop = owner != null && (owner == world.me || world.isCommunityAdmin)
     val noAdmin = world.noAdminReason(pubkey)
     val shared = world.sharedGroups(pubkey)
     val admin = world.isBelfryAdmin(pubkey)
     val name = p?.name?.takeIf { it.isNotEmpty() } ?: world.displayName(pubkey)
     var confirming by rememberSaveable { mutableStateOf(false) }
+    var dropping by rememberSaveable { mutableStateOf(false) }
+    var agentError by rememberSaveable { mutableStateOf<String?>(null) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
 
     Page(
@@ -100,12 +109,20 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
                 val nip05 = p?.nip05
                 if (!nip05.isNullOrEmpty()) Text(nip05, fontSize = 14.sp, color = c.muted)
                 val chip = guest?.chip
-                if (admin || chip != null) {
+                if (admin || chip != null || owner != null) {
                     Spacer(Modifier.height(6.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (admin) Chip("admin", icon = BelfryIcons.Shield)
+                        if (owner != null) Chip("agent")
                         if (chip != null) Chip(chip)
                     }
+                }
+                if (owner != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "agent of " + if (owner == world.me) "you" else world.displayName(owner), fontSize = 13.sp, color = c.muted,
+                        modifier = Modifier.clickable(role = Role.Button) { nav.go(Routes.profile(owner)) }.testTag("agent-owner"),
+                    )
                 }
                 val by = guest?.by
                 if (guest != null && !by.isNullOrEmpty()) {
@@ -150,7 +167,29 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
                 }
             }
         }
-        if (world.isCommunityAdmin && !mine) {
+        if (canOwn || canDrop) {
+            SectionTitle("Agent")
+            if (canOwn) {
+                Hint("It is a guest for 30 days now. As your agent it becomes a member and stays for as long as you are one: it reads every open channel and people can message it. Everyone sees it is yours.")
+                Spacer(Modifier.height(10.dp))
+                BusyButton(
+                    "Make it my agent",
+                    onClick = { agentError = null; try { session.setMyAgent(pubkey, true) } catch (e: ActionException) { agentError = e.shown() } },
+                    modifier = Modifier.fillMaxWidth().testTag("agent-make-mine"), icon = BelfryIcons.User,
+                )
+            }
+            if (canDrop) {
+                val whose = if (owner == world.me) "you are" else "${world.displayName(owner!!)} is"
+                Hint("A member for as long as $whose one. Removing it takes it out of the belfry and every channel.")
+                Spacer(Modifier.height(10.dp))
+                BusyButton(
+                    "Remove this agent…", onClick = { agentError = null; dropping = true }, kind = ButtonKind.Ghost,
+                    modifier = Modifier.fillMaxWidth().testTag("agent-remove"),
+                )
+            }
+            ErrorLine(agentError)
+        }
+        if (world.isCommunityAdmin && !mine && owner == null) {
             SectionTitle("Belfry")
             ActionGroup {
                 SwitchRow(
@@ -173,6 +212,24 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
             if (noAdmin != null) Hint(noAdmin, Modifier.padding(top = 8.dp))
             ErrorLine(error)
         }
+    }
+    if (dropping) {
+        val who = world.displayName(pubkey)
+        ConfirmSheet(
+            title = "Remove $who?",
+            confirmLabel = "Remove $who",
+            onConfirm = {
+                try {
+                    session.setMyAgent(pubkey, false)
+                } catch (e: ActionException) {
+                    agentError = e.shown()
+                }
+                dropping = false
+            },
+            onDismiss = { dropping = false },
+            message = "It leaves the belfry and every channel. You can bring an agent again with a link from a channel's Invite.",
+            danger = true,
+        )
     }
     if (confirming) {
         val who = world.displayName(pubkey)

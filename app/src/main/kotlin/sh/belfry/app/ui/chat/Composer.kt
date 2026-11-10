@@ -63,7 +63,14 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.engine.ActionException
 import sh.belfry.core.engine.NewAttachment
+import sh.belfry.core.engine.Session
+import sh.belfry.app.ui.kit.BusyButton
+import sh.belfry.app.ui.kit.ButtonKind
+import sh.belfry.core.model.ChannelRefs
 import sh.belfry.core.model.Mentions
+import sh.belfry.core.model.channelCandidates
+import sh.belfry.core.model.inChannel
+import sh.belfry.core.model.isGuest
 
 /** What the person is writing: the text with its caret, picked mentions, attached photos. */
 @Stable
@@ -71,6 +78,8 @@ class ComposerState {
     var value by mutableStateOf(TextFieldValue(""))
     /** (name, pubkey) of the people picked with @; sent as `nostr:npub…`. */
     val picked = mutableStateListOf<Pair<String, String>>()
+    /** ("#Name", `nostr:naddr…`) of the channels picked with #; sent as the reference. */
+    val pickedChannels = mutableStateListOf<Pair<String, String>>()
     val photos = mutableStateListOf<PickedPhoto>()
     var announce by mutableStateOf(false)
     var loadingPhotos by mutableStateOf(0)
@@ -83,17 +92,23 @@ class ComposerState {
     fun clear() {
         value = TextFieldValue("")
         picked.clear()
+        pickedChannels.clear()
         photos.clear()
         announce = false
         error = null
     }
 
-    fun set(text: String, picks: List<Pair<String, String>> = emptyList()) {
+    fun set(text: String, picks: List<Pair<String, String>> = emptyList(), channels: List<Pair<String, String>> = emptyList()) {
         value = TextFieldValue(text, TextRange(text.length))
         picked.clear()
         picked.addAll(picks)
+        pickedChannels.clear()
+        pickedChannels.addAll(channels)
         error = null
     }
+
+    /** The text as sent: picked "#Name"s as their channel references (mentions are the session's job). */
+    fun outgoing(text: String): String = ChannelRefs.substitute(text, pickedChannels.filter { text.contains(it.first) })
 }
 
 @Composable
@@ -104,6 +119,10 @@ fun rememberComposerState(key: Any? = null): ComposerState = remember(key) { Com
  * picked photos as removable thumbnails, and a send button that locks while [onSend] runs, so a
  * double tap never sends twice. [onPlus] shows the ＋ button (the "add" sheet); without it and
  * with [photos], a photo button opens the system picker directly.
+ *
+ * With [groupId] (a channel's composer, not direct messages): "#" and a few letters suggest
+ * channels (a pick writes "#Name", sent as `nostr:naddr…`); the @ picker marks people who are not
+ * in the channel, and a note above the field says so with Invite ([onInvite]).
  */
 @Composable
 fun Composer(
@@ -115,6 +134,8 @@ fun Composer(
     photos: Boolean = true,
     autoFocus: Boolean = false,
     onPlus: (() -> Unit)? = null,
+    groupId: String? = null,
+    onInvite: (suspend (pubkey: String) -> String)? = null,
 ) {
     val c = Belfry.colors
     val world = LocalWorld.current
@@ -143,6 +164,11 @@ fun Composer(
     val caret = v.selection.end.coerceIn(0, v.text.length)
     val query = if (v.selection.collapsed) Mentions.query(v.text.substring(0, caret)) else null
     val candidates = if (query != null) Mentions.candidates(query, world.people, world.me) else emptyList()
+    val here = groupId?.let { world.group(it) }
+    val chanQuery = if (groupId != null && query == null && v.selection.collapsed) ChannelRefs.query(v.text.substring(0, caret)) else null
+    val chans = if (chanQuery != null) world.channelCandidates(chanQuery) else emptyList()
+    // people mentioned in the draft who cannot see this channel: said before sending, with Invite
+    val outside = if (here != null) state.picked.filter { (name, pk) -> v.text.contains("@$name") && !world.inChannel(here, pk) } else emptyList()
     val canSend = (v.text.isNotBlank() || state.photos.isNotEmpty()) && state.loadingPhotos == 0
 
     Column(modifier.fillMaxWidth()) {
@@ -160,11 +186,36 @@ fun Composer(
                     ) {
                         Avatar(world.face(pubkey), size = 24.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text(name, fontSize = 15.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(name, fontSize = 15.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (here != null && !world.inChannel(here, pubkey)) {
+                            Spacer(Modifier.width(8.dp))
+                            Text("not in this channel", fontSize = 12.sp, color = c.faint, maxLines = 1)
+                        }
                     }
                 }
             }
         }
+        if (chanQuery != null && chans.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = if (compact) 0.dp else 12.dp, vertical = 4.dp).clip(RoundedCornerShape(12.dp)).background(c.surface).testTag("channel-picker")) {
+                chans.forEachIndexed { i, pick ->
+                    if (i > 0) Hairline()
+                    Row(
+                        Modifier.fillMaxWidth().clickable(role = Role.Button) {
+                            val (text, pos) = ChannelRefs.pick(v.text, caret, chanQuery, pick.group.name)
+                            state.value = TextFieldValue(text, TextRange(pos))
+                            val label = "#" + pick.group.name
+                            if (state.pickedChannels.none { it.first == label }) state.pickedChannels.add(label to pick.ref)
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(pick.group.icon, fontSize = 15.sp, color = c.muted, modifier = Modifier.width(24.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text(pick.group.name, fontSize = 15.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+        }
+        outside.forEach { (name, pk) -> OutsideNote(name, pk, world.isGuest(pk), onInvite) }
         if (state.announce) {
             Row(Modifier.fillMaxWidth().background(c.surface).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(BelfryIcons.Megaphone, contentDescription = null, tint = c.orange, modifier = Modifier.size(16.dp))
@@ -218,7 +269,7 @@ fun Composer(
                 BusyIconButton(
                     BelfryIcons.Send, "Send",
                     onClick = {
-                        val text = state.value.text.trim()
+                        val text = state.outgoing(state.value.text.trim())
                         val files = state.photos.map { it.attachment }
                         if (text.isNotEmpty() || files.isNotEmpty()) {
                             onSend(text, files, state.picked.toList(), state.announce)
@@ -229,11 +280,49 @@ fun Composer(
                     enabled = canSend,
                     tint = if (canSend || busy.busy) c.onAccent else c.faint,
                     busy = busy,
-                    onError = { state.error = (it as? ActionException)?.message ?: "Not sent. Try again." },
+                    // the text, photos and picks stay in the box (cleared only after onSend returned)
+                    onError = { state.error = (it as? ActionException)?.message ?: "Not saved on this phone. Try again." },
                 )
             }
         }
     }
+}
+
+/**
+ * "<name> is not in this channel: they won't be told and can't read this." with Invite (a member:
+ * a direct message with the channel's link; a guest of another channel: "Add as a guest"). The
+ * button locks while [onInvite] runs; its answer (a fixed text) replaces it.
+ */
+@Composable
+private fun OutsideNote(name: String, pubkey: String, guest: Boolean, onInvite: (suspend (String) -> String)?) {
+    val c = Belfry.colors
+    var said by remember(pubkey) { mutableStateOf<String?>(null) }
+    Row(Modifier.fillMaxWidth().background(c.surface).padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp).testTag("outside-note"), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            "$name is not in this channel" + (if (guest) " (a guest of another one)" else "") + ": they won't be told and can't read this.",
+            fontSize = 13.sp, color = c.text, modifier = Modifier.weight(1f),
+        )
+        if (onInvite != null) {
+            Spacer(Modifier.width(8.dp))
+            val s = said
+            if (s != null) {
+                Text(s, fontSize = 13.sp, color = c.muted)
+            } else {
+                BusyButton(
+                    if (guest) "Add as a guest" else "Invite", onClick = { said = onInvite(pubkey) },
+                    kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("outside-invite"),
+                    onError = { said = (it as? ActionException)?.message ?: "Could not invite. Try from the channel's Invite." },
+                )
+            }
+        }
+    }
+}
+
+/** What the composer's Invite says once it worked (the web's labels). */
+fun inviteSaid(r: Session.Invited): String = when (r) {
+    Session.Invited.ASKED -> "Link sent · they apply"
+    Session.Invited.GUEST -> "Added as a guest"
+    else -> "Invited"
 }
 
 /** "Editing your message · Cancel", above the composer while an edit is open. */

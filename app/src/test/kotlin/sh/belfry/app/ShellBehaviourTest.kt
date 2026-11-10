@@ -1,6 +1,10 @@
 package sh.belfry.app
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,6 +22,7 @@ import sh.belfry.app.ui.chat.Composer
 import sh.belfry.app.ui.chat.ComposerState
 import sh.belfry.app.ui.theme.BelfryTheme
 import sh.belfry.core.engine.Demo
+import sh.belfry.core.model.channelRef
 
 /** The owner's rules, checked by driving the screens (demo mode). */
 class ShellBehaviourTest : DemoShots() {
@@ -42,6 +47,25 @@ class ShellBehaviourTest : DemoShots() {
         compose.waitForIdle()
         compose.waitUntil(5_000) { state.value.text.isEmpty() }
         assertEquals("the send button fired more than once", 1, calls)
+    }
+
+    @Test
+    fun aChannelPickedAfterAHashIsSentAsItsReference() {
+        val composer = ComposerState()
+        compose.setContent { BelfryTheme { InDemo { ChannelScreen(general, chat = ChatState(general), composer = composer) } } }
+        compose.onNodeWithTag("composer-field").performTextInput("Prices in #kit")
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("channel-picker").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasText("kitchen") and hasAnyAncestor(hasTestTag("channel-picker"))).performClick()
+        compose.waitUntil(5_000) { composer.value.text == "Prices in #kitchen " }
+        compose.onNodeWithTag("composer-send").performClick()
+        compose.waitUntil(5_000) { composer.value.text.isEmpty() }
+        compose.waitUntil(5_000) { world.messages(general).any { it.pubkey == session.me && it.text.startsWith("Prices in") } }
+        val sent = world.messages(general).last { it.pubkey == session.me && it.text.startsWith("Prices in") }
+        val ref = world.channelRef(Demo.KITCHEN)
+        assertNotNull(ref)
+        assertEquals("Prices in $ref", sent.text)
+        // a reference is no topic
+        assertTrue(sent.topics.isEmpty())
     }
 
     @Test

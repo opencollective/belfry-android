@@ -22,6 +22,8 @@ import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
 import sh.belfry.core.model.pinned
 import sh.belfry.core.model.todosBySource
+import sh.belfry.core.model.agentOwner
+import sh.belfry.core.model.unsubstituteChannels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -254,6 +256,8 @@ fun ChannelScreen(
                 modifier = Modifier.navigationBarsPadding(),
                 photos = editing == null,
                 onPlus = if (editing == null) ({ chat.plusOpen = true }) else null,
+                groupId = groupId,
+                onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
             )
         } else {
             Spacer(Modifier.navigationBarsPadding())
@@ -261,9 +265,10 @@ fun ChannelScreen(
     }
 
     val startEdit: (Message) -> Unit = { m ->
-        val (text, picks) = Mentions.unsubstitute(m.text) { world.realName(it) }
+        val (named, chans) = world.unsubstituteChannels(m.text)
+        val (text, picks) = Mentions.unsubstitute(named) { world.realName(it) }
         chat.editing = m
-        composer.set(text, picks)
+        composer.set(text, picks, chans)
         composer.focus?.invoke()
     }
     MessageSheets(
@@ -301,8 +306,11 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
             }
             is FeedItem.Join -> {
                 val j = item.j
-                val what = if (j.agent) "an agent" else "a guest"
-                val by = j.by?.let { ", invited by ${world.displayName(it)}" } ?: ""
+                // a member's own agent: "<owner>'s agent" (its owner, else who brought it)
+                val own = j.agent && j.member && j.by != null
+                val owner = world.agentOwner(j.pubkey) ?: j.by
+                val what = if (own) (if (owner == world.me) "your agent" else "${world.displayName(owner!!)}'s agent") else if (j.agent) "an agent" else "a guest"
+                val by = if (own) "" else j.by?.let { ", invited by ${world.displayName(it)}" } ?: ""
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(BelfryIcons.User, contentDescription = null, tint = c.faint, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))

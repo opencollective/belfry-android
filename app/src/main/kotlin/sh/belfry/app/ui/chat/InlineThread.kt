@@ -60,6 +60,8 @@ fun InlineThread(groupId: String, root: Message, chat: ChatState, focus: Boolean
                 onSend = { text, files, picked, _ -> session.replyInThread(groupId, root.ev, text, files, picked) },
                 compact = true,
                 autoFocus = focus,
+                groupId = groupId,
+                onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
             )
             Row {
                 Text("Hide", fontSize = 13.sp, color = c.muted, modifier = Modifier.clickable(role = Role.Button, onClick = onHide).padding(vertical = 4.dp))

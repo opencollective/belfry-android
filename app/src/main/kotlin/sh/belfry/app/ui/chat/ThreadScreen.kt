@@ -31,6 +31,7 @@ import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Mentions
+import sh.belfry.core.model.unsubstituteChannels
 import sh.belfry.core.model.Message
 
 /** A thread on its own screen: the message it hangs off, every reply, a reply box (NIP-22). */
@@ -86,12 +87,15 @@ fun ThreadScreen(groupId: String, rootId: String, chat: ChatState = rememberChat
             },
             modifier = Modifier.navigationBarsPadding(),
             photos = editing == null,
+            groupId = groupId,
+            onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
         )
     }
     val startEdit: (Message) -> Unit = { m ->
-        val (text, picks) = Mentions.unsubstitute(m.text) { world.realName(it) }
+        val (named, chans) = world.unsubstituteChannels(m.text)
+        val (text, picks) = Mentions.unsubstitute(named) { world.realName(it) }
         chat.editing = m
-        composer.set(text, picks)
+        composer.set(text, picks, chans)
         composer.focus?.invoke()
     }
     MessageSheets(groupId, chat, onReply = null, onOpenThread = null, onEdit = startEdit)

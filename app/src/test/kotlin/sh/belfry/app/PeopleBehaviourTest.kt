@@ -2,6 +2,7 @@ package sh.belfry.app
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -13,6 +14,7 @@ import sh.belfry.app.ui.people.ConversationScreen
 import sh.belfry.app.ui.people.ProfileScreen
 import sh.belfry.app.ui.theme.BelfryTheme
 import sh.belfry.core.engine.Demo
+import sh.belfry.core.model.agentOwner
 
 /** The owner's rules on the people screens, checked by driving them (demo mode). */
 class PeopleBehaviourTest : DemoShots() {
@@ -45,5 +47,27 @@ class PeopleBehaviourTest : DemoShots() {
         compose.onNodeWithTag("admin-switch").performClick()
         compose.waitForIdle()
         assertFalse(world.isBelfryAdmin(Demo.marcel.pubkey))
+    }
+
+    @Test
+    fun aGuestAgentBecomesMineAndIsRemovedAfterAConfirmation() {
+        val scout = Demo.scout.pubkey
+        compose.setContent { BelfryTheme { InDemo { ProfileScreen(scout) } } }
+        compose.onNodeWithTag("agent-make-mine").performClick()
+        compose.waitUntil(5_000) { world.agentOwner(scout) == session.me }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("agent of you").fetchSemanticsNodes().isNotEmpty() }
+        // removing asks first, in the app
+        compose.onNodeWithTag("agent-remove").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Remove Scout").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(session.me, world.agentOwner(scout))
+        compose.onNodeWithText("Remove Scout").performClick()
+        compose.waitUntil(5_000) { world.agentOwner(scout) == null }
+    }
+
+    @Test
+    fun aMembersAgentSaysWhose() {
+        compose.setContent { BelfryTheme { InDemo { ProfileScreen(Demo.wren.pubkey) } } }
+        compose.onNodeWithTag("agent-owner").assertIsDisplayed()
+        compose.onNodeWithText("agent of Kofi Mensah").assertIsDisplayed()
     }
 }
