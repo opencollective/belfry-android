@@ -58,7 +58,8 @@ jobs:
           apk=app/build/outputs/apk/release/app-release.apk
           test -f "$apk" || { echo "::error::no signed APK (was it built unsigned?)"; ls app/build/outputs/apk/release; exit 1; }
           bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$bt/apksigner" verify --print-certs "$apk" | grep -E "Signer #1 certificate (DN|SHA-256)"
+          "$bt/apksigner" verify --verbose --print-certs "$apk" > signer.txt 2>&1 || { cat signer.txt; echo "::error::the APK's signature does not verify"; exit 1; }
+          grep -iE "verified using|certificate (DN|SHA-256)" signer.txt || cat signer.txt
           cp "$apk" "belfry-${{ steps.v.outputs.name }}.apk"
           sha256sum "belfry-${{ steps.v.outputs.name }}.apk" > "belfry-${{ steps.v.outputs.name }}.apk.sha256"
       - name: Remove the key from the runner
