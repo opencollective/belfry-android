@@ -699,3 +699,68 @@ assigning adds `["l","assigned","belfry/inbox"],["e",card],["p",assignee]`.
 - **Signed GETs** to the same address are spaced by more than a second: the belfry refuses a
   NIP-98 event id it has seen, and two identical GETs in one second share an id.
 
+
+### 19.10 Pinned messages (kind 1985, `L` = `belfry/pin`)
+
+(Web: `model.ts` `pinned`, `actions.ts` `pinMessage`, village-app 30e775b.)
+
+- Pin or unpin: kind 1985 in the group, tags
+  `[["h",g],["L","belfry/pin"],["l","pinned"|"unpinned","belfry/pin"],["e",<message id>]]`, empty
+  content.
+- A label counts only when its author is one of the channel's admins (section 7) or a community
+  admin (section 12). Per message the label with the latest `created_at` wins (ties: the one
+  processed later). Labels with another `l` value are ignored.
+- The pinned messages of a channel are its kind 9 messages (not deleted) whose winning label is
+  `pinned`, most recently pinned first. Only channel messages (kind 9) can be pinned, not thread
+  replies; a queued message cannot be pinned.
+- "Got it, hide" is local to the device (a list of at most 200 message ids): it only stops the
+  pin from being the summary line; the pull-down still lists it.
+
+### 19.11 To-dos made from messages
+
+The task list of 19.8 is called **To-dos** in the interface. "Turn into a to-do" on a message
+queues a kind 2100 with the list's tags plus `["q", <message id>]`; its title is the message's
+text without `nostr:npub…` mentions, whitespace runs collapsed, 300 characters at most (nothing
+is offered when that is empty, when the message is still queued, or when a to-do with that `q`
+exists already). The message then shows a mark: "To do", "To do · <assignee>" or "Done"; tapping
+it queues a 2101 `done` (or `undone` when it was done).
+
+### 19.12 A pod's mark
+
+A regular polygon with one side per member: `max(3, members)` sides, point up; 13 members and
+more draw a circle. (`icons.tsx` `PodShape`; in a 24-unit box: radius 9.5 around (12, 12), a
+triangle around (12, 13.5); the circle has radius 9.)
+
+### 19.13 The one line under a channel's name
+
+(`ui/ChannelLine.tsx`.) Facts of a channel: its pods and its **open** proposals (sub-channels
+whose parent it is; open = status draft, feedback or voting — the web's list says `draft`,
+`review`, `voting`, and `review` is not a status, so a proposal open for feedback is missing
+from the web's line: open question), its upcoming events (ending today or later), its pinned
+messages, its to-dos not done, the people active this month (section 11).
+
+The line is the first of these that applies:
+
+1. The feed is filtered on a topic: "Showing **#topic** only" (or "announcements"), pill "Show all".
+2. The channel is a proposal's chat: while voting on the current version "**Voting** · N yes ·
+   N no" with my vote or a "Vote" pill; else "**<Status>** · version N · by <author>".
+3. A pod I may administer with applications: "**N people ask to join** · N members", "Review".
+4. An open proposal I have not voted on (voting, poll of the current version): its title, "Vote".
+5. An upcoming event I have not answered that starts within 7 days: "**<day> <time>** ·
+   <title>", "Going?".
+6. A pinned message I did not hide: its first line without Markdown marks, mentions as "@…".
+7. The next event: as 5, with my answer ("Going", "Maybe", "Can't go") or "Going?".
+8. An open proposal: "**<title>** · <status>".
+9. A pod: "N members · open to join" / "by application" (shown muted).
+10. "N people active this month" / "1 person active this month" / "Nobody active this month
+    yet" (shown muted).
+
+At the right, counts above zero: events (minus one and written "+N" when the line shows an
+event), open proposals (likewise), pods, to-dos. With a topic filter no counts.
+
+Pulled down, in this order: (pod or proposal) "Pod in # <parent>"; a proposal's own state; the
+people asking to join; **Pinned** (each with author, day, "Show in the channel", "Got it,
+hide"); **Coming up** (3 events, then "All N events"); **To decide** (open proposals, "Vote" /
+"Voted"); **To do** (4 to-dos with a box that ticks them off and who is on it, then "All N
+to-dos"); **Pods** (shape, name, members); **Topics**; the people line leading to members,
+files and settings; the first line of the description.
