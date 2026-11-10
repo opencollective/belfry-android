@@ -54,7 +54,7 @@ import sh.belfry.app.ui.signin.openInBrowser
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.engine.ActionException
 
-const val SOURCE_URL = "https://github.com/commonshub/belfry-android"
+const val SOURCE_URL = "https://github.com/opencollective/belfry-android"
 
 /** You: your card, your address and key, the devices signed in as you, the app, sign out. */
 @Composable

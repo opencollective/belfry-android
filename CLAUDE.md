@@ -2,7 +2,7 @@
 
 Native Android client (Kotlin, Jetpack Compose, Material 3) for a community's belfry
 (self-hosted community server). The protocol contract is [SPEC.md](SPEC.md) + `vectors/`
-(copied from commonshub/belfry-ios at commit ca5fea3; additions made here are in SPEC.md's
+(copied from opencollective/belfry-ios at commit ca5fea3; additions made here are in SPEC.md's
 "Additions since the iOS spec" section). The web chat (`village-app`, branch `belfry-chat`; also
 `commonshub/collective-belfry` branch `chat-source`) is the reference implementation: read it,
 don't guess. What is done and what is not: [PARITY.md](PARITY.md). What the server must add:
@@ -75,7 +75,7 @@ minSdk 26, JDK 17.
   - cards: `ui/cards/CardsRoutes.kt` → events, event, pod, proposal, the four create screens;
     `ui/cards/SpecialCards.kt` (`SpecialCard(groupId, message)`: what a card / e-mail post shows
     in the feed) and `ui/cards/ChannelBars.kt` (`ChannelBars(groupId)`: bars under a channel's
-    top bar, e.g. the next event).
+    top bar: only the Join / Ask to join bar of a pod I am not in; the summary line and its pull-down are `ui/chat/ChannelLineView.kt`).
 - Shared pieces outside the kit gallery: `ui/kit/MarkdownText.kt` (`MarkdownText`,
   `LocalNetworkImages`, `isSafeLink`), `ui/chat/ChatFormat.kt` (`ChatFormat.time/day/short`,
   `World.face(pubkey)`, `Group.glyph()`), `ui/chat/MessageRow.kt` + `ChatState` +
@@ -109,8 +109,26 @@ minSdk 26, JDK 17.
 
 ## Rules
 
-- Push freely to `commonshub/belfry-android`. Ask before: GitHub secrets, store submissions,
+- Push freely to `opencollective/belfry-android`. Ask before: GitHub secrets, store submissions,
   other repos, anything on the Belfry servers. Never write to the live communities (belfry.sh,
   enspiral.eu) from tests: use the demo mode.
 - Never print or commit secrets. Commit messages end with the Co-Authored-By / Claude-Session
   lines.
+
+## Known debt
+
+- Nothing has run on a device or emulator yet: only JVM tests (core) and Robolectric renders
+  (app). First thing to do with a phone: sign in on a real belfry, send, go offline/online.
+- The toolchain is pinned to late-2024 versions (AGP 8.7.3, Kotlin 2.0.21, Compose BOM
+  2024.12.01, target SDK 35) because they were known to work together without a local build.
+  Upgrade in one step with CI before any store release (Play requires a recent target SDK).
+- `World` is rebuilt from the whole log on each change (coalesced to one per 100 ms) and some
+  views (`tasks`, `pinned`, `search`, `proposals`) scan the full log. Fine for a community;
+  index per group if logs pass tens of thousands of events.
+- The engine tests poll with time limits and could flake on a slow runner.
+- App Links hosts are fixed in the manifest (`chat.belfry.sh`, `chat.enspiral.eu`): a manifest
+  placeholder cannot hold a list. Another community = another `<data>` line, or a per-community
+  build.
+- Day and time labels in the channel line are fixed English / 24 h, not the device locale.
+- No release signing, no minification (R8) rules, no notifications (see SERVER-NEEDS.md).
+- `Secrets` (Keystore AES-GCM) cannot run under Robolectric; its test skips there.
