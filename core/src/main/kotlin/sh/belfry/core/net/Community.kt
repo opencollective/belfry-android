@@ -49,6 +49,8 @@ data class Community(
     val chatUrl: String,
     /** The belfry's own key, when the document gives it. */
     val belfryPubkey: String? = null,
+    /** Members' own agents (belfry.json `agents`): agent key → its member's key, 64-hex only. */
+    val agents: Map<String, String> = emptyMap(),
 ) {
     /** The web chat's link to a channel (the member invite link). */
     fun channelLink(id: String): String = chatUrl + "#/c/" + encodeURIComponent(id)
@@ -73,6 +75,7 @@ data class Community(
         put("admins", buildJsonArray { admins.forEach { add(JsonPrimitive(it)) } })
         put("chatUrl", JsonPrimitive(chatUrl))
         if (belfryPubkey != null) put("belfryPubkey", JsonPrimitive(belfryPubkey))
+        if (agents.isNotEmpty()) put("agents", buildJsonObject { agents.forEach { (a, o) -> put(a, JsonPrimitive(o)) } })
     }
 
     /** For the offline cache. */
@@ -133,6 +136,7 @@ data class Community(
             val chat = doc["apps"].arr()?.mapNotNull { it.obj() }?.firstOrNull { it.s("name")?.lowercase() == "chat" }?.s("url")
             if (chat != null && chat.startsWith("https://")) c = c.copy(chatUrl = if (chat.endsWith("/")) chat else "$chat/")
             doc["nostr"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(belfryPubkey = it) }
+            c = c.copy(agents = agentsOf(doc["agents"].obj()))
             return c
         }
 
@@ -161,8 +165,13 @@ data class Community(
                 admins = list("admins")?.filter(Hex::isKey) ?: emptyList(),
                 chatUrl = o.s("chatUrl") ?: d.chatUrl,
                 belfryPubkey = o.s("belfryPubkey")?.takeIf(Hex::isKey),
+                agents = agentsOf(o["agents"].obj()),
             )
         }
+
+        /** `{agent key: member key}`, both 64-hex; anything else dropped. */
+        fun agentsOf(o: JsonObject?): Map<String, String> =
+            o?.entries?.mapNotNull { (a, v) -> v.str()?.takeIf { Hex.isKey(a) && Hex.isKey(it) }?.let { a to it } }?.toMap() ?: emptyMap()
     }
 }
 

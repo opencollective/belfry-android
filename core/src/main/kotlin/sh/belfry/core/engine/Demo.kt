@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import sh.belfry.core.crypto.Bech32
+import sh.belfry.core.crypto.Nip19
 import sh.belfry.core.crypto.sha256Hex
 import sh.belfry.core.dm.DirectMessages
 import sh.belfry.core.dm.GiftWrap
@@ -75,13 +76,15 @@ object Demo {
     val marcel = key("guest Marcel")
     val scout = key("guest Scout")
     val nora = key("guest Nora")
+    /** Kofi's own agent (belfry.json `agents`): a member while he is one. */
+    val wren = key("agent Wren")
     /** The demo's `_groups` key (posts e-mail cards and guest joins) and `_smtp` key (the mail bridge). */
     val groups = key("_groups")
     val bridge = key("_smtp")
     private val relayKey = key("relay").pubkey
 
     /** The demo community: Maya and the person using the demo are its admins. */
-    fun community(me: String): Community = Community.defaults(DOMAIN).copy(name = NAME, admins = listOf(maya.pubkey, me))
+    fun community(me: String): Community = Community.defaults(DOMAIN).copy(name = NAME, admins = listOf(maya.pubkey, me), agents = mapOf(wren.pubkey to kofi.pubkey))
 
     private class Person(val key: LocalSigner, val name: String, val about: String, val tags: List<String>, val place: Int)
 
@@ -212,6 +215,12 @@ object Demo {
         post(lena, t + 4000, Actions.postThreadReply(GENERAL, ladderOld, "I finished it last night. Can we move the circle to next week?"))
         post(ines, t + 4200, Actions.postThreadReply(GENERAL, ladderOld, "Next Wednesday then, same place."))
         join(marcel, "Marcel", me, t + 6000, listOf(listOf("unsaved", "1")))
+        // Kofi's own agent joins (a member's agent: labelled member at once) and links a channel
+        post(wren, t + 6100, Actions.saveProfile(JsonObject(emptyMap()), "Wren", "Kofi's agent. I keep the pantry list.", null))
+        join(wren, "Wren", kofi, t + 6200, listOf(listOf("agent", "1")))
+        label(wren, "member", t + 6200)
+        val kitchenRef = "nostr:" + Nip19.naddr(Nip19.Addr(39000, relayKey, KITCHEN, listOf(gr)))
+        say(wren, GENERAL, t + 6400, "Pantry list is updated: rice and lentils are low. Details in $kitchenRef")
         say(maya, GENERAL, now - 40 * 60, "Reminder: the gate code changes on Monday. I'll send it by direct message.")
 
         // reactions, an edit, pinned topics, seen

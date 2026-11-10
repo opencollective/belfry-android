@@ -41,16 +41,21 @@ import sh.belfry.core.model.Rsvp
 import sh.belfry.core.model.Share
 import sh.belfry.core.model.World
 import sh.belfry.core.model.WorldContext
+import sh.belfry.core.model.inviteText
+import sh.belfry.core.model.isGuest
 import sh.belfry.core.net.Access
 import sh.belfry.core.net.ApiException
 import sh.belfry.core.net.BelfryApi
 import sh.belfry.core.net.BunkerSigner
+import sh.belfry.core.net.ChannelGuest
 import sh.belfry.core.net.Community
 import sh.belfry.core.net.Discovery
 import sh.belfry.core.net.Filters
 import sh.belfry.core.net.Follows
 import sh.belfry.core.net.GuestLink
 import sh.belfry.core.net.JoinedAccount
+import sh.belfry.core.net.MyAgent
+import sh.belfry.core.net.MyAgents
 import sh.belfry.core.net.Relay
 import sh.belfry.core.net.RelayException
 import sh.belfry.core.net.RelayState
@@ -218,6 +223,7 @@ class Session(
     private fun ctx(): WorldContext = WorldContext(
         me = me, domain = community.domain, communityName = community.name,
         communityAdmins = community.admins.toSet() + extraAdmins, groupsKey = groupsKey, bridgeKey = bridge, zone = zone,
+        groupsRelay = community.groupsRelay, agents = community.agents,
     )
 
     private fun buildWorld(): World {
@@ -807,10 +813,59 @@ class Session(
         try { block() } finally { lastGet[url] = System.currentTimeMillis() }
     }
 
-    /** A guest link for a channel. PEOPLE 1 or 50; LINK_DAYS 1, 7 or 30. Throws [ActionException]. */
-    suspend fun createGuestLink(channel: String, people: Int = 1, linkDays: Int = 1): GuestLink {
-        if (localOnly) return GuestLink("https://chat.${community.domain}/join/demo-" + Random.hex(12), null, 30, if (people == 50) 50 else 1, linkDays, null)
-        return call { it.createGuestLink(signer, channel, people, linkDays) }
+    /**
+     * A guest link for a channel. PEOPLE 1 or 50; LINK_DAYS 1, 7 or 30. AGENT: a link for one AI
+     * agent that joins as my own (show its [GuestLink.agentUrl]). Throws [ActionException].
+     */
+    suspend fun createGuestLink(channel: String, people: Int = 1, linkDays: Int = 1, agent: Boolean = false): GuestLink {
+        if (localOnly) {
+            val token = "demo-" + Random.hex(12)
+            return GuestLink("https://chat.${community.domain}/join/$token", "https://belfry.${community.domain}/invite/$token.md", if (agent) 0 else 30, if (people == 50 && !agent) 50 else 1, linkDays, null, agent)
+        }
+        return call { it.createGuestLink(signer, channel, people, linkDays, agent) }
+    }
+
+    /** What inviting someone who is here already did. */
+    enum class Invited { ADMITTED, ASKED, SENT, GUEST }
+
+    /**
+     * Brings someone who is here already into GROUP_ID (the web's inviteMember): a guest of another
+     * channel becomes this one's guest (`POST /channel-guests`, no message); a member gets one direct
+     * message with the channel's link, and in a closed pod I administer is admitted first (9000);
+     * a closed pod I don't administer: the message says it takes an application. Throws [ActionException].
+     */
+    suspend fun inviteMember(groupId: String, pubkey: String): Invited {
+        val w = _world.value
+        if (w.isGuest(pubkey)) {
+            val got = if (localOnly) ChannelGuest(added = true, already = false, member = false) else call { it.addChannelGuest(signer, groupId, pubkey) }
+            if (!got.member) return Invited.GUEST
+        }
+        val g = w.group(groupId)
+        var state = Invited.SENT
+        if (g != null && g.closed && pubkey !in g.members) {
+            if (w.canAdmin(g)) { send(Actions.admit(groupId, pubkey)); state = Invited.ADMITTED } else state = Invited.ASKED
+        }
+        sendDm("n:$pubkey", w.inviteText(groupId, state == Invited.ASKED))
+        return state
+    }
+
+    /** My own agents and how many I may have. Throws [ActionException]. */
+    suspend fun myAgents(): MyAgents {
+        if (localOnly) return MyAgents(community.agents.filterValues { it == me }.keys.map { MyAgent(it, _world.value.realName(it), "") }, 1)
+        return call { it.myAgents(signer) }
+    }
+
+    /**
+     * MINE: a guest agent becomes my own (a member for as long as I am one); else my agent (or, for
+     * an admin, anyone's) is removed. belfry.json's `agents` follows at once here, then from the
+     * belfry. Codes: not_member, refused, not_agent, not_yours.
+     */
+    suspend fun setMyAgent(pubkey: String, mine: Boolean): MyAgents {
+        val out = if (localOnly) null else call { it.setMyAgent(signer, pubkey, mine) }
+        community = community.copy(agents = if (mine) community.agents + (pubkey to me) else community.agents - pubkey)
+        rebuild()
+        if (!localOnly) launchSafely { refreshCommunity() }
+        return out ?: myAgents()
     }
 
     /** A guest link opened while signed in: this account gets the channel (no second account). */

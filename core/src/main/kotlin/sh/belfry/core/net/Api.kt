@@ -31,7 +31,19 @@ import java.io.IOException
  */
 class ApiException(val code: String, val status: Int, message: String) : Exception(message)
 
-data class GuestLink(val url: String, val agentUrl: String?, val days: Int, val people: Int, val linkDays: Int, val expiresAt: String?)
+data class GuestLink(val url: String, val agentUrl: String?, val days: Int, val people: Int, val linkDays: Int, val expiresAt: String?, val ownAgent: Boolean = false)
+
+/** What `POST /channel-guests` did: a guest of another channel became this one's guest ([added]),
+ *  was in it already, or is a member (who needs no guest pass: invite them with a message). */
+data class ChannelGuest(val added: Boolean, val already: Boolean, val member: Boolean)
+
+/** A member's own agent, as `POST /agents` lists it. */
+data class MyAgent(val pubkey: String, val name: String, val since: String)
+
+/** My agents and how many I may have. */
+data class MyAgents(val agents: List<MyAgent>, val limit: Int) {
+    val room: Int get() = limit - agents.size
+}
 
 /** What the join screen shows before anyone signs anything. All of it comes from the belfry's answer, not from the link. */
 data class InviteInfo(
@@ -165,11 +177,13 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
      * A guest link for a channel. PEOPLE: 1 or 50. LINK_DAYS: how long the link works, 1, 7 or 30.
      * Whoever uses it is in that channel only, for [GuestLink.days] days.
      */
-    suspend fun createGuestLink(signer: Signer, channel: String, people: Int = 1, linkDays: Int = 1): GuestLink {
+    suspend fun createGuestLink(signer: Signer, channel: String, people: Int = 1, linkDays: Int = 1, agent: Boolean = false): GuestLink {
         val a = signed(signer, community.channelInvites, "POST", buildJsonObject {
             put("channel", JsonPrimitive(channel))
-            put("people", JsonPrimitive(if (people == 50) 50 else 1))
+            put("people", JsonPrimitive(if (people == 50 && !agent) 50 else 1))
             put("link_days", JsonPrimitive(if (linkDays == 7 || linkDays == 30) linkDays else 1))
+            // a link for one agent, which joins as my own (agents.py); its instructions are agent_url
+            if (agent) put("agent", JsonPrimitive(true))
         })
         val b = a.body
         val url = b?.s("url")
@@ -181,8 +195,48 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             people = b["people"].int() ?: people,
             linkDays = b["link_days"].int() ?: linkDays,
             expiresAt = b.s("expires_at"),
+            ownAgent = b["own_agent"].bool() ?: agent,
         )
     }
+
+    /**
+     * Someone who is here already as another channel's guest becomes a guest of CHANNEL too
+     * (guests.py `/channel-guests`). Codes: invalid, unsupported, guest, agent, no_channel,
+     * not_allowed, unknown.
+     */
+    suspend fun addChannelGuest(signer: Signer, channel: String, pubkey: String): ChannelGuest {
+        val a = signed(signer, "$base/channel-guests", "POST", buildJsonObject {
+            put("channel", JsonPrimitive(channel))
+            put("pubkey", JsonPrimitive(pubkey))
+        })
+        val b = a.body
+        if (!a.ok || b == null) fail(a, CHANNEL_GUEST_ERRORS, "Could not add them. Try again.")
+        return ChannelGuest(b["added"].bool() == true, b["already"].bool() == true, b["member"].bool() == true)
+    }
+
+    // ---- a member's own agents (agents.py) ----------------------------------------------------------
+
+    /**
+     * BODY `{}` = my agents; `{pubkey, mine: true}` = a guest agent becomes mine; `{pubkey, mine:
+     * false}` = my agent is removed. Codes: not_member, refused, not_agent, not_yours, invalid,
+     * unsupported.
+     */
+    private suspend fun agentsCall(signer: Signer, body: JsonObject): MyAgents {
+        val a = signed(signer, "$base/agents", "POST", body)
+        val b = a.body
+        if (!a.ok || b == null) fail(a, AGENT_ERRORS, "Could not do that. Try again.")
+        val list = b["agents"].arr()?.mapNotNull { it.obj() }?.mapNotNull { o ->
+            o.s("pubkey")?.takeIf(Hex::isKey)?.let { MyAgent(it, o.s("name") ?: "", o.s("since") ?: "") }
+        } ?: emptyList()
+        return MyAgents(list, b["limit"].int() ?: 0)
+    }
+
+    suspend fun myAgents(signer: Signer): MyAgents = agentsCall(signer, JsonObject(emptyMap()))
+
+    suspend fun setMyAgent(signer: Signer, pubkey: String, mine: Boolean): MyAgents = agentsCall(signer, buildJsonObject {
+        put("pubkey", JsonPrimitive(pubkey))
+        put("mine", JsonPrimitive(mine))
+    })
 
     /** What a guest link leads to (no sign-in needed). */
     suspend fun inviteInfo(token: String): InviteInfo {
@@ -395,6 +449,26 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             "no_channel" to "This channel is not known to the belfry yet.",
             "not_allowed" to "You can’t invite guests here.",
             "refused" to "The belfry refused to make a guest link.",
+            "agent" to "Agents can’t invite.",
+        )
+        private val CHANNEL_GUEST_ERRORS = mapOf(
+            "invalid" to "Could not add them. Try again.",
+            "unsupported" to "This belfry does not have guests.",
+            "guest" to "Guests can’t invite guests.",
+            "agent" to "Agents can’t invite.",
+            "no_channel" to "This channel is not known to the belfry yet.",
+            "not_allowed" to "You can’t invite guests here.",
+            "unknown" to "This person is not in the belfry any more.",
+        )
+        private val AGENT_ERRORS = mapOf(
+            "not_member" to "Only members have agents of their own.",
+            // make_agent's reasons (the agent is someone's already, did not join as a guest, was
+            // invited by someone else, or the limit is reached): one fixed text
+            "refused" to "This agent can’t become yours. Only the member who invited it can make it theirs, within their limit.",
+            "not_agent" to "This is not a member’s agent.",
+            "not_yours" to "Only its member or an admin removes an agent.",
+            "invalid" to "Could not do that. Try again.",
+            "unsupported" to "This belfry does not have agents.",
         )
         private val JOIN_ERRORS = mapOf(
             "name_needed" to "Tell us your name.",
