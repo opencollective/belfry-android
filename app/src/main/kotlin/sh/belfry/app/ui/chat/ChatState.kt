@@ -28,6 +28,16 @@ class ChatState(val groupId: String) {
     var deleting by mutableStateOf<Message?>(null)
     var viewer by mutableStateOf<ViewerImage?>(null)
     var plusOpen by mutableStateOf(false)
+    /** The "New to-do" sheet. */
+    var newTodo by mutableStateOf(false)
+    /** The summary line under the channel's name is pulled down. */
+    var lineOpen by mutableStateOf(false)
+    /** Pinned messages I said "Got it, hide" to (kept on the device; the pull-down still lists them). */
+    var hiddenPins by mutableStateOf<Set<String>>(emptySet())
+    /** A message to scroll to and highlight ("Show in the channel"). */
+    var focus by mutableStateOf<String?>(null)
+
+    fun hidePin(id: String) { hiddenPins = hiddenPins + id }
 
     fun toggleThread(key: String, focus: Boolean = false) {
         if (openThreads.containsKey(key) && !focus) openThreads.remove(key) else openThreads[key] = focus

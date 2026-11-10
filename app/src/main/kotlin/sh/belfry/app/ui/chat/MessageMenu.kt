@@ -47,6 +47,13 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.World
+import sh.belfry.core.model.canPin
+import sh.belfry.core.model.isPinned
+import sh.belfry.core.model.pinMessage
+import sh.belfry.core.model.todoTitle
+import sh.belfry.core.model.todosBySource
+import sh.belfry.app.ui.kit.MoreIcons
+import androidx.compose.runtime.LaunchedEffect
 import sh.belfry.core.outbox.OutboxStatus
 
 private val NSITE = Regex("nsite:(npub1[02-9ac-hj-np-z]{58})(?:/([a-z0-9-]{1,13}))?")
@@ -69,6 +76,12 @@ private fun myTopEmojis(world: World, n: Int): List<String> {
 fun MessageSheets(groupId: String, chat: ChatState, onReply: ((Message) -> Unit)?, onOpenThread: ((Message) -> Unit)?, onEdit: (Message) -> Unit) {
     val acting = chat.acting
     if (acting != null) {
+        // A queued message gets a new id when it leaves the outbox: a menu opened on the queued
+        // one would act on an id that is gone, so it closes instead.
+        val menuWorld = LocalWorld.current
+        val wasPending = remember(acting.id) { menuWorld.isPending(acting.id) }
+        val gone = wasPending && !menuWorld.isPending(acting.id)
+        LaunchedEffect(gone) { if (gone) chat.acting = null }
         BelfrySheet(onDismiss = { chat.acting = null }, title = if (chat.emojiOnly) "Add a reaction" else null) {
             MessageMenuContent(groupId, acting, chat, onReply, onOpenThread, onEdit)
         }
@@ -186,6 +199,18 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
                 if (copied == "link") "Copied" else "Copy link",
                 onClick = { copyText(context, session.community.channelLink(groupId) + "/m/" + m.id); copied = "link" },
                 icon = BelfryIcons.Link,
+            )
+        }
+        val title = todoTitle(m)
+        if (title.isNotEmpty() && !world.todosBySource(groupId).containsKey(m.id)) {
+            BusyRow("Turn into a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
+        }
+        if (m.ev.kind == 9 && world.canPin(groupId)) {
+            val pinned = world.isPinned(groupId, m.id)
+            BusyRow(
+                if (pinned) "Unpin from the channel" else "Pin to the channel",
+                onClick = { session.send(Actions.pinMessage(groupId, m.id, !pinned)); close() },
+                icon = BelfryIcons.Pin, modifier = Modifier.testTag("menu-pin"),
             )
         }
         val site = if (world.isCommunityAdmin) NSITE.find(m.text) else null

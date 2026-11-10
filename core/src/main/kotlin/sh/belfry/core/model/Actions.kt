@@ -196,7 +196,9 @@ object Actions {
     // ---- tasks (tasklist.sh) ----
 
     private fun taskTags(groupId: String): List<Tag> = listOf(listOf("t", World.listIdFor(groupId)), listOf("h", groupId))
-    fun addTask(groupId: String, title: String): Draft = Draft(Target.GROUPS, 2100, title.sliceUnits(300), taskTags(groupId))
+    /** A to-do; [from] = the message it was made from (a `q` tag). */
+    fun addTask(groupId: String, title: String, from: String? = null): Draft =
+        Draft(Target.GROUPS, 2100, title.sliceUnits(300), taskTags(groupId) + (if (from != null) listOf(listOf("q", from)) else emptyList()))
     /** action: claim | unclaim | done | undone | delete */
     fun taskAction(groupId: String, taskId: String, action: String): Draft =
         Draft(Target.GROUPS, 2101, tags = listOf(listOf("e", taskId), listOf("action", action)) + taskTags(groupId))

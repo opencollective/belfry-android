@@ -1,0 +1,348 @@
+package sh.belfry.app.ui.chat
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import sh.belfry.app.ui.kit.BelfryIcons
+import sh.belfry.app.ui.kit.Chip
+import sh.belfry.app.ui.kit.Hairline
+import sh.belfry.app.ui.kit.MarkdownText
+import sh.belfry.app.ui.kit.MoreIcons
+import sh.belfry.app.ui.kit.PodShape
+import sh.belfry.app.ui.kit.Spinner
+import sh.belfry.app.ui.kit.rememberBusy
+import sh.belfry.app.ui.nav.LocalNav
+import sh.belfry.app.ui.nav.LocalSession
+import sh.belfry.app.ui.nav.LocalWorld
+import sh.belfry.app.ui.nav.Routes
+import sh.belfry.app.ui.theme.Belfry
+import sh.belfry.core.model.Actions
+import sh.belfry.core.model.ChannelLine
+import sh.belfry.core.model.LineAction
+import sh.belfry.core.model.LineIcon
+import sh.belfry.core.model.Task
+import sh.belfry.core.model.Topics
+import sh.belfry.core.model.channelFacts
+import sh.belfry.core.model.channelLine
+import sh.belfry.core.model.lineDay
+import sh.belfry.core.model.lineWhen
+import sh.belfry.core.model.needsMyVote
+import sh.belfry.core.model.peopleLine
+import sh.belfry.core.model.todoWho
+
+/**
+ * Under a channel's name there is exactly one line: the most useful thing about the channel
+ * right now (see `World.channelLine`), small counts at the right, and a chevron. Tapping it or
+ * dragging it down opens [PullDown] with the same things in full.
+ */
+@Composable
+fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier = Modifier) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val nav = LocalNav.current
+    val line = world.channelLine(groupId, now, chat.topic, chat.hiddenPins)
+    val toggle = { chat.lineOpen = !chat.lineOpen }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .background(c.bg)
+            .pointerInput(groupId) {
+                var moved = 0f
+                detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = {
+                    if (moved > 24f) chat.lineOpen = true else if (moved < -24f) chat.lineOpen = false
+                }) { _, dy -> moved += dy }
+            }
+            .clickable(role = Role.Button, onClickLabel = if (chat.lineOpen) "Close the channel summary" else "Open the channel summary", onClick = toggle)
+            .heightIn(min = 40.dp)
+            .padding(start = 16.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)
+            .testTag("channel-line"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LineGlyph(line, if (line.quiet) c.faint else c.muted)
+        Spacer(Modifier.width(8.dp))
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.text)) { append(line.bold) }
+                append(line.text)
+            },
+            fontSize = 13.sp, color = if (line.quiet) c.muted else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).testTag("channel-line-text"),
+        )
+        val pill = line.pill
+        if (pill != null) {
+            Spacer(Modifier.width(8.dp))
+            val act = line.action
+            LinePill(pill, line.ask, onClick = if (act == null) null else ({
+                when (act) {
+                    LineAction.ShowAll -> { chat.topic = null }
+                    LineAction.Open -> nav.go(Routes.proposal(groupId))
+                    LineAction.Review -> nav.go(Routes.channelInfo(groupId))
+                    is LineAction.OpenProposal -> nav.go(Routes.proposal(act.groupId))
+                    is LineAction.OpenEvent -> nav.go(Routes.event(act.coord))
+                }
+            }))
+        }
+        for (n in line.counts) {
+            Spacer(Modifier.width(8.dp))
+            Row(Modifier.semantics { contentDescription = "${n.n} ${n.label}" }, verticalAlignment = Alignment.CenterVertically) {
+                when (n.kind) {
+                    "events" -> Icon(BelfryIcons.Calendar, null, tint = c.faint, modifier = Modifier.size(13.dp))
+                    "proposals" -> Icon(BelfryIcons.Proposal, null, tint = c.faint, modifier = Modifier.size(13.dp))
+                    "pods" -> PodShape(6, size = 13.dp, color = c.faint)
+                    else -> Icon(MoreIcons.Todo, null, tint = c.faint, modifier = Modifier.size(13.dp))
+                }
+                Spacer(Modifier.width(3.dp))
+                Text((if (n.plus) "+" else "") + n.n, fontSize = 12.sp, color = c.muted, maxLines = 1)
+            }
+        }
+        Spacer(Modifier.width(6.dp))
+        Icon(if (chat.lineOpen) MoreIcons.ChevronUp else BelfryIcons.ChevronDown, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun LineGlyph(line: ChannelLine, tint: androidx.compose.ui.graphics.Color) {
+    when (line.icon) {
+        LineIcon.PEOPLE -> Icon(BelfryIcons.Users, null, tint = tint, modifier = Modifier.size(16.dp))
+        LineIcon.TOPIC -> Icon(BelfryIcons.Hash, null, tint = tint, modifier = Modifier.size(16.dp))
+        LineIcon.PROPOSAL -> Icon(BelfryIcons.Proposal, null, tint = tint, modifier = Modifier.size(16.dp))
+        LineIcon.EVENT -> Icon(BelfryIcons.Calendar, null, tint = tint, modifier = Modifier.size(16.dp))
+        LineIcon.PIN -> Icon(BelfryIcons.Pin, null, tint = Belfry.colors.orange, modifier = Modifier.size(16.dp))
+        LineIcon.POD -> PodShape(line.podMembers, size = 17.dp, color = tint)
+    }
+}
+
+/** A question to answer (filled) or my answer (outlined). */
+@Composable
+fun LinePill(text: String, ask: Boolean, onClick: (() -> Unit)? = null) {
+    val c = Belfry.colors
+    val shape = CircleShape
+    val base = Modifier.clip(shape).then(if (ask) Modifier.background(c.accent) else Modifier.border(1.dp, c.line, shape))
+    Box(
+        base.then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier).padding(horizontal = 10.dp, vertical = 3.dp),
+    ) {
+        Text(text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (ask) c.onAccent else c.muted, maxLines = 1)
+    }
+}
+
+/**
+ * The line pulled down: everything it summarises, in the same order (Pinned, Coming up, To
+ * decide, To do, Pods, Topics, people). Scrolls on its own; never sideways.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String) -> Unit, modifier: Modifier = Modifier) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val nav = LocalNav.current
+    val f = world.channelFacts(groupId, now)
+    val g = f.group ?: return
+    val close = { chat.lineOpen = false }
+    val go: (String) -> Unit = { close(); nav.go(it) }
+    Column(modifier.fillMaxWidth().background(c.bg).verticalScroll(rememberScrollState()).padding(bottom = 4.dp).testTag("pull-down")) {
+        val parent = g.parent?.let { world.group(it) }
+        if ((g.isPod || g.isProposal) && parent != null) {
+            Text(
+                "${if (g.isProposal) "Proposal" else "Pod"} in ${if (parent.isPod) "" else "# "}${parent.name}", fontSize = 13.sp, color = c.muted,
+                modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { close(); nav.openChannel(parent.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        val own = f.own
+        if (own != null) {
+            PullTitle("This proposal")
+            PullRow(onClick = { go(Routes.proposal(groupId)) }, title = own.title, sub = "${own.status.label} · version ${own.version}") {
+                if (world.needsMyVote(own)) LinePill("Vote", true) else if (own.votingNow && own.poll?.votes?.get(world.me) != null) LinePill("Voted", false)
+            }
+        }
+        if (g.isPod && world.canAdmin(g) && g.applications.isNotEmpty()) {
+            PullTitle("Asking to join", g.applications.size)
+            PullRow(
+                onClick = { go(Routes.channelInfo(groupId)) },
+                title = g.applications.take(3).joinToString(", ") { world.displayName(it.pubkey) } + if (g.applications.size > 3) "…" else "",
+            ) { LinePill("Review", true) }
+        }
+        if (f.pins.isNotEmpty()) {
+            PullTitle("Pinned")
+            for (m in f.pins) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    Icon(BelfryIcons.Pin, null, tint = c.orange, modifier = Modifier.padding(top = 2.dp).size(16.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        if (m.text.isNotEmpty()) MarkdownText(m.text, fontSize = 14.sp, maxLines = 8) else Text("A photo or file", fontSize = 14.sp, color = c.text)
+                        Text("${world.displayName(m.pubkey)} · ${world.lineDay(m.at, now)}", fontSize = 12.sp, color = c.muted)
+                        Row {
+                            LinkText("Show in the channel") { close(); onShowMessage(m.id) }
+                            if (m.id !in chat.hiddenPins) {
+                                Spacer(Modifier.width(16.dp))
+                                LinkText("Got it, hide") { chat.hidePin(m.id) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (f.events.isNotEmpty()) {
+            PullTitle("Coming up")
+            for (e in f.events.take(3)) {
+                val mine = e.rsvps[world.me]
+                PullRow(onClick = { go(Routes.event(e.coord)) }, title = e.title, sub = "${world.lineDay(e.start, now)} · ${world.lineWhen(e)} · ${e.going} going") {
+                    LinePill(mine?.label ?: "Going?", mine == null)
+                }
+            }
+            if (f.events.size > 3) LinkText("All ${f.events.size} events", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.events(groupId)) }
+        }
+        if (f.proposals.isNotEmpty()) {
+            PullTitle("To decide")
+            for (p in f.proposals) {
+                PullRow(onClick = { go(Routes.proposal(p.groupId)) }, title = p.title, sub = "${p.status.label} · version ${p.version}") {
+                    if (world.needsMyVote(p)) LinePill("Vote", true) else if (p.votingNow && p.poll?.votes?.get(world.me) != null) LinePill("Voted", false)
+                }
+            }
+        }
+        if (f.todos.isNotEmpty()) {
+            PullTitle("To do", f.todos.size)
+            for (t in f.todos.take(4)) TodoRow(groupId, t, onOpen = { go(Routes.channelInfo(groupId)) })
+            if (f.todos.size > 4) LinkText("All ${f.todos.size} to-dos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.channelInfo(groupId)) }
+        }
+        if (f.pods.isNotEmpty()) {
+            PullTitle("Pods")
+            for (p in f.pods) {
+                Row(
+                    Modifier.fillMaxWidth().clickable(role = Role.Button) { close(); nav.openChannel(p.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PodShape(p.members.size, size = 18.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(p.name, fontSize = 14.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(p.members.size.toString(), fontSize = 12.sp, color = c.muted)
+                }
+            }
+        }
+        val topics = world.topicsBar(groupId, chat.topic)
+        val announcements = world.hasAnnouncements(groupId)
+        if (topics.isNotEmpty() || announcements || chat.topic != null) {
+            PullTitle("Topics")
+            FlowRow(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Chip("All", selected = chat.topic == null, onClick = { chat.topic = null; close() })
+                if (announcements || chat.topic == Topics.ANNOUNCE) {
+                    Chip("Announcements", selected = chat.topic == Topics.ANNOUNCE, icon = BelfryIcons.Megaphone, onClick = { chat.topic = Topics.ANNOUNCE; close() })
+                }
+                for (t in topics) Chip("#$t", selected = chat.topic == t, onClick = { chat.topic = if (chat.topic == t) null else t; close() })
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Hairline()
+        Row(
+            Modifier.fillMaxWidth().clickable(role = Role.Button) { go(Routes.channelInfo(groupId)) }.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(BelfryIcons.Users, null, tint = c.muted, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(peopleLine(f.active.size), fontSize = 14.sp, color = c.text)
+                Text("Members, files, settings", fontSize = 12.sp, color = c.muted)
+            }
+            Icon(BelfryIcons.Chevron, null, tint = c.faint, modifier = Modifier.size(18.dp))
+        }
+        val about = g.about.lineSequence().firstOrNull().orEmpty().take(200)
+        if (about.isNotEmpty()) {
+            MarkdownText(about, rich = false, color = c.muted, fontSize = 13.sp, maxLines = 3, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun PullTitle(text: String, count: Int? = null) {
+    val c = Belfry.colors
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp)) {
+        Text(text, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted)
+        if (count != null) {
+            Spacer(Modifier.width(6.dp))
+            Text(count.toString(), fontSize = 13.sp, color = c.faint)
+        }
+    }
+}
+
+@Composable
+private fun PullRow(onClick: () -> Unit, title: String, sub: String? = null, trailing: @Composable () -> Unit = {}) {
+    val c = Belfry.colors
+    Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!sub.isNullOrEmpty()) Text(sub, fontSize = 12.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.width(8.dp))
+        trailing()
+    }
+}
+
+@Composable
+private fun LinkText(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Text(
+        text, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Belfry.colors.text,
+        modifier = modifier.clickable(role = Role.Button, onClick = onClick).padding(vertical = 4.dp),
+    )
+}
+
+/** A to-do with the box that ticks it off (locks while it is being sent). */
+@Composable
+private fun TodoRow(groupId: String, t: Task, onOpen: () -> Unit) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val session = LocalSession.current
+    val busy = rememberBusy()
+    Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(44.dp).clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = "Mark \"${t.title}\" as done") {
+                busy.run { session.send(Actions.taskAction(groupId, t.id, "done")) }
+            }.testTag("pull-todo-" + t.id),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (busy.busy) Spinner(size = 16.dp, color = c.muted)
+            else Box(Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).border(1.5.dp, if (t.assignee != null) c.text else c.faint, RoundedCornerShape(6.dp)))
+        }
+        Column(Modifier.weight(1f).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp)) {
+            Text(t.title, fontSize = 14.sp, color = if (t.pending) c.muted else c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(world.todoWho(t), fontSize = 12.sp, color = c.muted)
+        }
+    }
+}

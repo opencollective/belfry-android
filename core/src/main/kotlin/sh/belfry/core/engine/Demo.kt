@@ -10,6 +10,7 @@ import sh.belfry.core.dm.GiftWrap
 import sh.belfry.core.mail.MailThreads
 import sh.belfry.core.mail.Mime
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.pinMessage
 import sh.belfry.core.model.Draft
 import sh.belfry.core.model.NewEvent
 import sh.belfry.core.model.NewProposal
@@ -239,7 +240,12 @@ object Demo {
 
         // ---- the other channels ----------------------------------------------------------------
         say(joris, GARDEN, now - 3 * day, "Watering rota for this week:\n- Mon/Tue: Joris\n- Wed/Thu: Aroha\n- Fri to Sun: whoever is at the workshop")
-        say(aroha, GARDEN, now - day - 2 * h, "The compost bin on the left is full. Use the right one until Friday.")
+        val compost = say(aroha, GARDEN, now - day - 2 * h, "The compost bin on the left is full. Use the right one until Friday.")
+        // a pinned notice and a to-do made from a message (#garden)
+        val rota = events.last { it.kind == 9 && it.pubkey == joris.pubkey && it.tag("h") == GARDEN }
+        post(joris, now - 3 * day + 120, Actions.pinMessage(GARDEN, rota.id, true))
+        post(maya, now - day, Actions.addTask(GARDEN, "Empty the left compost bin", compost.id))
+        post(tomas, now - 20 * h, Actions.addTask(GARDEN, "Mend the greenhouse door"))
         say(maya, GARDEN, now - 5 * h, "Seed swap this Sunday at 11, by the greenhouse. #seeds")
         say(aroha, KITCHEN, now - 2 * day, "Thursday dinner: dal, rice, flatbread. **12 seats**, 7 taken.")
         say(sam, KITCHEN, now - day, "Count me in. I can do the dishes.")
