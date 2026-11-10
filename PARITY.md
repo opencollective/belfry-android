@@ -1,6 +1,6 @@
 # Parity with the web chat
 
-Reference: `village-app`, branch `belfry-chat`, at commit 30e775b (2026-11-10), Belfry theme.
+Reference: `village-app`, branch `belfry-chat`, at commit ef9e1cc (2026-11-10), Belfry theme. Belfry events (605d9c7 and later: own URLs, tickets, applications, event cards from URLs) are tracked by the events branch, not here.
 Status words: **done** (built, rendered in demo mode in CI, covered by a screenshot and, where
 noted, a behaviour test), **partial** (what is missing is named), **not yet**.
 
@@ -17,7 +17,8 @@ in the real world.
 |---|---|---|
 | Events, ids, BIP-340, bech32, NIP-44 v2, NIP-59 unwrap | done | All of `events.json` and `nip44.json` (except the 10 MB invalid-length case). |
 | Channels, messages, reactions, threads, mentions, actions, active members, admin rights | done | Every case of groups / messages / reactions / threads / mentions / actions / recently-active / can-admin `.json`. |
-| Markdown subset, MIME, mail threads, outbox pass | done | Every case of markdown / mime / mail-threads / outbox `.json`. `htmlText` is regex-based (the web uses the browser's parser). |
+| Markdown subset, MIME, mail threads, outbox pass | done | Every case of markdown / mime / mail-threads / outbox `.json` (outbox: refused uploads are permanent, SPEC 19.17). `htmlText` is regex-based (the web uses the browser's parser). |
+| Channel references (NIP-19 naddr, kind 39000) | done | Every case of `channel-refs.json` (made with the web's nostr-tools). |
 | Relay (NIP-42, backoff, re-subscribe), remote signer (NIP-46), discovery, PKCE sign-in, HTTP API (NIP-98) | done | Tested against fakes (MockWebServer, a fake signer) only. |
 | Sync engine: subscriptions, access verdict, outbox that survives restarts and flaky relays, attachments upload | done | Engine tests against a fake relay. Not covered by a test: `CLOSED restricted` on a subscription, the 15 s watchdog, online/offline flapping. |
 | DMs (NIP-17), old DMs (kind 4, read), e-mail (Nostr Mail), delivery reports, large mails | done | Round trips with local signers. Large mails (AES-GCM from Blossom), kind 4 and `sendAsChannel` have no test. |
@@ -28,7 +29,7 @@ in the real world.
 |---|---|---|
 | Sign in with e-mail + code through `/connect` (code + PKCE → bunker) | done, never run live | Custom Tab → `sh.belfry.app://connect`. Reads only `code` / `state` / `error`; fixed messages. The happy path (token exchange then bunker connect) has no automated test. |
 | Opens offline from the saved session | done | Session key and bunker URL encrypted with an Android Keystore key (cannot run under Robolectric; untested). |
-| Guest link `https://chat.<domain>/join/<token>`: join as a new guest with a name | done, never run live | One session key per invite kept until the join succeeds. Needs `assetlinks.json` to open in the app (SERVER-NEEDS 1); hosts fixed to `chat.belfry.sh`, `chat.enspiral.eu`. |
+| Guest link `https://chat.<domain>/join/<token>`: join as a new guest with a name | done, never run live | One session key per invite kept until the join succeeds. `assetlinks.json` is served (SERVER-NEEDS 1): links open in the app with the signed release APK only, not the debug APK; hosts fixed to `chat.belfry.sh`, `chat.enspiral.eu`. |
 | Guest link opened by an existing account: joins as itself | done, never run live | Confirmation sheet → `joinWithAccount` → opens the channel. |
 | Closed / expired link, no-access screen | done | Fixed messages. |
 | Save your account (guest: e-mail + code) | done | Bar above the composer after the first action, and a card on Me. Only layouts tested. |
@@ -41,6 +42,7 @@ in the real world.
 |---|---|---|
 | ☰ channel drawer (push drawer), Messages with unread count, you at the bottom | done | `ModalNavigationDrawer`; channel tree with pod shapes; "All events". |
 | Laptop layout (≥ 900 px: list stays) | partial | Permanent drawer at ≥ 840 dp: compiled, never rendered or tried. |
+| Thread in a third column on large screens (≥ 1200 px) | partial | ≥ 1200 dp: 400 dp column with a close button, another thread replaces it. Compiled, never rendered (no wide screenshot). The web's "Open thread" caret and active-row mark are not here. |
 | Back arrows are hierarchical, never push | done | `popBackStack` only; predictive back enabled in the manifest (untried on a device). |
 | One summary line under the channel name + pull-down (Pinned, Coming up, To decide, To do, Pods, Topics, people) | done | Priority order and counts as the web, unit-tested. Differences: in a proposal's chat the vote is a pill that opens the proposal page (the web votes inside the pull-down); "Review" / "All to-dos" open channel info (no deep link to a tab); day labels are fixed English, 24 h. |
 | Pod marks: a polygon with one side per member | partial | In the drawer, the line and the pull-down. Channel info, pod page and cards still use the generic pod glyph. |
@@ -51,7 +53,8 @@ in the real world.
 | Web feature | Status | Notes |
 |---|---|---|
 | Messages, day separators, grouping, Markdown, links (http/https/mailto only) | done | |
-| Mentions (@ picker, highlight when it is me, tap → profile) | done | |
+| Mentions (@ picker, highlight when it is me, tap → profile) | done | The picker marks "not in this channel"; a note above the field says a picked person can't read the channel, with Invite / Add as a guest (locks while it runs). |
+| #channel references (# picker → `nostr:naddr1…`, "#name" that opens the channel, previews) | done | Behaviour test (pick → sent as the reference, no topic). Edit shows them as "#name" again. An unknown channel reads "#channel", another naddr "Nostr address" (the web shows the id / the raw text). Not offered in direct messages (the web's DM box has no picker either). |
 | #topics in text (tap filters the channel) | done | Hold a #hashtag to pin/unpin: not yet (pinning is on the Topics page instead). |
 | Photos in messages, full-screen viewer | done, never run live | System photo picker, downscaled to ≤ 2048 px JPEG. Orientation is not corrected on Android 8.0 / 8.1. |
 | Other files as attachments | not yet | The composer attaches photos only; received files show as rows that open in the browser. |
@@ -63,9 +66,9 @@ in the real world.
 | Pin to the channel / Unpin (admins), pinned mark | done | Behaviour test. The web shows no mark on the message; here it does. |
 | Turn into a to-do; the mark on the message ticks it off | done | Behaviour test (one 2101 per tick). |
 | "Make this the website" (admins, messages with an nsite link) | done, never run live | Row in the menu → `publishWebsite`. `nsite:` links render as links to the preview host. |
-| Outbox states on messages: Sending… / Waiting for connection… / Not sent · Retry, Discard | done | Send cannot fire twice (behaviour test). |
+| Outbox states on messages: Sending… / Waiting for connection… / Not sent · Retry, Discard | done | Send cannot fire twice (behaviour test). A file the storage refuses (4xx but 401/408/429) fails its message without blocking the queue (engine test). A message that could not be saved keeps its text, photos and picks in the box. |
 | Announcements (admins), marked in the feed | done | |
-| Guest join lines ("joined as a guest / an agent, invited by …"), promoted members not called guests, "not saved" | done | Kind 1985 `belfry/guest` labels. |
+| Guest join lines ("joined as a guest / an agent, invited by …"), promoted members not called guests, "not saved" | done | Kind 1985 `belfry/guest` labels. A member's own agent: "joined as <owner>'s agent" ("your agent" when mine; the web writes "You's agent"). |
 | "Created a pod / an event / a proposal" line + card | done | See cards below. |
 | Empty channel with "Invite people" | done | |
 | ＋ menu: Photo, Event, Pod, Proposal, To-do, Drop box link | done | |
@@ -84,6 +87,8 @@ in the real world.
 | Settings (admins): name, description, pod open/closed + question, "E-mails from anyone" | done | |
 | Join / ask to join / leave a pod; admit / decline applications | done | |
 | Invite: member link, QR, copy, share | done | System share sheet. |
+| Invite someone who is here already (members, guests, agents with kind labels; DM with the channel's link; admit in a closed pod I administer; "Add as a guest" → `/channel-guests`) | done, never run live | Behaviour tests: the button locks (one call), a member gets exactly one DM with `https://chat.<domain>/#/c/<id>`. `/channel-guests` only ever ran in the demo. |
+| "My own agent" link (`agent: true`, shows `agent_url`) | done, never run live | Behaviour test (asks for an agent link, people 1; switching to a guest link asks again). Hidden when the belfry gives no limit; off with the reason when it is reached. |
 | Guest link: one person / up to 50; 1 day / 1 week / 1 month; QR | done | Behaviour test (button locks; one request). Controls lock while a link is made (the web lets a newer choice win). |
 | Follow (bell): off / as they happen / monthly, my other follows | done, never run live | |
 | Drop box links: new (duration, anyone / members), QR, share, end | done | The drop page itself is the belfry's web page. |
@@ -116,9 +121,10 @@ in the real world.
 | Web feature | Status | Notes |
 |---|---|---|
 | Profile: picture, name, address, about (Markdown), tags, place, guest chips, shared channels, Message | done | |
+| Agents on profiles: "agent" chip, "agent of <owner>", "Make it my agent", "Remove this agent…" with an in-app confirmation | done, never run live | Behaviour tests in the demo (make mine, remove after confirming; a member's agent says whose). `POST /agents` never ran against a belfry. Owner and admins only, as the web. |
 | Edit profile: name, username (`POST /username`), about, picture, tags with suggestions, place (city search, add a place, country only, nothing) | done, never run live | Full screen instead of a sheet. Picture: system picker → ≤ 512 px. Never device GPS. |
 | "Admin of the belfry" switch, with the guest rules (`guest_not_saved`, `agent`, `not_member`, `last_admin`) | done, never run live | Behaviour test: disabled with the reason for an unsaved guest. |
-| Me: my card, username, key copy, devices, outbox counts, sign out | done | |
+| Me: my card, username, key copy, devices, outbox counts, sign out | done | My address follows my profile (each snapshot reads it; the web fixed this in cf55613). |
 | Connections (signed-in devices): list, this device, end one | done, never run live | Titled "Signed-in devices". |
 | Messages list (DMs + e-mail threads, unread) | done | |
 | New conversation (name, name@domain, npub / hex, e-mail address) | done | |

@@ -446,9 +446,10 @@ or private state, `tools/vectors/gen.ts` copies it line for line. Each file has 
 | `actions.json` | the exact events each action queues |
 | `recently-active.json` | active this month, my seen |
 | `can-admin.json` | admin rights |
-| `outbox.json` | error classes, per-relay order, retry, duplicate |
+| `outbox.json` | error classes (refused uploads: 19.17, an Android addition), per-relay order, retry, duplicate |
 | `markdown.json` | the Markdown subset as a tree |
 | `mime.json` | reading e-mails |
+| `channel-refs.json` | naddr encode / decode, channel references in previews (19.14; Android addition, made by `tools/vectors/channel-refs.mjs` with the web's nostr-tools) |
 
 Rules for comparing: ids and keys are hex; sets are given sorted; `_label` fields are for humans.
 
@@ -736,7 +737,7 @@ triangle around (12, 13.5); the circle has radius 9.)
 (`ui/ChannelLine.tsx`.) Facts of a channel: its pods and its **open** proposals (sub-channels
 whose parent it is; open = status draft, feedback or voting — the web's list says `draft`,
 `review`, `voting`, and `review` is not a status, so a proposal open for feedback is missing
-from the web's line: open question), its upcoming events (ending today or later), its pinned
+from the web's line until `belfry-chat` 956e3d2, which fixed it), its upcoming events (ending today or later), its pinned
 messages, its to-dos not done, the people active this month (section 11).
 
 The line is the first of these that applies:
@@ -764,3 +765,84 @@ hide"); **Coming up** (3 events, then "All N events"); **To decide** (open propo
 "Voted"); **To do** (4 to-dos with a box that ticks them off and who is on it, then "All N
 to-dos"); **Pods** (shape, name, members); **Topics**; the people line leading to members,
 files and settings; the first line of the description.
+
+### 19.14 Channel references (`nostr:naddr1…`)
+
+(Web `belfry-chat` 4d5682d: `model.ts` channelRef / channelOfNaddr / plainRefs / NADDR,
+`Topics.tsx` ChannelRef, the composer's # suggestions. Vectors: `vectors/channel-refs.json`.)
+
+- A channel picked after "#" in the composer is written in the text as `nostr:` + the NIP-19
+  `naddr` of the group's metadata: kind **39000**, author = the key that signed the group's
+  latest kind 39000 (the relay's), identifier = the group id, one relay hint = the groups relay.
+  TLVs 0 identifier (UTF-8), 1 relay, 2 author (32 bytes), 3 kind (u32 big-endian); nostr-tools
+  writes them in the order 3, 2, 1, 0 (clients should too, so both produce the same string).
+  A channel whose 39000 was never seen has no reference (not offered by the picker).
+- Found in text by `nostr:(naddr1[02-9ac-hj-np-z]{20,400})`. It is a channel reference when it
+  decodes to kind 39000; the group is its identifier. It is no topic: a picked "#Name" is
+  replaced by the reference before hashtags (`t` tags) are read; a "#word" typed by hand stays
+  a topic.
+- Picker: opens on `(^|[^\p{L}\p{N}_&/])#([\p{L}\p{N}_-]{0,30})$` before the caret (not while the
+  @ picker is open); offers channels that are not events' chats, whose id starts with the query
+  or whose name has a word (split on spaces, `_`, `-`) that does; most recently active first; 6.
+  A pick writes "#<name> " and remembers name → reference; sending replaces each picked
+  "#<name>" (longest first) by its reference. Editing shows each reference again as "#<name>".
+- Shown in a message: "#<name>" that opens the channel. The web shows the id for a channel it
+  does not know and the raw text for an naddr that is not a group's; Android shows "#channel"
+  (muted, not tappable) and "Nostr address" instead: a raw naddr is never shown.
+- One-line previews (thread lines, delete confirmation, pinned line, to-do titles, search,
+  drawer, Messages): `plainRefs` = mentions as "@…" (or the caller's text), references as
+  "#<name>", "#<id>" when the channel is unknown, other naddrs as written.
+
+### 19.15 Inviting someone who is here already
+
+(Web `core/invite.ts`, `ui/Invite.tsx`, `ui/Chat.tsx`, commits 1834584 and 453684b; server
+`guests.py` `/api/channel-guests`.)
+
+- Who someone is: a **member's own agent** when belfry.json `agents` maps their key to a member
+  (`{agent key: member key}`, absent when there are none); a **guest** when they have a guest
+  join (19.3) that is not "member" and are not a member's agent; an **agent** when either a
+  member's agent or a guest join carries `["agent","1"]`.
+- Can read channel G: its members and admins; nobody else in a closed group; in an open one
+  everyone but guests (of other channels).
+- The invite search lists everyone with a name (members, guests, agents), me left out, a word of
+  the name starting with the query, 5 at most, each marked "<owner>'s agent", "Agent, a guest",
+  "Guest" (or nothing for a member) and "Already in" / "Can already open it" / "Not in this
+  channel".
+- A **guest** is added: `POST <api>/channel-guests` `{"channel","pubkey"}` (NIP-98) →
+  `{"added","already","member"}`; when the answer says `member`, carry on as for a member. Errors:
+  `invalid` 422, `unsupported` 409, `guest` / `agent` 403 (the caller is one), `no_channel` 404,
+  `not_allowed` 403 (`may_invite`: only people who have the channel), `unknown` 404.
+- A **member** gets one NIP-17 DM: "<my name> invited you to <# name | pod/event/proposal name>:
+  https://chat.<domain>/#/c/<id>" (my name as others know it, else "A member"). In a closed group
+  I administer they are admitted first (9000 `["p",key,"member"]`); in a closed group I do not:
+  "<my name> thinks you should join <name>. It takes an application: <link>".
+- The composer marks "not in this channel" in the @ picker and, for each picked person who cannot
+  read the channel, says so above the field with Invite ("Add as a guest" for a guest).
+
+### 19.16 Members' own agents
+
+(Web `access.ts` agentOwner, `invite.ts` myAgents / setMyAgent, `Profile.tsx`, `Invite.tsx`;
+server `agents.py`.)
+
+- `POST <api>/agents` (NIP-98): `{}` → `{"agents":[{"pubkey","name","since"}],"limit":n}`;
+  `{"pubkey","mine":true}` makes a guest agent mine (only the member who invited it, or an admin
+  for themselves, within the limit); `{"pubkey","mine":false}` removes my agent (its member or an
+  admin). Errors: `not_member` 403, `refused` 409 (someone's already / did not join as a guest /
+  invited by someone else / limit), `not_agent` 404, `not_yours` 403, `invalid` 400,
+  `unsupported` 409. The answer is the new list; belfry.json `agents` follows.
+- Profile: a member's agent shows the chip "agent" and "agent of <owner | you>"; no admin
+  switch. "Make it my agent" when it is a guest agent, I am a member (not a guest, not an agent)
+  and I invited it or am an admin. "Remove this agent…" (its member or an admin) asks in the app.
+- Join line of a member's agent (its 9000 has `agent` and a `member` label and `invited-by`):
+  "<name> joined as <owner>'s agent" (no "invited by").
+- "My own agent" in the invite sheet (when `limit` > 0; off when the limit is reached):
+  `POST <api>/channel-invites` with `"agent": true` (people 1) → the link to hand over is
+  `agent_url` (the instructions, `…/invite/<token>.md`); it works once. Error `agent`: agents
+  can't invite.
+
+### 19.17 Outbox: refused uploads
+
+A file the storage refuses with a 4xx other than 401, 408 or 429 (error text
+`upload failed (<status>…)`) is **permanent**: the message is failed ("Not sent", Retry /
+Discard) and does not hold back later items to its relay. 401, 408, 429, 5xx and network errors
+stay retryable. (Web `sync.ts`, 1834584; `vectors/outbox.json` classify cases.)

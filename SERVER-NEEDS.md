@@ -4,30 +4,16 @@ Changes in `collective-belfry` (`services/onboarding/belfry_onboarding/`, the pr
 app depends on or would benefit from. This repo never touches the servers. Nothing here was
 tested against a live belfry: the app has only run in demo mode in CI.
 
-## 1. `assetlinks.json` so guest links open in the app (needed for App Links)
+## 1. `assetlinks.json` so guest links open in the app — DONE (2026-11-10)
 
-The app declares an auto-verified intent filter for `https://chat.<domain>/join/<token>`
-(today for `chat.belfry.sh` and `chat.enspiral.eu`). Android only hands those links to the app
-when the host serves, without redirects, as `application/json`:
-
-`https://chat.<domain>/.well-known/assetlinks.json`
-
-```json
-[{
-  "relation": ["delegate_permission/common.handle_all_urls"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "sh.belfry.app",
-    "sha256_cert_fingerprints": ["<SHA-256 of the app's signing certificate>"]
-  }
-}]
-```
-
-The fingerprint does not exist yet: the app has no release signing key (the owner creates it,
-or Play App Signing does). Until then the link opens the web chat, and the person can still
-join from the web. The Caddy `chat` host must answer this path before its
-`/join/<token>` → `/#/join/<token>` rewrite. (iOS needs the twin file
-`apple-app-site-association` for the same links.)
+`https://chat.belfry.sh/.well-known/assetlinks.json` and `https://chat.enspiral.eu/.well-known/assetlinks.json`
+serve the statement for `sh.belfry.app` with the release certificate
+(SHA-256 `65:96:93:BB:CF:F6:1D:36:90:1B:21:A8:12:28:5E:7B:5B:05:0D:4A:41:3B:CD:C9:A0:78:6C:DA:11:95:EC:0D:5A`,
+v0.1.0 onward); Google's Digital Asset Links statements API verifies it. Only the **signed
+release APK** (GitHub releases, `release.yml`) verifies: the CI debug APK is signed with the
+debug key, so on it `https://chat.<domain>/join/<token>` opens the web chat (or the "open with"
+chooser) instead of the app. Another community's chat host needs the same file and a `<data>`
+line in the manifest. (iOS needs the twin `apple-app-site-association`.)
 
 ## 2. A name for the Android session (cosmetic)
 
@@ -73,7 +59,23 @@ at once, but a nonce tag accepted by the server would remove the edge case.
 
 ## 7. Open questions carried from SPEC.md
 
-- Open proposals in the channel line: the web lists status `review`, which is not a status
-  (draft / feedback / voting / passed / rejected / closed); the app counts draft, feedback and
-  voting as open (SPEC 19.13).
+- (Settled) Open proposals in the channel line: the web fixed its list in `belfry-chat` 956e3d2
+  (draft, feedback, voting), as the app counts them.
 - Pinning topics has no admin check on the web or in the relay; the app follows the web.
+
+## 8. Invites and agents (from the 2026-11-10 update; small)
+
+- `POST /channel-guests` answers `{"member": true}` for a member, and the client then sends the
+  invite as a direct message itself. Fine, but nothing tells the client in advance whether a key
+  is a guest: it derives that from guest joins (9000 `invited-by` + 1985 `belfry/guest` labels).
+  A member that was a guest once and was promoted without the `member` label would be treated as
+  a guest. Listing members' kinds in belfry.json (or an answer from `/channel-guests` that the
+  client may use for anyone) would remove the guesswork.
+- `POST /agents` with `mine: true` fails with one code (`refused`) for four different reasons
+  (someone's agent already, did not join as a guest, invited by someone else, limit reached). The
+  app shows one fixed text; distinct codes would let it say which.
+- belfry.json `agents` changes only when the document is re-read; after "Make it my agent" the
+  app updates its own copy at once and re-reads the document. If the document is cached, the
+  profile may flip back until it catches up (same as `admins`, 6).
+- `/channel-invites` with `"agent": true` returns `days: 0`: the app does not show a duration for
+  an own-agent link (it stays while its member does).

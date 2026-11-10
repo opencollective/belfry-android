@@ -91,7 +91,8 @@ minSdk 26, JDK 17.
 - Package / applicationId `sh.belfry.app`; sign-in redirect `sh.belfry.app://connect` (already
   approved server-side for the iPhone app); client tag `["client","belfry-android"]`.
 - Guest links `https://chat.<domain>/join/<token>` open in the app (App Links intent filter;
-  needs `/.well-known/assetlinks.json` on the server, see SERVER-NEEDS.md).
+  `/.well-known/assetlinks.json` is served by chat.belfry.sh and chat.enspiral.eu for the release
+  certificate: only the signed release APK verifies, not the debug APK; SERVER-NEEDS.md 1).
 - Plain SQLite (`SQLiteOpenHelper`) rather than Room: three tables, no annotation processing.
 - The session key (NIP-46 client key) and bunker URL are encrypted with an Android Keystore AES
   key; the member's identity key never leaves the belfry's signer.
