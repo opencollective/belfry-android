@@ -237,7 +237,7 @@ private fun ThreadChips(thread: ThreadInfo, open: Boolean, onToggle: () -> Unit,
                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1,
             )
             Spacer(Modifier.width(8.dp))
-            Text(ChatFormat.short(world, thread.last, session.now()), fontSize = 12.sp, color = c.faint, maxLines = 1)
+            Text(ChatFormat.time(world, thread.last), fontSize = 12.sp, color = c.faint, maxLines = 1)
         }
         if (onOpen != null) {
             Row(

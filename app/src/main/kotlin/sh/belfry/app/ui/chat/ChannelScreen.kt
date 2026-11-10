@@ -266,13 +266,13 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                         Icon(BelfryIcons.Thread, contentDescription = null, tint = c.faint, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "${world.displayName(item.last.pubkey)} replied to ${world.displayName(item.root.pubkey)}: “${Markdown.plain(world.activitySnippet(item.root))}”",
+                            "${world.displayName(item.last.pubkey)} replied to ${world.displayName(item.root.pubkey)}: “${unmarked(world.activitySnippet(item.root))}”",
                             fontSize = 13.sp, color = c.muted, maxLines = 2, modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(ChatFormat.time(world, item.at), fontSize = 12.sp, color = c.faint)
                     }
-                    if (!open) Text(Markdown.plain(world.activityReply(item.last)), fontSize = 15.sp, color = c.text, maxLines = 3, modifier = Modifier.padding(start = 23.dp, top = 2.dp))
+                    if (!open) Text(unmarked(world.activityReply(item.last)), fontSize = 15.sp, color = c.text, maxLines = 3, modifier = Modifier.padding(start = 23.dp, top = 2.dp))
                 }
                 if (open) {
                     InlineThread(groupId, item.root, chat, focus = chat.openThreads[key] == true, onHide = { chat.openThreads.remove(key) }, onOpen = { nav.go(Routes.thread(groupId, item.root.id)) })
@@ -305,3 +305,6 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
         ActionRow("Drop box link", onClick = { onClose(); go(Routes.drop(groupId)) }, icon = BelfryIcons.Upload, sub = "Let anyone send photos and files here")
     }
 }
+
+/** A snippet without Markdown marks (bold, italics, links stay as their text). */
+private fun unmarked(text: String): String = Markdown.text(Markdown.inline(text))
