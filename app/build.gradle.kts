@@ -13,13 +13,30 @@ android {
         applicationId = "sh.belfry.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // a release build (release.yml) passes the tag's version and a growing code
+        versionCode = System.getenv("BELFRY_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("BELFRY_VERSION_NAME") ?: "0.1.0"
+    }
+
+    // Release signing: only when the keystore is given (release.yml decodes the
+    // ANDROID_KEYSTORE_BASE64 secret to a file). Without it a release build is unsigned.
+    val keystore = System.getenv("ANDROID_KEYSTORE_PATH")?.let { file(it) }?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = keystore
+                storeType = "pkcs12"
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "belfry"
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
