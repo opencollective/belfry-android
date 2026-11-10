@@ -323,7 +323,7 @@ class EngineTest {
         m.stored.add(bridge.signNow(EventTemplate(7679, eph.nip44EncryptNow(bob.pubkey, body), listOf(listOf("r", emailId), listOf("ephemeral-pubkey", eph.pubkey), listOf("p", bob.pubkey)), 1_800_000_300)))
         s.checkReports()
         assertEquals(Report("delivered", "250 OK"), s.dms.value.report(emailId))
-        assertEquals("Delivered", s.dms.value.stateLine(s.dms.value.thread(conv).last()))
+        assertEquals("Delivered", s.dms.value.stateLine(s.dms.value.thread(conv).first { it.mine }))
 
         // a new e-mail needs no thread yet and becomes its subject's thread
         val fresh = s.sendDm("m:carl@example.net", "First contact", "Tools for the shed")
