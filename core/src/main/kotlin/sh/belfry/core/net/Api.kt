@@ -22,6 +22,7 @@ import sh.belfry.core.nostr.int
 import sh.belfry.core.nostr.obj
 import sh.belfry.core.nostr.parseJsonOrNull
 import sh.belfry.core.nostr.s
+import sh.belfry.core.nostr.str
 import java.io.IOException
 
 /**
