@@ -30,6 +30,22 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="sh.belfry.app" android:host="connect" />
             </intent-filter>
+            <!--
+              Guest links: https://chat.<domain>/join/<token> open in the app (Android App Links).
+              One entry per community; a manifest placeholder cannot hold a list, so the hosts
+              are written out. Add a line for another community's domain. A host only opens the
+              app without asking once it serves /.well-known/assetlinks.json naming this app
+              (see SERVER-NEEDS.md); until then the link opens in the browser.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="chat.belfry.sh" />
+                <data android:host="chat.enspiral.eu" />
+                <data android:pathPrefix="/join/" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>
