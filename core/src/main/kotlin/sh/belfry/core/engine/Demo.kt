@@ -13,6 +13,10 @@ import sh.belfry.core.mail.Mime
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.pinMessage
 import sh.belfry.core.model.Draft
+import sh.belfry.core.model.EventActions
+import sh.belfry.core.model.EventForm
+import sh.belfry.core.model.EventLinks
+import sh.belfry.core.model.Visibility
 import sh.belfry.core.model.NewEvent
 import sh.belfry.core.model.NewProposal
 import sh.belfry.core.model.People
@@ -58,6 +62,10 @@ object Demo {
     const val POD_OPEN = "pod-reading-circle-a1b2"
     const val POD_CLOSED = "pod-finance-9f3c"
     const val EVENT_GROUP = "ws-e1a2b3c4"
+    /** Belfry events (ev-<d>): an open one Maya hosts, and one by application that I host. */
+    const val SWAP_D = "2026-swap01"
+    const val SWAP_SLUG = "seed-swap"
+    const val REPAIR_D = "2026-repair"
 
     private fun key(name: String): LocalSigner = LocalSigner(sha256Hex("belfry-demo:" + name.lowercase()))
 
@@ -235,6 +243,11 @@ object Demo {
         for ((i, p) in listOf(maya, tomas, lena, joris, aroha, sam, ines, kofi).withIndex()) post(p, now - (i + 1) * 2 * h, Actions.seen(GENERAL))
         post(me, now - 7 * h, Actions.seen(GENERAL))
         // the event's RSVPs
+        soFar.calEvent(swapCoord)?.let { cal ->
+            post(joris, now - 2 * day, EventActions.rsvp(cal, Rsvp.ACCEPTED, joris.pubkey))
+            post(aroha, now - 2 * day + 60, EventActions.rsvp(cal, Rsvp.ACCEPTED, aroha.pubkey))
+            post(ines, now - 2 * day + 120, EventActions.rsvp(cal, Rsvp.TENTATIVE, ines.pubkey))
+        }
         soFar.calEvent(coord)?.let { cal ->
             post(maya, d1 + 6100, Actions.rsvp(cal, Rsvp.ACCEPTED, maya.pubkey))
             post(lena, d1 + 6200, Actions.rsvp(cal, Rsvp.ACCEPTED, lena.pubkey))
@@ -242,6 +255,30 @@ object Demo {
             post(joris, d1 + 6400, Actions.rsvp(cal, Rsvp.TENTATIVE, joris.pubkey))
             post(kofi, d1 + 6500, Actions.rsvp(cal, Rsvp.DECLINED, kofi.pubkey))
         }
+        // ---- Belfry events: ev-<d> groups, their URL sent in a channel ------------------------------
+        val swapStart = ((now + 4 * day) / day) * day + 11 * h
+        val swap = EventForm(
+            title = "Seed swap", description = "Bring seeds in **paper envelopes**, labelled. Take what you will sow.",
+            start = swapStart, end = swapStart + 2 * h, tz = "UTC", location = "By the greenhouse", visibility = Visibility.PUBLIC, slug = SWAP_SLUG,
+        )
+        EventActions.create(swap, SWAP_D, maya.pubkey, gr, mr).forEachIndexed { i, d -> post(maya, now - 3 * day + i, d) }
+        lists("ev-$SWAP_D", now - 3 * day + 5, listOf(listOf("name", "Seed swap"), listOf("about", "Bring seeds in **paper envelopes**, labelled.")), listOf(maya), listOf(maya))
+        val swapCoord = "31923:${maya.pubkey}:$SWAP_D"
+        post(maya, now - 3 * day + 60, Actions.postMessage(GARDEN, "Seed swap on Sunday, all welcome: ${EventLinks.url(DOMAIN, SWAP_SLUG)}").let { it.copy(tags = it.tags + listOf(listOf("a", swapCoord, mr))) })
+        val repairStart = ((now + 9 * day) / day) * day + 14 * h
+        val repair = EventForm(
+            title = "Repair café", description = "Bring something broken. We have **six tables** and two soldering irons.",
+            start = repairStart, end = repairStart + 3 * h, tz = "UTC", location = "The workshop", visibility = Visibility.LINK,
+            applicationPrompt = "What would you like to repair, or help repair?",
+        )
+        EventActions.create(repair, REPAIR_D, me.pubkey, gr, mr, ticketId = "app").forEachIndexed { i, d -> post(me, now - 2 * day + i, d) }
+        lists("ev-$REPAIR_D", now - 2 * day + 5, listOf(listOf("name", "Repair café"), listOf("about", "Bring something broken."), listOf("closed")), listOf(me), listOf(me))
+        val repairCoord = "31923:${me.pubkey}:$REPAIR_D"
+        val repairTicket = "$REPAIR_D:app"
+        raw(groups, now - 2 * day + 600, 9000, listOf(listOf("h", "ev-$REPAIR_D"), listOf("p", lena.pubkey, "member"), listOf("ticket", repairTicket), listOf("paid", "free"), listOf("a", repairCoord)))
+        raw(sam, now - day, 9021, listOf(listOf("h", "ev-$REPAIR_D"), listOf("ticket", repairTicket)), "A lamp that flickers, and I can help at the soldering table.")
+        raw(kofi, now - 10 * h, 9021, listOf(listOf("h", "ev-$REPAIR_D"), listOf("ticket", repairTicket)), "My bike's gears. I can bring a stand.")
+        post(me, now - 2 * day + 900, Actions.postMessage(GENERAL, "Repair café next week, by application: ${EventLinks.url(DOMAIN, REPAIR_D)}").let { it.copy(tags = it.tags + listOf(listOf("a", repairCoord, mr))) })
         say(aroha, EVENT_GROUP, d1 + 6600, "I'll make a big pot of dal. Who brings bread?")
         say(maya, EVENT_GROUP, d1 + 6700, "Bread and butter from me.")
         // a drop box link for photos

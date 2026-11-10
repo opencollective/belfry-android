@@ -43,6 +43,7 @@ import sh.belfry.core.model.World
 import sh.belfry.core.model.WorldContext
 import sh.belfry.core.model.inviteText
 import sh.belfry.core.model.isGuest
+import sh.belfry.core.model.eventTagsFor
 import sh.belfry.core.net.Access
 import sh.belfry.core.net.ApiException
 import sh.belfry.core.net.BelfryApi
@@ -112,7 +113,12 @@ data class Status(
 }
 
 /** Someone who came in through a guest link: the channel they joined, and whether they saved their account (e-mail). */
-data class GuestInfo(val channel: String, val saved: Boolean)
+data class GuestInfo(
+    val channel: String,
+    val saved: Boolean,
+    /** A co-host link (an event's) used before saving an e-mail: used again once the e-mail is proven. */
+    val coHost: String? = null,
+)
 
 /** A photo or file to send with a message. */
 class NewAttachment(val name: String, val mime: String, val bytes: ByteArray, val width: Int? = null, val height: Int? = null)
@@ -608,8 +614,12 @@ class Session(
      * Posts a message. PICKED are the people picked with @ in the composer (name → pubkey): each
      * "@Name" becomes a mention. ANNOUNCE only counts from a channel admin. Returns the local id.
      */
-    suspend fun postMessage(groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList()): String =
-        send(Actions.postMessage(groupId, Mentions.substitute(text, picked).trim(), topic, announce), files)
+    suspend fun postMessage(groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList()): String {
+        val d = Actions.postMessage(groupId, Mentions.substitute(text, picked).trim(), topic, announce)
+        // an event's URL in the text: its `a` tag too, so every client shows the card
+        val a = _world.value.eventTagsFor(d.content, community.mainRelay) { events.knownCoord(it) }
+        return send(d.copy(tags = d.tags + a), files)
+    }
 
     /** A reply in the thread under ROOT (a channel message). */
     suspend fun replyInThread(groupId: String, root: Event, text: String, files: List<NewAttachment> = emptyList(), picked: List<Pair<String, String>> = emptyList()): String =
@@ -702,16 +712,21 @@ class Session(
      * most); it is uploaded to the file server, then my profile is republished with it.
      */
     suspend fun setAvatar(bytes: ByteArray, mime: String = "image/jpeg") {
-        val url = if (localOnly) {
+        val url = uploadPicture(bytes, "avatar.jpg", mime)
+        send(Actions.setAvatar(_world.value.myProfileJson, url))
+    }
+
+    /** Uploads a picture (resized by the app) to the file server and returns its URL; the demo keeps it on the device. */
+    suspend fun uploadPicture(bytes: ByteArray, name: String, mime: String = "image/jpeg"): String = withContext(Dispatchers.Default) {
+        if (localOnly) {
             val key = Random.hex(8)
             store.putBlob(key, bytes)
             LOCAL_BLOB + key
         } else try {
-            api().upload(signer, bytes, "avatar.jpg", mime)
+            api().upload(signer, bytes, name, mime)
         } catch (e: Exception) {
             throw ActionException("upload", "The picture could not be uploaded. Check your connection and try again.")
         }
-        send(Actions.setAvatar(_world.value.myProfileJson, url))
     }
 
     // ---- direct messages and e-mail ------------------------------------------------------------------
@@ -792,6 +807,13 @@ class Session(
     // ---- the belfry's HTTP API (signed as me) ----------------------------------------------------------
 
     private fun api(): BelfryApi = BelfryApi(community, http)
+
+    /** Belfry events: tickets, applications, the belfry's API (engine/Events.kt). */
+    val events: EventsService by lazy { EventsService(this) }
+
+    internal suspend fun <T> apiCall(block: suspend (BelfryApi) -> T): T = call(block)
+    /** The demo: events "published" by others (the belfry's groups key issuing a ticket). */
+    internal fun addLocal(events: List<Event>) = addToLog(events)
 
     private suspend fun <T> call(block: suspend (BelfryApi) -> T): T = withContext(Dispatchers.Default) {
         try {
@@ -887,7 +909,12 @@ class Session(
     /** The code from the e-mail; on success the guest's account is saved. */
     suspend fun guestVerify(email: String, code: String) {
         if (!localOnly) call { it.guestVerify(signer, email, code) }
-        _guest.value?.let { setGuest(it.copy(saved = true)) }
+        val g = _guest.value ?: return
+        setGuest(g.copy(saved = true))
+        // the co-host link waiting for this: now it makes them a host of the event
+        val token = g.coHost ?: return
+        joinWithAccount(token)
+        _guest.value?.let { setGuest(it.copy(coHost = null)) }
     }
 
     private fun setGuest(g: GuestInfo?) {
@@ -974,8 +1001,8 @@ class Session(
 
     companion object {
         /** Today's kinds on the groups relay (the web chat's KINDS_GROUPS). */
-        val KINDS_GROUPS = listOf(0, 39000, 39001, 39002, 9, 1111, 1010, 7, 9007, 9002, 9008, 9000, 9001, 9005, 9021, 9022, 1068, 1018, 5, 1985, 30078, 2100, 2101, 2102, 2103, 8534, 8535, 8536, 8538)
-        val KINDS_MAIN = listOf(0, 31922, 31923, 31925, 30023, 5)
+        val KINDS_GROUPS = listOf(0, 39000, 39001, 39002, 9, 1111, 1010, 7, 9007, 9002, 9008, 9000, 9001, 9005, 9021, 9022, 1068, 1018, 5, 1985, 30078, 2100, 2101, 2102, 2103, 31925, 8534, 8535, 8536, 8538)
+        val KINDS_MAIN = listOf(0, 31922, 31923, 31925, 30023, 30402, 5)
         /** Demo-only picture addresses: `https://blob.local/<blob key>` (see [localBlob]). */
         const val LOCAL_BLOB = "https://blob.local/"
         const val K_BRIDGE = "bridge-key"

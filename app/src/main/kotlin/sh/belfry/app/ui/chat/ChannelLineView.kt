@@ -52,6 +52,8 @@ import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
+import sh.belfry.core.model.EventStatus
+import sh.belfry.core.model.stateLabel
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.ChannelLine
 import sh.belfry.core.model.LineAction
@@ -220,9 +222,9 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
         if (f.events.isNotEmpty()) {
             PullTitle("Coming up")
             for (e in f.events.take(3)) {
-                val mine = e.rsvps[world.me]
-                PullRow(onClick = { go(Routes.event(e.coord)) }, title = e.title, sub = "${world.lineDay(e.start, now)} · ${world.lineWhen(e)} · ${e.going} going") {
-                    LinePill(mine?.label ?: "Going?", mine == null)
+                val mine = world.stateLabel(e)
+                PullRow(onClick = { go(Routes.event(e.coord)) }, title = e.title, sub = "${world.lineDay(e.start, now)} · ${world.lineWhen(e)} · " + if (e.status == EventStatus.CANCELLED) "Cancelled" else "${e.going} going") {
+                    LinePill(mine ?: "RSVP", mine == null)
                 }
             }
             if (f.events.size > 3) LinkText("All ${f.events.size} events", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.events(groupId)) }

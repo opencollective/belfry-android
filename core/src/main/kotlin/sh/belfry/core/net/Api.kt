@@ -68,7 +68,13 @@ data class InviteInfo(
 }
 
 /** A new guest account: its NIP-46 session (bound to the key that signed the request). */
-data class JoinedNew(val bunkerUrl: String, val channel: String, val pubkey: String?)
+data class JoinedNew(
+    val bunkerUrl: String,
+    val channel: String,
+    val pubkey: String?,
+    /** A co-host link (an event's): a host needs a proven e-mail; after saving it, use the link again with the account. */
+    val emailNeeded: Boolean = false,
+)
 
 /** An existing account used a guest link. */
 data class JoinedAccount(val channel: String, val already: Boolean, val guest: Boolean)
@@ -279,7 +285,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             if (a.status == 409 && a.error !in JOIN_ERRORS) throw ApiException("session_taken", 409, "Joining did not work just now. Try again.")
             fail(a, JOIN_ERRORS, "Joining did not work just now. Try again.")
         }
-        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey))
+        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey), b["email_needed"].bool() ?: false)
     }
 
     /** Someone signed in uses a guest link: their account gets the channel (no second account). */

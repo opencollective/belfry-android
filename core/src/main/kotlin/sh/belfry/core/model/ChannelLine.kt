@@ -181,7 +181,7 @@ fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenP
 
     val pin = f.pins.firstOrNull { it.id !in hiddenPins }
     val next = f.events.firstOrNull()
-    val unanswered = f.events.firstOrNull { it.rsvps[me] == null }
+    val unanswered = f.events.firstOrNull { stateLabel(it) == null && it.status != EventStatus.CANCELLED }
     val toVote = f.proposals.firstOrNull { needsMyVote(it) }
 
     if (topic != null) {
@@ -202,12 +202,12 @@ fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenP
     } else if (toVote != null) {
         line = ChannelLine(LineIcon.PROPOSAL, toVote.title, "", "Vote", true, LineAction.OpenProposal(toVote.groupId)); shown = "proposal"
     } else if (unanswered != null && unanswered.start - now < 7 * 86400) {
-        line = ChannelLine(LineIcon.EVENT, dayAt(unanswered, now), " · " + unanswered.title, "Going?", true, LineAction.OpenEvent(unanswered.coord)); shown = "event"
+        line = ChannelLine(LineIcon.EVENT, dayAt(unanswered, now), " · " + unanswered.title, "RSVP", true, LineAction.OpenEvent(unanswered.coord)); shown = "event"
     } else if (pin != null) {
         line = ChannelLine(LineIcon.PIN, "", pinLine(pin))
     } else if (next != null) {
-        val mine = next.rsvps[me]
-        line = ChannelLine(LineIcon.EVENT, dayAt(next, now), " · " + next.title, mine?.label ?: "Going?", mine == null, LineAction.OpenEvent(next.coord)); shown = "event"
+        val mine = stateLabel(next)
+        line = ChannelLine(LineIcon.EVENT, dayAt(next, now), " · " + next.title, mine ?: "RSVP", mine == null, LineAction.OpenEvent(next.coord)); shown = "event"
     } else if (f.proposals.isNotEmpty()) {
         line = ChannelLine(LineIcon.PROPOSAL, f.proposals[0].title, " · " + f.proposals[0].status.key); shown = "proposal"
     } else if (g?.isPod == true) {

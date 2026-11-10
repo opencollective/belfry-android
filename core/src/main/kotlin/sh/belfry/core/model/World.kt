@@ -55,6 +55,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     private fun inGroup(id: String): List<Event> = byH[id] ?: emptyList()
     private fun inGroupSorted(id: String): List<Event> = sortedByH.getOrPut(id) { inGroup(id).sortedWith(BY_TIME) }
     private fun ofKind(kind: Int): List<Event> = byKind[kind] ?: emptyList()
+    /** A group's events by time (Events.kt reads an event's people from them). */
+    internal fun groupEventsSorted(id: String): List<Event> = inGroupSorted(id)
 
     // ---- deletion ------------------------------------------------------------------------------
 
@@ -175,6 +177,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 if (!p.isNullOrEmpty()) {
                     if (e.kind == 9000) g.members.add(p) else g.members.remove(p)
                     decided[id to p] = e.createdAt
+                    // a co-host (events): put in with the admin role; the relay's 39001 says the same
+                    if (e.kind == 9000 && e.tags.any { it.size >= 3 && it[0] == "p" && it[1] == p && it[2] == "admin" }) g.admins.add(p)
                 }
             }
             if (e.kind == 9) {
@@ -182,9 +186,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 g.members.add(e.pubkey)
             }
             if (e.kind == 9021) {
-                if (!g.closed) g.members.add(e.pubkey) else applied[id to e.pubkey] = e
+                // an event's application or waitlist place is not a join
+                if (!g.closed && e.tags.none { it.firstOrNull() == "waitlist" || it.firstOrNull() == "ticket" }) g.members.add(e.pubkey) else applied[id to e.pubkey] = e
             }
-            if (e.kind == 9022) g.members.remove(e.pubkey)
+            if (e.kind == 9022) { g.members.remove(e.pubkey); applied.remove(id to e.pubkey) }
         }
         // a pod or proposal lives where it was announced: the first post carrying its tag
         for (e in sorted) {
@@ -271,13 +276,32 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         for (m in media) text = text.replace(m.url, "")
         val topics = LinkedHashSet<String>()
         for (t in src.tags) if (t.size >= 2 && t[0] == "t" && t[1].isNotEmpty()) topics.add(Topics.norm(t[1]))
+        val shown = text.jsTrim()
+        // events: a message carrying an event's URL (or its `a` tag) shows its cards under the text, at
+        // most three; the older automatic post ("📅 …", the `a` tag only) is the card alone
+        val links = EventLinks.linksIn(shown, ctx.domain)
+        val legacy = links.isEmpty() && shown.startsWith("📅") && eventCoordOf(e) != null
+        val refs = ArrayList<EventRef>()
+        if (!legacy) {
+            val seen = HashSet<String>()
+            for (c in EventLinks.coordsOf(e)) {
+                val d = c.split(":").getOrElse(2) { "" }
+                if (!seen.add(d)) continue
+                refs.add(if (calendar.any { it.coord == c }) EventRef(coord = c) else EventRef(link = d))
+            }
+            for (l in links) {
+                val d = calendar.firstOrNull { it.d == l || it.slug == l }?.d ?: l
+                if (!seen.add(d)) continue
+                refs.add(EventRef(link = l))
+            }
+        }
         return Message(
-            ev = e, text = text.jsTrim(), media = media, topics = topics.toList(), edited = x?.createdAt,
-            special = specialOf(e), viaDropBox = e.hasTag("client", "belfry-drop"),
+            ev = e, text = shown, media = media, topics = topics.toList(), edited = x?.createdAt,
+            special = specialOf(e, legacy), viaDropBox = e.hasTag("client", "belfry-drop"), eventRefs = refs.take(3),
         )
     }
 
-    private fun specialOf(e: Event): Special {
+    private fun specialOf(e: Event, legacyEvent: Boolean): Special {
         val key = ctx.groupsKey
         val mail = if (e.hasTag("client", "belfry-mail")) {
             val o = e.tags.firstOrNull { it.size >= 4 && it[0] == "mail-original" && it[1].startsWith("https://") && it[2].isNotEmpty() && it[3].isNotEmpty() }
@@ -290,7 +314,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (e.hasTag("client", "belfry-mail-out"))
                 return Special.SentAsChannel(e.t("mail-to") ?: "", e.t("subject") ?: "", e.t("sent-by") ?: "")
         }
-        eventCoordOf(e)?.let { return Special.EventCard(it) }
+        if (legacyEvent) eventCoordOf(e)?.let { return Special.EventCard(it) }
         podOf(e)?.let { return Special.PodCard(it) }
         proposalOf(e)?.let { return Special.ProposalCard(it) }
         return mail ?: Special.None
@@ -665,52 +689,100 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- calendar (NIP-52) ---------------------------------------------------------------------
 
-    /** Every calendar event, by start time. */
+    /**
+     * Every calendar event, by start time. Belfry events (`d` = <year>-<6>, group ev-<d>): among the
+     * versions with that d signed by a host (the group's creator and admins), the newest counts and
+     * the coordinate stays the creator's (rule B). Older events (session-<x> ↔ ws-<x>): one author.
+     */
     val calendar: List<CalEvent> by lazy {
-        val latest = LinkedHashMap<String, Event>()
+        val gs = groups.associateBy { it.id }
+        val creators = HashMap<String, String>() // group id → its creator (first 9007)
+        for (e in ofKind(9007).sortedWith(BY_TIME)) { val h = e.t("h") ?: continue; if (h !in creators) creators[h] = e.pubkey }
+        val byKey = LinkedHashMap<String, MutableList<Event>>()
         for (e in all) {
             if (e.kind != 31922 && e.kind != 31923) continue
             val d = e.t("d")
             if (d.isNullOrEmpty()) continue
-            val coord = "${e.kind}:${e.pubkey}:$d"
-            val prev = latest[coord]
-            if (prev == null || BY_TIME.compare(prev, e) < 0) latest[coord] = e
+            val key = if (EventLinks.D.matches(d)) "d:$d" else "${e.kind}:${e.pubkey}:$d"
+            byKey.getOrPut(key) { ArrayList() }.add(e)
         }
-        val rsvps = HashMap<String, LinkedHashMap<String, Pair<Rsvp, Long>>>()
+        val rsvps = HashMap<String, LinkedHashMap<String, Pair<Rsvp, Event>>>()
         for (e in ofKind(31925)) {
             val a = e.t("a") ?: continue
             val s = Rsvp.of(e.t("status")) ?: continue
             val m = rsvps.getOrPut(a) { LinkedHashMap() }
             val prev = m[e.pubkey]
-            if (prev == null || prev.second <= e.createdAt) m[e.pubkey] = s to e.createdAt
+            if (prev == null || prev.second.createdAt <= e.createdAt) m[e.pubkey] = s to e
         }
-        // where each event was posted: the first post linking to it outside the event's own chat
-        val posted = HashMap<String, String>()
-        for (e in sorted) {
-            if (e.kind != 9 || e.id in deleted) continue
-            val a = eventCoordOf(e) ?: continue
-            val h = e.t("h")
-            if (!h.isNullOrEmpty() && !h.startsWith("ws-") && a !in posted) posted[a] = h
-        }
+        val statusLabels = HashMap<String, MutableList<Event>>()
+        for (e in ofKind(1985)) if (e.t("L") == EventLinks.STATUS_NS) { val h = e.t("h") ?: continue; statusLabels.getOrPut(h) { ArrayList() }.add(e) }
         val out = ArrayList<CalEvent>()
-        for ((coord, e) in latest) {
-            if (coord in deleted) continue
+        for ((key, versions) in byKey) {
+            val sorted = versions.sortedWith(BY_TIME)
+            var e = sorted.last()
+            var creator = e.pubkey
+            var hosts: Set<String> = setOf(e.pubkey)
             val d = e.t("d")!!
+            val isNew = key.startsWith("d:")
+            val groupId = if (isNew) "ev-$d" else e.t("h").orEmpty().ifEmpty { "ws-" + d.removePrefix("session-") }
+            var hostVersions = sorted
+            if (isNew) {
+                creator = creators[groupId] ?: sorted.first().pubkey
+                hosts = setOf(creator) + (gs[groupId]?.admins ?: emptySet())
+                hostVersions = sorted.filter { it.pubkey in hosts }
+                if (hostVersions.isEmpty()) continue
+                e = hostVersions.last()
+            }
+            val kind = if (isNew) sorted.firstOrNull { it.pubkey == creator }?.kind ?: e.kind else e.kind
+            val coord = "$kind:$creator:$d"
+            if (coord in deleted) continue
             val allDay = e.kind == 31922
             val start = calTime(e.t("start"), allDay) ?: continue
-            out.add(CalEvent(
+            var status = if (e.t("status") == "cancelled") EventStatus.CANCELLED else EventStatus.SCHEDULED
+            val labels = (statusLabels[groupId] ?: emptyList()).filter { it.pubkey in hosts }.sortedWith(BY_TIME)
+            val last = labels.lastOrNull()
+            if (last != null && (last.createdAt >= e.createdAt || status == EventStatus.SCHEDULED))
+                status = if (last.tags.any { it.size >= 2 && it[0] == "l" && it[1] == "cancelled" }) EventStatus.CANCELLED else EventStatus.SCHEDULED
+            val reason = if (status == EventStatus.CANCELLED) labels.lastOrNull { l -> l.tags.any { it.size >= 2 && it[0] == "l" && it[1] == "cancelled" } }?.content?.ifEmpty { null } else null
+            val m = rsvps[coord] ?: LinkedHashMap()
+            val answers = m.mapValues { it.value.first }
+            val base = CalEvent(
                 coord = coord, d = d, ev = e,
                 title = e.t("title").orEmpty().ifEmpty { e.t("name").orEmpty().ifEmpty { "Untitled" } },
                 description = e.content,
                 location = e.t("location"),
                 allDay = allDay, start = start, end = calTime(e.t("end"), allDay),
-                groupId = e.t("h").orEmpty().ifEmpty { "ws-" + d.removePrefix("session-") },
+                groupId = groupId,
                 links = e.tags.filter { it.size >= 2 && it[0] == "r" && it[1].startsWith("https://") }.map { it[1] },
-                channel = posted[coord] ?: "general",
-                rsvps = rsvps[coord]?.mapValues { it.value.first } ?: emptyMap(),
-            ))
+                channels = emptyList(),
+                rsvps = answers,
+                rsvpEvents = m.mapValues { it.value.second },
+                tz = e.t("start_tzid"), isNew = isNew, creator = creator, hosts = hosts,
+                cover = e.t("image")?.ifEmpty { null },
+                visibility = Visibility.of(e.t("visibility")),
+                slug = e.t("slug")?.ifEmpty { null },
+                status = status, statusReason = reason, versions = hostVersions,
+            )
+            if (isNew) {
+                val going = goingList(base, EventLinks.people(inGroupSorted(groupId)))
+                out.add(base.copy(goingKeys = going, goingCount = going.size))
+            } else out.add(base)
         }
-        out.sortedBy { it.start }
+        // the channels showing each event's card: messages with its `a` tag or its URL, not deleted
+        val byLink = HashMap<String, Int>()
+        out.forEachIndexed { i, x -> byLink[x.d] = i; x.slug?.let { byLink[it] = i } }
+        val byCoord = HashMap<String, Int>()
+        out.forEachIndexed { i, x -> byCoord[x.coord] = i }
+        val channels = HashMap<Int, LinkedHashSet<String>>()
+        for (e in sorted) {
+            if (e.kind != 9 || e.id in deleted) continue
+            val h = e.t("h") ?: continue
+            val found = LinkedHashSet<Int>()
+            for (c in EventLinks.coordsOf(e)) byCoord[c]?.let(found::add)
+            for (l in EventLinks.linksIn(e.content, ctx.domain)) byLink[l]?.let(found::add)
+            for (i in found) if (out[i].groupId != h) channels.getOrPut(i) { LinkedHashSet() }.add(h)
+        }
+        out.mapIndexed { i, x -> channels[i]?.let { x.copy(channels = it.toList()) } ?: x }.sortedBy { it.start }
     }
 
     private fun calTime(v: String?, allDay: Boolean): Long? {
@@ -727,7 +799,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** Upcoming events (today onwards), of one channel or of all. */
     fun upcoming(channel: String? = null, now: Long): List<CalEvent> {
         val today = dayOf(now).atStartOfDay(ctx.zone).toEpochSecond()
-        return calendar.filter { (it.end ?: it.start) >= today && (channel == null || it.channel == channel) }
+        return calendar.filter { (it.end ?: it.start) >= today && (channel == null || channel in it.channels) }
     }
 
     /** The bar under a channel's name: its next event and how many more. */
@@ -742,7 +814,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun eventPlaces(channel: String): List<String> {
         val recent = calendar.sortedByDescending { it.ev.createdAt }
         val out = LinkedHashSet<String>()
-        for (e in recent) if (e.channel == channel && !e.location.isNullOrEmpty()) out.add(e.location)
+        for (e in recent) if (channel in e.channels && !e.location.isNullOrEmpty()) out.add(e.location)
         for (e in recent) if (!e.location.isNullOrEmpty()) out.add(e.location)
         return out.toList()
     }

@@ -93,6 +93,8 @@ data class Message(
     val special: Special = Special.None,
     /** Uploaded through a drop box link (`client belfry-drop`): name it "Drop box" when the key has no profile. */
     val viaDropBox: Boolean = false,
+    /** The events it shows as cards under its text (its `a` tags and its event URLs, at most three). */
+    val eventRefs: List<EventRef> = emptyList(),
 ) {
     val id get() = ev.id
     val pubkey get() = ev.pubkey
@@ -179,9 +181,10 @@ enum class Rsvp(val key: String, val label: String) {
 }
 
 data class CalEvent(
-    /** kind:pubkey:d */
+    /** kind:creator:d */
     val coord: String,
     val d: String,
+    /** The version that counts (rule B for Belfry events: the newest by a host). */
     val ev: Event,
     val title: String,
     val description: String,
@@ -190,16 +193,42 @@ data class CalEvent(
     /** Unix seconds (an all-day event: midnight in the context's zone). */
     val start: Long,
     val end: Long?,
-    /** Its own chat (`ws-…`). */
+    /** Its own chat (`ev-<d>` for Belfry events, `ws-…` for the older ones). */
     val groupId: String,
     /** Online meeting links (`r` tags, https only). */
     val links: List<String>,
-    /** The channel it was posted in. */
-    val channel: String,
+    /** The channels its card was sent in (messages with its `a` tag or its URL); not its own chat. May be empty. */
+    val channels: List<String>,
     val rsvps: Map<String, Rsvp>,
+    /** Each person's RSVP event (for "Still going?"). */
+    val rsvpEvents: Map<String, Event> = emptyMap(),
+    /** The time zone it was set in (NIP-52 `start_tzid`). */
+    val tz: String? = null,
+    /** A Belfry event (`d` = <year>-<6>, group `ev-<d>`, its own URL), not an older session. */
+    val isNew: Boolean = false,
+    val creator: String = ev.pubkey,
+    /** The creator and the admins of its group. */
+    val hosts: Set<String> = setOf(creator),
+    val cover: String? = null,
+    val visibility: Visibility = Visibility.MEMBERS,
+    val slug: String? = null,
+    val status: EventStatus = EventStatus.SCHEDULED,
+    val statusReason: String? = null,
+    /** Every host's version seen, oldest first. */
+    val versions: List<Event> = listOf(ev),
+    /** Who is going: accepted RSVPs, plus (Belfry events) ticket holders who did not say otherwise. */
+    val goingKeys: List<String> = rsvps.filterValues { it == Rsvp.ACCEPTED }.keys.toList(),
+    /** Read from the belfry's API (a guest can't read the community relay). */
+    val remote: Boolean = false,
+    /** The count the API gave (remote events), else the size of [goingKeys]. */
+    val goingCount: Int = goingKeys.size,
 ) {
-    val going: Int get() = rsvps.values.count { it == Rsvp.ACCEPTED }
+    val going: Int get() = goingCount
     val author: String get() = ev.pubkey
+    /** The last part of its URL: its custom name, else its id. */
+    val link: String get() = slug ?: d
+    /** The first channel its card is in ("general" when none). */
+    val channel: String get() = channels.firstOrNull() ?: "general"
 }
 
 enum class ProposalStatus(val key: String, val label: String) {

@@ -43,7 +43,7 @@ class CardsShotsTest : DemoShots() {
     @Before
     fun clean() = ReplyQueue.reset()
 
-    private val eventCoord: String get() = world.calendar.first().coord
+    private val eventCoord: String get() = world.calendar.first { !it.isNew }.coord
     private val proposalGroup: String get() = world.proposals.first().groupId
     private fun card(channel: String, pick: (Message) -> Boolean): Message = world.messages(channel).first(pick)
     private val inboxCard: Message get() = card(hello) { it.special is Special.InboxCard }

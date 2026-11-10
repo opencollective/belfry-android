@@ -46,7 +46,7 @@ class CardsBehaviourTest : DemoShots() {
     @Test
     fun rsvpCannotDoubleFireAndShowsMyAnswer() {
         started()
-        val coord = world.calendar.first().coord
+        val coord = world.calendar.first { !it.isNew }.coord
         val before = mine(31925)
         compose.setContent { BelfryTheme { InDemo { EventScreen(coord) } } }
         tap("rsvp-accepted")

@@ -470,8 +470,15 @@ class EngineTest {
         assertEquals(2, w.pods(Demo.GENERAL).size)
         assertEquals(1, w.group(Demo.POD_CLOSED)?.applications?.size)
         assertTrue(w.group(Demo.POD_CLOSED)?.closed == true)
-        val cal = w.calendar.single()
+        assertEquals(3, w.calendar.size, w.calendar.map { it.title }.toString())
+        val cal = w.calendar.single { !it.isNew }
         assertEquals("Spring dinner", cal.title)
+        val swap = w.calendar.single { it.d == Demo.SWAP_D }
+        assertEquals(listOf(Demo.GARDEN), swap.channels)
+        assertEquals(Demo.SWAP_SLUG, swap.link)
+        val repair = w.calendar.single { it.d == Demo.REPAIR_D }
+        assertTrue(w.me in repair.hosts)
+        assertEquals(listOf(Demo.GENERAL), repair.channels)
         assertEquals(3, cal.going)
         assertNotNull(w.nextEvent(Demo.GENERAL, now))
         val p = w.proposals.single()

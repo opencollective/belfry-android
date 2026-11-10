@@ -120,7 +120,7 @@ class ChannelLineTest {
         evDrafts.forEachIndexed { i, d -> events.add(ev(admin, now - 1400 + i, d)) }
         line = world(events).channelLine(g, now)
         assertEquals(LineIcon.EVENT, line.icon)
-        assertEquals("Going?", line.pill)
+        assertEquals("RSVP", line.pill)
         assertEquals(LineAction.OpenEvent(coord), line.action)
         assertTrue(line.counts.any { it.kind == "proposals" && it.n == 1 && !it.plus })
         // a pinned message comes before an event I answered…

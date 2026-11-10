@@ -65,7 +65,10 @@ data class SavedSession(
         put("bunkerUrl", JsonPrimitive(bunkerUrl))
         put("clientSecret", JsonPrimitive(clientSecret))
         put("pubkey", JsonPrimitive(pubkey))
-        if (guest != null) put("guest", buildJsonObject { put("channel", JsonPrimitive(guest.channel)); put("saved", JsonPrimitive(guest.saved)) })
+        if (guest != null) put("guest", buildJsonObject {
+            put("channel", JsonPrimitive(guest.channel)); put("saved", JsonPrimitive(guest.saved))
+            if (guest.coHost != null) put("cohost", JsonPrimitive(guest.coHost))
+        })
         if (demo) put("demo", JsonPrimitive(true))
     }.toString()
 
@@ -78,7 +81,7 @@ data class SavedSession(
             val g = o["guest"].obj()
             return SavedSession(
                 community, o.s("bunkerUrl") ?: "", secret, pubkey,
-                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false) },
+                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false, it.s("cohost")?.takeIf { t -> InviteLink.isToken(t) }) },
                 demo = o["demo"].bool() ?: false,
             )
         }
@@ -224,7 +227,7 @@ class Onboarding(
             if (e.code == "session_taken") vault.remove(V_JOIN_KEY)
             throw OnboardingException(e.code, e.message ?: "Joining did not work just now. Try again.")
         }
-        val s = open(invitation.community, joined.bunkerUrl, secret, joined.pubkey, GuestInfo(joined.channel, false))
+        val s = open(invitation.community, joined.bunkerUrl, secret, joined.pubkey, GuestInfo(joined.channel, false, if (joined.emailNeeded) token else null))
         vault.remove(V_JOIN_KEY)
         pendingInvite = null
         s

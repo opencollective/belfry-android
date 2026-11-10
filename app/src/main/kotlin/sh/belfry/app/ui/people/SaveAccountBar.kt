@@ -44,11 +44,14 @@ fun SaveAccountBar(session: Session) {
     var step by rememberSaveable { mutableStateOf("line") }
     var email by rememberSaveable { mutableStateOf("") }
     val g = guest ?: return
-    if ((g.saved && step != "done") || hidden) return
+    // a co-host link opened by someone new: the bar shows at once, with its reason (events)
+    val cohost = g.coHost != null
+    if ((g.saved && step != "done") || (hidden && !cohost)) return
     val me = session.me
     val acted = world.all.any { it.pubkey == me && (it.kind == 9 || it.kind == 1111 || it.kind == 7) }
-    if (!acted) return
+    if (!acted && !cohost) return
     SaveAccountFlow(
+        line = if (cohost) COHOST_LINE else SAVE_LINE,
         step = step,
         email = email,
         onEmail = { email = it },
@@ -79,6 +82,9 @@ fun SaveAccountCard(session: Session) {
     )
 }
 
+private const val SAVE_LINE = "Save your account: add your e-mail to come back from any device."
+private const val COHOST_LINE = "You were invited as a co-host: save your account with your e-mail to become one."
+
 /** The steps, without a session: `line` → `email` → `code` → `done`. */
 @Composable
 fun SaveAccountFlow(
@@ -90,6 +96,7 @@ fun SaveAccountFlow(
     onStart: () -> Unit,
     onHide: (() -> Unit)?,
     bar: Boolean = true,
+    line: String = SAVE_LINE,
 ) {
     val c = Belfry.colors
     var code by rememberSaveable { mutableStateOf("") }
@@ -100,7 +107,7 @@ fun SaveAccountFlow(
         Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
             when (step) {
                 "line" -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Save your account: add your e-mail to come back from any device.", fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
+                    Text(line, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(10.dp))
                     BusyButton("Save", onClick = { onStart() }, small = true)
                     if (onHide != null) IconAction(BelfryIcons.Close, "Not now", onHide)
