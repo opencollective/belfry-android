@@ -116,6 +116,10 @@ class EventsService internal constructor(private val s: Session) {
 
     /** Going / Maybe / Can't go: a member's on the community relay; a guest's in the event's group. */
     suspend fun rsvp(e: CalEvent, status: Rsvp, ticketD: String? = null) {
+        // the same answer again (a second tap before the screen caught up): nothing to send
+        val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
+        val had = now.rsvpEvents[s.me]
+        if (now.rsvps[s.me] == status && (ticketD == null || had?.tags?.any { it.size >= 2 && it[0] == "ticket" && it[1] == ticketD } == true)) return
         s.send(EventActions.rsvp(e, status, s.me, ticketD, onGroups = amGuest || e.remote, eventPending = world.isPending(e.ev.id)))
     }
 

@@ -9,12 +9,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import sh.belfry.app.ui.cards.CoHostSheet
 import sh.belfry.app.ui.cards.CreateEventScreen
 import sh.belfry.app.ui.cards.EventCardView
+import sh.belfry.app.ui.cards.EventRefCard
+import sh.belfry.core.model.EventRef
 import sh.belfry.app.ui.cards.EventScreen
 import sh.belfry.app.ui.cards.EventsScreen
 import sh.belfry.app.ui.cards.GuestListSheet
@@ -41,6 +46,8 @@ class EventsTest : DemoShots() {
             // gone between the check and the tap
         }
     }
+
+    private fun field(tag: String) = compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag(tag)))
 
     private fun mine(kind: Int, pred: (sh.belfry.core.nostr.Event) -> Boolean = { true }): Int = world.all.count { it.kind == kind && it.pubkey == session.me && pred(it) }
 
@@ -119,7 +126,7 @@ class EventsTest : DemoShots() {
         started()
         val e = swap
         val before = mine(31925) { it.tags.any { t -> t.size >= 2 && t[0] == "a" && t[1] == e.coord } }
-        compose.setContent { BelfryTheme { InDemo { EventCardView(swap, null) } } }
+        compose.setContent { BelfryTheme { InDemo { EventRefCard(EventRef(coord = e.coord)) } } }
         tap("card-going")
         tap("card-going")
         tap("card-maybe")
@@ -149,7 +156,7 @@ class EventsTest : DemoShots() {
         val t = world.tickets(e).single()
         val before = mine(9021)
         compose.setContent { BelfryTheme { InDemo { TakeSheet(e, listOf(t), world.eventPeople(e), t, {}, {}) } } }
-        compose.onNodeWithTag("take-answer").performTextInput("I can fix lamps.")
+        field("take-answer").performTextInput("I can fix lamps.")
         tap("take-submit")
         tap("take-submit")
         tap("take-submit")
@@ -183,7 +190,7 @@ class EventsTest : DemoShots() {
     fun aNewEventFromAChannelPutsItsUrlInTheComposer() {
         started()
         compose.setContent { BelfryTheme { InDemo { CreateEventScreen(Demo.KITCHEN) } } }
-        compose.onNodeWithTag("event-title").performTextInput("Soup night")
+        field("event-title").performTextInput("Soup night")
         tap("create-submit")
         tap("create-submit")
         compose.waitUntil(10_000) { world.calendar.any { it.title == "Soup night" } }

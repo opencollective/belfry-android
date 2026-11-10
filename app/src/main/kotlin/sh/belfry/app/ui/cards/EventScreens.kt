@@ -498,8 +498,11 @@ internal fun RsvpControl(mine: Rsvp?, busy: BusyState, onAnswer: suspend (Rsvp) 
                     .border(1.dp, if (on) c.accent else c.line, shape)
                     .alpha(if (busy.busy && tapped != s) 0.5f else 1f)
                     .clickable(enabled = !busy.busy, role = Role.Button) {
-                        tapped = s
-                        busy.run { onAnswer(s) }
+                        // the answer I gave already: nothing to send again
+                        if (mine != s) {
+                            tapped = s
+                            busy.run { onAnswer(s) }
+                        }
                     }
                     .testTag("rsvp-" + s.key)
                     .padding(horizontal = 6.dp, vertical = 10.dp),

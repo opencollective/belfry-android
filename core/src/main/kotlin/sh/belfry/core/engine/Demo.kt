@@ -251,7 +251,7 @@ object Demo {
             post(kofi, d1 + 6500, Actions.rsvp(cal, Rsvp.DECLINED, kofi.pubkey))
         }
         // ---- Belfry events: ev-<d> groups, their URL sent in a channel ------------------------------
-        val swapStart = ((now + 4 * day) / day) * day + 11 * h
+        val swapStart = ((now + 8 * day) / day) * day + 11 * h
         val swap = EventForm(
             title = "Seed swap", description = "Bring seeds in **paper envelopes**, labelled. Take what you will sow.",
             start = swapStart, end = swapStart + 2 * h, tz = "UTC", location = "By the greenhouse", visibility = Visibility.PUBLIC, slug = SWAP_SLUG,

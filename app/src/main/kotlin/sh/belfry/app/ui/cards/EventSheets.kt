@@ -5,9 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -157,7 +155,7 @@ internal fun TicketsSheet(e: CalEvent, onDismiss: () -> Unit) {
     val form = editing
     if (form != null) {
         BelfrySheet(onDismiss = onDismiss, title = if (form.id != null) "Edit the ticket" else "New ticket") {
-            Column(Modifier.padding(bottom = 16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 BelfryTextField(form.title, { editing = form.copy(title = it.take(120)) }, Modifier.fillMaxWidth().testTag("ticket-name"), label = "Name", placeholder = "e.g. Standard, Speaker, Volunteer")
                 BelfryTextField(form.summary, { editing = form.copy(summary = it.take(300)) }, Modifier.fillMaxWidth(), label = "Summary")
                 BelfryTextField(
@@ -230,7 +228,7 @@ internal fun GuestListSheet(e: CalEvent, onDismiss: () -> Unit) {
         Column(Modifier.padding(bottom = 16.dp)) {
             Tabs(listOf("Going ${going.size}", "Asking ${asking.size}", "Waitlist ${waiting.size}", "Others"), tab, { tab = it }, Modifier.testTag("guest-tabs"))
             error?.let { ErrorLine(it, Modifier.padding(top = 8.dp)) }
-            Column(Modifier.padding(top = 8.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.padding(top = 8.dp)) {
                 when (tab) {
                     0 -> if (going.isEmpty()) Muted("Nobody yet.") else for (k in going) {
                         PersonRow(k, titleOf(p.holders[k]), k in e.hosts, k in guests) {
