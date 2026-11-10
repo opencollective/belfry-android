@@ -232,7 +232,11 @@ data class Proposal(
 }
 
 data class TaskComment(val author: String, val text: String, val at: Long)
-data class Task(val id: String, val title: String, val author: String, val assignee: String?, val done: Boolean, val pending: Boolean, val comments: List<TaskComment>)
+data class Task(
+    val id: String, val title: String, val author: String, val assignee: String?, val done: Boolean, val pending: Boolean, val comments: List<TaskComment>,
+    /** The message it was made from ("Turn into a to-do"): its `q` tag. */
+    val source: String? = null,
+)
 
 data class Active(val pubkey: String, val at: Long)
 

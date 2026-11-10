@@ -66,7 +66,12 @@ import sh.belfry.core.model.Media
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.Reaction
 import sh.belfry.core.model.Special
+import sh.belfry.core.model.Actions
+import sh.belfry.core.model.Task
 import sh.belfry.core.model.ThreadInfo
+import sh.belfry.core.model.todoChip
+import sh.belfry.app.ui.kit.MoreIcons
+import sh.belfry.app.ui.kit.Spinner
 import sh.belfry.core.outbox.Attachment
 import sh.belfry.core.outbox.Outbox
 import sh.belfry.core.outbox.OutboxStatus
@@ -91,6 +96,10 @@ fun MessageRow(
     threadOpen: Boolean = false,
     onToggleThread: (() -> Unit)? = null,
     onOpenThread: (() -> Unit)? = null,
+    /** Pinned as the channel's notice: shows the pin mark. */
+    pinned: Boolean = false,
+    /** The to-do made from this message: shows the mark that ticks it off. */
+    todo: Task? = null,
 ) {
     val c = Belfry.colors
     val world = LocalWorld.current
@@ -147,6 +156,13 @@ fun MessageRow(
                     Text("Announcement", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.orange)
                 }
             }
+            if (pinned) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp, bottom = 2.dp)) {
+                    Icon(BelfryIcons.Pin, contentDescription = null, tint = c.orange, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Pinned", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.orange)
+                }
+            }
             m.created?.let { Text("Created $it", fontSize = 14.sp, color = c.muted) }
             if (m.special == Special.None) {
                 if (m.text.isNotEmpty()) MarkdownText(m.text, onTopic = { chat.topic = it })
@@ -162,6 +178,7 @@ fun MessageRow(
             if (pending != null) for (a in pending.attachments) PendingAttachment(a, session, chat)
             val reactions = world.reactionsOf(groupId, m.id)
             if (reactions.isNotEmpty()) Reactions(groupId, m, reactions, chat)
+            if (todo != null) TodoChip(groupId, todo)
             if (thread != null && thread.count > 0 && onToggleThread != null) {
                 ThreadChips(thread, threadOpen, onToggleThread, onOpenThread)
             }
@@ -180,6 +197,30 @@ fun MessageRow(
                 }
             }
         }
+    }
+}
+
+/** The to-do made from a message: tap to tick it off (or back). Locks while it is being sent. */
+@Composable
+private fun TodoChip(groupId: String, todo: Task) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val session = LocalSession.current
+    val busy = rememberBusy()
+    val shape = RoundedCornerShape(8.dp)
+    Row(
+        Modifier.padding(top = 4.dp, bottom = 2.dp).clip(shape).background(if (todo.done) c.surface else Color.Transparent).border(1.dp, c.line, shape)
+            .clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = if (todo.done) "Done. Mark as not done" else "To do. Mark as done") {
+                busy.run { session.send(Actions.taskAction(groupId, todo.id, if (todo.done) "undone" else "done")) }
+            }
+            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .testTag("todo-" + todo.id),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (busy.busy) Spinner(size = 15.dp, color = c.muted)
+        else Icon(if (todo.done) MoreIcons.Todo else BelfryIcons.Clock, contentDescription = null, tint = if (todo.done) c.text else c.muted, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(world.todoChip(todo), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (todo.done) c.muted else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

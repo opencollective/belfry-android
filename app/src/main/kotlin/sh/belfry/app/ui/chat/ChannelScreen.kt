@@ -1,6 +1,27 @@
 package sh.belfry.app.ui.chat
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import sh.belfry.app.ui.kit.BelfryTextField
+import sh.belfry.app.ui.kit.MoreIcons
+import sh.belfry.core.model.Actions
+import sh.belfry.core.model.Task
+import sh.belfry.core.model.pinned
+import sh.belfry.core.model.todosBySource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,7 +38,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
@@ -45,7 +65,6 @@ import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BelfrySheet
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.ButtonKind
-import sh.belfry.app.ui.kit.Chip
 import sh.belfry.app.ui.kit.DaySeparator
 import sh.belfry.app.ui.kit.EmptyState
 import sh.belfry.app.ui.kit.Hairline
@@ -67,8 +86,9 @@ import sh.belfry.core.model.Message
 import sh.belfry.core.model.Topics
 
 /**
- * A channel: its top bar (☰ · name and "N active members this month" · search · follow), the
- * feed anchored at the bottom, and the composer. [focusMessage] scrolls to a message and
+ * A channel: its top bar (☰ · name · search · follow), the one summary line under the name
+ * (pulled down for the rest: [SummaryLine], [PullDown]), the feed anchored at the bottom, and
+ * the composer. [focusMessage] scrolls to a message and
  * highlights it briefly (search results, links); [onFocusDone] is called once it did.
  */
 @Composable
@@ -100,13 +120,15 @@ fun ChannelScreen(
     val list = rememberLazyListState()
     var highlight by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(focusMessage, rows.size) {
-        if (focusMessage != null) {
-            val i = reversed.indexOfFirst { it.item.key == focusMessage }
+    val focus = focusMessage ?: chat.focus
+    LaunchedEffect(focus, rows.size) {
+        if (focus != null) {
+            val i = reversed.indexOfFirst { it.item.key == focus }
             if (i >= 0) {
                 list.scrollToItem(i)
-                highlight = focusMessage
-                onFocusDone()
+                highlight = focus
+                if (focusMessage != null) onFocusDone()
+                chat.focus = null
                 delay(1800)
                 highlight = null
             }
@@ -116,14 +138,37 @@ fun ChannelScreen(
     val lastKey = rows.lastOrNull()?.item?.key
     LaunchedEffect(lastKey) {
         val last = rows.lastOrNull()?.item
-        if (last is FeedItem.Msg && last.m.pubkey == world.me && world.isPending(last.m.id) && focusMessage == null) list.scrollToItem(0)
+        if (last is FeedItem.Msg && last.m.pubkey == world.me && world.isPending(last.m.id) && focus == null) list.scrollToItem(0)
+    }
+
+    // "Got it, hide" on a pinned message is remembered on the device.
+    LaunchedEffect(groupId) {
+        val saved = withContext(Dispatchers.IO) { session.store.get(K_HIDDEN_PINS) }.orEmpty().split(',').filter { it.isNotEmpty() }
+        chat.hiddenPins = chat.hiddenPins + saved
+    }
+    LaunchedEffect(chat.hiddenPins) {
+        if (chat.hiddenPins.isNotEmpty()) withContext(Dispatchers.IO) { session.store.set(K_HIDDEN_PINS, chat.hiddenPins.toList().takeLast(200).joinToString(",")) }
+    }
+    BackHandler(enabled = chat.lineOpen) { chat.lineOpen = false }
+
+    val pinnedIds = remember(world, groupId) { world.pinned(groupId).map { it.id }.toSet() }
+    val todos = remember(world, groupId) { world.todosBySource(groupId) }
+    // A message right after one that is still queued or was refused starts its own block, so the
+    // "Waiting for connection…" / "Not sent" line never sits between two texts of one block.
+    val afterPending = remember(rows, world) {
+        val out = HashSet<String>()
+        for (i in 1 until rows.size) {
+            val prev = rows[i - 1].item
+            val cur = rows[i].item
+            if (prev is FeedItem.Msg && cur is FeedItem.Msg && world.isPending(prev.m.id)) out.add(cur.key)
+        }
+        out
     }
 
     Column(modifier.fillMaxSize().background(c.bg).imePadding()) {
         TopBar(
             title = g?.name ?: groupId,
-            subtitle = if (g != null) world.activeLine(groupId, now) else null,
-            onTitleClick = { nav.go(Routes.channelInfo(groupId)) },
+            onTitleClick = { chat.lineOpen = !chat.lineOpen },
             navigation = if (onMenu != null) {
                 { IconAction(BelfryIcons.Menu, "Channels", onMenu, badge = dms.unreadTotal) }
             } else null,
@@ -132,10 +177,12 @@ fun ChannelScreen(
                 IconAction(BelfryIcons.Bell, "Follow this channel", { nav.go(Routes.follow(groupId)) })
             },
         )
-        Hairline()
+        if (g != null) {
+            SummaryLine(groupId, chat, now)
+            Hairline()
+        }
         status.banner?.let { Banner(it, kind = BannerKind.Warning) }
         ChannelBars(groupId)
-        TopicsBar(groupId, chat)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (rows.isEmpty()) {
@@ -152,8 +199,31 @@ fun ChannelScreen(
             } else {
                 LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp)) {
                     items(reversed, key = { it.item.key }) { row ->
-                        FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, now)
+                        FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, now, row.item.key in afterPending, row.item.key in pinnedIds, todos[row.item.key])
                     }
+                }
+            }
+            // The summary line pulled down: over the feed, under the top bar.
+            androidx.compose.animation.AnimatedVisibility(visible = chat.lineOpen, enter = fadeIn(), exit = fadeOut()) {
+                Box(
+                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Close the channel summary") { chat.lineOpen = false },
+                )
+            }
+            androidx.compose.animation.AnimatedVisibility(visible = chat.lineOpen && g != null, enter = expandVertically(), exit = shrinkVertically()) {
+                Column(Modifier.fillMaxWidth().background(c.bg)) {
+                    PullDown(groupId, chat, now, onShowMessage = { chat.focus = it }, modifier = Modifier.weight(1f, fill = false))
+                    // the handle: tap or drag up to close
+                    Box(
+                        Modifier.fillMaxWidth().height(22.dp)
+                            .pointerInput(Unit) {
+                                var moved = 0f
+                                detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = { if (moved < -16f) chat.lineOpen = false }) { _, dy -> moved += dy }
+                            }
+                            .clickable(role = Role.Button, onClickLabel = "Close the channel summary") { chat.lineOpen = false },
+                        contentAlignment = Alignment.Center,
+                    ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
+                    Hairline()
                 }
             }
         }
@@ -202,29 +272,13 @@ fun ChannelScreen(
         onOpenThread = { m -> nav.go(Routes.thread(groupId, m.id)) },
         onEdit = startEdit,
     )
-    if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false })
+    if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false }, onTodo = { chat.newTodo = true })
+    if (chat.newTodo) BelfrySheet(onDismiss = { chat.newTodo = false }, title = "New to-do") { NewTodoContent(groupId, onDone = { chat.newTodo = false }) }
     chat.viewer?.let { ImageViewer(it) { chat.viewer = null } }
 }
 
-/** Pinned topics as chips: tap one to see only its messages (and write in it). */
 @Composable
-private fun TopicsBar(groupId: String, chat: ChatState) {
-    val world = LocalWorld.current
-    val topics = world.topicsBar(groupId, chat.topic)
-    val announcements = world.hasAnnouncements(groupId)
-    if (topics.isEmpty() && !announcements && chat.topic == null) return
-    LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        item { Chip("All", selected = chat.topic == null, onClick = { chat.topic = null }) }
-        if (announcements || chat.topic == Topics.ANNOUNCE) {
-            item { Chip("Announcements", selected = chat.topic == Topics.ANNOUNCE, icon = BelfryIcons.Megaphone, onClick = { chat.topic = Topics.ANNOUNCE }) }
-        }
-        items(topics) { t -> Chip("#$t", selected = chat.topic == t, onClick = { chat.topic = if (chat.topic == t) null else t }) }
-    }
-    Hairline()
-}
-
-@Composable
-private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: sh.belfry.core.model.ThreadInfo?, highlight: Boolean, now: Long) {
+private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: sh.belfry.core.model.ThreadInfo?, highlight: Boolean, now: Long, ownBlock: Boolean, pinned: Boolean, todo: Task?) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current
@@ -235,10 +289,11 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                 val m = item.m
                 val open = chat.openThreads.containsKey(m.id)
                 MessageRow(
-                    groupId, m, row.first, chat,
+                    groupId, m, row.first || ownBlock, chat,
                     announcement = row.announcement, highlight = highlight, thread = thread, threadOpen = open,
                     onToggleThread = { chat.toggleThread(m.id) },
                     onOpenThread = { nav.go(Routes.thread(groupId, m.id)) },
+                    pinned = pinned, todo = todo,
                 )
                 if (open) {
                     InlineThread(groupId, m, chat, focus = chat.openThreads[m.id] == true, onHide = { chat.openThreads.remove(m.id) }, onOpen = { nav.go(Routes.thread(groupId, m.id)) })
@@ -284,13 +339,13 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
 
 /** ＋ : what can be added to the conversation, as a Discord-style list. */
 @Composable
-private fun PlusSheet(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit) {
+private fun PlusSheet(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, onTodo: () -> Unit) {
     val nav = LocalNav.current
-    BelfrySheet(onDismiss = onClose) { PlusSheetContent(groupId, admin, composer, onClose, nav::go) }
+    BelfrySheet(onDismiss = onClose) { PlusSheetContent(groupId, admin, composer, onClose, nav::go, onTodo) }
 }
 
 @Composable
-fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, go: (String) -> Unit) {
+fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, go: (String) -> Unit, onTodo: (() -> Unit)? = null) {
     ActionGroup {
         ActionRow("Photos", onClick = { onClose(); composer.pickPhotos?.invoke() }, icon = BelfryIcons.Image)
     }
@@ -300,6 +355,9 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
             ActionRow("Announcement", onClick = { onClose(); composer.announce = true; composer.focus?.invoke() }, icon = BelfryIcons.Megaphone, sub = "Stands out; followers get it by e-mail")
         }
         ActionRow("Event", onClick = { onClose(); go(Routes.createEvent(groupId)) }, icon = BelfryIcons.Calendar)
+        if (onTodo != null) {
+            ActionRow("To-do", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
+        }
         ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = "A text to discuss and vote on")
         ActionRow("Pod", onClick = { onClose(); go(Routes.createPod(groupId)) }, icon = BelfryIcons.Pod, sub = "A working group with its own channel")
         ActionRow("Drop box link", onClick = { onClose(); go(Routes.drop(groupId)) }, icon = BelfryIcons.Upload, sub = "Let anyone send photos and files here")
@@ -308,3 +366,24 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
 
 /** A snippet without Markdown marks (bold, italics, links stay as their text). */
 private fun unmarked(text: String): String = Markdown.text(Markdown.inline(text))
+
+/** "New to-do": something to get done, on the channel's list. */
+@Composable
+fun NewTodoContent(groupId: String, onDone: () -> Unit) {
+    val session = LocalSession.current
+    var title by remember { mutableStateOf("") }
+    BelfryTextField(title, { title = it.take(300) }, label = "What needs doing?", placeholder = "e.g. Book the room for Friday", modifier = Modifier.fillMaxWidth().testTag("todo-title"))
+    Spacer(Modifier.height(12.dp))
+    BusyButton(
+        "Add to the list",
+        onClick = {
+            session.send(Actions.addTask(groupId, title.trim()))
+            onDone()
+        },
+        modifier = Modifier.fillMaxWidth(), enabled = title.isNotBlank(),
+    )
+    Spacer(Modifier.height(10.dp))
+    Text("Everyone in the channel sees it under the channel's name. Anyone can take it or tick it off.", fontSize = 13.sp, color = Belfry.colors.muted)
+}
+
+private const val K_HIDDEN_PINS = "pins-hidden"

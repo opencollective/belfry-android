@@ -632,7 +632,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     fun tasks(groupId: String): List<Task> {
         val listId = listIdFor(groupId)
-        class T(val id: String, val title: String, val author: String, val pending: Boolean) {
+        class T(val id: String, val title: String, val author: String, val pending: Boolean, val source: String?) {
             var assignee: String? = null; var done = false; val comments = ArrayList<TaskComment>()
         }
         val tasks = LinkedHashMap<String, T>()
@@ -640,7 +640,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (e.kind !in 2100..2103 || e.t("t") != listId) continue
             if (e.kind == 2100) {
                 val title = e.content.jsTrim().sliceUnits(300)
-                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id))
+                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q"))
             } else if (e.kind != 2102) {
                 val t = tasks[e.t("e") ?: ""] ?: continue
                 if (e.kind == 2103) t.comments.add(TaskComment(e.pubkey, e.content.sliceUnits(2000), e.createdAt))
@@ -653,7 +653,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 }
             }
         }
-        return tasks.values.map { Task(it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments) }
+        return tasks.values.map { Task(it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source) }
     }
 
     // ---- calendar (NIP-52) ---------------------------------------------------------------------
