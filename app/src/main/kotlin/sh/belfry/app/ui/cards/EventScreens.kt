@@ -26,7 +26,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -182,7 +181,8 @@ internal fun EventCover(url: String, modifier: Modifier = Modifier) {
     val session = LocalSession.current
     val network = LocalNetworkImages.current
     if (url.startsWith(Session.LOCAL_BLOB)) {
-        val bitmap by produceState<ImageBitmap?>(null, url) { value = withContext(Dispatchers.Default) { session.localBlob(url)?.let { Photos.decodeBytes(it) } } }
+        var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+        LaunchedEffect(url) { bitmap = withContext(Dispatchers.Default) { session.localBlob(url)?.let { Photos.decodeBytes(it) } } }
         bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier) } ?: Box(modifier.background(Belfry.colors.surface2))
     } else if (url.startsWith("https://") && network) {
         AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier)

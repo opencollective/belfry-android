@@ -747,10 +747,10 @@ The line is the first of these that applies:
    N no" with my vote or a "Vote" pill; else "**<Status>** · version N · by <author>".
 3. A pod I may administer with applications: "**N people ask to join** · N members", "Review".
 4. An open proposal I have not voted on (voting, poll of the current version): its title, "Vote".
-5. An upcoming event I have not answered that starts within 7 days: "**<day> <time>** ·
-   <title>", "Going?".
+5. An upcoming event I have not answered (no state, 19.18; not cancelled) that starts within 7
+   days: "**<day> <time>** · <title>", "RSVP".
 6. A pinned message I did not hide: its first line without Markdown marks, mentions as "@…".
-7. The next event: as 5, with my answer ("Going", "Maybe", "Can't go") or "Going?".
+7. The next event: as 5, with my state ("Going", "Maybe", "Can't go", "Applied", "Hosting"…) or "RSVP".
 8. An open proposal: "**<title>** · <status>".
 9. A pod: "N members · open to join" / "by application" (shown muted).
 10. "N people active this month" / "1 person active this month" / "Nobody active this month
@@ -848,3 +848,70 @@ A file the storage refuses with a 4xx other than 401, 408 or 429 (error text
 `upload failed (<status>…)`) is **permanent**: the message is failed ("Not sent", Retry /
 Discard) and does not hold back later items to its relay. 401, 408, 429, 5xx and network errors
 stay retryable. (Web `sync.ts`, 1834584; `vectors/outbox.json` classify cases.)
+
+### 19.18 Belfry events (web belfry-chat ef9e1cc; server events.py; PROTOCOL.md)
+
+New events are **Belfry events**; the older `ws-` ones above are still read and answered.
+
+- **Ids.** `d` = `<year in UTC>-<6 of a-z0-9>` (matches `^\d{4}-[a-z0-9]{6}$`), never recomputed.
+  Its chat is the NIP-29 group `ev-<d>`; the creator is its admin, co-hosts are admins added
+  with 9000 `[["h",g],["p",pk,"admin"]]`. URL: `https://<domain>/events/<link>`, link = the
+  custom name (`slug` tag, `^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$`, not shaped like a `d`, not
+  `new|slug|feed|past|mine`) or `d`.
+- **Make.** 9007 `[["h",g]]`; 9002 `[["h",g],["name",title],["about",first line[:200] or "The
+  event’s chat"],["picture",cover]?,["open"|"closed"]]`; on the community relay 31923 / 31922
+  `[["d",d],["title",…],["h",g,<groups relay>],["visibility","members"|"link"|"public"],
+  ["start",…],["start_tzid",tz]?,["end",…]?,["end_tzid",tz]?,["location",…]?,["r",https]?,
+  ["image",cover]?,["slug",…]?]`, content = Markdown description. No post in any channel: the
+  URL is sent like any message. Then `PUT <api>/events/<d>/slug {"slug"}` (409 `taken`).
+  Android adds, when "by application" is picked, one ticket type (below) `closed` with the
+  question and the group `closed`.
+- **Rule B.** Versions are grouped by `d` (any author). Hosts = the group's creator (first 9007)
+  ∪ its admins (39001, 9007, 9000 with role `admin`). Versions not signed by a host are ignored;
+  the newest host version counts; the coordinate stays `<kind of the creator's>:<creator>:<d>`.
+  A host's edit = a new version (keeps `status cancelled` while cancelled) + a 9002 when the
+  name or picture changed.
+- **Status.** NIP-32 kind 1985 in the group `[["h",g],["L","belfry/event-status"],["l",
+  "cancelled"|"scheduled","belfry/event-status"],["a",coord]]`, content = a line for the guests
+  (500), plus a new version with / without `["status","cancelled"]`. Reading: the latest label by
+  a host wins when it is as new as the version, or when the version says scheduled.
+- **Ticket types.** NIP-99 kind 30402 on the community relay `[["d","<d>:<id>"],["a",coord,relay],
+  ["h",g],["title",…],["t","ticket"],["position",n],["summary",…]?,["quantity",n]?,
+  ["closed"]+["prompt",q]?,["members"]?]`, no price in v1; latest per `d` by a host; deleted by a
+  host's kind 5 `a` ending in `:<d:id>`. None: the implicit open ticket `<d>:free`. A closed ticket
+  closes the group (9002 `closed`), the last one gone opens it.
+- **People.** In the group, by time: 9000 with `ticket` puts a holder, a later 9001 takes them out
+  (declined when out after the last decision); 9021 (`ticket`, `waitlist`?, content = answer) is an
+  application until a decision or a 9022 after it. Going = holders ∪ accepted RSVPs, minus those
+  whose RSVP says otherwise. A 9021 with `ticket` or `waitlist` is not a join of the group.
+- **Where I stand** (first match): declined; holder (Maybe / Can't go by my RSVP, else going);
+  applied / waitlist; my RSVP; host; none. API events add `me` from the answer.
+- **RSVP.** 31925 as above plus `["ticket",d]` when one is held; a guest's (or one for an API
+  event) goes on the groups relay with `["h",g]` and no `e`. "Still going?": my RSVP's `e` (else the
+  version before it) differs from the current one in start, end or location.
+- **Take / apply / decide.** Member + implicit ticket: RSVP. Else `POST <api>/events/<d>/join
+  {"ticket"}` (codes `full`, `needs_application`, `members_only`, `cancelled`, `ended`,
+  `no_ticket`, `too_many`, `relay`). Apply: a member sends the 9021; a guest signs it and `POST
+  <api>/events/<d>/apply {"ticket","request":<signed 9021>}`. Decide: a member host 9000
+  `[["h",g],["p",pk,"member"],["ticket",t],["paid","free"],["a",coord],["e",application]?]` /
+  9001; a guest host `POST <api>/events/<d>/decide {"pubkey","action":"approve"|"decline",
+  "ticket"?}` (403 `not_host`).
+- **Read through the API.** `GET <api>/events/<link>` (NIP-98): 403 `members_only`, 404
+  `not_found`; the answer has `d, coord, kind, group, link, url, title, description, all_day,
+  start, end (ISO), tz, location, online, links (only to those in it), cover (the page's
+  /cover), visibility, status, status_reason, hosts [{pubkey,name}], tickets [{d,id,title,
+  summary,quantity,left,closed,prompt,members,position,implicit}], going, community, me`.
+  Cached a minute. `GET <api>/events/slug?name=&event=` → `{free, suggestion, problem?}`.
+- **Cards.** A message's cards = its `a` tags naming 31922/31923 (up to three) and the URLs of
+  this belfry's events in its text, deduplicated by `d`; sending a text with such URLs adds
+  `["a",coord,<community relay>]` for the ones known. An event's channels = every channel a
+  non-deleted kind 9 with its `a` tag or URL is in (not its own chat). The older "📅 …" post
+  with only the `a` tag stays the card alone.
+- **Co-host link.** `POST <channel invites> {"channel":g,"role":"host","people":1,
+  "link_days":1}`. Used by an account: it becomes an admin of `g`. Used by someone new: they join
+  as a guest and the answer has `email_needed: true`; once their e-mail is saved and proven, the
+  client posts `…/channel-invites/<token>/join` again with the account.
+- **Lists.** Past = ends before today 00:00 local; Mine = not past and my state is not none /
+  declined / can't go (includes hosting); Your events (drawer) = Belfry events I host or hold /
+  ask a place at, ending at most 30 days ago.
+

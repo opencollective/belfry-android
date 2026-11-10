@@ -40,7 +40,7 @@ in the real world.
 
 | Web feature | Status | Notes |
 |---|---|---|
-| ☰ channel drawer (push drawer), Messages with unread count, you at the bottom | done | `ModalNavigationDrawer`; channel tree with pod shapes; "All events". |
+| ☰ channel drawer (push drawer), Messages with unread count, you at the bottom | done | `ModalNavigationDrawer`; channel tree with pod shapes; "All events"; "Your events". |
 | Laptop layout (≥ 900 px: list stays) | partial | Permanent drawer at ≥ 840 dp: compiled, never rendered or tried. |
 | Thread in a third column on large screens (≥ 1200 px) | partial | ≥ 1200 dp: 400 dp column with a close button, another thread replaces it. Compiled, never rendered (no wide screenshot). The web's "Open thread" caret and active-row mark are not here. |
 | Back arrows are hierarchical, never push | done | `popBackStack` only; predictive back enabled in the manifest (untried on a device). |
@@ -98,9 +98,29 @@ in the real world.
 
 | Web feature | Status | Notes |
 |---|---|---|
-| Event card, events list (Going / Maybe / All, past folded) | done | The answer reads "Going". |
-| Event page: RSVP, folds to the answer, people by answer, meeting link, open chat, delete | partial | The web's Chat / To-dos / Files tabs inside the page are not here (the chat is its own channel, one tap away). Behaviour test: RSVP fires once. |
-| Create event: all day, date / time pickers, place suggestions, Jitsi link | partial | No "New Google Meet" link. The date picker's header looked too wide in the render (unknown whether real). |
+| Older events (`ws-` chats, 📅 post): card, page, RSVP, delete | done | Still read and answered; new events are made as Belfry events. |
+| Pods, proposals, create channel / proposal | see below | |
+
+## Belfry events (web belfry-chat 605d9c7 → ef9e1cc; SPEC 19.18)
+
+| Web feature | Status | Notes |
+|---|---|---|
+| Event model: `d` = year-6, group `ev-<d>`, rule B (newest version by a host), status label, versions, visibility, slug, cover, channels its card is in | done | `core/model/Events.kt` + `World.calendar`; JVM tests `EventsTest` (rule B, holders, applications, declined, places, status, still going, cards from URLs, API answer). |
+| Cards from URLs: a message with `https://<domain>/events/<link>` gets the event's `a` tag when sent and shows up to three cards; receivers resolve URLs without the tag (guests through the belfry's API) | done | `EventCards` under the message text; the older 📅 post stays the card alone. Going / Maybe in one tap on the card for the plain RSVP, else an "RSVP" / "Apply" mark. Behaviour test: one tap, one answer. |
+| All events: Upcoming / Mine (includes hosting) / Hosting / Past; New event | done | Rows with cover or date chip, "Cancelled" badge, my state · N going. |
+| "Your events" in the drawer (replaces "Event chats") | done | Hosting or holding a place, upcoming and up to 30 days after. Older `ws-` chats are no longer listed in the drawer (as on the web); they open from their event. |
+| Event page: cover, the one line (cancelled / changed · still going? Yes-No / N people ask · Review / my state / RSVP), when, where, online link (or "shows once you have a place"), my RSVP (Going / Maybe / Can't go, my application + Withdraw, declined), hosts, tickets, description, URL (copy, share, QR), guest list, the event's chat, edit | done | Android shows it as one page; the web pulls it down over the event's chat. The event's chat is its own channel one tap away, with a bar under its name back to the event. Behaviour test: RSVP on the line fires once. |
+| Take a ticket / apply with the ticket's question / waitlist when full / members-only tickets | done | Member + implicit ticket = RSVP; other open tickets: `POST /events/<d>/join` (demo: the groups key issues the 9000); applications: a 9021 to the group (a member) or signed and handed in through `POST /events/<d>/apply` (a guest). Behaviour test: one application. |
+| Hosts: guest list (Going / Asking / Waitlist / Others), approve / decline, make co-host | done | Members decide on the relay (9000 with `ticket` / 9001), a guest co-host through `POST /events/<d>/decide`, as the web. Approve and Decline share one lock. Behaviour test: one decision. |
+| Tickets sheet: name, summary, places, open / needs an application + question, members only; delete | done | A closing ticket closes the event's group (NIP-29 `closed`), as the web. |
+| Co-host invitation link (channel invite, `role: host`) with QR | done, never run live | Demo returns a fixed link. |
+| Co-host link opened by someone new: save-your-account bar at once with its reason, then the link is used again with the account | done, never run live | `email_needed` in the join answer → `GuestInfo.coHost`; after the code is verified, `joinWithAccount(token)`. |
+| Cancel (with a line for the guests) / reopen; delete (creator) | done | |
+| Create / edit: title, cover upload, all day, start / end, where (suggestions), online + Jitsi, Markdown description, who sees it (members / link / public), who can come (anyone / by application + question), URL checked as typed (`GET /events/slug`, `PUT /events/<d>/slug`) | partial | No time-zone picker: times are in the device's zone (written as `start_tzid`). Made from a channel's ＋, the URL goes into that channel's composer, nothing is posted (as the web). Behaviour test: one event, URL handed to the composer. |
+| Opening `https://<domain>/events/<link>` from outside the app | not yet | The web handles it at `chat.<domain>/#/events/<link>`, a fragment App Links can't match; no App Links host was added (assetlinks is only on `chat.<domain>`). Inside the app a card opens the page. |
+| Signed-out event page (RSVP with a name / apply with an e-mail, new guest identity) | not yet | The web's `EventJoinScreen`; Android has no way in without the link above. |
+| Event read through the API (guests): page, card, RSVP on the groups relay with `h` | done, never run live | Cached a minute; `members_only` / `not_found` → fixed messages. |
+| Prices, payments, check-in | not in v1 | Neither on the web. |
 | Pod card, pod page (about, access, requests, members, join / apply / leave), create pod | done | The pod page is Android's own (the web shows it in channel info). |
 | Proposal card and page: text, status, tally, vote, change status, new version | done | Behaviour test: one vote. Open proposals = draft, feedback, voting (SPEC 19.13 question). |
 | Create channel, create proposal | done | Create proposal also offers "Votes" as a start (the web: Draft, Feedback). |

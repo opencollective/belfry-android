@@ -13,7 +13,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Belfry events (SPEC 19.14): rule B, tickets, the people of an event, where I stand, cards from URLs. */
+/** Belfry events (SPEC 19.18): rule B, tickets, the people of an event, where I stand, cards from URLs. */
 class EventsTest {
     private val alice = "a".repeat(64) // creator
     private val bob = "b".repeat(64) // co-host

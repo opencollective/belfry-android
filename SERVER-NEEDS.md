@@ -79,3 +79,17 @@ at once, but a nonce tag accepted by the server would remove the edge case.
   profile may flip back until it catches up (same as `admins`, 6).
 - `/channel-invites` with `"agent": true` returns `days: 0`: the app does not show a duration for
   an own-agent link (it stays while its member does).
+
+## 9. Events (from the Android events work, 2026-11-10)
+
+- **Event links into the app.** The web opens events at `chat.<domain>/#/events/<link>`; a
+  fragment can't be matched by Android App Links, so `https://<domain>/events/<link>` and that
+  address open in the browser. Serving `https://chat.<domain>/events/<link>` (redirecting to the
+  fragment for the web) would let the app claim the path on the host that already has
+  `assetlinks.json`. Until then, there is no signed-out event screen on Android.
+- **Guest RSVPs on the groups relay** (kind 31925 with `h`): the app sends them as the web does;
+  please confirm zooid accepts 31925 in an `ev-` group from a guest.
+- **Covers** come back from the API as `https://<domain>/events/<link>/cover` for guests; members
+  read the Blossom URL from the event. Nothing to change; noted because the demo cannot show a
+  real cover.
+

@@ -12,7 +12,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 
 // Belfry events (collective-belfry work/events-design/PROTOCOL.md; the web chat's
-// src/core/events.ts at belfry-chat ef9e1cc). See SPEC.md 19.14.
+// src/core/events.ts at belfry-chat ef9e1cc). See SPEC.md 19.18.
 //
 //   event         NIP-52 31922 / 31923 on the community relay, `d` = <year>-<6 of a-z0-9>, its
 //                 chat = NIP-29 group ev-<d> (the hosts are its admins). Rule B: among the
