@@ -57,7 +57,7 @@ fun Avatar(
     Box(modifier.size(size).clip(shape).background(avatarColor(pubkey)), contentAlignment = Alignment.Center) {
         val initial = name.trim().firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()?.toString() ?: "?"
         Text(initial, color = Color(0xFF1A231D), fontWeight = FontWeight.Bold, fontSize = fontSize, lineHeight = fontSize)
-        if (picture != null && picture.startsWith("https://")) {
+        if (picture != null && picture.startsWith("https://") && LocalNetworkImages.current) {
             AsyncImage(model = picture, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
     }

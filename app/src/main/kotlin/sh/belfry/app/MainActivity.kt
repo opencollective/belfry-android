@@ -1,34 +1,47 @@
 package sh.belfry.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import sh.belfry.app.ui.kit.KitGallery
-import sh.belfry.app.ui.theme.Belfry
+import sh.belfry.app.ui.AppRoot
 import sh.belfry.app.ui.theme.BelfryTheme
+import sh.belfry.core.net.InviteLink
+import sh.belfry.core.net.SignIn
 
 class MainActivity : ComponentActivity() {
+    private val state: AppState get() = (application as BelfryApp).state
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        if (savedInstanceState == null) handle(intent)
+        state.boot()
         setContent {
-            BelfryTheme {
-                // Until the screens land: debug builds show the component gallery.
-                if (BuildConfig.DEBUG) {
-                    KitGallery.Page()
-                } else {
-                    Box(Modifier.fillMaxSize().background(Belfry.colors.bg), contentAlignment = Alignment.Center) {
-                        Text("Belfry", color = Belfry.colors.text)
-                    }
-                }
-            }
+            BelfryTheme { AppRoot(state) }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handle(intent)
+    }
+
+    /**
+     * Two kinds of links open the app. Only fixed, named values are read from them and none of
+     * their text is ever shown: the sign-in answer (`code`, `state`, `error`) and a guest link
+     * (its domain and token, checked by [InviteLink.parse]).
+     */
+    private fun handle(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        if (uri.scheme == SignIn.REDIRECT_SCHEME && uri.host == SignIn.REDIRECT_HOST) {
+            val q = { name: String -> try { uri.getQueryParameter(name) } catch (e: Exception) { null } }
+            state.onConnectCallback(q("code"), q("state"), q("error"))
+        } else if (uri.scheme == "https") {
+            InviteLink.parse(uri.toString())?.let { state.onInviteLink(it) }
         }
     }
 }

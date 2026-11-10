@@ -1,0 +1,156 @@
+package sh.belfry.app
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
+import org.junit.Test
+import sh.belfry.app.ui.chat.ChannelScreen
+import sh.belfry.app.ui.chat.ChatState
+import sh.belfry.app.ui.chat.ComposerState
+import sh.belfry.app.ui.chat.Photos
+import sh.belfry.app.ui.chat.ThreadScreen
+import sh.belfry.app.ui.shell.HomeScreen
+import sh.belfry.app.ui.shell.ShellState
+import sh.belfry.app.ui.signin.JoinContent
+import sh.belfry.app.ui.signin.NoAccessScreen
+import sh.belfry.app.ui.signin.SignInContent
+import sh.belfry.core.engine.Demo
+import sh.belfry.core.engine.Invitation
+import sh.belfry.core.model.FeedItem
+import sh.belfry.core.model.Mentions
+import sh.belfry.core.net.InviteInfo
+import sh.belfry.core.net.InviteLink
+
+/** The shell's screens in demo mode: sign-in, drawer, feed, threads, menus, composer. */
+class ShellShotsTest : DemoShots() {
+    private val general = Demo.GENERAL
+
+    @Test fun signIn() = shot("signin") { SignInContent("", {}, null, false, {}, {}) }
+
+    @Test fun signInError() = shot("signin-error") {
+        SignInContent("belfry.exmaple", {}, "No belfry answered at this address. Check the address and your connection.", false, {}, {})
+    }
+
+    @Test fun join() = shot("join") {
+        val invitation = Invitation(
+            InviteLink(Demo.DOMAIN, "demo-token-0123456789abcdef"), Demo.community(session.me),
+            InviteInfo(Demo.NAME, Demo.GARDEN, "garden", "Beds, compost, seeds and who waters when.", "Maya Okafor", "open", 30),
+        )
+        JoinContent(invitation, null, {}, {}, {})
+    }
+
+    @Test fun joinClosed() = shot("join-closed") {
+        val invitation = Invitation(
+            InviteLink(Demo.DOMAIN, "demo-token-0123456789abcdef"), Demo.community(session.me),
+            InviteInfo(Demo.NAME, Demo.GARDEN, "garden", "", "Maya Okafor", "expired", 30),
+        )
+        JoinContent(invitation, null, {}, {}, {})
+    }
+
+    @Test fun noAccess() = demoShot("no-access") { NoAccessScreen() }
+
+    @Test fun drawer() {
+        val shell = ShellState(general)
+        demoShot("drawer") { HomeScreen(shell, drawerOpen = true) }
+    }
+
+    /** The end of #general: the latest messages, the queued and the refused one. */
+    @Test fun feedEnd() = demoShot("feed") { ChannelScreen(general, onMenu = {}) }
+
+    /** Further up, opened on a message (as a search result does). */
+    @Test fun feedFocus() {
+        val rows = world.feedRows(general)
+        val target = rows[minOf(9, rows.size - 1)].item.key
+        demoShot("feed-earlier") { ChannelScreen(general, onMenu = {}, focusMessage = target) }
+    }
+
+    @Test fun otherChannels() {
+        demoShot("feed-garden") { ChannelScreen(Demo.GARDEN, onMenu = {}) }
+        // the shared inbox: e-mail cards
+    }
+
+    @Test fun inbox() = demoShot("feed-inbox") { ChannelScreen(Demo.HELLO, onMenu = {}) }
+
+    @Test fun inlineThread() {
+        val root = world.threadsOf(general).maxByOrNull { it.value.count }!!.key
+        val chat = ChatState(general).apply { openThreads[root] = false }
+        demoShot("thread-inline") { ChannelScreen(general, onMenu = {}, focusMessage = root, chat = chat) }
+    }
+
+    @Test fun threadScreen() {
+        val root = world.threadsOf(general).maxByOrNull { it.value.count }!!.key
+        demoShot("thread") { ThreadScreen(general, root) }
+    }
+
+    @Test fun messageMenu() {
+        val other = world.messages(general).last { it.pubkey != session.me && it.text.isNotEmpty() }
+        val chat = ChatState(general).apply { menu(other) }
+        demoScreenShot("message-menu") { ChannelScreen(general, onMenu = {}, chat = chat) }
+    }
+
+    @Test fun messageMenuMine() {
+        val mine = myMessage("I can bring the big pot for Thursday.")
+        val chat = ChatState(general).apply { menu(mine) }
+        demoScreenShot("message-menu-mine") { ChannelScreen(general, onMenu = {}, chat = chat) }
+    }
+
+    @Test fun deleteConfirm() {
+        val mine = myMessage("I can bring the big pot for Thursday.")
+        val chat = ChatState(general).apply { deleting = mine }
+        demoScreenShot("message-delete") { ChannelScreen(general, onMenu = {}, chat = chat) }
+    }
+
+    @Test fun mentionPicker() {
+        val composer = ComposerState().apply { value = TextFieldValue("Thanks @ma", TextRange(10)) }
+        demoShot("composer-mention") { ChannelScreen(general, onMenu = {}, composer = composer) }
+    }
+
+    @Test fun composerPhoto() {
+        val bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)
+        Canvas(bitmap).apply {
+            drawColor(Color.rgb(196, 210, 180))
+            drawCircle(460f, 150f, 70f, Paint().apply { color = Color.rgb(244, 220, 130) })
+            drawRect(0f, 330f, 640f, 480f, Paint().apply { color = Color.rgb(96, 140, 90) })
+        }
+        val composer = ComposerState().apply {
+            photos.add(Photos.fromBitmap(bitmap, "garden.jpg"))
+            value = TextFieldValue("The beans are up!", TextRange(17))
+        }
+        demoShot("composer-photo") { ChannelScreen(general, onMenu = {}, composer = composer) }
+    }
+
+    @Test fun editMode() {
+        val mine = myMessage("I can bring the big pot for Thurdsay.")
+        val chat = ChatState(general).apply { editing = mine }
+        val (text, picks) = Mentions.unsubstitute(mine.text) { world.realName(it) }
+        val composer = ComposerState().apply { set(text, picks) }
+        demoShot("message-edit") { ChannelScreen(general, onMenu = {}, chat = chat, composer = composer) }
+    }
+
+    @Test fun plusSheet() {
+        val chat = ChatState(general).apply { plusOpen = true }
+        demoScreenShot("composer-plus") { ChannelScreen(general, onMenu = {}, chat = chat) }
+    }
+
+    @Test fun emptyChannel() {
+        val id = runBlockingCreate()
+        demoShot("feed-empty") { ChannelScreen(id, onMenu = {}) }
+    }
+
+    private fun runBlockingCreate(): String {
+        val id = kotlinx.coroutines.runBlocking { session.createChannel("tool library", "Who has which tool.") }
+        settle()
+        return id
+    }
+
+    @Test fun seedHasWhatTheShotsNeed() {
+        // Guards the demo seed: these screens are only worth a screenshot with this content.
+        val rows = world.feedRows(general)
+        check(rows.any { it.item is FeedItem.Join }) { "no guest join in #general" }
+        check(world.threadsOf(general).isNotEmpty()) { "no thread in #general" }
+        check(world.outboxItems.isNotEmpty()) { "no queued item" }
+    }
+}

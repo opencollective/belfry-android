@@ -47,6 +47,44 @@ minSdk 26, JDK 17.
 - `app/src/test`: Robolectric screenshot tests (demo mode). PNGs land in
   `app/build/outputs/roborazzi/`.
 
+## App structure and seams
+
+`app/src/main/kotlin/sh/belfry/app/`:
+
+- `BelfryApp` (one `Onboarding` + `AppState`, lifecycle and connectivity wiring), `AppState`
+  (phase: loading / signed out / joining a guest link / signed in; fixed-message errors),
+  `MainActivity` (the `sh.belfry.app://connect` callback and `https://chat.<domain>/join/<token>`
+  links; reads only `code` / `state` / `error` and the link's domain + token).
+- `ui/AppRoot.kt`: which phase shows; signed in → `SessionScope` + `AppNav` (+ the "join with
+  your account" sheet, + the no-access screen when the relay refuses).
+- `ui/nav/`: `Routes.kt` (EVERY route: pattern constants + builder functions), `Locals.kt`
+  (`LocalSession`, `LocalWorld`, `LocalDms`, `LocalStatus`, `LocalNav`, `LocalSignOut`;
+  `SessionScope` provides them), `AppNav.kt` (the graph; one registration function per owner),
+  `NotBuiltYet` (placeholder screen).
+- A screen is a `@Composable` that reads `LocalWorld.current` (derived state),
+  `LocalSession.current` (suspend actions, `session.now()`), and moves with `LocalNav.current`:
+  `nav.go(Routes.profile(pk))`, `nav.back()` (the only thing a back arrow does),
+  `nav.openChannel(id, messageId?)` (shows a channel in Home; never pushes).
+- Owners (a package and its routes file; nobody edits another owner's files):
+  - shell: `ui/shell/` (Home = drawer + channel, `ShellRoutes.kt`), `ui/chat/` (channel screen,
+    feed rows, composer, inline thread, thread screen, message menu and delete confirmation,
+    photo viewer), `ui/signin/`.
+  - info: `ui/info/InfoRoutes.kt` → search, channel info, invite, topics, files, drop link, follow.
+  - people: `ui/people/PeopleRoutes.kt` → profile, me, sessions, members, messages,
+    conversation, new conversation; and `ui/people/SaveAccountBar.kt` (shown above the composer).
+  - cards: `ui/cards/CardsRoutes.kt` → events, event, pod, proposal, the four create screens;
+    `ui/cards/SpecialCards.kt` (`SpecialCard(groupId, message)`: what a card / e-mail post shows
+    in the feed) and `ui/cards/ChannelBars.kt` (`ChannelBars(groupId)`: bars under a channel's
+    top bar, e.g. the next event).
+- Shared pieces outside the kit gallery: `ui/kit/MarkdownText.kt` (`MarkdownText`,
+  `LocalNetworkImages`, `isSafeLink`), `ui/chat/ChatFormat.kt` (`ChatFormat.time/day/short`,
+  `World.face(pubkey)`, `Group.glyph()`), `ui/chat/MessageRow.kt` + `ChatState` +
+  `MessageSheets` (reuse them to show messages anywhere), `ui/chat/Composer.kt`,
+  `ui/signin/SignInScreen.kt` (`openInBrowser`, `SignedOutPage`, `Logo`).
+- Tests: `app/src/test/.../DemoShots.kt` gives each test a seeded demo `session` (fixed clock,
+  UTC, no network) and `demoShot(name) { Screen() }` / `demoScreenShot` (sheets, dialogs);
+  `InDemo { }` for interaction tests; `myMessage(text)` posts as me; `started()` runs the outbox.
+
 ## Decisions
 
 - Package / applicationId `sh.belfry.app`; sign-in redirect `sh.belfry.app://connect` (already
