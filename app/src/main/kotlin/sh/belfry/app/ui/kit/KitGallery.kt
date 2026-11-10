@@ -40,24 +40,19 @@ object KitGallery {
         Face("a1b2c3d4", "Ada"), Face("0f0f0f11", "Bashir"), Face("77aa1203", "Chloé"), Face("5e5e5e01", "Dmitri"),
     )
 
-    val sections: List<Pair<String, @Composable () -> Unit>> = listOf(
-        "buttons" to { Buttons() },
-        "lists" to { Lists() },
-        "bits" to { BitsSection() },
-        "icons" to { IconsSection() },
-    )
-
     @Composable
     fun Page() {
         val c = Belfry.colors
-        var busyInfo by remember { mutableStateOf("") }
         Column(Modifier.fillMaxSize().background(c.bg)) {
-            TopBar("Kit gallery", subtitle = "Debug build · every shared component$busyInfo", navigation = { IconAction(BelfryIcons.Menu, "Menu", {}) }) {
+            TopBar("Kit gallery", subtitle = "Debug build · every shared component", navigation = { IconAction(BelfryIcons.Menu, "Menu", {}) }) {
                 IconAction(BelfryIcons.Search, "Search", {})
                 IconAction(BelfryIcons.Bell, "Follow", {}, badge = 3)
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).navigationBarsPadding()) {
-                sections.forEach { (_, content) -> content() }
+                Buttons()
+                Lists()
+                BitsSection()
+                IconsSection()
             }
         }
     }
