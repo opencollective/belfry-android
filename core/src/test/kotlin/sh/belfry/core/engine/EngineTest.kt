@@ -84,7 +84,7 @@ class EngineTest {
     private fun texts(f: FakeRelay): List<String> = f.published.filter { it.kind == 9 }.map { it.content }
 
     @Test
-    fun outboxSurvivesRestartAndCreatedAtGrows() = runBlocking {
+    fun outboxSurvivesRestartAndCreatedAtGrows() = runBlocking<Unit> {
         val g = fake(); val m = fake()
         val store = MemoryStore()
         val me = LocalSigner.random()
@@ -125,7 +125,7 @@ class EngineTest {
     }
 
     @Test
-    fun firstChannelIsCreatedOnceAndAccessIsIn() = runBlocking {
+    fun firstChannelIsCreatedOnceAndAccessIsIn() = runBlocking<Unit> {
         val g = fake(auth = true); val m = fake()
         val s = session(community(g, m), MemoryStore(), LocalSigner.random())
         assertEquals(AccessState.UNKNOWN, s.status.value.access)
@@ -143,7 +143,7 @@ class EngineTest {
     }
 
     @Test
-    fun aStalledRelayKeepsItsOrderAndOtherRelaysContinue() = runBlocking {
+    fun aStalledRelayKeepsItsOrderAndOtherRelaysContinue() = runBlocking<Unit> {
         val g = fake(); val m = fake()
         val store = MemoryStore()
         val s = session(community(g, m), store, LocalSigner.random())
@@ -167,7 +167,7 @@ class EngineTest {
     }
 
     @Test
-    fun permanentFailureThenRetryAndDuplicate() = runBlocking {
+    fun permanentFailureThenRetryAndDuplicate() = runBlocking<Unit> {
         val g = fake(); val m = fake()
         val store = MemoryStore()
         val s = session(community(g, m), store, LocalSigner.random())
@@ -197,7 +197,7 @@ class EngineTest {
     }
 
     @Test
-    fun restrictedPublishMeansNoAccess() = runBlocking {
+    fun restrictedPublishMeansNoAccess() = runBlocking<Unit> {
         val g = fake(); val m = fake()
         val store = MemoryStore()
         val s = session(community(g, m), store, LocalSigner.random())
@@ -210,7 +210,7 @@ class EngineTest {
     }
 
     @Test
-    fun attachmentsAreUploadedThenTagged() = runBlocking {
+    fun attachmentsAreUploadedThenTagged() = runBlocking<Unit> {
         val g = fake(); val m = fake()
         val blossom = server()
         blossom.enqueue(MockResponse().setBody("{\"url\":\"https://files.example/abc.png\"}"))
@@ -241,7 +241,7 @@ class EngineTest {
     }
 
     @Test
-    fun directMessageRoundTrip() = runBlocking {
+    fun directMessageRoundTrip() = runBlocking<Unit> {
         val g = fake(); val m = fake()
         val alice = LocalSigner.random(); val bob = LocalSigner.random()
         val c = community(g, m)
@@ -273,7 +273,7 @@ class EngineTest {
     }
 
     @Test
-    fun emailThreadsRepliesAndDeliveryReports() = runBlocking {
+    fun emailThreadsRepliesAndDeliveryReports() = runBlocking<Unit> {
         val g = fake(); val m = fake()
         val bob = LocalSigner.random()
         val bridge = LocalSigner.random()
@@ -346,7 +346,7 @@ class EngineTest {
     }
 
     @Test
-    fun guestJoinKeepsOneKeyPerInvite() = runBlocking {
+    fun guestJoinKeepsOneKeyPerInvite() = runBlocking<Unit> {
         val api = server()
         val token = "abcdefghijklmnopqrstuvwxyz012345"
         val c = Community.defaults("example.org").copy(channelInvites = api.url("/channel-invites").toString())
@@ -380,7 +380,7 @@ class EngineTest {
     }
 
     @Test
-    fun onboardingKeepsTheFlowAndTheInvite() = runBlocking {
+    fun onboardingKeepsTheFlowAndTheInvite() = runBlocking<Unit> {
         val vault = MemoryVault()
         val on = Onboarding(vault, MemoryStore(), http, scope)
         assertFalse(on.hasSession)
@@ -406,7 +406,7 @@ class EngineTest {
     }
 
     @Test
-    fun theDemoHasSomethingOnEveryScreen() = runBlocking {
+    fun theDemoHasSomethingOnEveryScreen() = runBlocking<Unit> {
         val now = 1_794_000_000L // fixed, so the feed is the same every time
         val vault = MemoryVault()
         val store = MemoryStore()
