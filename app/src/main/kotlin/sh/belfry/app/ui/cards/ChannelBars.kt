@@ -69,7 +69,7 @@ internal fun ApplySheet(g: Group, onDismiss: () -> Unit) {
     val session = LocalSession.current
     var answer by remember(g.id) { mutableStateOf("") }
     BelfrySheet(onDismiss = onDismiss, title = "Apply to ${g.name}") {
-        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.padding(bottom = 16.dp)) {
             Text(g.prompt?.takeIf { it.isNotBlank() } ?: Actions.DEFAULT_PROMPT, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.Medium, color = Belfry.colors.text)
             Gap(10)
             BelfryTextField(answer, { answer = it }, Modifier.fillMaxWidth().testTag("apply-answer"), placeholder = "Your answer", singleLine = false, minLines = 4, maxLines = 8)

@@ -220,7 +220,7 @@ internal fun ReplySheet(groupId: String, m: Message, card: Special.InboxCard, on
     var text by remember(m.id) { mutableStateOf(ReplyQueue.drafts[m.id] ?: "") }
 
     BelfrySheet(onDismiss = onDismiss, title = "E-mail to $first") {
-        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.padding(bottom = 16.dp)) {
             HeaderLine("To", who)
             HeaderLine("From", world.mailAddress(groupId), "Signed “" + (if (myName.isNotEmpty()) "$myName for $channelName" else channelName) + "”")
             HeaderLine("Subject", subject)
@@ -290,7 +290,7 @@ internal fun FullMailSheet(subject: String, original: MailOriginal, onDismiss: (
         if (got == null) failed = true else mail = got
     }
     BelfrySheet(onDismiss = onDismiss, title = subject.ifEmpty { "E-mail" }) {
-        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.padding(bottom = 16.dp)) {
             val got = mail
             when {
                 failed -> ErrorLine("The e-mail could not be opened.")

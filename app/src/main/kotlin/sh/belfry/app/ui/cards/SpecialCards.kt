@@ -287,7 +287,7 @@ internal fun InboxActionsSheet(
     val mineNow = state.assignee == world.me
     val closed = state.status == CardStatus.CLOSED
     BelfrySheet(onDismiss = onDismiss, title = "E-mail from $first") {
-        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.padding(bottom = 16.dp)) {
             ActionGroup {
                 ActionRow(
                     "Reply by e-mail",

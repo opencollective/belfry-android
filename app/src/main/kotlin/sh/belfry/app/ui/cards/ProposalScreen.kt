@@ -142,7 +142,7 @@ internal fun StatusSheet(p: Proposal, onDismiss: () -> Unit) {
     val session = LocalSession.current
     val busy = rememberBusy()
     BelfrySheet(onDismiss = onDismiss, title = "Status") {
-        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.padding(bottom = 16.dp)) {
             ActionGroup {
                 for (s in ProposalStatus.entries) {
                     BusyRow(
@@ -174,7 +174,7 @@ internal fun ReviseSheet(p: Proposal, onDismiss: () -> Unit) {
     var note by remember(p.coord) { mutableStateOf("") }
     var tried by remember { mutableStateOf(false) }
     BelfrySheet(onDismiss = onDismiss, title = "Version ${p.version + 1}") {
-        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.padding(bottom = 16.dp)) {
             ProposalFields(title, { title = it }, summary, { summary = it }, text, { text = it }, titleError = if (tried && title.isBlank()) "Give the proposal a title" else null)
             Gap(12)
             BelfryTextField(note, { note = it }, Modifier.fillMaxWidth(), label = "What changed", placeholder = "e.g. Budget lowered after feedback")
