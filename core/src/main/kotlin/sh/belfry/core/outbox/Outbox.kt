@@ -12,18 +12,28 @@ enum class ErrorClass(val key: String) {
     DUPLICATE("duplicate"),
     /** Refused for good: kept as failed with its reason, does not block later items. */
     FAILED("failed"),
-    /** Anything else (timeouts, auth-required, rate-limited, no connection, upload errors): try again later. */
+    /** Anything else (timeouts, auth-required, rate-limited, no connection, an upload that may pass later): try again later. */
     RETRY("retry"),
 }
 
 object Outbox {
     private val PERMANENT_PREFIX = Pattern.compile("^(blocked|invalid|restricted|pow|duplicate|error):")
     private val PERMANENT_WORDS = Pattern.compile("not allowed|denied|unauthori[sz]ed", Pattern.CASE_INSENSITIVE)
+    // "upload failed (<status>…)": a file the storage refuses (too big, a type it does not take,
+    // not allowed) is refused again, so it fails that one message instead of holding back every
+    // later one to the relay. 401, 408 and 429 can pass on a later try (web sync.ts, 1834584).
+    private val REFUSED_UPLOAD = Pattern.compile("^upload failed \\((4\\d\\d)")
+    private val UPLOAD_MAY_PASS = setOf("401", "408", "429")
 
     fun classify(message: String): ErrorClass = when {
         message.startsWith("duplicate:") -> ErrorClass.DUPLICATE
-        PERMANENT_PREFIX.matcher(message).find() || PERMANENT_WORDS.matcher(message).find() -> ErrorClass.FAILED
+        PERMANENT_PREFIX.matcher(message).find() || PERMANENT_WORDS.matcher(message).find() || refusedUpload(message) -> ErrorClass.FAILED
         else -> ErrorClass.RETRY
+    }
+
+    private fun refusedUpload(message: String): Boolean {
+        val m = REFUSED_UPLOAD.matcher(message)
+        return m.find() && m.group(1) !in UPLOAD_MAY_PASS
     }
 
     /** created_at strictly increasing per client: `max(last + 1, now)`. */

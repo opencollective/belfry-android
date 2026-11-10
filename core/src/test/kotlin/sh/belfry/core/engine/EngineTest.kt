@@ -32,6 +32,7 @@ import sh.belfry.core.nostr.arr
 import sh.belfry.core.nostr.obj
 import sh.belfry.core.nostr.parseJsonOrNull
 import sh.belfry.core.nostr.s
+import sh.belfry.core.outbox.Outbox
 import sh.belfry.core.outbox.OutboxStatus
 import sh.belfry.core.store.MemoryStore
 import sh.belfry.core.store.Store
@@ -238,6 +239,29 @@ class EngineTest {
         until("the blob is dropped") { store.outbox().isEmpty() }
         s.settle()
         assertEquals(1, s.world.value.messages("general").first { it.text == "Look" }.media.size)
+    }
+
+    @Test
+    fun aFileTheStorageRefusesFailsItsMessageAndTheQueueGoesOn() = runBlocking<Unit> {
+        val g = fake(); val m = fake()
+        val blossom = server()
+        blossom.enqueue(MockResponse().setResponseCode(413).setBody("{\"message\":\"too big\"}"))
+        val store = MemoryStore()
+        val s = session(community(g, m, blossom.url("/").toString().trimEnd('/')), store, LocalSigner.random())
+        s.start()
+        until("general exists") { g.published.any { it.kind == 9002 } && store.outbox().isEmpty() }
+        val big = s.postMessage("general", "Huge", listOf(NewAttachment("huge.png", "image/png", byteArrayOf(9, 9, 9), 1, 1)))
+        s.postMessage("general", "After")
+        // the later message is not held back by the refused file
+        until("After is out") { texts(g).contains("After") }
+        until("Huge failed") { store.outbox().size == 1 && store.outbox()[0].status == OutboxStatus.FAILED }
+        val failed = store.outbox()[0]
+        assertEquals(big, failed.localId)
+        assertEquals("upload failed (413)", failed.error)
+        assertFalse(texts(g).any { it.startsWith("Huge") })
+        s.settle()
+        assertEquals("Not sent", Outbox.stateText(s.world.value.pending(big)!!))
+        assertEquals(1, blossom.requestCount)
     }
 
     @Test

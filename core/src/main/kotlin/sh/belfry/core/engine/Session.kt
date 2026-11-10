@@ -548,7 +548,9 @@ class Session(
                 setStatus { it.copy(signerTrouble = true) }
                 return SendOutcome.Error("timeout: the signer did not answer")
             } catch (e: Exception) {
-                return SendOutcome.Error("upload failed" + (e.message?.let { " ($it)" } ?: ""))
+                // BelfryApi.upload says "upload failed (<status>)": kept as is, the outbox reads the status
+                val said = e.message.orEmpty()
+                return SendOutcome.Error(if (said.startsWith("upload failed")) said else "upload failed" + (said.takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: ""))
             }
             val imeta = arrayListOf("imeta", "url $url", "m ${a.mime}", "size ${a.size}")
             if (!localOnly) imeta.add("x ${sha256Hex(bytes)}")
