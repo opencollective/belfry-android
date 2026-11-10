@@ -39,5 +39,21 @@ class ChatState(val groupId: String) {
     }
 }
 
+/**
+ * A topic another screen (the Topics page) asked a channel to open: (channel id, topic or null
+ * for everything). The channel's state takes it when it is next shown.
+ */
+object TopicRequest {
+    var pending by mutableStateOf<Pair<String, String?>?>(null)
+}
+
 @Composable
-fun rememberChatState(groupId: String): ChatState = remember(groupId) { ChatState(groupId) }
+fun rememberChatState(groupId: String): ChatState = remember(groupId) { ChatState(groupId) }.also { state ->
+    val asked = TopicRequest.pending
+    if (asked != null && asked.first == groupId) {
+        androidx.compose.runtime.SideEffect {
+            state.topic = asked.second
+            TopicRequest.pending = null
+        }
+    }
+}
