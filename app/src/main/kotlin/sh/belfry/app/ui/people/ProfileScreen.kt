@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,6 +70,8 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
         return
     }
     val mine = pubkey == world.me
+    // guest, agent or member: the belfry's register is asked again when a profile opens
+    LaunchedEffect(pubkey) { session.recheckPeople(listOf(pubkey)) }
     var editing by rememberSaveable { mutableStateOf(startEditing) }
     if (mine && editing) {
         EditProfileScreen(onClose = { editing = false })

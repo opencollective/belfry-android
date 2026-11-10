@@ -22,6 +22,9 @@ data class WorldContext(
     val groupsRelay: String = "",
     /** belfry.json `agents`: a member's own agent → that member (both 64-hex keys). */
     val agents: Map<String, String> = emptyMap(),
+    /** What the belfry's register says each key is (`POST /whois`): "member", "agent" or "guest".
+     *  Empty on an old belfry, offline or in the demo: join and label events decide then. */
+    val kinds: Map<String, String> = emptyMap(),
 )
 
 data class Profile(val name: String? = null, val picture: String? = null, val nip05: String? = null, val about: String = "", val at: Long = 0)

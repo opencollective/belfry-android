@@ -58,6 +58,7 @@ import sh.belfry.core.net.JoinedAccount
 import sh.belfry.core.net.MyAgent
 import sh.belfry.core.net.MyAgents
 import sh.belfry.core.net.Relay
+import sh.belfry.core.net.Revalidated
 import sh.belfry.core.net.RelayException
 import sh.belfry.core.net.RelayState
 import sh.belfry.core.net.SessionInfo
@@ -201,6 +202,14 @@ class Session(
     private val enqueueLock = Mutex()
     private val flushLock = Mutex()
     @Volatile private var again = false
+    // declared before init: the first world is built there
+    /** The register's answers this session (key → member | agent | guest). */
+    private val kinds = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val askedWhois: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    /** An old belfry without `/whois` (404): join and label events decide. */
+    @Volatile private var noWhois = false
+    @Volatile private var lastRecheck = 0L
+
     private val uploaded = HashMap<String, String>() // blobKey → URL, so a retry does not upload twice
     private val demoFollows = HashMap<String, String>()
 
@@ -229,7 +238,7 @@ class Session(
     private fun ctx(): WorldContext = WorldContext(
         me = me, domain = community.domain, communityName = community.name,
         communityAdmins = community.admins.toSet() + extraAdmins, groupsKey = groupsKey, bridgeKey = bridge, zone = zone,
-        groupsRelay = community.groupsRelay, agents = community.agents,
+        groupsRelay = community.groupsRelay, agents = community.agents, kinds = HashMap(kinds),
     )
 
     private fun buildWorld(): World {
@@ -238,8 +247,53 @@ class Session(
     }
 
     private fun rebuild() {
-        _world.value = buildWorld()
+        val w = buildWorld()
+        _world.value = w
         countOutbox()
+        askWhoisAbout(w)
+    }
+
+    // ---- who is who (whois.py): the register says member / agent / guest ------------------------------
+
+    /** New people brought in by a link or as an agent: asked once per session, in one batch. */
+    private fun askWhoisAbout(w: World) {
+        if (localOnly || noWhois || !started) return
+        val fresh = w.guestJoinKeys.filter { askedWhois.add(it) }
+        if (fresh.isNotEmpty()) launchSafely { refreshWhois(fresh) }
+    }
+
+    /**
+     * Asks the register what KEYS are (batched by 500). A key left out holds no active pass: its
+     * events decide again. Offline or refused: the answers so far stay, events decide the rest.
+     */
+    suspend fun refreshWhois(keys: Collection<String>) {
+        if (localOnly || noWhois || keys.isEmpty()) return
+        val got = try {
+            api().whois(signer, keys)
+        } catch (e: ApiException) {
+            if (e.status == 404) noWhois = true
+            return
+        } catch (e: IOException) {
+            return
+        }
+        var changed = false
+        for (k in keys) {
+            val v = got[k]
+            if (v == null) { if (kinds.remove(k) != null) changed = true } else if (kinds.put(k, v) != v) changed = true
+        }
+        if (changed) markDirty()
+    }
+
+    /**
+     * A profile or a members list opened: what the register says about these people now, and
+     * belfry.json revalidated (at most every 30 s; agents and admins live there).
+     */
+    suspend fun recheckPeople(keys: Collection<String>) {
+        if (localOnly) return
+        val ask = keys.filter { it in _world.value.guestJoinKeys || kinds.containsKey(it) }
+        refreshWhois(ask)
+        val now = System.currentTimeMillis()
+        if (now - lastRecheck > RECHECK_MS) { lastRecheck = now; refreshCommunity() }
     }
 
     private fun markDirty() { dirty.trySend(Unit) }
@@ -416,13 +470,19 @@ class Session(
     suspend fun refreshCommunity() {
         if (localOnly) return
         try {
-            val fresh = Discovery.fetch(community.domain, http)
-            if (fresh != community) {
-                community = fresh
-                onRecordChanged?.invoke(fresh, _guest.value)
+            // always asked again (no-cache); 304 when the copy here is the belfry's current one
+            when (val got = Discovery.revalidate(community.domain, http, store.get(K_DISCOVERY_ETAG))) {
+                is Revalidated.NotModified -> {}
+                is Revalidated.Fresh -> {
+                    if (got.community != community) {
+                        community = got.community
+                        onRecordChanged?.invoke(got.community, _guest.value)
+                    }
+                    if (got.etag != null) store.set(K_DISCOVERY_ETAG, got.etag) else store.remove(K_DISCOVERY_ETAG)
+                    extraAdmins = emptySet()
+                    store.remove(K_ADMINS)
+                }
             }
-            extraAdmins = emptySet()
-            store.remove(K_ADMINS)
         } catch (e: IOException) {
             // offline: what we have
         }
@@ -1008,6 +1068,8 @@ class Session(
         const val K_BRIDGE = "bridge-key"
         const val K_GROUPS_KEY = "groups-key"
         const val K_ADMINS = "extra-admins"
+        const val K_DISCOVERY_ETAG = "belfry-json-etag"
+        private const val RECHECK_MS = 30_000L
         private const val K_SEEN_SENT = "seen-sent:"
         private const val SUB = "main"
         private const val REBUILD_MS = 100L

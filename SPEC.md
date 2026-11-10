@@ -818,6 +818,19 @@ files and settings; the first line of the description.
   "<my name> thinks you should join <name>. It takes an application: <link>".
 - The composer marks "not in this channel" in the @ picker and, for each picked person who cannot
   read the channel, says so above the field with Invite ("Add as a guest" for a guest).
+- **The register decides when it can** (belfry-sh 5cbab04): `POST <api>/whois` `{"pubkeys":
+  [hex…]}` (NIP-98, at most 500 per call) → `{"people": {hex: "member" | "agent" | "guest"}}`;
+  keys holding no active pass are left out; errors `not_here` 403 (the caller holds no pass),
+  `invalid` 400. Ask it for every key brought in by a link (9000 with `invited-by`) or listed in
+  belfry.json `agents`: once per session in batches, again for the people of a profile or members
+  list when it opens. Its answer overrules the events: "member" or "agent" = not a guest (a guest
+  join counts as "member since"), "guest" = a guest even if a label says member; a key it leaves
+  out, an old belfry (404) or no connection: the events decide as above.
+- **belfry.json is revalidated, never trusted from a cache**: request it with `Cache-Control:
+  no-cache` and `If-None-Match: <the ETag of the copy held>`; 304 = the copy is current. Since
+  5cbab04 the belfry sends `Cache-Control: no-cache` and an ETag itself (it used to allow a
+  300 s cache). Clients re-read it at start, after changing admins or agents, and when a profile
+  or members list opens (at most every 30 s).
 
 ### 19.16 Members' own agents
 

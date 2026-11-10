@@ -87,7 +87,7 @@ in the real world.
 | Settings (admins): name, description, pod open/closed + question, "E-mails from anyone" | done | |
 | Join / ask to join / leave a pod; admit / decline applications | done | |
 | Invite: member link, QR, copy, share | done | System share sheet. |
-| Invite someone who is here already (members, guests, agents with kind labels; DM with the channel's link; admit in a closed pod I administer; "Add as a guest" → `/channel-guests`) | done, never run live | Behaviour tests: the button locks (one call), a member gets exactly one DM with `https://chat.<domain>/#/c/<id>`. `/channel-guests` only ever ran in the demo. |
+| Invite someone who is here already (members, guests, agents with kind labels; DM with the channel's link; admit in a closed pod I administer; "Add as a guest" → `/channel-guests`) | done, never run live | Behaviour tests: the button locks (one call), a member gets exactly one DM with `https://chat.<domain>/#/c/<id>`. `/channel-guests` only ever ran in the demo. Guest / agent / member comes from the belfry's `/whois` when it answers (events otherwise); the web still reads events only. |
 | "My own agent" link (`agent: true`, shows `agent_url`) | done, never run live | Behaviour test (asks for an agent link, people 1; switching to a guest link asks again). Hidden when the belfry gives no limit; off with the reason when it is reached. |
 | Guest link: one person / up to 50; 1 day / 1 week / 1 month; QR | done | Behaviour test (button locks; one request). Controls lock while a link is made (the web lets a newer choice win). |
 | Follow (bell): off / as they happen / monthly, my other follows | done, never run live | |

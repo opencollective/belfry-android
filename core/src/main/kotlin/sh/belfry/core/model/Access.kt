@@ -9,10 +9,14 @@ import sh.belfry.core.net.encodeURIComponent
 fun World.agentOwner(pubkey: String): String? = ctx.agents[pubkey]
 
 /** Someone who is in this belfry only as a channel's guest (a person or an agent), not a member's own agent. */
-fun World.isGuest(pubkey: String): Boolean = agentOwner(pubkey) == null && guestJoinsOf(pubkey).isNotEmpty()
+fun World.isGuest(pubkey: String): Boolean = when (ctx.kinds[pubkey]) {
+    "guest" -> true
+    "member", "agent" -> false
+    else -> agentOwner(pubkey) == null && guestJoinsOf(pubkey).isNotEmpty()
+}
 
 /** An agent (a channel's guest, or a member's own), not a person. */
-fun World.isAgent(pubkey: String): Boolean = agentOwner(pubkey) != null || groups.any { g -> guestJoins(g.id).any { it.pubkey == pubkey && it.agent } }
+fun World.isAgent(pubkey: String): Boolean = agentOwner(pubkey) != null || ctx.kinds[pubkey] == "agent" || groups.any { g -> guestJoins(g.id).any { it.pubkey == pubkey && it.agent } }
 
 /**
  * Whether PUBKEY can read channel G: an open channel is every member's (and its own guests'); a

@@ -220,6 +220,29 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         return ChannelGuest(b["added"].bool() == true, b["already"].bool() == true, b["member"].bool() == true)
     }
 
+    // ---- who a key is (whois.py) ---------------------------------------------------------------------
+
+    /**
+     * What the register says each key is: "member", "agent" (a member's own) or "guest"; keys with
+     * no active pass are left out. At most 500 keys per call (larger lists are split here). An old
+     * belfry answers 404 (code `http`, status 404). Codes: not_here (I hold no pass), invalid.
+     */
+    suspend fun whois(signer: Signer, pubkeys: Collection<String>): Map<String, String> {
+        val out = HashMap<String, String>()
+        for (chunk in pubkeys.filter(Hex::isKey).distinct().chunked(WHOIS_MAX)) {
+            val a = signed(signer, "$base/whois", "POST", buildJsonObject {
+                put("pubkeys", kotlinx.serialization.json.JsonArray(chunk.map { JsonPrimitive(it) }))
+            })
+            val people = a.body?.get("people").obj()
+            if (!a.ok || people == null) fail(a, WHOIS_ERRORS, "Could not ask the belfry who people are.")
+            for ((k, v) in people) {
+                val kind = v.str() ?: continue
+                if (Hex.isKey(k) && kind in KINDS) out[k] = kind
+            }
+        }
+        return out
+    }
+
     // ---- a member's own agents (agents.py) ----------------------------------------------------------
 
     /**
@@ -465,6 +488,12 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             "no_channel" to "This channel is not known to the belfry yet.",
             "not_allowed" to "You can’t invite guests here.",
             "unknown" to "This person is not in the belfry any more.",
+        )
+        const val WHOIS_MAX = 500
+        private val KINDS = setOf("member", "agent", "guest")
+        private val WHOIS_ERRORS = mapOf(
+            "not_here" to "Only people of this belfry can see who is who.",
+            "invalid" to GENERIC,
         )
         private val AGENT_ERRORS = mapOf(
             // agents.py / register.py make_agent and _agent_room (belfry-sh a6c9a69)

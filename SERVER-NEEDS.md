@@ -65,18 +65,19 @@ at once, but a nonce tag accepted by the server would remove the edge case.
 
 ## 8. Invites and agents (from the 2026-11-10 update; small)
 
-- `POST /channel-guests` answers `{"member": true}` for a member, and the client then sends the
-  invite as a direct message itself. Fine, but nothing tells the client in advance whether a key
-  is a guest: it derives that from guest joins (9000 `invited-by` + 1985 `belfry/guest` labels).
-  A member that was a guest once and was promoted without the `member` label would be treated as
-  a guest. Listing members' kinds in belfry.json (or an answer from `/channel-guests` that the
-  client may use for anyone) would remove the guesswork.
+- (Done, belfry-sh 5cbab04) Who is a guest: `POST /whois` `{"pubkeys": […]}` (NIP-98, at most
+  500) → `{"people": {key: "member" | "agent" | "guest"}}`, keys without an active pass left out.
+  The app asks it once per session for everyone brought in by a link or as an agent (batched),
+  and again when a profile or a members list opens; the register's answer overrules join and
+  label events, which stay the fallback on an old belfry (404) or offline.
 - (Done, belfry-sh a6c9a69) `POST /agents` with `mine: true` now says why it refuses: 409
   `not_member`, `unknown`, `taken`, `not_guest_agent`, `not_inviter`, `limit` (`refused` stays
   as a fallback for older belfries). The app maps each to its own fixed message.
-- belfry.json `agents` changes only when the document is re-read; after "Make it my agent" the
-  app updates its own copy at once and re-reads the document. If the document is cached, the
-  profile may flip back until it catches up (same as `admins`, 6).
+- (Done, belfry-sh 5cbab04) belfry.json is sent with `Cache-Control: no-cache` and an ETag.
+  The app always asks again (`Cache-Control: no-cache`, `If-None-Match` with the stored ETag) at
+  start, after "Make it my agent" / an admin change, and when a profile or members list opens (at
+  most every 30 s); a 304 keeps its copy, including a change it made itself and the document has
+  not caught up with yet.
 - `/channel-invites` with `"agent": true` returns `days: 0`: the app does not show a duration for
   an own-agent link (it stays while its member does).
 

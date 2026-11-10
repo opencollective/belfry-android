@@ -42,6 +42,8 @@ fun MembersTab(g: Group) {
     val nav = LocalNav.current
     val now = session.now()
     val rows = remember(world, g.id) { world.memberRows(g.id) }
+    // who is a guest, an agent or a member: asked of the belfry again when the list opens
+    LaunchedEffect(g.id) { session.recheckPeople(world.guestJoins(g.id).map { it.pubkey }) }
     val reviewing = if (g.isPod && world.canAdmin(g)) g.applications else emptyList()
     var declining by remember { mutableStateOf<Application?>(null) }
     var labelling by remember { mutableStateOf<MemberRow?>(null) }

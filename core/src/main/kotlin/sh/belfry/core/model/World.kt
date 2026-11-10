@@ -492,13 +492,24 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (e.kind != 9000 || e.t("invited-by").isNullOrEmpty()) continue
             val p = e.t("p")
             if (p.isNullOrEmpty()) continue
+            // the register (whois) knows who became a member; the labels are the fallback
+            val isMember = when (ctx.kinds[p]) { "member", "agent" -> true; "guest" -> false; else -> p in member }
             out.add(GuestJoin(
                 id = e.id, pubkey = p, by = e.t("invited-by"), at = e.createdAt, agent = e.t("agent") == "1",
-                unsaved = e.t("unsaved") == "1" && p !in saved && p !in member, member = p in member,
+                unsaved = e.t("unsaved") == "1" && p !in saved && !isMember, member = isMember,
             ))
         }
         // taken out again without ever writing here (a cleaned-up double sign-up): no line
         out.filter { it.pubkey in wrote || (gone[it.pubkey] ?: 0) < it.at }.sortedBy { it.at }
+    }
+
+    /** Everyone brought in by a guest link or as a member's agent (9000 with `invited-by`, belfry.json
+     *  `agents`): the keys to ask the register about (`POST /whois`). */
+    val guestJoinKeys: Set<String> by lazy {
+        val out = LinkedHashSet<String>()
+        for (e in ofKind(9000)) if (!e.t("invited-by").isNullOrEmpty()) e.t("p")?.takeIf { it.isNotEmpty() }?.let(out::add)
+        out.addAll(ctx.agents.keys)
+        out
     }
 
     /** Someone's guest joins across all channels, members-since left out. Empty for a member. */

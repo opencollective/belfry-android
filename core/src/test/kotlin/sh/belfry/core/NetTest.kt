@@ -54,6 +54,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -708,5 +709,48 @@ class SignInAndApiTest {
         assertEquals("Upload dot.png", ev.content)
         assertEquals(sha256Hex(bytes), ev.tag("x"))
         assertEquals("upload", ev.tag("t"))
+    }
+
+    @Test
+    fun whoisAsksInBatchesAndKeepsOnlyKnownKinds() = runBlocking<Unit> {
+        val me = LocalSigner.random()
+        val a = "aa".repeat(32); val b = "bb".repeat(32)
+        server.enqueue(json(200, """{"people":{"$a":"guest","$b":"member","cc":"member"}}"""))
+        val api = BelfryApi(community(), http)
+        assertEquals(mapOf(a to "guest", b to "member"), api.whois(me, listOf(a, b, a, "not-a-key")))
+        val req = server.takeRequest()
+        assertEquals("/api/v1/whois", req.path)
+        assertEquals("POST", req.method)
+        assertEquals("""{"pubkeys":["$a","$b"]}""", req.body.readUtf8())
+        authEvent(req.getHeader("Authorization"))
+        // 501 keys: two calls
+        val many = (0 until 501).map { it.toString(16).padStart(64, '0') }
+        server.enqueue(json(200, """{"people":{}}"""))
+        server.enqueue(json(200, """{"people":{}}"""))
+        assertEquals(emptyMap(), api.whois(me, many))
+        assertEquals(3, server.requestCount)
+        // an old belfry: 404
+        server.enqueue(json(404, """{"detail":"Not Found"}"""))
+        val e = assertFailsWith<ApiException> { api.whois(me, listOf(a)) }
+        assertEquals(404, e.status)
+        server.enqueue(json(403, """{"error":"not_here","message":"free text"}"""))
+        val f = assertFailsWith<ApiException> { api.whois(me, listOf(a)) }
+        assertEquals("not_here", f.code)
+        assertFalse(f.message!!.contains("free text"))
+    }
+
+    @Test
+    fun makeItMyAgentSaysWhyItIsRefused() = runBlocking<Unit> {
+        val me = LocalSigner.random()
+        val api = BelfryApi(community(), http)
+        for ((code, text) in listOf(
+            "taken" to "member’s agent already", "not_inviter" to "Only the member who invited", "limit" to "remove one first",
+            "not_guest_agent" to "joined as a guest", "unknown" to "Nobody here", "refused" to "can’t become yours",
+        )) {
+            server.enqueue(json(409, """{"error":"$code","message":"server text"}"""))
+            val e = assertFailsWith<ApiException> { api.setMyAgent(me, "aa".repeat(32), true) }
+            assertEquals(code, e.code)
+            assertTrue(e.message!!.contains(text), e.message)
+        }
     }
 }

@@ -215,16 +215,35 @@ internal suspend fun OkHttpClient.fetch(request: Request): Pair<Int, String> = w
     newCall(request).execute().use { res -> res.code to (res.body?.string() ?: "") }
 }
 
+/** belfry.json fetched again: a new document (with its ETag), or "the copy you have is current" (304). */
+sealed interface Revalidated {
+    data class Fresh(val community: Community, val etag: String?) : Revalidated
+    data object NotModified : Revalidated
+}
+
 object Discovery {
     /** Fetches and parses belfry.json. Throws IOException when there is none (use the cached copy). */
-    suspend fun fetch(domain: String, http: OkHttpClient): Community {
+    suspend fun fetch(domain: String, http: OkHttpClient): Community =
+        (revalidate(domain, http, null) as Revalidated.Fresh).community
+
+    /**
+     * belfry.json, always asked of the belfry (`Cache-Control: no-cache`, never a stored answer).
+     * With the [etag] of the copy the app holds, the belfry may answer 304: [Revalidated.NotModified].
+     * Throws IOException when there is no document (offline: keep the copy).
+     */
+    suspend fun revalidate(domain: String, http: OkHttpClient, etag: String?): Revalidated {
         val d = Community.cleanDomain(domain)
         if (!Community.isDomain(d)) throw IOException("not a domain")
-        val req = Request.Builder().url("https://$d/.well-known/belfry.json").header("Accept", "application/json").build()
-        val (code, body) = http.fetch(req)
-        val doc = parseJsonOrNull(body) as? JsonObject
-        if (code != 200 || doc == null) throw IOException("no belfry.json")
-        return Community.parse(d, doc)
+        val b = Request.Builder().url("https://$d/.well-known/belfry.json").header("Accept", "application/json").header("Cache-Control", "no-cache")
+        if (!etag.isNullOrEmpty()) b.header("If-None-Match", etag)
+        return withContext(Dispatchers.IO) {
+            http.newCall(b.build()).execute().use { res ->
+                if (res.code == 304 && !etag.isNullOrEmpty()) return@use Revalidated.NotModified
+                val doc = parseJsonOrNull(res.body?.string() ?: "") as? JsonObject
+                if (res.code != 200 || doc == null) throw IOException("no belfry.json")
+                Revalidated.Fresh(Community.parse(d, doc), res.header("ETag"))
+            }
+        }
     }
 
     /** NIP-05: the key behind NAME@DOMAIN (`_smtp`, `_groups`, a username), or null. */

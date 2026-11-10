@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,6 +39,7 @@ import sh.belfry.app.ui.kit.Chip
 import sh.belfry.app.ui.kit.EmptyState
 import sh.belfry.app.ui.kit.TopBar
 import sh.belfry.app.ui.nav.LocalNav
+import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
@@ -69,6 +71,9 @@ fun MembersScreen() {
     val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current
+    val session = LocalSession.current
+    // who is a guest, an agent or a member: asked of the belfry again when the list opens
+    LaunchedEffect(Unit) { session.recheckPeople(world.guestJoinKeys) }
     var q by rememberSaveable { mutableStateOf("") }
     var tag by rememberSaveable { mutableStateOf<String?>(null) }
     val all = people(world)
