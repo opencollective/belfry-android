@@ -107,7 +107,8 @@ class LineShotsTest : DemoShots() {
         val (source, task) = world.todosBySource(Demo.GARDEN).entries.first().let { it.key to it.value }
         compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.GARDEN) } } }
         val chip = compose.onNodeWithTag("todo-" + task.id)
-        chip.performClick()
+        // (The test harness lets the first tap finish before a second one, so the lock against a
+        // double tap is BusyState's, checked in ShellBehaviourTest; here: one tap, one tick.)
         chip.performClick()
         compose.waitUntil(10_000) { world.todosBySource(Demo.GARDEN)[source]?.done == true }
         settle()
