@@ -129,6 +129,7 @@ class FakeRelay(private val requireAuth: Boolean = false) : WebSocketListener() 
                     return
                 }
                 published.add(ev)
+                if (ev.kind != 24133) stored.add(ev)
                 send(webSocket, "OK", ev.id, true, "")
                 onPublished?.invoke(webSocket, ev)
             }
@@ -253,10 +254,10 @@ class RelayTest {
 
     @Test
     fun backoffAndRefusals() {
-        assertEquals(1600, Backoff.delayMs(1))
-        assertEquals(3200, Backoff.delayMs(2))
-        assertEquals(30_000, Backoff.delayMs(6))
-        assertEquals(30_000, Backoff.delayMs(40))
+        assertEquals(1600L, Backoff.delayMs(1))
+        assertEquals(3200L, Backoff.delayMs(2))
+        assertEquals(30_000L, Backoff.delayMs(6))
+        assertEquals(30_000L, Backoff.delayMs(40))
         assertTrue(Access.isRefusal("restricted: no pass"))
         assertTrue(Access.isRefusal("blocked: gone"))
         assertTrue(Access.isRefusal("error: only members may read"))
@@ -329,7 +330,7 @@ class RelayTest {
         val ev = signer.sign(EventTemplate(9, "signed far away \"é\"", listOf(listOf("h", "general")), 1_800_000_000))
         assertTrue(ev.isValid())
         assertEquals(fs.member.pubkey, ev.pubkey)
-        assertEquals(1_800_000_000, ev.createdAt)
+        assertEquals(1_800_000_000L, ev.createdAt)
 
         val peer = LocalSigner.random()
         val payload = signer.nip44Encrypt(peer.pubkey, "for your eyes")
