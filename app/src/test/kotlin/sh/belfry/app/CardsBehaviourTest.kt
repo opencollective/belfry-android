@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -87,47 +88,56 @@ class CardsBehaviourTest : DemoShots() {
         return PendingReply(hello, card.from, "Noor", "Re: " + card.subject, "Thursday at ten works for us.", card.messageId, m.id)
     }
 
+    private val seconds = Channel<Unit>(Channel.UNLIMITED)
+    private fun pass(n: Int) = repeat(n) { seconds.trySend(Unit) }
+    private fun shows(text: String) = compose.waitUntil(10_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+
+    private fun host() {
+        compose.setContent { BelfryTheme { InDemo { Column { UndoSendHost(hello, second = { seconds.receive() }) } } } }
+        compose.waitForIdle()
+        assertEquals("the bar is on screen", 1, ReplyQueue.hosts)
+    }
+
     @Test
     fun undoWithinTheWindowSendsNothing() {
         val before = sentCount()
-        compose.setContent { BelfryTheme { InDemo { Column { UndoSendHost(hello) } } } }
-        compose.waitForIdle()
-        compose.mainClock.autoAdvance = false
-        assertEquals("the bar is on screen", 1, ReplyQueue.hosts)
+        host()
         ReplyQueue.queue(session, pendingReply())
-        compose.mainClock.advanceTimeBy(3_000)
+        shows("Sending to Noor in 8 s")
+        pass(3)
+        shows("Sending to Noor in 5 s")
         assertEquals("still counting down", before, sentCount())
         compose.onNodeWithTag("undo-send").performClick()
-        compose.mainClock.advanceTimeBy(12_000)
+        compose.waitForIdle()
+        pass(12)
+        compose.waitForIdle()
         Thread.sleep(500)
         assertNull(ReplyQueue.pending)
         assertEquals("undone: nothing went out", before, sentCount())
         assertEquals("the text is kept for the sheet", "Thursday at ten works for us.", ReplyQueue.drafts.values.firstOrNull())
-        compose.mainClock.autoAdvance = true
     }
 
     @Test
     fun lettingTheWindowElapseSendsOnce() {
         val before = sentCount()
-        compose.setContent { BelfryTheme { InDemo { Column { UndoSendHost(hello) } } } }
-        compose.waitForIdle()
-        compose.mainClock.autoAdvance = false
-        assertEquals("the bar is on screen", 1, ReplyQueue.hosts)
+        host()
         ReplyQueue.queue(session, pendingReply())
-        compose.mainClock.advanceTimeBy(5_000)
+        shows("Sending to Noor in 8 s")
+        pass(7)
+        shows("Sending to Noor in 1 s")
         assertEquals("still counting down", before, sentCount())
-        org.junit.Assert.assertNotNull(ReplyQueue.pending)
-        compose.mainClock.advanceTimeBy(5_000)
+        pass(1)
         var now = before
         for (i in 0 until 100) {
+            compose.waitForIdle()
             now = sentCount()
             if (now > before || ReplyQueue.failed != null) break
             Thread.sleep(100)
         }
         assertNull("the send failed: " + ReplyQueue.failed?.second, ReplyQueue.failed)
-        compose.mainClock.advanceTimeBy(20_000)
+        pass(20)
+        compose.waitForIdle()
         Thread.sleep(300)
         assertEquals("sent once", before + 1, sentCount())
-        compose.mainClock.autoAdvance = true
     }
 }

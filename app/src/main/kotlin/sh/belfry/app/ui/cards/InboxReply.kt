@@ -127,9 +127,9 @@ internal object ReplyQueue {
     }
 }
 
-/** Under the channel's top bar: the Undo countdown, then how the e-mail fared. */
+/** Under the channel's top bar: the Undo countdown, then how the e-mail fared. [second] waits one second (tests pass their own). */
 @Composable
-internal fun UndoSendHost(groupId: String) {
+internal fun UndoSendHost(groupId: String, second: suspend () -> Unit = { delay(1000) }) {
     val session = LocalSession.current
     val dms = LocalDms.current
 
@@ -147,7 +147,7 @@ internal fun UndoSendHost(groupId: String) {
         var left by remember(p) { mutableIntStateOf(ReplyQueue.UNDO_SECONDS) }
         LaunchedEffect(p) {
             while (left > 0) {
-                delay(1000)
+                second()
                 left--
             }
             if (ReplyQueue.pending === p) ReplyQueue.fire(session, p)
