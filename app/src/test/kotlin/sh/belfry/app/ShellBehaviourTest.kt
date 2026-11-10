@@ -85,7 +85,12 @@ class ShellBehaviourTest : DemoShots() {
         // Nothing is deleted yet: the app asks, showing the message.
         compose.onNodeWithText("Delete this message?").assertIsDisplayed()
         assertNotNull(world.message(general, mine.id))
-        assertTrue(compose.onAllNodesWithText("Wrong channel, sorry").fetchSemanticsNodes().size >= 2)
+        // In the feed and in the confirmation (the feed may still be scrolling to its end).
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodesWithText("Wrong channel, sorry").fetchSemanticsNodes().size >= 2 }
+        } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
+            throw AssertionError("the message shows " + compose.onAllNodesWithText("Wrong channel, sorry").fetchSemanticsNodes().size + " time(s); in the world: " + (world.message(general, mine.id) != null))
+        }
         compose.onNodeWithText("Delete").performClick()
         compose.waitUntil(10_000) { world.message(general, mine.id) == null }
     }
