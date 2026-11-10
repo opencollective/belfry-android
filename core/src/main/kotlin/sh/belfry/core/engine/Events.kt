@@ -15,6 +15,7 @@ import sh.belfry.core.model.SlugCheck
 import sh.belfry.core.model.Ticket
 import sh.belfry.core.model.TicketForm
 import sh.belfry.core.model.eventByLink
+import sh.belfry.core.model.eventPeople
 import sh.belfry.core.model.tickets
 import sh.belfry.core.net.EventsApi
 import sh.belfry.core.nostr.Event
@@ -129,6 +130,8 @@ class EventsService internal constructor(private val s: Session) {
      */
     suspend fun takeTicket(e: CalEvent, t: Ticket) {
         if (t.implicit && !amGuest && !e.remote) return rsvp(e, Rsvp.ACCEPTED)
+        val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
+        if (world.eventPeople(now).holders.containsKey(s.me)) return
         if (s.localOnly) {
             demoIssue(e, s.me, t.d)
             rsvp(e, Rsvp.ACCEPTED, t.d)
@@ -144,6 +147,9 @@ class EventsService internal constructor(private val s: Session) {
      * belfry hands it in (the relay takes it from people who are not members, zooid patch 0004).
      */
     suspend fun apply(e: CalEvent, t: Ticket, answer: String, waitlist: Boolean) {
+        // asked already (a second tap): nothing to send again
+        val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
+        if (world.eventPeople(now).applications.any { it.pubkey == s.me && it.ticket == t.d }) return
         val draft = EventActions.apply(e, t, answer.trim(), waitlist)
         if (!amGuest && !e.remote) {
             s.send(draft)

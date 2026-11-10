@@ -102,6 +102,7 @@ internal fun TakeSheet(e: CalEvent, tks: List<Ticket>, p: EventPeople, t: Ticket
     val session = LocalSession.current
     var answer by remember(t?.d) { mutableStateOf("") }
     var error by remember(t?.d) { mutableStateOf<String?>(null) }
+    var sent by remember(t?.d) { mutableStateOf(false) }
     val member = !world.amGuest && !e.remote
     if (t == null) {
         BelfrySheet(onDismiss = onDismiss, title = "Pick a ticket") {
@@ -134,10 +135,11 @@ internal fun TakeSheet(e: CalEvent, tks: List<Ticket>, p: EventPeople, t: Ticket
                 if (waitlist) "Join the waitlist" else if (t.closed) "Send my application" else "RSVP",
                 onClick = {
                     if (needs) session.events.apply(e, t, answer, waitlist) else session.events.takeTicket(e, t)
+                    sent = true
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth().testTag("take-submit"),
-                enabled = !(t.closed && !waitlist && answer.isBlank()),
+                enabled = !sent && !(t.closed && !waitlist && answer.isBlank()),
                 onError = { error = shownError(it) },
             )
         }

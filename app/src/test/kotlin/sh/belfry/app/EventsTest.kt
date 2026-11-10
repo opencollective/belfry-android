@@ -9,6 +9,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -191,6 +192,7 @@ class EventsTest : DemoShots() {
         started()
         compose.setContent { BelfryTheme { InDemo { CreateEventScreen(Demo.KITCHEN) } } }
         field("event-title").performTextInput("Soup night")
+        compose.onNodeWithTag("create-submit").performScrollTo()
         tap("create-submit")
         tap("create-submit")
         compose.waitUntil(10_000) { world.calendar.any { it.title == "Soup night" } }
