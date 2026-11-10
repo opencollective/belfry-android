@@ -84,7 +84,14 @@ class ShellBehaviourTest : DemoShots() {
         compose.waitForIdle()
         // Nothing is deleted yet: the app asks, showing the message.
         compose.onNodeWithText("Delete this message?").assertIsDisplayed()
-        assertNotNull(world.message(general, mine.id))
+        if (world.message(general, mine.id) == null) {
+            val w = world
+            throw AssertionError(
+                "the message left the world before Delete was confirmed: deletes=" + w.all.filter { it.kind == 5 }.map { it.tags } +
+                    " mine=" + w.messages(general).filter { it.pubkey == session.me }.map { it.id.take(8) + ":" + it.text.take(12) + ":" + w.isPending(it.id) } +
+                    " wanted=" + mine.id.take(8) + " outbox=" + w.outboxItems.map { it.kind.toString() + ":" + it.status },
+            )
+        }
         // In the feed and in the confirmation (the feed may still be scrolling to its end).
         try {
             compose.waitUntil(10_000) { compose.onAllNodesWithText("Wrong channel, sorry").fetchSemanticsNodes().size >= 2 }
