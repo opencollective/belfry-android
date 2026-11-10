@@ -112,7 +112,8 @@ class ModelTest {
         val sent = ev(groupsKey, t0 + 86600, 9, "An answer", t("h", "general"), t("client", "belfry-mail-out"), t("e", card.id), t("mail-to", "x@y.org"), t("subject", "Re: Hello"), t("sent-by", alice))
         val mail = ev(bob, t0 + 86700, 9, "**Subj**\nBody", t("h", "general"), t("client", "belfry-mail"), t("subject", "Subj"))
         val drop = ev(carol, t0 + 86800, 9, "", t("h", "general"), t("client", "belfry-drop"), t("imeta", "url https://x.org/p.png", "m image/png"))
-        val w = world(listOf(create, m1, m2, m3, m4, pod, ann, notAnn, nextDay, card, sent, mail, drop))
+        val podGroup = ev(bob, t0 + 615, 9007, "", t("h", "pod-garden-0000"))
+        val w = world(listOf(create, podGroup, m1, m2, m3, m4, pod, ann, notAnn, nextDay, card, sent, mail, drop))
         val rows = w.feedRows("general")
         fun row(e: Event) = rows.first { (it.item as FeedItem.Msg).m.id == e.id }
         assertTrue(row(m1).newDay && row(m1).first)
