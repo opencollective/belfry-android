@@ -159,7 +159,9 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
                     onCheckedChange = { error = null; confirming = true },
                     modifier = Modifier.testTag("admin-switch"),
                     icon = BelfryIcons.Shield,
-                    sub = noAdmin ?: if (guest != null) {
+                    sub = if (noAdmin != null) {
+                        null
+                    } else if (guest != null) {
                         "A guest now: this makes them a member too. Manages members, every channel and the belfry's settings."
                     } else {
                         "Manages members, every channel and the belfry's settings."
@@ -167,6 +169,8 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
                     enabled = noAdmin == null || admin,
                 )
             }
+            // Outside the dimmed row, so the reason stays readable.
+            if (noAdmin != null) Hint(noAdmin, Modifier.padding(top = 8.dp))
             ErrorLine(error)
         }
     }

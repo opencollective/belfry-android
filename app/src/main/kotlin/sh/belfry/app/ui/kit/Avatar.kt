@@ -36,9 +36,13 @@ private val AVATAR_COLORS = listOf(
  * people are spread evenly over them (the web takes the first 6 hex digits modulo 7).
  */
 fun avatarColor(pubkey: String): Color {
-    var h = 0x811C9DC5.toInt()
-    for (ch in pubkey) h = (h xor ch.code) * 0x01000193
-    return AVATAR_COLORS[((h ushr 8) and 0x7fffff) % AVATAR_COLORS.size]
+    var h = pubkey.hashCode()
+    h = h xor (h ushr 16)
+    h *= -0x7a143595
+    h = h xor (h ushr 13)
+    h *= -0x3d4d51cb
+    h = h xor (h ushr 16)
+    return AVATAR_COLORS[Math.floorMod(h, AVATAR_COLORS.size)]
 }
 
 /** Who to draw: the key (colour), the display name (initial) and an optional https picture. */
