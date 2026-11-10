@@ -311,6 +311,8 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
     var tried by remember { mutableStateOf(showErrors) }
     var error by remember { mutableStateOf<String?>(null) }
     var coverError by remember { mutableStateOf<String?>(null) }
+    // made or saved once: the button stays locked (a second tap never makes a second event)
+    var done by remember { mutableStateOf(false) }
     val coverBusy = rememberBusy()
     var picking by remember { mutableStateOf(if (openPicker == "start-date") Picking.StartDate else if (openPicker == "start-time") Picking.StartTime else Picking.None) }
 
@@ -443,7 +445,8 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                 onClick = {
                     tried = true
                     error = null
-                    if (title.isNotBlank() && !linkBad && !endsBefore && !slugTaken) {
+                    if (!done && title.isNotBlank() && !linkBad && !endsBefore && !slugTaken) {
+                        done = true
                         val n = EventForm(
                             title = title.trim(), description = description.trim(), allDay = allDay,
                             start = start.toEpochSecond(), end = end.toEpochSecond(),
@@ -463,8 +466,8 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                     }
                 },
                 modifier = Modifier.fillMaxWidth().testTag("create-submit"),
-                enabled = !coverBusy.busy,
-                onError = { error = shown(it) },
+                enabled = !coverBusy.busy && !done,
+                onError = { done = false; error = shown(it) },
             )
             Muted(
                 if (old != null) "Everyone who RSVPed sees the change."
