@@ -309,7 +309,7 @@ class EngineTest {
         assertEquals(bob.pubkey, rumor.pubkey)
         assertEquals("bob@example.org", rumor.tag("mail-from"))
         assertEquals("ana@example.org", rumor.tag("rcpt-to"))
-        assertEquals("Re: Hello", rumor.tag("subject"))
+        assertEquals("Re: Something else entirely", rumor.tag("subject")) // Re: the last mail of the thread
         assertTrue(rumor.content.contains("In-Reply-To: <a2@example.org>"), rumor.content.take(400))
         assertTrue(rumor.content.contains("References: <a2@example.org>"))
         assertTrue(rumor.content.contains("From: \"Bob\" <bob@example.org>"))
