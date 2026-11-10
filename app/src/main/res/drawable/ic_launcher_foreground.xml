@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Arms mark: a shield with a tower over water. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FAFAFA"
+        android:strokeWidth="3.2"
+        android:strokeLineJoin="round"
+        android:pathData="M34,30 L74,30 L74,56 C74,68 66,76 54,80 C42,76 34,68 34,56 Z" />
+    <path
+        android:fillColor="#FAFAFA"
+        android:pathData="M48,60 L48,44 L46,44 L46,39 L49.5,39 L49.5,41.5 L52.2,41.5 L52.2,39 L55.8,39 L55.8,41.5 L58.5,41.5 L58.5,39 L62,39 L62,44 L60,44 L60,60 Z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FAFAFA"
+        android:strokeWidth="2.4"
+        android:strokeLineCap="round"
+        android:pathData="M41,66 C44,63.5 47,63.5 50,66 C53,68.5 56,68.5 59,66 C62,63.5 65,63.5 67,65" />
+</vector>
