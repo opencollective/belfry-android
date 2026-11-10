@@ -26,7 +26,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sh.belfry.app.BuildConfig
+import sh.belfry.app.ui.chat.authorName
 import sh.belfry.app.ui.chat.face
+import sh.belfry.app.ui.chat.hasProfile
 import sh.belfry.app.ui.chat.glyph
 import sh.belfry.app.ui.kit.Avatar
 import sh.belfry.app.ui.kit.BelfryIcons
@@ -146,14 +148,15 @@ private fun Section(title: String, count: Int) {
 @Composable
 private fun ChannelItem(world: World, g: Group, depth: Int, on: Boolean, onClick: () -> Unit) {
     val last = world.messages(g.id).lastOrNull()
-    val sub = if (last != null) "${world.displayName(last.pubkey)}: ${preview(world, last)}" else g.about
+    val sub = if (last != null) "${if (last.hasProfile()) world.displayName(last.pubkey) else world.authorName(g.id, last)}: ${preview(world, last)}" else g.about
     DrawerItem(icon = { ChannelIcon(g.glyph()) }, title = g.name, sub = sub, on = on, depth = depth, onClick = onClick)
 }
 
 /** A message as one line without Markdown marks; mentions as @Name. */
 private fun preview(world: World, m: Message): String {
-    if (m.text.isNotEmpty()) {
-        return Markdown.plain(m.text) { npub ->
+    val text = m.body.ifEmpty { m.text }
+    if (text.isNotEmpty()) {
+        return Markdown.plain(text) { npub ->
             val name = Bech32.npubToHex(npub)?.let { world.realName(it) }.orEmpty()
             "@" + name.ifEmpty { "…" }
         }

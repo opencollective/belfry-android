@@ -51,6 +51,7 @@ import sh.belfry.app.ui.cards.SpecialCard
 import sh.belfry.app.ui.kit.Avatar
 import sh.belfry.app.ui.kit.AvatarStack
 import sh.belfry.app.ui.kit.BelfryIcons
+import sh.belfry.app.ui.kit.Face
 import sh.belfry.app.ui.kit.LocalNetworkImages
 import sh.belfry.app.ui.kit.MarkdownText
 import sh.belfry.app.ui.kit.isSafeLink
@@ -96,6 +97,7 @@ fun MessageRow(
     val session = LocalSession.current
     val nav = LocalNav.current
     val pending = world.pending(m.id)
+    val author = world.authorName(groupId, m)
     val avatar: Dp = if (compact) 24.dp else 36.dp
     val bg = when {
         highlight -> c.orange.copy(alpha = 0.16f)
@@ -118,8 +120,8 @@ fun MessageRow(
     ) {
         Box(Modifier.width(avatar)) {
             if (first) {
-                val face = world.face(m.pubkey).copy(name = world.nameOver(m))
-                Avatar(face, size = avatar, modifier = Modifier.clip(RoundedCornerShape(50)).clickable { nav.go(Routes.profile(m.pubkey)) })
+                val face = if (m.hasProfile()) world.face(m.pubkey).copy(name = author) else Face(m.pubkey, author)
+                Avatar(face, size = avatar, modifier = Modifier.clip(RoundedCornerShape(50)).clickable(enabled = m.hasProfile()) { nav.go(Routes.profile(m.pubkey)) })
             }
         }
         Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
@@ -127,8 +129,8 @@ fun MessageRow(
             if (first) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        world.nameOver(m), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false).clickable(role = Role.Button) { nav.go(Routes.profile(m.pubkey)) },
+                        author, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.hasProfile(), role = Role.Button) { nav.go(Routes.profile(m.pubkey)) },
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(ChatFormat.time(world, m.at), fontSize = 12.sp, color = c.faint, maxLines = 1)
@@ -216,13 +218,14 @@ private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, ch
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ThreadChips(thread: ThreadInfo, open: Boolean, onToggle: () -> Unit, onOpen: (() -> Unit)?) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
     val shape = RoundedCornerShape(8.dp)
-    Row(Modifier.padding(top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(Modifier.padding(top = 4.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClick = onToggle).padding(horizontal = 8.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -237,7 +240,6 @@ private fun ThreadChips(thread: ThreadInfo, open: Boolean, onToggle: () -> Unit,
             Text(ChatFormat.short(world, thread.last, session.now()), fontSize = 12.sp, color = c.faint, maxLines = 1)
         }
         if (onOpen != null) {
-            Spacer(Modifier.width(6.dp))
             Row(
                 Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClick = onOpen).padding(horizontal = 8.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,

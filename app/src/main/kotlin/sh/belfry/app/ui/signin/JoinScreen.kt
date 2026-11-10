@@ -83,7 +83,7 @@ fun JoinContent(invitation: Invitation?, error: String?, onJoin: suspend (name: 
         Spacer(Modifier.height(40.dp))
         if (info == null || closed != null) {
             if (closed != null || error != null) {
-                Text("This invite can’t be used", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                Text("This invite can’t be used", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                 Spacer(Modifier.height(8.dp))
                 Text(closed ?: error ?: "", fontSize = 15.sp, color = c.muted)
                 Spacer(Modifier.height(24.dp))
@@ -98,7 +98,7 @@ fun JoinContent(invitation: Invitation?, error: String?, onJoin: suspend (name: 
                 }
             }
         } else {
-            Text("${info.inviter.ifEmpty { "A member" }} invited you to # ${info.channelName}", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+            Text("${info.inviter.ifEmpty { "A member" }} invited you to # ${info.channelName}", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             if (info.about.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text(info.about, fontSize = 15.sp, color = c.muted)

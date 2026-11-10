@@ -4,6 +4,8 @@ import sh.belfry.app.ui.kit.ChannelGlyph
 import sh.belfry.app.ui.kit.Face
 import sh.belfry.core.model.ChannelType
 import sh.belfry.core.model.Group
+import sh.belfry.core.model.Message
+import sh.belfry.core.model.Special
 import sh.belfry.core.model.World
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -35,6 +37,19 @@ object ChatFormat {
 }
 
 fun World.face(pubkey: String): Face = Face(pubkey, realName(pubkey).ifEmpty { displayName(pubkey) }, profiles[pubkey]?.picture)
+
+/**
+ * Who a message is from, as its header shows it. Cards posted by the belfry's groups key carry
+ * their real sender: the person who e-mailed, or the channel that answered.
+ */
+fun World.authorName(groupId: String, m: Message): String = when (val s = m.special) {
+    is Special.InboxCard -> s.name.ifEmpty { s.from }
+    is Special.SentAsChannel -> group(groupId)?.name ?: groupId
+    else -> nameOver(m)
+}
+
+/** The author is a member with a profile to open (not the belfry's own key posting a card). */
+fun Message.hasProfile(): Boolean = special !is Special.InboxCard && special !is Special.SentAsChannel
 
 fun Group.glyph(): ChannelGlyph = when (type) {
     ChannelType.EVENT -> ChannelGlyph.Event

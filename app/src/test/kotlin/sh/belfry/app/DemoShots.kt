@@ -56,8 +56,14 @@ abstract class DemoShots : Shots() {
     /** Posts a message as me in a channel and returns it once it is out (editable, deletable). */
     fun myMessage(text: String, channel: String = Demo.GENERAL): Message {
         runBlocking { session.postMessage(channel, text) }
-        settle()
-        return world.messages(channel).last { it.pubkey == session.me && it.text == text }
+        // Its id changes when it leaves the outbox (local id → event id): wait for the published one.
+        repeat(200) {
+            settle()
+            val m = world.messages(channel).lastOrNull { it.pubkey == session.me && it.text == text }
+            if (m != null && !world.isPending(m.id)) return m
+            Thread.sleep(25)
+        }
+        error("the message never left the demo outbox")
     }
 
     @Composable

@@ -59,6 +59,7 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.people.SaveAccountBar
 import sh.belfry.app.ui.theme.Belfry
+import sh.belfry.core.markdown.Markdown
 import sh.belfry.core.model.FeedItem
 import sh.belfry.core.model.FeedRow
 import sh.belfry.core.model.Mentions
@@ -265,13 +266,13 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                         Icon(BelfryIcons.Thread, contentDescription = null, tint = c.faint, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "${world.displayName(item.last.pubkey)} replied to ${world.displayName(item.root.pubkey)}: “${world.activitySnippet(item.root)}”",
+                            "${world.displayName(item.last.pubkey)} replied to ${world.displayName(item.root.pubkey)}: “${Markdown.plain(world.activitySnippet(item.root))}”",
                             fontSize = 13.sp, color = c.muted, maxLines = 2, modifier = Modifier.weight(1f),
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(ChatFormat.time(world, item.at), fontSize = 12.sp, color = c.faint)
                     }
-                    if (!open) Text(world.activityReply(item.last), fontSize = 15.sp, color = c.text, maxLines = 3, modifier = Modifier.padding(start = 23.dp, top = 2.dp))
+                    if (!open) Text(Markdown.plain(world.activityReply(item.last)), fontSize = 15.sp, color = c.text, maxLines = 3, modifier = Modifier.padding(start = 23.dp, top = 2.dp))
                 }
                 if (open) {
                     InlineThread(groupId, item.root, chat, focus = chat.openThreads[key] == true, onHide = { chat.openThreads.remove(key) }, onOpen = { nav.go(Routes.thread(groupId, item.root.id)) })

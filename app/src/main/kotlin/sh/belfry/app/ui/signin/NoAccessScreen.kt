@@ -26,7 +26,7 @@ fun NoAccessScreen() {
     SignedOutPage {
         Logo(session.community.name)
         Spacer(Modifier.height(40.dp))
-        Text("You’re not in yet", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+        Text("You’re not in yet", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
         Spacer(Modifier.height(8.dp))
         Text(
             "You are signed in, but ${session.community.name} does not let this account into its chat (yet). Ask a member for an invite, or an admin to check your membership.",

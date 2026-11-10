@@ -128,7 +128,7 @@ fun SignInContent(
     SignedOutPage {
         Logo()
         Spacer(Modifier.height(40.dp))
-        Text("Sign in to your community", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+        Text("Sign in to your community", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
         Spacer(Modifier.height(8.dp))
         Text("Type your community's address. You sign in on its own page with your e-mail; no password.", fontSize = 15.sp, color = c.muted)
         Spacer(Modifier.height(24.dp))
