@@ -45,6 +45,8 @@
                 <data android:host="chat.belfry.sh" />
                 <data android:host="chat.enspiral.eu" />
                 <data android:pathPrefix="/join/" />
+                <!-- An event's address (the belfry redirects it to the web chat's #/events/<link>) -->
+                <data android:pathPrefix="/events/" />
             </intent-filter>
         </activity>
     </application>

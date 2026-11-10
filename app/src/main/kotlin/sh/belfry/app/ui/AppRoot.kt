@@ -27,6 +27,7 @@ import sh.belfry.app.ui.kit.ButtonKind
 import sh.belfry.app.ui.nav.AppNav
 import sh.belfry.app.ui.nav.AppNavigator
 import sh.belfry.app.ui.nav.LocalNav
+import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalSignOut
 import sh.belfry.app.ui.nav.LocalStatus
@@ -74,8 +75,33 @@ private fun SignedIn(state: AppState, session: Session) {
             } else {
                 AppNav(controller, shell)
                 JoinOffer(state)
+                EventLinkOpener(state)
             }
         }
+    }
+}
+
+/**
+ * Opened from an event's address (`https://chat.<domain>/events/<link>`): its page, which says
+ * "There is no such event here." when the belfry doesn't know it. Another community's event: a
+ * fixed message.
+ */
+@Composable
+private fun EventLinkOpener(state: AppState) {
+    val link = state.eventLink.collectAsState().value ?: return
+    val session = LocalSession.current
+    val nav = LocalNav.current
+    if (link.domain == session.community.domain) {
+        LaunchedEffect(link) {
+            state.forgetEventLink()
+            nav.go(Routes.event(link.link))
+        }
+        return
+    }
+    BelfrySheet(onDismiss = { state.forgetEventLink() }, title = "Another community’s event") {
+        Text("This event is in another community. Sign out first to open it here, or open it in the browser.", fontSize = 15.sp, color = Belfry.colors.muted)
+        Spacer(Modifier.height(16.dp))
+        BusyButton("OK", onClick = { state.forgetEventLink() }, modifier = Modifier.fillMaxWidth())
     }
 }
 

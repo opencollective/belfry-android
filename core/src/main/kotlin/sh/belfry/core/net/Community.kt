@@ -176,6 +176,24 @@ data class Community(
 }
 
 /** A guest link: `https://chat.<domain>/join/<token>` (also the web's `…/#/join/<token>`). */
+/**
+ * An event's address on the chat host, `https://chat.<domain>/events/<link>` (the belfry
+ * redirects it to the web chat's `#/events/<link>`; the app opens the event page). Only the
+ * domain and the link are read; nothing of the address is ever displayed.
+ */
+data class EventLink(val domain: String, val link: String) {
+    companion object {
+        private val LINK = Regex("^https://chat\\.([a-z0-9.-]+)/events/([A-Za-z0-9_-]{1,80})/?$")
+
+        fun parse(url: String): EventLink? {
+            val m = LINK.matchEntire(url.trim()) ?: return null
+            val domain = m.groupValues[1]
+            if (!Community.isDomain(domain)) return null
+            return EventLink(domain, m.groupValues[2])
+        }
+    }
+}
+
 data class InviteLink(val domain: String, val token: String) {
     companion object {
         private val LINK = Regex("^https://chat\\.([a-z0-9.-]+)/(?:#/)?join/([A-Za-z0-9_-]{20,})/?$")

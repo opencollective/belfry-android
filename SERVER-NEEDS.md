@@ -82,13 +82,13 @@ at once, but a nonce tag accepted by the server would remove the edge case.
 
 ## 9. Events (from the Android events work, 2026-11-10)
 
-- **Event links into the app.** The web opens events at `chat.<domain>/#/events/<link>`; a
-  fragment can't be matched by Android App Links, so `https://<domain>/events/<link>` and that
-  address open in the browser. Serving `https://chat.<domain>/events/<link>` (redirecting to the
-  fragment for the web) would let the app claim the path on the host that already has
-  `assetlinks.json`. Until then, there is no signed-out event screen on Android.
-- **Guest RSVPs on the groups relay** (kind 31925 with `h`): the app sends them as the web does;
-  please confirm zooid accepts 31925 in an `ev-` group from a guest.
+- (Done, belfry-sh: `https://chat.<domain>/events/<link>` 302s to `/#/events/<link>`, link =
+  `[A-Za-z0-9_-]{1,80}`, on the host that serves `assetlinks.json`.) The app claims the
+  `/events/` path on `chat.belfry.sh` / `chat.enspiral.eu` and opens the event page (signed out:
+  after sign-in). There is still no signed-out event screen (the web's join screen).
+- **Guest RSVPs on the groups relay** (kind 31925 with `h`): zooid patch 0002 lets a guest write
+  any non-moderation kind tagged `h` with one of its groups, so a 31925 with `h` in its `ev-`
+  group should be accepted; nobody has tested it live yet.
 - **Covers** come back from the API as `https://<domain>/events/<link>/cover` for guests; members
   read the Blossom URL from the event. Nothing to change; noted because the demo cannot show a
   real cover.

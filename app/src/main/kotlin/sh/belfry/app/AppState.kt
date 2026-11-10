@@ -12,6 +12,7 @@ import sh.belfry.core.engine.OnboardingException
 import sh.belfry.core.engine.Session
 import sh.belfry.core.engine.Vault
 import sh.belfry.core.net.Community
+import sh.belfry.core.net.EventLink
 import sh.belfry.core.net.InviteLink
 
 /** Where the app is: starting, signed out, looking at a guest link, or in. */
@@ -46,6 +47,13 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     /** Signed in and opened from a guest link: offer to join as yourself. */
     private val _joinOffer = MutableStateFlow<InviteLink?>(null)
     val joinOffer: StateFlow<InviteLink?> = _joinOffer
+
+    /** Opened from an event's address: the event page opens once signed in (kept until then). */
+    private val _eventLink = MutableStateFlow<EventLink?>(null)
+    val eventLink: StateFlow<EventLink?> = _eventLink
+
+    fun onEventLink(link: EventLink) { _eventLink.value = link }
+    fun forgetEventLink() { _eventLink.value = null }
 
     private var booted = false
     @Volatile private var online = true

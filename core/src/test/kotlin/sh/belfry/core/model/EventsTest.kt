@@ -207,6 +207,16 @@ class EventsTest {
     }
 
     @Test
+    fun anEventsAddressOnTheChatHost() {
+        assertEquals(sh.belfry.core.net.EventLink("belfry.sh", "garden-day"), sh.belfry.core.net.EventLink.parse("https://chat.belfry.sh/events/garden-day"))
+        assertEquals("2026-abc123", sh.belfry.core.net.EventLink.parse("https://chat.belfry.sh/events/2026-abc123/")?.link)
+        assertNull(sh.belfry.core.net.EventLink.parse("https://belfry.sh/events/garden-day"))
+        assertNull(sh.belfry.core.net.EventLink.parse("https://chat.belfry.sh/events/garden day"))
+        assertNull(sh.belfry.core.net.EventLink.parse("https://chat.belfry.sh/events/x?y=1"))
+        assertNull(sh.belfry.core.net.EventLink.parse("https://chat.belfry.sh/join/abcdefghijklmnopqrstuv"))
+    }
+
+    @Test
     fun guestRsvpGoesToTheGroupsRelay() {
         val w = world(base())
         val e = w.calendar.single()
