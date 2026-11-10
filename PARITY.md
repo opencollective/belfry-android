@@ -1,6 +1,6 @@
 # Parity with the web chat
 
-Reference: `village-app`, branch `belfry-chat`, at commit ef9e1cc (2026-11-10), Belfry theme. Belfry events (605d9c7 and later: own URLs, tickets, applications, event cards from URLs) are tracked by the events branch, not here.
+Reference: `village-app`, branch `belfry-chat`, at commit ef9e1cc (2026-11-10), Belfry theme. Belfry events (605d9c7 and later) are in their own section below.
 Status words: **done** (built, rendered in demo mode in CI, covered by a screenshot and, where
 noted, a behaviour test), **partial** (what is missing is named), **not yet**.
 
