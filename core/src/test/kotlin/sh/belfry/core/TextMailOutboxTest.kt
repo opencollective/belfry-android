@@ -149,7 +149,7 @@ class TextMailOutboxTest {
             inReplyTo = "<a1@x>", references = "<a0@x>", now = 1793000000,
         )
         assertTrue(built.raw.lines().all { it.length <= 78 || it.startsWith("Content-Type") }, "base64 lines are wrapped")
-        assertTrue(built.raw.contains("Date: Tue, 03 Nov 2026 "), built.raw.lineSequence().first { it.startsWith("Date") })
+        assertTrue(built.raw.contains("Date: Mon, 26 Oct 2026 07:33:20 +0000\r\n"), built.raw.lineSequence().first { it.startsWith("Date") })
         val m = Mime.parseMail(built.raw)
         assertEquals("Re: Café ☕", m.subject)
         assertEquals("Yes **please**, à bientôt 😀\n\n" + "long line ".repeat(30).trim(), m.text)
