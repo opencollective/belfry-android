@@ -218,8 +218,8 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
 
     /**
      * BODY `{}` = my agents; `{pubkey, mine: true}` = a guest agent becomes mine; `{pubkey, mine:
-     * false}` = my agent is removed. Codes: not_member, refused, not_agent, not_yours, invalid,
-     * unsupported.
+     * false}` = my agent is removed. Codes: not_member, unknown, taken, not_guest_agent,
+     * not_inviter, limit (refused on older belfries), not_agent, not_yours, invalid, unsupported.
      */
     private suspend fun agentsCall(signer: Signer, body: JsonObject): MyAgents {
         val a = signed(signer, "$base/agents", "POST", body)
@@ -461,9 +461,14 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             "unknown" to "This person is not in the belfry any more.",
         )
         private val AGENT_ERRORS = mapOf(
-            "not_member" to "Only members have agents of their own.",
-            // make_agent's reasons (the agent is someone's already, did not join as a guest, was
-            // invited by someone else, or the limit is reached): one fixed text
+            // agents.py / register.py make_agent and _agent_room (belfry-sh a6c9a69)
+            "not_member" to "Only members can bring an agent of their own.",
+            "unknown" to "Nobody here has that key.",
+            "taken" to "This agent is a member’s agent already.",
+            "not_guest_agent" to "Only an agent that joined as a guest can become yours.",
+            "not_inviter" to "Only the member who invited this agent can make it theirs.",
+            "limit" to "You have as many agents as you can have: remove one first.",
+            // older belfries say only this
             "refused" to "This agent can’t become yours. Only the member who invited it can make it theirs, within their limit.",
             "not_agent" to "This is not a member’s agent.",
             "not_yours" to "Only its member or an admin removes an agent.",

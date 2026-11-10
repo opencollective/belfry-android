@@ -71,9 +71,9 @@ at once, but a nonce tag accepted by the server would remove the edge case.
   A member that was a guest once and was promoted without the `member` label would be treated as
   a guest. Listing members' kinds in belfry.json (or an answer from `/channel-guests` that the
   client may use for anyone) would remove the guesswork.
-- `POST /agents` with `mine: true` fails with one code (`refused`) for four different reasons
-  (someone's agent already, did not join as a guest, invited by someone else, limit reached). The
-  app shows one fixed text; distinct codes would let it say which.
+- (Done, belfry-sh a6c9a69) `POST /agents` with `mine: true` now says why it refuses: 409
+  `not_member`, `unknown`, `taken`, `not_guest_agent`, `not_inviter`, `limit` (`refused` stays
+  as a fallback for older belfries). The app maps each to its own fixed message.
 - belfry.json `agents` changes only when the document is re-read; after "Make it my agent" the
   app updates its own copy at once and re-reads the document. If the document is cached, the
   profile may flip back until it catches up (same as `admins`, 6).

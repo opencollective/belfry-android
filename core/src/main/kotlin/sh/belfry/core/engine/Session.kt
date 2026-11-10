@@ -858,7 +858,8 @@ class Session(
     /**
      * MINE: a guest agent becomes my own (a member for as long as I am one); else my agent (or, for
      * an admin, anyone's) is removed. belfry.json's `agents` follows at once here, then from the
-     * belfry. Codes: not_member, refused, not_agent, not_yours.
+     * belfry. Codes: not_member, unknown, taken, not_guest_agent, not_inviter, limit (refused on
+     * older belfries), not_agent, not_yours.
      */
     suspend fun setMyAgent(pubkey: String, mine: Boolean): MyAgents {
         val out = if (localOnly) null else call { it.setMyAgent(signer, pubkey, mine) }

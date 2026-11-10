@@ -827,8 +827,10 @@ server `agents.py`.)
 - `POST <api>/agents` (NIP-98): `{}` → `{"agents":[{"pubkey","name","since"}],"limit":n}`;
   `{"pubkey","mine":true}` makes a guest agent mine (only the member who invited it, or an admin
   for themselves, within the limit); `{"pubkey","mine":false}` removes my agent (its member or an
-  admin). Errors: `not_member` 403, `refused` 409 (someone's already / did not join as a guest /
-  invited by someone else / limit), `not_agent` 404, `not_yours` 403, `invalid` 400,
+  admin). Errors: `not_member` 403 / 409; making it mine, 409 with the reason (belfry-sh
+  a6c9a69): `unknown` (nobody has that key), `taken` (someone's agent already),
+  `not_guest_agent` (did not join as a guest agent), `not_inviter` (invited by someone else),
+  `limit`; `refused` on older belfries; `not_agent` 404, `not_yours` 403, `invalid` 400,
   `unsupported` 409. The answer is the new list; belfry.json `agents` follows.
 - Profile: a member's agent shows the chip "agent" and "agent of <owner | you>"; no admin
   switch. "Make it my agent" when it is a guest agent, I am a member (not a guest, not an agent)
