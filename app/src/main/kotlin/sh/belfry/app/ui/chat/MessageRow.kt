@@ -26,7 +26,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -267,9 +269,7 @@ private fun MediaView(media: Media, session: Session, chat: ChatState) {
         }
         return
     }
-    val local by produceState<ImageBitmap?>(null, media.url) {
-        value = if (media.url.startsWith(Session.LOCAL_BLOB)) withContext(Dispatchers.IO) { session.localBlob(media.url)?.let(Photos::decodeBytes) } else null
-    }
+    val local = rememberLocalImage(media.url) { if (media.url.startsWith(Session.LOCAL_BLOB)) session.localBlob(media.url) else null }
     val w = media.w ?: 0
     val h = media.h ?: 0
     val ratio = if (w > 0 && h > 0) (w.toFloat() / h).coerceIn(0.6f, 2.4f) else 4f / 3f
@@ -286,15 +286,21 @@ private fun MediaView(media: Media, session: Session, chat: ChatState) {
 /** A photo still in the outbox: shown from the device's copy. */
 @Composable
 private fun PendingAttachment(a: Attachment, session: Session, chat: ChatState) {
-    val bitmap by produceState<ImageBitmap?>(null, a.blobKey) {
-        value = withContext(Dispatchers.IO) { session.blob(a.blobKey)?.let(Photos::decodeBytes) }
-    }
+    val bitmap = rememberLocalImage(a.blobKey) { session.blob(a.blobKey) }
     val w = a.width ?: 0
     val h = a.height ?: 0
     val ratio = if (w > 0 && h > 0) (w.toFloat() / h).coerceIn(0.6f, 2.4f) else 4f / 3f
     PhotoBox(ratio, a.name, onClick = { bitmap?.let { chat.viewer = ViewerImage(null, it, a.name) } }) {
         bitmap?.let { Image(it, contentDescription = a.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
     }
+}
+
+/** A picture whose bytes are on the device, decoded off the main thread; null until then (or when there is none). */
+@Composable
+private fun rememberLocalImage(key: String, bytes: () -> ByteArray?): ImageBitmap? {
+    var image by remember(key) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(key) { image = withContext(Dispatchers.IO) { bytes()?.let(Photos::decodeBytes) } }
+    return image
 }
 
 @Composable
