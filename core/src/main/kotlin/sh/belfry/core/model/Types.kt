@@ -272,7 +272,44 @@ data class Task(
     val id: String, val title: String, val author: String, val assignee: String?, val done: Boolean, val pending: Boolean, val comments: List<TaskComment>,
     /** The message it was made from ("Turn into a to-do"): its `q` tag. */
     val source: String? = null,
+    /** Its status steps, oldest first: created, claim, working, done, undone. */
+    val history: List<TaskStep> = emptyList(),
 )
+
+data class TaskStep(val at: Long, val who: String, val what: String)
+
+/** A to-do's status steps by one person at about the same time, as one line in its thread. */
+data class StepGroup(val task: Task, val who: String, val at: Long, val what: List<String>)
+
+/** The thread's lines for these to-dos (web Chat.tsx stepGroups): steps by the same person within
+ *  two minutes merge ("made a to-do and took it"); a second "started working" is dropped. */
+object TaskSteps {
+    private val WORDS = mapOf("created" to "made a to-do", "claim" to "took it", "working" to "started working on it", "done" to "marked it done", "undone" to "reopened it")
+
+    fun groups(tasks: List<Task>): List<StepGroup> {
+        val out = ArrayList<StepGroup>()
+        for (t in tasks) {
+            var started = false
+            var cur: MutableList<String>? = null
+            var curWho = ""; var curAt = 0L
+            for (s in t.history.sortedBy { it.at }) {
+                if (s.what !in WORDS) continue
+                if (s.what == "working") { if (started) continue; started = true }
+                if (s.what == "done" || s.what == "undone") started = false
+                if (cur != null && curWho == s.who && s.at - curAt <= 120 && s.what !in cur) { cur.add(s.what); continue }
+                cur = mutableListOf(s.what); curWho = s.who; curAt = s.at
+                out.add(StepGroup(t, s.who, s.at, cur))
+            }
+        }
+        return out
+    }
+
+    /** "made a to-do, took it and started working on it" */
+    fun text(what: List<String>): String {
+        val w = what.map { WORDS.getValue(it) }
+        return if (w.size > 1) w.dropLast(1).joinToString(", ") + " and " + w.last() else w.first()
+    }
+}
 
 data class Active(val pubkey: String, val at: Long)
 

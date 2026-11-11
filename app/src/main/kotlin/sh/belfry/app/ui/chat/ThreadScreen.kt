@@ -35,6 +35,16 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Mentions
 import sh.belfry.core.model.unsubstituteChannels
 import sh.belfry.core.model.Message
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import sh.belfry.app.ui.kit.MoreIcons
+import sh.belfry.core.model.StepGroup
+import sh.belfry.core.model.TaskSteps
 
 /** A thread on its own screen: the message it hangs off, every reply, a reply box (NIP-22). */
 @Composable
@@ -79,9 +89,19 @@ fun ThreadScreen(
                     Box(Modifier.weight(1f).height(1.dp).background(c.line))
                 }
             }
-            itemsIndexed(replies, key = { _, r -> r.id }) { i, r ->
-                val prev = replies.getOrNull(i - 1)
-                MessageRow(groupId, r, prev == null || prev.pubkey != r.pubkey || r.at - prev.at > 300, chat)
+            // the replies and, between them, the status of to-dos made from this thread (web 2026-11-11)
+            val ids = setOf(rootId) + replies.map { it.id }
+            val steps = TaskSteps.groups(world.tasks(groupId).filter { it.source != null && it.source in ids })
+            val flow: List<Any> = (replies.map { it.at to (it as Any) } + steps.map { it.at to (it as Any) })
+                .sortedWith(compareBy({ it.first }, { if (it.second is StepGroup) 1 else 0 })).map { it.second }
+            itemsIndexed(flow, key = { _, x -> if (x is StepGroup) "step:" + x.task.id + x.at + x.what.joinToString() else (x as sh.belfry.core.model.Message).id }) { i, x ->
+                if (x is StepGroup) {
+                    StepLine(x)
+                } else {
+                    val r = x as sh.belfry.core.model.Message
+                    val prev = flow.getOrNull(i - 1) as? sh.belfry.core.model.Message
+                    MessageRow(groupId, r, prev == null || prev.pubkey != r.pubkey || r.at - prev.at > 300, chat)
+                }
             }
         }
         Hairline()
@@ -113,4 +133,25 @@ fun ThreadScreen(
     }
     MessageSheets(groupId, chat, onReply = null, onOpenThread = null, onEdit = startEdit)
     chat.viewer?.let { ImageViewer(it) { chat.viewer = null } }
+}
+
+
+/** A to-do's status in its thread: who, what, which to-do, when (merged when together). */
+@Composable
+private fun StepLine(g: StepGroup) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    Row(Modifier.fillMaxWidth().padding(start = 60.dp, end = 16.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(MoreIcons.Todo, contentDescription = null, tint = if (g.what.last() in setOf("done", "working")) c.text else c.faint, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.text)) { append(world.displayName(g.who)) }
+                append(" " + TaskSteps.text(g.what) + ": “" + g.task.title + "”")
+            },
+            fontSize = 13.sp, color = c.muted, modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(ChatFormat.time(world, g.at), fontSize = 12.sp, color = c.faint)
+    }
 }

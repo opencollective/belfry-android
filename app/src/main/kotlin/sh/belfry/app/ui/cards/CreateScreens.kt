@@ -169,13 +169,20 @@ fun CreatePodScreen(parent: String) {
 }
 
 @Composable
-fun CreateProposalScreen(parent: String) {
+fun CreateProposalScreen(parent: String, from: String? = null, fromChannel: String? = null) {
     val session = LocalSession.current
     val world = LocalWorld.current
     val nav = LocalNav.current
-    var title by remember { mutableStateOf("") }
+    // a request turned into a proposal (web 2026-11-11): its words to start from, a link back
+    val request = if (from != null && fromChannel != null) world.message(fromChannel, from) else null
+    var title by remember { mutableStateOf(request?.let { r -> (r.ev.tag("subject") ?: r.text.lineSequence().firstOrNull().orEmpty().replace("**", "")).take(140) } ?: "") }
     var summary by remember { mutableStateOf("") }
-    var text by remember { mutableStateOf("") }
+    var text by remember {
+        mutableStateOf(request?.let { r ->
+            val page = world.webPage(world.group(fromChannel!!))?.slug ?: fromChannel
+            r.text.replace(Regex("^\\*\\*[^\\n]*\\*\\*\\n+"), "") + "\n\n_From a request by ${world.displayName(r.ev.pubkey)}: https://${world.ctx.domain}/$page/${r.ev.id}_"
+        } ?: "")
+    }
     var start by remember { mutableIntStateOf(1) }
     var tried by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -199,6 +206,9 @@ fun CreateProposalScreen(parent: String) {
                     error = null
                     if (title.isNotBlank()) {
                         val id = session.createProposal(NewProposal(title.trim(), summary.trim(), text.trim(), statuses[start]), parent)
+                        if (request != null) {
+                            session.replyInThread(fromChannel!!, request.ev, "Became a proposal: “${title.trim()}”. Members discuss it and vote on it in #proposals.")
+                        }
                         nav.back()
                         nav.go(Routes.proposal(id))
                     }

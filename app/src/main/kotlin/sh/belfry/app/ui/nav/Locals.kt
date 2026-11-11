@@ -10,6 +10,8 @@ import sh.belfry.core.dm.DmSnapshot
 import sh.belfry.core.engine.Session
 import sh.belfry.core.engine.Status
 import sh.belfry.core.model.World
+import sh.belfry.app.ui.theme.branded
+import sh.belfry.app.ui.theme.LocalBelfryColors
 
 /** How screens move around. A back arrow calls [back]; nothing else pops. */
 interface Nav {
@@ -61,6 +63,8 @@ fun SessionScope(session: Session, nav: Nav, content: @Composable () -> Unit) {
         LocalDms provides dms,
         LocalStatus provides status,
         LocalNav provides nav,
+        // the belfry's branding: its primary colour as the accent
+        LocalBelfryColors provides LocalBelfryColors.current.branded(session.community.brandPrimary),
         content = content,
     )
 }

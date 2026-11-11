@@ -72,6 +72,18 @@ val DarkBelfryColors = BelfryColors(
 
 val LocalBelfryColors = staticCompositionLocalOf { LightBelfryColors }
 
+/**
+ * The belfry's primary colour (its branding, web 2026-11-11) as the accent: buttons and badges.
+ * Text on it is white or near-black, whichever reads better (the web's onColor).
+ */
+fun BelfryColors.branded(hex: String?): BelfryColors {
+    if (hex == null || !Regex("^#[0-9a-fA-F]{6}$").matches(hex)) return this
+    val n = hex.substring(1).toLong(16)
+    fun lin(v: Long): Double { val c = v / 255.0; return if (c <= 0.03928) c / 12.92 else Math.pow((c + 0.055) / 1.055, 2.4) }
+    val l = 0.2126 * lin(n shr 16) + 0.7152 * lin((n shr 8) and 255) + 0.0722 * lin(n and 255)
+    return copy(accent = Color(0xFF000000 or n), onAccent = if (l > 0.4) Color(0xFF09090B) else Color(0xFFFFFFFF))
+}
+
 /** `Belfry.colors.muted` etc. inside any composable under [BelfryTheme]. */
 object Belfry {
     val colors: BelfryColors

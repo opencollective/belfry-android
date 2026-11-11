@@ -201,6 +201,10 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
                 icon = BelfryIcons.Link,
             )
         }
+        // #requests (web 2026-11-11): a member turns a request into a proposal in #proposals
+        if (m.ev.kind == 9 && !world.amGuest && world.webPage(world.group(groupId))?.posts == "request") {
+            ActionRow("Turn into a proposal", onClick = { close(); nav.go(Routes.createProposal("proposals", from = m.id, fromChannel = groupId)) }, icon = BelfryIcons.Proposal, modifier = Modifier.testTag("menu-propose"))
+        }
         val title = world.todoTitle(m)
         if (title.isNotEmpty() && !world.todosBySource(groupId).containsKey(m.id)) {
             BusyRow("Turn into a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))

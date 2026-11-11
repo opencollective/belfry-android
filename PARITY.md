@@ -54,12 +54,14 @@ Since the web's 2026-11-11 changes:
 
 | Web feature | Status | Notes |
 |---|---|---|
+| Replies always open the thread (no inline replies) | done | |
+| Drawer: Upcoming events, @Mentions (new screen), Direct messages; Public channels, Members only | done | |
 | Proposal A: a to-do is a small mark before the reactions; replies are one line with the start of the last reply; a reply to an older message quotes it in one grey line | done | The mark has no filling ring while someone works on it (the app does not read `working` heartbeats yet). |
-| To-do steps in a thread (made, taken, started, done; merged when together) | not yet | The thread screen shows no to-do steps at all. |
+| To-do steps in a thread (made, taken, started, done; merged when together) | done | `TaskSteps` (core, unit-tested); lines between the replies of the thread screen. |
 | Public channels show a globe | done | `World.webPage` reads the `belfry:web:<channel>` setting (its admins' or the relay key's). |
 | #proposals / #events / #bookings: one type of post (a New proposal / New event bar instead of the composer) | done | A new event made from #events does not default to Public yet. |
-| #requests: a member turns a request into a proposal | not yet | |
-| Branding (logo, cover, colours from belfry.json) | not yet | |
+| #requests: a member turns a request into a proposal | done | Message menu → the new-proposal form starts from the request and links back; the request's thread says so. |
+| Branding (logo, cover, colours from belfry.json) | partial | The primary colour is the accent (buttons, badges). The logo, the cover and the secondary colour are not shown yet. |
 
 
 | Web feature | Status | Notes |

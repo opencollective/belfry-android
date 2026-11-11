@@ -51,6 +51,10 @@ data class Community(
     val belfryPubkey: String? = null,
     /** Members' own agents (belfry.json `agents`): agent key → its member's key, 64-hex only. */
     val agents: Map<String, String> = emptyMap(),
+    /** The belfry's branding (belfry.json `branding`, web 2026-11-11): its primary colour, #rrggbb. */
+    val brandPrimary: String? = null,
+    /** Its logo (https only). */
+    val brandLogo: String? = null,
 ) {
     /** The web chat's link to a channel (the member invite link). */
     fun channelLink(id: String): String = chatUrl + "#/c/" + encodeURIComponent(id)
@@ -115,6 +119,10 @@ data class Community(
             fun wss(v: String?): String? = clean(v)?.takeIf { it.startsWith("wss://") || it.startsWith("ws://") }
 
             doc.s("name")?.trim()?.takeIf { it.isNotEmpty() }?.let { c = c.copy(name = it) }
+            doc["branding"].obj()?.let { b ->
+                b.s("primary")?.trim()?.takeIf { Regex("^#[0-9a-fA-F]{6}$").matches(it) }?.let { c = c.copy(brandPrimary = it.lowercase()) }
+                https(b.s("logo"))?.takeIf { it.startsWith("https://") }?.let { c = c.copy(brandLogo = it) }
+            }
             val relays = doc["relays"].obj()
             wss(relays?.s("groups"))?.let { c = c.copy(groupsRelay = it) }
             wss(relays?.s("community"))?.let { c = c.copy(mainRelay = it) }
