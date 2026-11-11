@@ -928,46 +928,57 @@ New events are **Belfry events**; the older `ws-` ones above are still read and 
   declined / can't go (includes hosting); Your events (drawer) = Belfry events I host or hold /
   ask a place at, ending at most 30 days ago.
 
-## 20. Push notifications
+### 19.19 Push notifications (collective-belfry `docs/push.md`, 2026-11-11)
 
-The contract is collective-belfry `docs/push.md` (2026-11-11): a push gateway
-(`https://push.belfry.sh`) holds the publisher's FCM / APNs credentials; each belfry encrypts a
-notification to a key the phone made and sends it through the gateway, which never sees what it
-says. This section is what a client does. Vectors: `vectors/push.json` (made with the web's
-nostr-tools by `tools/vectors/push.mjs`).
+The contract is `docs/push.md` in collective-belfry (server, gateway and both apps build against
+it; the server is built, its *(built)* notes are folded in here); this section only says what a
+client does. The same section is in the iPhone app's SPEC (19.19). Vectors: `vectors/push.json`
+(made with the web's nostr-tools by `tools/vectors/push.mjs`; the server's payloads decrypt with
+them).
 
-- **Device key K**: 32 random bytes, made on the phone, kept with the session secrets (Android:
-  the Keystore-encrypted `Secrets`, name `push-key`), base64 on the wire. A new K after sign-out.
-- **Register** on every start once notifications are allowed (the belfry forgets a device after
-  60 days without a call): `POST <api>/push/devices` (NIP-98) `{"add": {"platform": "fcm",
-  "token": "<FCM token>", "env": "production", "key": "<base64 K>", "app": "belfry-android",
-  "name": "<maker model>"}}` → `{"id"}`. The same token again replaces the old row. Also on a new
-  FCM token.
-- **Remove** at sign-out, before the session is revoked (it must still sign): `{"remove":
-  "<token>"}` → `{"ok": true}`. Best effort (offline sign-out goes on; the belfry also drops
-  devices whose pass closed, on a gateway 410, or after 60 days).
-- **Payload**: FCM data-only message, `data.b` = NIP-44 v2 ciphertext with K used directly as the
-  conversation key (no ECDH; `Nip44.encryptWithKey` / `decryptWithKey`). Plaintext JSON
-  `{"v": 1, "domain", "type": "dm" | "mention" | "reply" | "announcement" | "pin" | "message",
-  "title", "body", "channel", "event", "from", "url"}`. Not version 1, not for this K, or not
-  JSON: nothing is shown. Title and body are shown as given (the belfry cuts `body` to 180).
-- **Channels** (Android notification channels; the person can mute each in the system settings):
-  dm → Direct messages; mention, reply → Mentions and replies; announcement → Announcements;
-  pin → Pinned; message (and an unknown type) → All messages. One notification per conversation:
-  tag = `dm` for DMs, else the group id (the newest replaces the older one).
-- **Tap**: the `url` is never followed. Its host must be `chat.<domain>` of the belfry the app is
-  signed in to and the payload's `domain` that domain; then the channel opens at `event` (by id,
-  checked `[A-Za-z0-9_.-]{1,64}` / 64 hex), or the conversation list for a dm. Anything else
-  opens the app's home.
-- **Settings**: `POST <api>/notifications` `{}` → mine; `{"set": {…}}` merges → mine.
-  `{"dms", "mentions", "announcements", "pins": bool (default true), "channels": {"<group id>":
-  "all" | "default" | "mentions" | "off"}}`, a channel not listed = `default`. Levels: all =
-  every message and thread reply plus what default notifies; default = mentions of me, replies to
-  me, announcements, pinned messages (each subject to its switch); mentions = mentions and
-  replies only; off = nothing. E-mail follows (the bell's e-mail part) are separate.
-- **Permission** (Android 13+ `POST_NOTIFICATIONS`): asked only when the person chose
-  notifications ("Turn on notifications" in Me → Notifications, or picking a push level in a
-  channel's bell), never at launch. Without it the app does not register.
-- A build without a Firebase config has no push at all and says so; the settings can still be
+- **Device key.** The device makes a random 32-byte key `K` per belfry and keeps it where its
+  notification code can read it (iOS: the keychain group shared with the Notification Service
+  Extension; Android: the Keystore-encrypted `Secrets`, read by the FCM service). `K` is used
+  directly as the NIP-44 v2 conversation key (no ECDH).
+- **Register** on every start once the person allowed notifications (never ask at launch: ask
+  where it explains itself, e.g. a "Get notified" row the first time a channel opens, or Me →
+  Notifications; Android: Me → Notifications or a push level picked in a channel's bell; the
+  Android 13+ `POST_NOTIFICATIONS` permission): `POST <api>/push/devices` (NIP-98)
+  `{"add":{"platform":"apns"|"fcm","token":<hex APNs token | FCM token>,"env":"production"|"sandbox",
+  "key":<base64 K>,"app":"belfry-ios"|"belfry-android","name":<device model>}}` → `{"id"}`. The
+  same token again replaces the old row (Android also registers on a new FCM token). The belfry
+  drops a device whose pass closed, on a gateway 410, or after 60 days without a call.
+  **Sign-out**: `{"remove":<token>}` before the session is revoked; forget `K`.
+- **Payload.** APNs: `aps.alert` is a placeholder, `mutable-content: 1`, `aps.thread-id` =
+  collapse, custom key `b` = base64 NIP-44 v2 ciphertext. FCM: data-only, `data.b`, high priority
+  when urgent (dm, mention, reply, announcement; not pin, message). Plaintext:
+  `{"v":1,"domain","type":"dm"|"mention"|"reply"|"announcement"|"pin"|"message","title","body",
+  "channel"?,"event"?,"from"?,"url"}`; a client shows `title` and `body` (≤ 180), groups by
+  `dm` / the channel, and ignores a payload whose `v` is not 1, whose `domain` is not the belfry
+  the key belongs to, or that does not open (the placeholder stays). As built:
+  - dm: `title` = the belfry's name, `body` = "New message", no `from` / `channel` / `event`
+    (the belfry can't read gift wraps); `url` = `https://chat.<domain>/#/dm`.
+  - pin: `title` = "📌 #channel", `body` = the pinned message's author and text; `event` and
+    `from` are the pinned message's. announcement: `title` = "📣 #channel".
+  - A thread reply's `url` is its thread, `#/c/<id>/thread/<root id>` (`event` = the reply's
+    own id). `title` = the channel's label (`#name`, or a pod's / event's own name). A message
+    without text says "📷 Photo" (or "…").
+- **Channels / grouping.** Android notification channels: dm → Direct messages; mention, reply →
+  Mentions and replies; announcement → Announcements; pin → Pinned; message (and an unknown type)
+  → All messages. One notification per conversation (`dm`, else the group id).
+- **Own copies.** NIP-17 senders also wrap a copy to themselves, which the belfry can't tell
+  apart: a "dm" arriving within 30 s of this phone sending a DM or e-mail is not shown, nor one
+  arriving while Messages or a conversation is on screen in the foreground.
+- **Tap.** Only when `url`'s host is `chat.<domain>` of the signed-in belfry (and `domain` is
+  that belfry): `#/c/<id>/m/<event>` opens the channel at the message, `#/c/<id>/thread/<root>`
+  that thread, `#/c/<id>` the channel, `#/dm` Messages; anything else opens the app's home. Ids
+  are checked (`[A-Za-z0-9_.-]{1,64}`, 64 hex). `url` is never shown.
+- **Settings.** `POST <api>/notifications` `{}` reads, `{"set":{…}}` merges: `dms`, `mentions`,
+  `announcements`, `pins` (booleans, default true; `mentions` covers replies too, `dms` covers
+  e-mail threads) and `channels` = {group id: `all` | `default` | `mentions` | `off`} (absent =
+  `default`). all = every message and thread reply plus what default notifies; default =
+  mentions of me, replies to me, announcements, pinned messages (each subject to its switch);
+  mentions = mentions and replies only; off = nothing. Me → Notifications shows the four switches
+  and each of my channels' level; a channel's bell shows its push level next to the e-mail follow.
+- A build without push (Android: no `google-services.json`) says so; the settings can still be
   changed (they apply to the person's other devices).
-

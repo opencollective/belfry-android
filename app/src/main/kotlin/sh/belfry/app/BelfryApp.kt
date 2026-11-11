@@ -38,7 +38,8 @@ class BelfryApp : Application() {
         state.onSignedIn = { s -> scope.launch(Dispatchers.Default) { try { AndroidPush.register(this@BelfryApp, s) } catch (e: Exception) { } } }
         state.beforeSignOut = { s -> AndroidPush.unregister(this@BelfryApp, s) }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) = state.wake()
+            override fun onStart(owner: LifecycleOwner) { AndroidPush.foreground = true; state.wake() }
+            override fun onStop(owner: LifecycleOwner) { AndroidPush.foreground = false }
         })
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

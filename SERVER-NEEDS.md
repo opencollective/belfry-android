@@ -15,17 +15,13 @@ debug key, so on it `https://chat.<domain>/join/<token>` opens the web chat (or 
 chooser) instead of the app. Another community's chat host needs the same file and a `<data>`
 line in the manifest. (iOS needs the twin `apple-app-site-association`.)
 
-## 2. A name for the Android session (cosmetic)
+## 2. A name for the Android session — DONE
 
-Sign-in uses the redirect `sh.belfry.app://connect`, which `apps.NATIVE_APPS` already approves
-by default, so sign-in should work as is. But that entry's name is "Belfry for iPhone", so a
-session opened from Android shows under that name in a member's session list. Either rename it
-to something neutral ("Belfry app"), or pick the name from `client_id` (`belfry-android` /
-`belfry-ios`), or approve a second redirect for Android.
+The server names sessions by `client_id`: "Belfry for Android" for `belfry-android`.
 
 ## 3. Push notifications — contract agreed (collective-belfry docs/push.md), app built 2026-11-11
 
-The app follows docs/push.md as written (SPEC 20): FCM data-only messages through the gateway,
+The app follows docs/push.md as written (SPEC 19.19): FCM data-only messages through the gateway,
 NIP-44 v2 under the device key, `POST /push/devices` add on every start (once allowed) and remove
 at sign-out before the revoke, `POST /notifications` for the settings. What the app still needs:
 
@@ -34,8 +30,9 @@ at sign-out before the revoke, `POST /notifications` for the settings. What the 
   write it to `app/google-services.json`; without it the build has push off). The gateway's
   `fcm_service_account.json` must come from the same project.
 - Nothing has run end to end: no gateway, no Firebase project, no device. The payload format is
-  checked against vectors made with nostr-tools (`vectors/push.json`), not against the Python
-  watcher; a sample payload from `push.py` would confirm both sides agree.
+  checked against vectors made with nostr-tools (`vectors/push.json`); the server's payloads were
+  checked to decrypt with them in both directions (2026-11-11). The gateway answers 503
+  `not_configured` until the FCM credentials exist.
 - Questions: (1) is `POST /notifications` `{}` allowed with a `set` that names a channel I am not
   in (the app only offers my channels)? (2) A DM has no `event`: the app opens the conversation
   list; a future `conv` hint (without the sender) would let it open the conversation.

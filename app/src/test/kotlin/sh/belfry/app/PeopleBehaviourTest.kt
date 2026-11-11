@@ -138,6 +138,8 @@ class PeopleBehaviourTest : DemoShots() {
         assertEquals(PushOpen.Channel("general", null), AndroidPush.openOf(intent("kind" to "channel", "channel" to "general", "message" to "<b>x</b>")))
         assertEquals(PushOpen.Home, AndroidPush.openOf(intent("kind" to "channel", "channel" to "../../etc")))
         assertEquals(PushOpen.Dms, AndroidPush.openOf(intent("kind" to "dms")))
+        assertEquals(PushOpen.Thread("general", ev), AndroidPush.openOf(intent("kind" to "thread", "channel" to "general", "message" to ev)))
+        assertEquals(PushOpen.Channel("general", null), AndroidPush.openOf(intent("kind" to "thread", "channel" to "general")))
         assertEquals(null, AndroidPush.openOf(android.content.Intent(android.content.Intent.ACTION_VIEW)))
     }
 }

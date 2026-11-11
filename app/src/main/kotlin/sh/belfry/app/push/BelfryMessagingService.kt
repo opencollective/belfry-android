@@ -12,7 +12,8 @@ import kotlinx.coroutines.launch
 class BelfryMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val payload = message.data["b"] ?: return
-        try { AndroidPush.show(applicationContext, payload) } catch (e: Exception) { /* never crash on a push */ }
+        val sent = (application as? BelfryApp)?.currentSession()?.lastDmSentMs ?: 0L
+        try { AndroidPush.show(applicationContext, payload, sent) } catch (e: Exception) { /* never crash on a push */ }
     }
 
     /** A new FCM token: register it with the belfry now if signed in (else at the next start). */

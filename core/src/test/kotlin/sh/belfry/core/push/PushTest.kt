@@ -6,6 +6,8 @@ import kotlinx.serialization.json.JsonObject
 import sh.belfry.core.Vectors
 import sh.belfry.core.crypto.B64
 import sh.belfry.core.crypto.Nip44
+import sh.belfry.core.nostr.bool
+import sh.belfry.core.nostr.long
 import sh.belfry.core.nostr.obj
 import sh.belfry.core.nostr.s
 import kotlin.test.Test
@@ -51,10 +53,22 @@ class PushTest {
             val open = want["open"].obj()!!
             val got = Push.target(note, domain)
             when (open.s("kind")) {
-                "channel" -> assertEquals(PushOpen.Channel(open.s("channel")!!, open.s("message")), got, name)
+                "channel" -> assertEquals(PushOpen.Channel(open.s("channel")!!, open["message"]?.takeIf { it !is JsonNull }?.let { open.s("message") }), got, name)
+                "thread" -> assertEquals(PushOpen.Thread(open.s("channel")!!, open.s("root")!!), got, name)
                 "dms" -> assertEquals(PushOpen.Dms, got, name)
                 else -> assertEquals(PushOpen.Home, got, name)
             }
+        }
+    }
+
+    @Test
+    fun myOwnDmCopyAndAnOpenConversationStayQuiet() {
+        val cases = (v["quiet"] as JsonArray).map { it as JsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val note = PushNote(c.s("type")!!, domain, "t", "b", null, null, null)
+            val got = Push.quiet(note, c["now_ms"].long()!!, c["last_dm_sent_ms"].long()!!, c["dms_open"].bool()!!)
+            assertEquals(c["quiet"].bool(), got, c.toString())
         }
     }
 

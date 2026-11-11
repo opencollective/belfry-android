@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,6 +49,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sh.belfry.app.push.AndroidPush
 import sh.belfry.app.ui.chat.ChatFormat
 import sh.belfry.app.ui.chat.Composer
 import sh.belfry.app.ui.chat.rememberComposerState
@@ -76,6 +78,11 @@ import sh.belfry.core.model.World
 /** One conversation: direct messages between members, or an e-mail thread with someone outside. */
 @Composable
 fun ConversationScreen(conv: String) {
+    // while this is on screen, a "dm" push is not shown (the person is reading their messages)
+    DisposableEffect(Unit) {
+        AndroidPush.dmScreens.incrementAndGet()
+        onDispose { AndroidPush.dmScreens.decrementAndGet() }
+    }
     val c = Belfry.colors
     val world = LocalWorld.current
     val dms = LocalDms.current

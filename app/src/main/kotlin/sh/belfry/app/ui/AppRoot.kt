@@ -116,6 +116,7 @@ private fun PushOpener(state: AppState) {
         state.forgetPushOpen()
         when (open) {
             is PushOpen.Channel -> nav.openChannel(open.channel, open.message)
+            is PushOpen.Thread -> { nav.openChannel(open.channel); nav.go(Routes.thread(open.channel, open.root)) }
             PushOpen.Dms -> nav.go(Routes.MESSAGES)
             PushOpen.Home -> {}
         }

@@ -14,7 +14,7 @@ import sh.belfry.core.nostr.parseJsonOrNull
 import sh.belfry.core.nostr.s
 import java.net.URI
 
-// Push notifications (collective-belfry docs/push.md; SPEC 20). The belfry encrypts each
+// Push notifications (collective-belfry docs/push.md; SPEC 19.19). The belfry encrypts each
 // notification with NIP-44 v2 under a random 32-byte device key K that this phone made and
 // registered, used directly as the conversation key (no ECDH). FCM carries it as data.b; the app
 // decrypts it and posts the notification itself. Vectors: vectors/push.json.
@@ -42,6 +42,8 @@ enum class PushChannel(val id: String, val title: String) {
 /** What a tap on a notification opens. */
 sealed interface PushOpen {
     data class Channel(val channel: String, val message: String?) : PushOpen
+    /** A thread reply: its thread (`#/c/<id>/thread/<root id>`). */
+    data class Thread(val channel: String, val root: String) : PushOpen
     data object Dms : PushOpen
     data object Home : PushOpen
 }
@@ -88,20 +90,40 @@ object Push {
         )
     }
 
+    private val ID = "[A-Za-z0-9_.-]{1,64}"
+    private val TO_MESSAGE = Regex("^/c/($ID)/m/([0-9a-f]{64})$")
+    private val TO_THREAD = Regex("^/c/($ID)/thread/([0-9a-f]{64})$")
+    private val TO_CHANNEL = Regex("^/c/($ID)/?$")
+
     /**
-     * Where a tap goes. The url is never followed: its host must be `chat.<domain>` of the belfry
-     * I am signed in to (and the payload's domain that belfry); then the channel / message opens
-     * by id, or the conversation list for a DM. Anything else opens home.
+     * Where a tap goes. The url is never opened as such: its host must be `chat.<domain>` of the
+     * belfry I am signed in to (and the payload's domain that belfry); then only these fragments
+     * count, read as ids: `#/c/<id>/m/<event>` (the channel at the message), `#/c/<id>/thread/<root>`
+     * (a thread reply's thread), `#/c/<id>` (the channel), `#/dm` (Messages). Anything else: home.
      */
     fun target(note: PushNote, signedInDomain: String): PushOpen {
         val d = signedInDomain.lowercase()
         if (d.isEmpty() || note.domain.lowercase() != d) return PushOpen.Home
-        val host = try { note.url?.let { URI(it) }?.takeIf { it.scheme == "https" }?.host?.lowercase() } catch (e: Exception) { null }
-        if (host != "chat.$d") return PushOpen.Home
-        if (note.type == "dm") return PushOpen.Dms
-        val ch = note.channel ?: return PushOpen.Home
-        return PushOpen.Channel(ch, note.event)
+        val uri = try { note.url?.let { URI(it) } } catch (e: Exception) { null } ?: return PushOpen.Home
+        if (uri.scheme != "https" || uri.host?.lowercase() != "chat.$d") return PushOpen.Home
+        val frag = uri.rawFragment ?: return PushOpen.Home
+        if (frag == "/dm" || frag.startsWith("/dm/")) return PushOpen.Dms
+        TO_THREAD.matchEntire(frag)?.let { return PushOpen.Thread(it.groupValues[1], it.groupValues[2]) }
+        TO_MESSAGE.matchEntire(frag)?.let { return PushOpen.Channel(it.groupValues[1], it.groupValues[2]) }
+        TO_CHANNEL.matchEntire(frag)?.let { return PushOpen.Channel(it.groupValues[1], null) }
+        return PushOpen.Home
     }
+
+    /** How long after sending a DM or e-mail a "dm" notification is taken for my own copy. */
+    const val OWN_COPY_MS = 30_000L
+
+    /**
+     * Stay quiet? NIP-17 wraps a copy of each DM to its sender and the belfry can't tell them apart,
+     * so a "dm" arriving within [OWN_COPY_MS] of this phone sending one is not shown; nor while
+     * the person is looking at their messages in the foreground ([dmsOpen]).
+     */
+    fun quiet(note: PushNote, nowMs: Long, lastDmSentMs: Long, dmsOpen: Boolean): Boolean =
+        note.type == "dm" && (dmsOpen || (lastDmSentMs > 0 && nowMs - lastDmSentMs in 0 until OWN_COPY_MS))
 }
 
 /** Per-channel push levels (docs/push.md §3). A channel not listed is `default`. */

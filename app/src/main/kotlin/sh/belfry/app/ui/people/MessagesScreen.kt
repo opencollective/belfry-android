@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sh.belfry.app.push.AndroidPush
 import sh.belfry.app.ui.chat.ChatFormat
 import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.kit.Avatar
@@ -70,6 +72,11 @@ internal fun ConvFace(conv: String, dms: DmSnapshot, world: World, size: Dp = 40
  */
 @Composable
 fun MessagesScreen() {
+    // while this is on screen, a "dm" push is not shown (the person is reading their messages)
+    DisposableEffect(Unit) {
+        AndroidPush.dmScreens.incrementAndGet()
+        onDispose { AndroidPush.dmScreens.decrementAndGet() }
+    }
     val c = Belfry.colors
     val world = LocalWorld.current
     val dms = LocalDms.current

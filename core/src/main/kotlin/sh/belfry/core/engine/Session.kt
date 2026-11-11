@@ -795,10 +795,14 @@ class Session(
      * Sends TEXT in a conversation (see [DmSnapshot]); SUBJECT is needed for a new e-mail
      * ("m:<address>"). Returns the conversation it is in now. Throws [ActionException].
      */
-    suspend fun sendDm(conv: String, text: String, subject: String? = null): String = dmCall { dm.send(conv, text, subject) }
+    suspend fun sendDm(conv: String, text: String, subject: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject) } }
+
+    /** When this phone last sent a DM or e-mail (ms): a "dm" push right after it is my own copy (SPEC 19.19). */
+    @Volatile var lastDmSentMs: Long = 0L
+        private set
 
     /** Puts a refused direct message or e-mail back in the outbox. */
-    suspend fun retryDm(rid: String) = dmCall { dm.retry(rid) }
+    suspend fun retryDm(rid: String) { lastDmSentMs = System.currentTimeMillis(); dmCall { dm.retry(rid) } }
 
     fun markRead(conv: String) = dm.markRead(conv)
 

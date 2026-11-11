@@ -98,7 +98,7 @@ minSdk 26, JDK 17.
   key; the member's identity key never leaves the belfry's signer.
 - Relay events are signature-checked before storage; seals always.
 - Never render text from a URL; server errors are mapped to fixed messages by their `error` code.
-- Push (SPEC 20, collective-belfry docs/push.md): FCM data-only messages decrypted in
+- Push (SPEC 19.19, collective-belfry docs/push.md): FCM data-only messages decrypted in
   `app/.../push/` (`AndroidPush`, `BelfryMessagingService`), the device key in `Secrets`;
   `core/push/Push.kt` reads payloads. Firebase is optional: the google-services plugin is applied
   only when `app/google-services.json` exists (CI / release.yml write it from the

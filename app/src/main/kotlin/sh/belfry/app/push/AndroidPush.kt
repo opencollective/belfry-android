@@ -45,7 +45,7 @@ enum class PushState(val line: String) {
 }
 
 /**
- * Push on Android (collective-belfry docs/push.md, SPEC 20): Firebase Cloud Messaging data-only
+ * Push on Android (collective-belfry docs/push.md, SPEC 19.19): Firebase Cloud Messaging data-only
  * messages, decrypted here with the device key K and posted by the app. Everything degrades to
  * "off" without Firebase (a build without google-services.json) or without the permission.
  * The device key and the registered token live in the Keystore-encrypted [Secrets].
@@ -57,6 +57,11 @@ object AndroidPush {
     const val EXTRA_MESSAGE = "message"
     private const val S_KEY = "push-key"
     private const val S_TOKEN = "push-token"
+
+    /** The app is in the foreground (BelfryApp's lifecycle observer). */
+    @Volatile var foreground = false
+    /** Messages or a conversation is on screen (counted by those screens). */
+    val dmScreens = java.util.concurrent.atomic.AtomicInteger(0)
 
     private val _state = MutableStateFlow(PushState.NEEDS_PERMISSION)
     val state: StateFlow<PushState> = _state
@@ -147,11 +152,13 @@ object AndroidPush {
      * A data message arrived: decrypt data.b with this phone's key and post it. Nothing is shown
      * for a payload that isn't for this key, or when signed out.
      */
-    fun show(context: Context, payload: String) {
+    fun show(context: Context, payload: String, lastDmSentMs: Long = 0L) {
         val secrets = Secrets(context)
         val key = secrets.get(S_KEY) ?: return
         val domain = secrets.get(Onboarding.V_SESSION)?.let(SavedSession::fromJsonString)?.community?.domain ?: return
         val note = Push.open(payload, key) ?: return
+        // my own copy of a DM I just sent (NIP-17), or my messages are on screen: nothing to tell
+        if (Push.quiet(note, System.currentTimeMillis(), lastDmSentMs, foreground && dmScreens.get() > 0)) return
         post(context, note, Push.target(note, domain))
     }
 
@@ -164,6 +171,7 @@ object AndroidPush {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             when (open) {
                 is PushOpen.Channel -> { putExtra(EXTRA_KIND, "channel"); putExtra(EXTRA_CHANNEL, open.channel); open.message?.let { putExtra(EXTRA_MESSAGE, it) } }
+                is PushOpen.Thread -> { putExtra(EXTRA_KIND, "thread"); putExtra(EXTRA_CHANNEL, open.channel); putExtra(EXTRA_MESSAGE, open.root) }
                 PushOpen.Dms -> putExtra(EXTRA_KIND, "dms")
                 PushOpen.Home -> putExtra(EXTRA_KIND, "home")
             }
@@ -196,6 +204,11 @@ object AndroidPush {
                 val ch = intent.getStringExtra(EXTRA_CHANNEL)?.takeIf { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) } ?: return PushOpen.Home
                 val m = intent.getStringExtra(EXTRA_MESSAGE)?.takeIf { Regex("^[0-9a-f]{64}$").matches(it) }
                 PushOpen.Channel(ch, m)
+            }
+            "thread" -> {
+                val ch = intent.getStringExtra(EXTRA_CHANNEL)?.takeIf { Regex("^[A-Za-z0-9_.-]{1,64}$").matches(it) } ?: return PushOpen.Home
+                val root = intent.getStringExtra(EXTRA_MESSAGE)?.takeIf { Regex("^[0-9a-f]{64}$").matches(it) } ?: return PushOpen.Channel(ch, null)
+                PushOpen.Thread(ch, root)
             }
             "dms" -> PushOpen.Dms
             else -> PushOpen.Home
