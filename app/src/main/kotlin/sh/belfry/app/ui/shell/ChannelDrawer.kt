@@ -91,19 +91,35 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
         TopBar(name, actions = { IconAction(BelfryIcons.Plus, "New channel", { go(Routes.CREATE_CHANNEL) }) })
         Hairline()
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            // the top (web 2026-11-11): Upcoming events, @Mentions, Direct messages
+            item(key = "<events>") {
+                val next = world.calendar.filter { it.status != EventStatus.CANCELLED && it.start > session.now() }.minByOrNull { it.start }
+                DrawerItem(
+                    icon = { ChannelIcon(ChannelGlyph.Event) }, title = "Upcoming events",
+                    sub = next?.let { ChatFormat.day(world, it.start, session.now()) + " · " + it.title } ?: "Upcoming, yours, the ones you host",
+                    onClick = { go(Routes.events(null)) },
+                )
+            }
+            item(key = "<mentions>") {
+                DrawerItem(icon = { ChannelIcon(ChannelGlyph.Mention) }, title = "@Mentions", sub = "Where people named you, in every channel", onClick = { go(Routes.MENTIONS) })
+            }
             item(key = "<messages>") {
                 DrawerItem(
-                    icon = { ChannelIcon(ChannelGlyph.Mail) }, title = "Messages",
-                    sub = "Direct messages and e-mail" + (world.myAddress?.let { " · $it" } ?: ""),
+                    icon = { ChannelIcon(ChannelGlyph.Mail) }, title = "Direct messages",
+                    sub = "And e-mail" + (world.myAddress?.let { " · $it" } ?: ""),
                     badge = dms.unreadTotal, onClick = { go(Routes.MESSAGES) },
                 )
             }
-            item(key = "<events>") {
-                DrawerItem(icon = { ChannelIcon(ChannelGlyph.Event) }, title = "All events", sub = "Upcoming, yours, the ones you host", onClick = { go(Routes.events(null)) })
-            }
-            item(key = "<channels>") { Section("Channels", rows.size) }
-            for (r in rows) {
-                item(key = r.g.id) { ChannelItem(world, r.g, r.depth, r.g.id == current) { onPick(r.g.id) } }
+            // public channels first, then the members' (each with its pods and proposals under it)
+            val roots = rows.indices.filter { rows[it].depth == 0 }
+            val blocks = roots.mapIndexed { i, start -> rows.subList(start, roots.getOrElse(i + 1) { rows.size }) }
+            val (pub, members) = blocks.partition { world.isPublicChannel(it.first().g) }
+            for ((title, part) in listOf("Public channels" to pub, "Members only" to members)) {
+                if (part.isEmpty()) continue
+                item(key = "<$title>") { Section(title, part.sumOf { it.size }) }
+                for (r in part.flatten()) {
+                    item(key = r.g.id) { ChannelItem(world, r.g, r.depth, r.g.id == current) { onPick(r.g.id) } }
+                }
             }
             if (rows.isEmpty()) {
                 item(key = "<none>") {

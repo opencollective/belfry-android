@@ -23,6 +23,7 @@ object Routes {
     const val THREAD = "thread/{id}/{root}"
     fun thread(channel: String, rootId: String) = "thread/${enc(channel)}/${enc(rootId)}"
     const val KIT = "kit"
+    const val MENTIONS = "mentions"
 
     // ---- info (U1) ----
     const val SEARCH = "search?channel={channel}"

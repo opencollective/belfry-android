@@ -86,7 +86,7 @@ fun AvatarStack(faces: List<Face>, modifier: Modifier = Modifier, size: Dp = 20.
     }
 }
 
-enum class ChannelGlyph { Channel, Public, Event, Pod, Proposal, Mail }
+enum class ChannelGlyph { Channel, Public, Event, Pod, Proposal, Mail, Mention }
 
 fun ChannelGlyph.icon(): ImageVector = when (this) {
     ChannelGlyph.Channel -> BelfryIcons.Hash
@@ -95,6 +95,7 @@ fun ChannelGlyph.icon(): ImageVector = when (this) {
     ChannelGlyph.Pod -> BelfryIcons.Pod
     ChannelGlyph.Proposal -> BelfryIcons.Proposal
     ChannelGlyph.Mail -> BelfryIcons.Mail
+    ChannelGlyph.Mention -> BelfryIcons.At
 }
 
 /** The rounded square in front of a channel's name (web: `.chan .hash`). */
