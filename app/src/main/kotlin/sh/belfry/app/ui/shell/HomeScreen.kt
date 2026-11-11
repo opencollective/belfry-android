@@ -30,6 +30,17 @@ import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.theme.Belfry
 
 /**
+ * Whether the channel list stays as a left column (on every screen, AppNav): 840 dp and wider,
+ * and any landscape window from 600 dp (Xavier, 2026-11-11: "in landscape mode, the left column
+ * should always stay there for navigation").
+ */
+@Composable
+fun navColumnStays(): Boolean {
+    val conf = LocalConfiguration.current
+    return conf.screenWidthDp >= 840 || (conf.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE && conf.screenWidthDp >= 600)
+}
+
+/**
  * Home: the channel drawer and the open channel. A phone gets a modal drawer (☰, edge swipe,
  * back closes it); 840 dp and wider keeps the channel list at the left, like the web's laptop
  * layout; 1200 dp and wider opens a thread in a third column beside its channel (web 4d5682d).
@@ -41,7 +52,7 @@ fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
     val session = LocalSession.current
     val scope = rememberCoroutineScope()
     val width = LocalConfiguration.current.screenWidthDp
-    val wide = width >= 840
+    val wide = navColumnStays() // the channel list is AppNav's left column then, on every screen
     val three = width >= 1200
 
     // Remember the open channel for next time.
@@ -50,25 +61,17 @@ fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
     }
 
     if (wide) {
-        PermanentNavigationDrawer(
-            drawerContent = {
-                PermanentDrawerSheet(Modifier.width(320.dp), drawerContainerColor = c.bg, drawerContentColor = c.text) {
-                    ChannelDrawer(shell.channel, onPick = { shell.open(it) }, go = nav::go)
-                }
-            },
-        ) {
-            val thread = shell.thread
-            Row(Modifier.fillMaxSize()) {
-                ChannelScreen(
-                    shell.channel, modifier = Modifier.weight(1f), focusMessage = shell.focusMessage, onFocusDone = { shell.focusMessage = null },
-                    // another thread replaces the open one (no history entry per thread)
-                    onOpenThread = if (three) ({ shell.thread = it }) else null,
-                )
-                if (three && thread != null) {
-                    Box(Modifier.width(1.dp).fillMaxHeight().background(c.line))
-                    Box(Modifier.width(400.dp).fillMaxHeight()) {
-                        ThreadScreen(shell.channel, thread, onClose = { shell.thread = null })
-                    }
+        val thread = shell.thread
+        Row(Modifier.fillMaxSize()) {
+            ChannelScreen(
+                shell.channel, modifier = Modifier.weight(1f), focusMessage = shell.focusMessage, onFocusDone = { shell.focusMessage = null },
+                // another thread replaces the open one (no history entry per thread)
+                onOpenThread = if (three) ({ shell.thread = it }) else null,
+            )
+            if (three && thread != null) {
+                Box(Modifier.width(1.dp).fillMaxHeight().background(c.line))
+                Box(Modifier.width(400.dp).fillMaxHeight()) {
+                    ThreadScreen(shell.channel, thread, onClose = { shell.thread = null })
                 }
             }
         }

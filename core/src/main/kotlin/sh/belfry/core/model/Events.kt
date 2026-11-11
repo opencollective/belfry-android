@@ -27,7 +27,7 @@ import java.time.ZoneOffset
 
 enum class Visibility(val key: String, val label: String, val hint: String) {
     MEMBERS("members", "Members", "Only members see it"),
-    LINK("link", "Link", "Anyone with the URL"),
+    LINK("link", "Hidden", "Not listed: anyone with the link"),
     PUBLIC("public", "Public", "Listed on the website");
 
     companion object { fun of(key: String?): Visibility = entries.firstOrNull { it.key == key } ?: MEMBERS }

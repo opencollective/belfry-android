@@ -197,13 +197,11 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean) {
             if (!d.mine && !d.isMail && group) {
                 Text(world.displayName(d.from), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             }
-            if (d.isMail && !d.mine) {
+            // the header names the conversation and its subject: each mail doesn't repeat them
+            // (Xavier, 2026-11-11); in a mail thread with several people, who wrote it still shows
+            if (d.isMail && !d.mine && group) {
                 val name = d.fromName?.takeIf { it.isNotEmpty() }
-                Text(if (name != null) "$name · ${d.from}" else d.from, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            }
-            val subject = d.subject
-            if (d.isMail && !subject.isNullOrEmpty()) {
-                Text(subject, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.padding(bottom = 2.dp))
+                Text(name ?: d.from, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             }
             if (d.text.isNotEmpty()) {
                 MarkdownText(d.text, rich = false, color = if (d.pending) c.muted else c.text)

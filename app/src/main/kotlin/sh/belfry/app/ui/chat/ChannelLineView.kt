@@ -130,7 +130,7 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
                     else -> Icon(MoreIcons.Todo, null, tint = c.faint, modifier = Modifier.size(13.dp))
                 }
                 Spacer(Modifier.width(3.dp))
-                Text((if (n.plus) "+" else "") + n.n, fontSize = 12.sp, color = c.muted, maxLines = 1)
+                Text((if (n.plus) "+" else "") + n.n + (n.of?.let { "/$it" } ?: ""), fontSize = 12.sp, color = c.muted, maxLines = 1)
             }
         }
         Spacer(Modifier.width(6.dp))
@@ -239,7 +239,8 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
         }
         if (f.todos.isNotEmpty()) {
             PullTitle("To do", f.todos.size)
-            for (t in f.todos.take(4)) TodoRow(groupId, t, onOpen = { go(Routes.channelInfo(groupId)) })
+            // a to-do opens its thread (the message it was made from), like the web
+            for (t in f.todos.take(4)) TodoRow(groupId, t, onOpen = { go(t.source?.let { Routes.thread(groupId, it) } ?: Routes.channelInfo(groupId)) })
             if (f.todos.size > 4) LinkText("All ${f.todos.size} to-dos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.channelInfo(groupId)) }
         }
         if (f.pods.isNotEmpty()) {

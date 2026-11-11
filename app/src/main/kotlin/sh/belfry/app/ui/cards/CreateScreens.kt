@@ -80,6 +80,10 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 
 private fun shown(e: Throwable): String = (e as? ActionException)?.message ?: "That did not work. Try again."
 
@@ -416,22 +420,9 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
             Column {
                 Text("Who sees it", fontSize = 13.sp, color = Belfry.colors.muted)
                 Gap(6)
-                Segmented(Visibility.entries.map { it.label }, visibility.ordinal, { visibility = Visibility.entries[it] }, Modifier.testTag("event-visibility"))
-                Gap(4)
-                Muted(visibility.hint)
-            }
-            if (old == null) {
-                Column {
-                    Text("Who can come", fontSize = 13.sp, color = Belfry.colors.muted)
-                    Gap(6)
-                    Segmented(listOf("Anyone: one tap", "By application"), if (byApplication) 1 else 0, { byApplication = it == 1 }, Modifier.testTag("event-access"))
-                    if (byApplication) {
-                        Gap(8)
-                        BelfryTextField(question, { question = it.take(500) }, Modifier.fillMaxWidth().testTag("event-question"), label = "The question applicants answer", placeholder = "Why would you like to come?", singleLine = false, minLines = 2, keyboardOptions = words)
-                        Gap(4)
-                        Muted("The hosts approve each application. More tickets (places, members only) in the event’s menu.")
-                    }
-                }
+                // squares with a line each, like the web (Xavier, 2026-11-11); who can come is set
+                // with the event's tickets, not here
+                ChoiceSquares(Visibility.entries.map { it.label to it.hint }, visibility.ordinal, { visibility = Visibility.entries[it] }, Modifier.testTag("event-visibility"))
             }
             Column {
                 BelfryTextField(
@@ -498,5 +489,28 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
             if (endDate == startDate && endTime.isBefore(it)) endTime = it.plusHours(1).let { e -> if (e.isBefore(it)) LocalTime.of(23, 59) else e }
         }
         Picking.EndTime -> PickTime(endTime, { picking = Picking.None }) { endTime = it }
+    }
+}
+
+
+/** Options as equal squares, each with its name and a short line; the picked one is outlined. */
+@Composable
+private fun ChoiceSquares(options: List<Pair<String, String>>, selected: Int, onPick: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val c = Belfry.colors
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEachIndexed { i, (label, hint) ->
+            val on = i == selected
+            val shape = RoundedCornerShape(12.dp)
+            Column(
+                Modifier.weight(1f).heightIn(min = 76.dp).clip(shape)
+                    .background(if (on) c.surface else Color.Transparent)
+                    .border(if (on) 2.dp else 1.dp, if (on) c.text else c.line, shape)
+                    .selectable(selected = on, role = Role.RadioButton) { onPick(i) }
+                    .padding(horizontal = 10.dp, vertical = 10.dp),
+            ) {
+                Text(label, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                Text(hint, fontSize = 12.sp, color = c.muted, lineHeight = 16.sp)
+            }
+        }
     }
 }

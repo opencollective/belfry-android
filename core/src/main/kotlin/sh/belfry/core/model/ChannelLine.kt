@@ -82,6 +82,9 @@ class ChannelFacts(
     val pins: List<Message>,
     /** To-dos not done yet. */
     val todos: List<Task>,
+    /** All of the channel's to-dos and how many are done (the line's "done/all"). */
+    val todosAll: Int = todos.size,
+    val todosDone: Int = 0,
     val active: List<Active>,
     /** The proposal this channel is the chat of. */
     val own: Proposal?,
@@ -101,6 +104,8 @@ fun World.channelFacts(groupId: String, now: Long): ChannelFacts {
         events = upcoming(groupId, now),
         pins = pinned(groupId),
         todos = tasks(groupId).filter { !it.done },
+        todosAll = tasks(groupId).size,
+        todosDone = tasks(groupId).count { it.done },
         active = recentlyActive(groupId, now),
         own = if (g?.isProposal == true) proposalFor(groupId) else null,
     )
@@ -119,7 +124,8 @@ sealed interface LineAction {
     data class OpenEvent(val coord: String) : LineAction
 }
 
-data class LineCount(val kind: String, val n: Int, val plus: Boolean, val label: String)
+/** [of]: a fraction (the to-dos: done of all, like the web's "13/17"). */
+data class LineCount(val kind: String, val n: Int, val plus: Boolean, val label: String, val of: Int? = null)
 
 /**
  * The one line under a channel's name: [bold] then [text], an optional [pill] (a question when
@@ -217,7 +223,7 @@ fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenP
         LineCount("events", f.events.size - if (shown == "event") 1 else 0, shown == "event", "more events"),
         LineCount("proposals", f.proposals.size - if (shown == "proposal") 1 else 0, shown == "proposal", "more open proposals"),
         LineCount("pods", f.pods.size, false, "pods"),
-        LineCount("todos", f.todos.size, false, "to do"),
-    ).filter { it.n > 0 }
+        LineCount("todos", f.todosDone, false, "to-dos done of ${f.todosAll}", of = f.todosAll),
+    ).filter { it.n > 0 || (it.of ?: 0) > 0 }
     return line.copy(counts = counts)
 }
