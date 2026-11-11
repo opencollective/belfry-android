@@ -41,7 +41,7 @@ in the real world.
 | Web feature | Status | Notes |
 |---|---|---|
 | ☰ channel drawer (push drawer), Messages with unread count, you at the bottom | done | `ModalNavigationDrawer`; channel tree with pod shapes; "All events"; "Your events". |
-| Laptop layout (≥ 900 px: list stays) | partial | Permanent drawer at ≥ 840 dp: compiled, never rendered or tried. |
+| Laptop layout (≥ 900 px: list stays) | partial | Permanent drawer at ≥ 840 dp. Tablets (2026-11-11): one APK, the layout follows the window; `TabletShotsTest` renders 10" landscape, 7" landscape and 10" portrait (a portrait tablet gets the phone's drawer). Not tried on a device. |
 | Thread in a third column on large screens (≥ 1200 px) | partial | ≥ 1200 dp: 400 dp column with a close button, another thread replaces it. Compiled, never rendered (no wide screenshot). The web's "Open thread" caret and active-row mark are not here. |
 | Back arrows are hierarchical, never push | done | `popBackStack` only; predictive back enabled in the manifest (untried on a device). |
 | One summary line under the channel name + pull-down (Pinned, Coming up, To decide, To do, Pods, Topics, people) | done | Priority order and counts as the web, unit-tested. Differences: in a proposal's chat the vote is a pill that opens the proposal page (the web votes inside the pull-down); "Review" / "All to-dos" open channel info (no deep link to a tab); day labels are fixed English, 24 h. |
@@ -49,6 +49,18 @@ in the real world.
 | Connection states (offline, waiting, signer trouble) | done | Banner from the engine's status. |
 
 ## Channel feed
+
+Since the web's 2026-11-11 changes:
+
+| Web feature | Status | Notes |
+|---|---|---|
+| Proposal A: a to-do is a small mark before the reactions; replies are one line with the start of the last reply; a reply to an older message quotes it in one grey line | done | The mark has no filling ring while someone works on it (the app does not read `working` heartbeats yet). |
+| To-do steps in a thread (made, taken, started, done; merged when together) | not yet | The thread screen shows no to-do steps at all. |
+| Public channels show a globe | done | `World.webPage` reads the `belfry:web:<channel>` setting (its admins' or the relay key's). |
+| #proposals / #events / #bookings: one type of post (a New proposal / New event bar instead of the composer) | done | A new event made from #events does not default to Public yet. |
+| #requests: a member turns a request into a proposal | not yet | |
+| Branding (logo, cover, colours from belfry.json) | not yet | |
+
 
 | Web feature | Status | Notes |
 |---|---|---|
