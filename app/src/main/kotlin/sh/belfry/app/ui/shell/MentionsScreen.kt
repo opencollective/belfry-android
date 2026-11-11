@@ -41,7 +41,7 @@ import sh.belfry.core.model.refLabel
 fun World.mentionsOfMe(limit: Int = 100): List<Event> {
     val npub = "nostr:" + runCatching { Bech32.npub(me) }.getOrDefault("-")
     return all.asSequence()
-        .filter { (it.kind == 9 || it.kind == 1111) && it.pubkey != me && it.t("h") != null }
+        .filter { (it.kind == 9 || it.kind == 1111) && it.pubkey != me && it.tag("h") != null }
         .filter { e -> e.tags.any { it.size > 1 && it[0] == "p" && it[1] == me } || e.content.contains(npub) }
         .distinctBy { it.id }
         .sortedByDescending { it.createdAt }
@@ -65,8 +65,8 @@ fun MentionsScreen() {
         }
         LazyColumn(Modifier.fillMaxSize()) {
             items(list, key = { it.id }) { e ->
-                val h = e.t("h")!!
-                val root = e.t("E") ?: e.t("e")
+                val h = e.tag("h")!!
+                val root = e.tag("E") ?: e.tag("e")
                 Row(
                     Modifier.fillMaxWidth().clickable(role = Role.Button) {
                         if (e.kind == 1111 && root != null) nav.go(Routes.thread(h, root)) else nav.openChannel(h, e.id)
