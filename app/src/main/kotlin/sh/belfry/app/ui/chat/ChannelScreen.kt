@@ -319,7 +319,7 @@ fun ChannelScreen(
     }
     MessageSheets(
         groupId, chat,
-        onReply = { m -> chat.toggleThread(m.id, focus = true) },
+        onReply = { m -> openThread(m.id) },
         onOpenThread = { m -> openThread(m.id) },
         onEdit = startEdit,
     )
@@ -342,7 +342,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                 MessageRow(
                     groupId, m, row.first || ownBlock, chat,
                     announcement = row.announcement, highlight = highlight, thread = thread, threadOpen = open,
-                    onToggleThread = { chat.toggleThread(m.id) },
+                    onToggleThread = { openThread(m.id) }, // no replies unfolded in the channel (web 2026-11-11)
                     onOpenThread = { openThread(m.id) },
                     pinned = pinned, todo = todo,
                 )
@@ -372,7 +372,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                 val open = chat.openThreads.containsKey(key)
                 // proposal A (web 2026-11-11): the message it answers as one grey quote line,
                 // then who replied, when, and the reply without its leading @mention
-                Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { chat.toggleThread(key) }.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
+                Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { openThread(item.root.id) }.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
                     Avatar(world.face(item.last.pubkey), size = 28.dp)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
