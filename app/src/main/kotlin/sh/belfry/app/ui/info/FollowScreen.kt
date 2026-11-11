@@ -20,7 +20,14 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.engine.ActionException
+import androidx.compose.ui.platform.LocalContext
+import sh.belfry.app.push.AndroidPush
+import sh.belfry.app.push.PushState
+import sh.belfry.app.ui.people.PushLevelRows
+import sh.belfry.app.ui.people.rememberTurnOnNotifications
 import sh.belfry.core.net.Follows
+import sh.belfry.core.push.NotificationSettings
+import sh.belfry.core.push.PushLevel
 
 private val OPTIONS = listOf(
     Triple("asap", "As soon as possible", "A few minutes after each announcement"),
@@ -31,8 +38,9 @@ private val OPTIONS = listOf(
 private fun frequencyLabel(f: String?): String = OPTIONS.firstOrNull { it.first == f }?.second ?: "Following"
 
 /**
- * The bell: follow a channel's announcements by e-mail, as soon as possible or monthly. The
- * belfry keeps the follows and mails the member's own address. [preloaded] is for tests.
+ * The bell: this channel's push level on the phone (All / Default / Mentions only / Off, the
+ * belfry's `/notifications`), and its announcements by e-mail, as soon as possible or monthly
+ * (the belfry keeps the follows and mails the member's own address). [preloaded] is for tests.
  */
 @Composable
 fun FollowScreen(id: String, preloaded: Follows? = null) {
@@ -64,8 +72,41 @@ fun FollowScreen(id: String, preloaded: Follows? = null) {
 
     val f = follows
     val current = f?.byChannel?.get(id) ?: "stop"
+    var push by remember { mutableStateOf<NotificationSettings?>(null) }
+    var pushFailed by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(id) {
+        push = try { session.notificationSettings() } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            pushFailed = (e as? ActionException)?.message ?: "Your notification settings could not be loaded."; null
+        }
+    }
+    val context = LocalContext.current
+    LaunchedEffect(Unit) { AndroidPush.refreshState(context, session) }
+    val pushState = AndroidPush.state.collectAsState().value
+    val turnOn = rememberTurnOnNotifications()
 
-    InfoPage("Announcements", subtitle = label) {
+    InfoPage("Notifications", subtitle = label) {
+        SectionTitle("Push to this phone")
+        val p = push
+        if (p != null) {
+            PushLevelRows(p.level(id), onPick = { level ->
+                push = session.setNotifications(NotificationSettings.setLevel(id, level))
+                // choosing notifications is the moment to ask for the permission
+                if (level != PushLevel.OFF && pushState == PushState.NEEDS_PERMISSION) turnOn()
+            })
+            if (pushState == PushState.NEEDS_PERMISSION) {
+                Spacer(Modifier.height(8.dp))
+                ActionGroup {
+                    ActionRow("Turn on notifications", onClick = turnOn, icon = BelfryIcons.Bell, sub = "Notifications are off for this app on this phone.", chevron = true)
+                }
+            } else if (pushState == PushState.NOT_IN_BUILD || pushState == PushState.DEMO) {
+                Hint(pushState.line + " The level still applies to your other devices.", Modifier.padding(top = 8.dp))
+            }
+        } else if (pushFailed != null) {
+            ErrorLine(pushFailed ?: "")
+        } else {
+            Row { Spinner(); Spacer(Modifier.width(10.dp)); Hint("Loading…") }
+        }
+        SectionTitle("Announcements by e-mail")
         Text(
             buildAnnotatedString {
                 append("Get the announcements of ")

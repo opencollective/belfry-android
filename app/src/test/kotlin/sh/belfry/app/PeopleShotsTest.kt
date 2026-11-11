@@ -12,6 +12,11 @@ import sh.belfry.app.ui.people.MeScreen
 import sh.belfry.app.ui.people.MembersScreen
 import sh.belfry.app.ui.people.MessagesScreen
 import sh.belfry.app.ui.people.NewConversationScreen
+import sh.belfry.app.ui.people.NotificationsScreen
+import sh.belfry.app.ui.people.PushLevelRows
+import sh.belfry.app.push.PushState
+import sh.belfry.core.push.NotificationSettings
+import sh.belfry.core.push.PushLevel
 import sh.belfry.app.ui.people.ProfileScreen
 import sh.belfry.app.ui.people.SaveAccountFlow
 import sh.belfry.app.ui.people.SessionsContent
@@ -37,6 +42,19 @@ class PeopleShotsTest : DemoShots() {
     @Test fun profilePromoted() = demoShot("profile-promoted") { ProfileScreen(Demo.nora.pubkey) }
 
     @Test fun me() = demoShot("me") { MeScreen() }
+
+    /** Me → Notifications: permission missing (the "Turn on notifications" row), some levels set. */
+    @Test fun notifications() = demoShot("notifications") {
+        NotificationsScreen(
+            load = { NotificationSettings(pins = false, channels = mapOf(Demo.GENERAL to PushLevel.ALL, Demo.RANDOM to PushLevel.OFF)) },
+            state = PushState.NEEDS_PERMISSION,
+        )
+    }
+
+    @Test fun notificationsOn() = demoShot("notifications-on") { NotificationsScreen(load = { NotificationSettings() }, state = PushState.ON) }
+
+    /** A channel's push level, as the sheet and the bell show it. */
+    @Test fun notificationsLevel() = demoShot("notifications-level") { Column(Modifier.padding(16.dp)) { PushLevelRows(PushLevel.MENTIONS, onPick = {}) } }
 
     @Test fun sessionsDemo() = demoShot("sessions-demo") { SessionsScreen() }
 

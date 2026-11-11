@@ -156,7 +156,7 @@ in the real world.
 
 | Item | Status | Notes |
 |---|---|---|
-| Notifications | not yet | Later milestone; needs the server (SERVER-NEEDS 3). The app syncs when opened; there is no background service. |
+| Push notifications (docs/push.md; the web has none yet) | built, never run | FCM data-only, NIP-44 under the device key, five notification channels, tap opens the channel at the message (host checked); register on every start, remove at sign-out; Me → Notifications (switches, my channels' levels, this phone's state, "Turn on notifications") and the bell's "Push to this phone" level. Core vectors (`push.json`), demo shots, behaviour tests (switches and levels lock and send once). Needs a Firebase project + the `GOOGLE_SERVICES_JSON` secret (SERVER-NEEDS 3); CI builds with push off. No devices list. |
 | OSV access grants (kinds 8534-8538), the OSV admin screen | n/a | Hidden in the Belfry theme on the web too. |
 | Release build: signing key, R8 rules, Play listing | not yet | CI builds a debug APK (artifact `belfry-debug-apk`). |
 

@@ -13,6 +13,7 @@ fun NavGraphBuilder.peopleRoutes() {
     composable(Routes.PROFILE) { entry -> ProfileScreen(entry.arg("pubkey")) }
     composable(Routes.ME) { MeScreen() }
     composable(Routes.SESSIONS) { SessionsScreen() }
+    composable(Routes.NOTIFICATIONS) { NotificationsScreen() }
     composable(Routes.MEMBERS) { MembersScreen() }
     composable(Routes.MESSAGES) { MessagesScreen() }
     composable(Routes.CONVERSATION) { entry -> ConversationScreen(entry.arg("conv")) }

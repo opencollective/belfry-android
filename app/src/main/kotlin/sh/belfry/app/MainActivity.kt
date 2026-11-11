@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import sh.belfry.app.push.AndroidPush
 import sh.belfry.app.ui.AppRoot
 import sh.belfry.app.ui.theme.BelfryTheme
 import sh.belfry.core.net.EventLink
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
      * link, checked by [EventLink.parse]).
      */
     private fun handle(intent: Intent?) {
+        AndroidPush.openOf(intent)?.let { state.onPushOpen(it); return }
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
         if (uri.scheme == SignIn.REDIRECT_SCHEME && uri.host == SignIn.REDIRECT_HOST) {

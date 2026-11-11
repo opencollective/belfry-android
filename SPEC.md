@@ -928,3 +928,46 @@ New events are **Belfry events**; the older `ws-` ones above are still read and 
   declined / can't go (includes hosting); Your events (drawer) = Belfry events I host or hold /
   ask a place at, ending at most 30 days ago.
 
+## 20. Push notifications
+
+The contract is collective-belfry `docs/push.md` (2026-11-11): a push gateway
+(`https://push.belfry.sh`) holds the publisher's FCM / APNs credentials; each belfry encrypts a
+notification to a key the phone made and sends it through the gateway, which never sees what it
+says. This section is what a client does. Vectors: `vectors/push.json` (made with the web's
+nostr-tools by `tools/vectors/push.mjs`).
+
+- **Device key K**: 32 random bytes, made on the phone, kept with the session secrets (Android:
+  the Keystore-encrypted `Secrets`, name `push-key`), base64 on the wire. A new K after sign-out.
+- **Register** on every start once notifications are allowed (the belfry forgets a device after
+  60 days without a call): `POST <api>/push/devices` (NIP-98) `{"add": {"platform": "fcm",
+  "token": "<FCM token>", "env": "production", "key": "<base64 K>", "app": "belfry-android",
+  "name": "<maker model>"}}` → `{"id"}`. The same token again replaces the old row. Also on a new
+  FCM token.
+- **Remove** at sign-out, before the session is revoked (it must still sign): `{"remove":
+  "<token>"}` → `{"ok": true}`. Best effort (offline sign-out goes on; the belfry also drops
+  devices whose pass closed, on a gateway 410, or after 60 days).
+- **Payload**: FCM data-only message, `data.b` = NIP-44 v2 ciphertext with K used directly as the
+  conversation key (no ECDH; `Nip44.encryptWithKey` / `decryptWithKey`). Plaintext JSON
+  `{"v": 1, "domain", "type": "dm" | "mention" | "reply" | "announcement" | "pin" | "message",
+  "title", "body", "channel", "event", "from", "url"}`. Not version 1, not for this K, or not
+  JSON: nothing is shown. Title and body are shown as given (the belfry cuts `body` to 180).
+- **Channels** (Android notification channels; the person can mute each in the system settings):
+  dm → Direct messages; mention, reply → Mentions and replies; announcement → Announcements;
+  pin → Pinned; message (and an unknown type) → All messages. One notification per conversation:
+  tag = `dm` for DMs, else the group id (the newest replaces the older one).
+- **Tap**: the `url` is never followed. Its host must be `chat.<domain>` of the belfry the app is
+  signed in to and the payload's `domain` that domain; then the channel opens at `event` (by id,
+  checked `[A-Za-z0-9_.-]{1,64}` / 64 hex), or the conversation list for a dm. Anything else
+  opens the app's home.
+- **Settings**: `POST <api>/notifications` `{}` → mine; `{"set": {…}}` merges → mine.
+  `{"dms", "mentions", "announcements", "pins": bool (default true), "channels": {"<group id>":
+  "all" | "default" | "mentions" | "off"}}`, a channel not listed = `default`. Levels: all =
+  every message and thread reply plus what default notifies; default = mentions of me, replies to
+  me, announcements, pinned messages (each subject to its switch); mentions = mentions and
+  replies only; off = nothing. E-mail follows (the bell's e-mail part) are separate.
+- **Permission** (Android 13+ `POST_NOTIFICATIONS`): asked only when the person chose
+  notifications ("Turn on notifications" in Me → Notifications, or picking a push level in a
+  channel's bell), never at launch. Without it the app does not register.
+- A build without a Firebase config has no push at all and says so; the settings can still be
+  changed (they apply to the person's other devices).
+

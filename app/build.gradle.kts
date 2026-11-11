@@ -5,6 +5,11 @@ plugins {
     id("io.github.takahirom.roborazzi")
 }
 
+// Push (FCM): only with app/google-services.json (CI and release.yml write it from the
+// GOOGLE_SERVICES_JSON secret when it is set). Without it the app builds and runs with push off.
+val hasGoogleServices = file("google-services.json").exists()
+if (hasGoogleServices) apply(plugin = "com.google.gms.google-services")
+
 android {
     namespace = "sh.belfry.app"
     compileSdk = 35
@@ -16,6 +21,7 @@ android {
         // a release build (release.yml) passes the tag's version and a growing code
         versionCode = System.getenv("BELFRY_VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = System.getenv("BELFRY_VERSION_NAME") ?: "0.1.0"
+        buildConfigField("boolean", "PUSH", hasGoogleServices.toString())
     }
 
     // Release signing: only when the keystore is given (release.yml decodes the
@@ -92,6 +98,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.google.zxing:core:3.5.3")
+    // push: messaging only (no Analytics)
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

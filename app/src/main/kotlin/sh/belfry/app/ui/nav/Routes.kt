@@ -48,6 +48,8 @@ object Routes {
     fun profile(pubkey: String) = "profile/${enc(pubkey)}"
     const val ME = "me"
     const val SESSIONS = "sessions"
+    /** Me → Notifications (push). */
+    const val NOTIFICATIONS = "notifications"
     /** Everyone in the community. */
     const val MEMBERS = "members"
     /** Direct messages and e-mail: the list. */

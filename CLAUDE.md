@@ -98,6 +98,12 @@ minSdk 26, JDK 17.
   key; the member's identity key never leaves the belfry's signer.
 - Relay events are signature-checked before storage; seals always.
 - Never render text from a URL; server errors are mapped to fixed messages by their `error` code.
+- Push (SPEC 20, collective-belfry docs/push.md): FCM data-only messages decrypted in
+  `app/.../push/` (`AndroidPush`, `BelfryMessagingService`), the device key in `Secrets`;
+  `core/push/Push.kt` reads payloads. Firebase is optional: the google-services plugin is applied
+  only when `app/google-services.json` exists (CI / release.yml write it from the
+  `GOOGLE_SERVICES_JSON` secret when set); `BuildConfig.PUSH` says which. The permission is asked
+  only from Me → Notifications or a channel's bell, never at launch.
 
 ## UI rules (the owner's, not negotiable)
 
@@ -132,5 +138,5 @@ minSdk 26, JDK 17.
   placeholder cannot hold a list. Another community = another `<data>` line, or a per-community
   build.
 - Day and time labels in the channel line are fixed English / 24 h, not the device locale.
-- No release signing, no minification (R8) rules, no notifications (see SERVER-NEEDS.md).
+- No minification (R8) rules. Push has never run end to end (no Firebase project yet; SERVER-NEEDS 3).
 - `Secrets` (Keystore AES-GCM) cannot run under Robolectric; its test skips there.

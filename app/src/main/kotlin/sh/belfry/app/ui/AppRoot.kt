@@ -25,6 +25,7 @@ import sh.belfry.app.ui.kit.BelfrySheet
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.ButtonKind
 import sh.belfry.app.ui.nav.AppNav
+import sh.belfry.core.push.PushOpen
 import sh.belfry.app.ui.nav.AppNavigator
 import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.Routes
@@ -76,6 +77,7 @@ private fun SignedIn(state: AppState, session: Session) {
                 AppNav(controller, shell)
                 JoinOffer(state)
                 EventLinkOpener(state)
+                PushOpener(state)
             }
         }
     }
@@ -102,6 +104,21 @@ private fun EventLinkOpener(state: AppState) {
         Text("This event is in another community. Sign out first to open it here, or open it in the browser.", fontSize = 15.sp, color = Belfry.colors.muted)
         Spacer(Modifier.height(16.dp))
         BusyButton("OK", onClick = { state.forgetEventLink() }, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/** A notification was tapped: the channel at the message, the conversation list, or home. */
+@Composable
+private fun PushOpener(state: AppState) {
+    val open = state.pushOpen.collectAsState().value ?: return
+    val nav = LocalNav.current
+    LaunchedEffect(open) {
+        state.forgetPushOpen()
+        when (open) {
+            is PushOpen.Channel -> nav.openChannel(open.channel, open.message)
+            PushOpen.Dms -> nav.go(Routes.MESSAGES)
+            PushOpen.Home -> {}
+        }
     }
 }
 

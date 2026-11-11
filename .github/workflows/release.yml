@@ -43,6 +43,16 @@ jobs:
           fi
           echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+      - name: Firebase config (push), when the GOOGLE_SERVICES_JSON secret is set
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "push on: app/google-services.json written"
+          else
+            echo "no GOOGLE_SERVICES_JSON secret: building with push off"
+          fi
       - name: Core tests
         run: ./gradlew :core:test --stacktrace
       - name: Build the signed APK

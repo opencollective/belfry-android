@@ -10,6 +10,15 @@ import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
+import androidx.compose.ui.test.onAllNodesWithTag
+import sh.belfry.core.push.PushOpen
+import sh.belfry.core.push.PushLevel
+import sh.belfry.core.push.NotificationSettings
+import sh.belfry.app.ui.people.PushLevelRows
+import sh.belfry.app.ui.people.NotificationsScreen
+import sh.belfry.app.push.PushState
+import sh.belfry.app.push.AndroidPush
+import kotlinx.coroutines.CompletableDeferred
 import sh.belfry.app.ui.people.ConversationScreen
 import sh.belfry.app.ui.people.ProfileScreen
 import sh.belfry.app.ui.theme.BelfryTheme
@@ -69,5 +78,66 @@ class PeopleBehaviourTest : DemoShots() {
         compose.setContent { BelfryTheme { InDemo { ProfileScreen(Demo.wren.pubkey) } } }
         compose.onNodeWithTag("agent-owner").assertIsDisplayed()
         compose.onNodeWithText("agent of Kofi Mensah").assertIsDisplayed()
+    }
+
+    @Test
+    fun aNotificationSwitchLocksAndSendsOnce() {
+        val gate = CompletableDeferred<Unit>()
+        val sent = ArrayList<String>()
+        var now = NotificationSettings()
+        compose.setContent {
+            BelfryTheme {
+                InDemo {
+                    NotificationsScreen(
+                        load = { now },
+                        save = { set -> sent.add(set.toString()); gate.await(); now = now.merged(set); now },
+                        state = PushState.ON,
+                    )
+                }
+            }
+        }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("push-switch-dms").fetchSemanticsNodes().isNotEmpty() }
+        val dms = compose.onNodeWithTag("push-switch-dms")
+        dms.performClick()
+        dms.performClick()
+        compose.onNodeWithTag("push-switch-mentions").performClick()
+        compose.waitForIdle()
+        dms.assertIsNotEnabled()
+        gate.complete(Unit)
+        compose.waitUntil(5_000) { !now.dms }
+        compose.waitForIdle()
+        // one request for the double tap on Direct messages, one for Mentions
+        assertEquals(listOf("""{"dms":false}""", """{"mentions":false}"""), sent)
+    }
+
+    @Test
+    fun aChannelsPushLevelIsSentOnce() {
+        val gate = CompletableDeferred<Unit>()
+        var calls = 0
+        compose.setContent {
+            BelfryTheme { InDemo { PushLevelRows(PushLevel.DEFAULT, onPick = { calls++; gate.await() }) } }
+        }
+        compose.onNodeWithTag("push-level-all").performClick()
+        compose.onNodeWithTag("push-level-off").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("push-level-mentions").assertIsNotEnabled()
+        gate.complete(Unit)
+        compose.waitForIdle()
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun aTapOnANotificationOnlyOpensWhatItNames() {
+        val ctx = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+        fun intent(vararg extras: Pair<String, String>) = android.content.Intent(ctx, MainActivity::class.java).apply {
+            action = AndroidPush.ACTION_OPEN
+            extras.forEach { (k, v) -> putExtra(k, v) }
+        }
+        val ev = "e".repeat(64)
+        assertEquals(PushOpen.Channel("general", ev), AndroidPush.openOf(intent("kind" to "channel", "channel" to "general", "message" to ev)))
+        assertEquals(PushOpen.Channel("general", null), AndroidPush.openOf(intent("kind" to "channel", "channel" to "general", "message" to "<b>x</b>")))
+        assertEquals(PushOpen.Home, AndroidPush.openOf(intent("kind" to "channel", "channel" to "../../etc")))
+        assertEquals(PushOpen.Dms, AndroidPush.openOf(intent("kind" to "dms")))
+        assertEquals(null, AndroidPush.openOf(android.content.Intent(android.content.Intent.ACTION_VIEW)))
     }
 }

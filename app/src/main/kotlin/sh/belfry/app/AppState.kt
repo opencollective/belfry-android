@@ -14,6 +14,7 @@ import sh.belfry.core.engine.Vault
 import sh.belfry.core.net.Community
 import sh.belfry.core.net.EventLink
 import sh.belfry.core.net.InviteLink
+import sh.belfry.core.push.PushOpen
 
 /** Where the app is: starting, signed out, looking at a guest link, or in. */
 sealed interface Phase {
@@ -53,6 +54,17 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     val eventLink: StateFlow<EventLink?> = _eventLink
 
     fun onEventLink(link: EventLink) { _eventLink.value = link }
+
+    /** A notification was tapped: what it opens, once signed in (kept until then). */
+    private val _pushOpen = MutableStateFlow<PushOpen?>(null)
+    val pushOpen: StateFlow<PushOpen?> = _pushOpen
+    fun onPushOpen(open: PushOpen) { _pushOpen.value = open }
+    fun forgetPushOpen() { _pushOpen.value = null }
+
+    /** Told when a session starts (the app registers it for push). */
+    @Volatile var onSignedIn: ((Session) -> Unit)? = null
+    /** Runs before signing out, while the session can still sign (push: remove this phone). */
+    @Volatile var beforeSignOut: (suspend (Session) -> Unit)? = null
     fun forgetEventLink() { _eventLink.value = null }
 
     private var booted = false
@@ -76,6 +88,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         s.setOnline(online)
         _session.value = s
         _phase.value = Phase.SignedIn(s)
+        try { onSignedIn?.invoke(s) } catch (e: Exception) { }
         val invite = try { onboarding.pendingInvite } catch (e: Exception) { null }
         if (invite != null) _joinOffer.value = invite
     }
@@ -150,7 +163,11 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         val s = _session.value ?: return null
         _session.value = null
         _phase.value = Phase.SignedOut
-        return withContext(Dispatchers.Default) { try { onboarding.signOut(s) } catch (e: Exception) { null } }
+        return withContext(Dispatchers.Default) {
+            // the belfry forgets this phone's push device first (signed by the session), then the session is revoked
+            try { beforeSignOut?.invoke(s) } catch (e: Exception) { }
+            try { onboarding.signOut(s) } catch (e: Exception) { null }
+        }
     }
 
     /** The app came to the foreground. */

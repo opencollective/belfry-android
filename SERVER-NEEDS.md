@@ -23,14 +23,22 @@ session opened from Android shows under that name in a member's session list. Ei
 to something neutral ("Belfry app"), or pick the name from `client_id` (`belfry-android` /
 `belfry-ios`), or approve a second redirect for Android.
 
-## 3. Push notifications (later milestone; not built in the app)
+## 3. Push notifications — contract agreed (collective-belfry docs/push.md), app built 2026-11-11
 
-Nothing wakes the app when a message arrives; it syncs when opened. Proposal, the same shape as
-the iOS one: `POST <api base>/me/push` (NIP-98) `{"platform":"fcm","token":"…",
-"app":"sh.belfry.app","events":["mention","dm","mail","reply"]}`, `DELETE` at sign-out; the
-belfry sends a content-free push (never the message text) through FCM, or through UnifiedPush
-for communities that do not want Google in the path. Needs a Firebase project / server key: ask
-the owner first.
+The app follows docs/push.md as written (SPEC 20): FCM data-only messages through the gateway,
+NIP-44 v2 under the device key, `POST /push/devices` add on every start (once allowed) and remove
+at sign-out before the revoke, `POST /notifications` for the settings. What the app still needs:
+
+- **A Firebase project** for `sh.belfry.app` (the owner's Google account) and its
+  `google-services.json` as the repository secret `GOOGLE_SERVICES_JSON` (CI and release.yml
+  write it to `app/google-services.json`; without it the build has push off). The gateway's
+  `fcm_service_account.json` must come from the same project.
+- Nothing has run end to end: no gateway, no Firebase project, no device. The payload format is
+  checked against vectors made with nostr-tools (`vectors/push.json`), not against the Python
+  watcher; a sample payload from `push.py` would confirm both sides agree.
+- Questions: (1) is `POST /notifications` `{}` allowed with a `set` that names a channel I am not
+  in (the app only offers my channels)? (2) A DM has no `event`: the app opens the conversation
+  list; a future `conv` hint (without the sender) would let it open the conversation.
 
 ## 4. Ending a session from the app (question)
 
