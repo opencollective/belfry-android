@@ -87,6 +87,20 @@ object Nip44 {
         return B64.encode(byteArrayOf(2) + nonce + ciphertext + mac)
     }
 
+    /**
+     * A random 32-byte key used directly as the conversation key, without ECDH (push payloads:
+     * the phone makes the key and registers it with the belfry, docs/push.md §4). Same cipher.
+     */
+    fun encryptWithKey(plaintext: String, key: ByteArray, nonce: ByteArray = Random.bytes(32)): String {
+        if (key.size != 32) throw CryptoException("a conversation key is 32 bytes")
+        return encrypt(plaintext, key, nonce)
+    }
+
+    fun decryptWithKey(payload: String, key: ByteArray): String {
+        if (key.size != 32) throw CryptoException("a conversation key is 32 bytes")
+        return decrypt(payload, key)
+    }
+
     fun decrypt(payload: String, conversationKey: ByteArray): String {
         if (payload.isEmpty() || payload.startsWith("#")) throw CryptoException("unknown version")
         val plen = payload.toByteArray(Charsets.UTF_8).size

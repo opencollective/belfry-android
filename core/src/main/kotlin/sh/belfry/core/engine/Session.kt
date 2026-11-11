@@ -931,6 +931,34 @@ class Session(
         return state
     }
 
+    // ---- push notifications (docs/push.md) ----------------------------------------------------------
+
+    private var demoNotifications = sh.belfry.core.push.NotificationSettings()
+
+    /** Registers this phone (FCM [token], device key, name) for push. Throws [ActionException]. */
+    suspend fun registerPush(token: String, keyB64: String, name: String): String {
+        if (localOnly) return "demo"
+        return call { it.addPushDevice(signer, token, keyB64, name) }
+    }
+
+    /** Stops pushes to [token]; best effort (sign-out goes on offline). */
+    suspend fun unregisterPush(token: String) {
+        if (localOnly) return
+        try { call { it.removePushDevice(signer, token) } } catch (e: ActionException) { }
+    }
+
+    /** My notification settings. Throws [ActionException]. */
+    suspend fun notificationSettings(): sh.belfry.core.push.NotificationSettings {
+        if (localOnly) return demoNotifications
+        return call { api -> spaced(community.apiBase + "/notifications") { api.notifications(signer) } }
+    }
+
+    /** Changes them ([set]: one switch or one channel's level) and returns them as now. Throws [ActionException]. */
+    suspend fun setNotifications(set: kotlinx.serialization.json.JsonObject): sh.belfry.core.push.NotificationSettings {
+        if (localOnly) { demoNotifications = demoNotifications.merged(set); return demoNotifications }
+        return call { it.notifications(signer, set) }
+    }
+
     /** My own agents and how many I may have. Throws [ActionException]. */
     suspend fun myAgents(): MyAgents {
         if (localOnly) return MyAgents(community.agents.filterValues { it == me }.keys.map { MyAgent(it, _world.value.realName(it), "") }, 1)

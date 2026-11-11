@@ -221,6 +221,38 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         return ChannelGuest(b["added"].bool() == true, b["already"].bool() == true, b["member"].bool() == true)
     }
 
+    // ---- push notifications (push.py, docs/push.md) ----------------------------------------------------
+
+    /**
+     * Registers this phone for push: its FCM [token], its device key (base64 of 32 bytes) and a
+     * name. The same token again replaces the old row. Returns the device id. Codes: invalid,
+     * unsupported (no push on this belfry: 404 → `http`).
+     */
+    suspend fun addPushDevice(signer: Signer, token: String, keyB64: String, name: String, env: String = "production"): String {
+        val a = signed(signer, "$base/push/devices", "POST", buildJsonObject {
+            put("add", buildJsonObject {
+                put("platform", JsonPrimitive("fcm")); put("token", JsonPrimitive(token)); put("env", JsonPrimitive(env))
+                put("key", JsonPrimitive(keyB64)); put("app", JsonPrimitive("belfry-android")); put("name", JsonPrimitive(name.take(60)))
+            })
+        })
+        val id = a.body?.s("id")
+        if (!a.ok || id == null) fail(a, PUSH_ERRORS, "This phone could not be registered for notifications.")
+        return id
+    }
+
+    /** Stops pushes to this token (sign-out, before the session is revoked). */
+    suspend fun removePushDevice(signer: Signer, token: String) {
+        val a = signed(signer, "$base/push/devices", "POST", buildJsonObject { put("remove", JsonPrimitive(token)) })
+        if (!a.ok) fail(a, PUSH_ERRORS, "Could not stop notifications to this phone.")
+    }
+
+    /** My notification settings; with [set], merged first. */
+    suspend fun notifications(signer: Signer, set: JsonObject? = null): sh.belfry.core.push.NotificationSettings {
+        val a = signed(signer, "$base/notifications", "POST", if (set == null) JsonObject(emptyMap()) else buildJsonObject { put("set", set) })
+        if (!a.ok || a.body == null) fail(a, PUSH_ERRORS, "Could not read your notification settings.")
+        return sh.belfry.core.push.NotificationSettings.parse(a.body)
+    }
+
     // ---- who a key is (whois.py) ---------------------------------------------------------------------
 
     /**
@@ -489,6 +521,12 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             "no_channel" to "This channel is not known to the belfry yet.",
             "not_allowed" to "You can’t invite guests here.",
             "unknown" to "This person is not in the belfry any more.",
+        )
+        private val PUSH_ERRORS = mapOf(
+            "invalid" to "The belfry did not accept this phone's details.",
+            "not_member" to "Only people of this belfry get notifications.",
+            "no_pass" to "Only people of this belfry get notifications.",
+            "http" to "This belfry does not send notifications yet.",
         )
         const val WHOIS_MAX = 500
         private val KINDS = setOf("member", "agent", "guest")
