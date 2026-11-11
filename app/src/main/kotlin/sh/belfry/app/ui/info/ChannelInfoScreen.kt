@@ -222,7 +222,7 @@ private fun AboutTab(g: Group, onMembers: () -> Unit, settingsOpen: Boolean) {
 
     Spacer(Modifier.height(16.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
-        ChannelIcon(g.glyph(), size = 22.dp)
+        ChannelIcon(g.glyph(LocalWorld.current), size = 22.dp)
         Spacer(Modifier.width(8.dp))
         Text((if (g.isPod) "Pod" else "Channel") + " id ", fontSize = 13.sp, color = c.muted)
         Text(g.id, fontSize = 13.sp, color = c.muted, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)

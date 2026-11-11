@@ -1,5 +1,6 @@
 package sh.belfry.app
 
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -114,6 +115,7 @@ class LineShotsTest : DemoShots() {
         settle()
         val ticks = world.all.count { it.kind == 2101 && it.tag("e") == task.id }
         assertEquals("the to-do was ticked more than once", 1, ticks)
-        compose.waitUntil(10_000) { compose.onAllNodesWithText("Done").fetchSemanticsNodes().isNotEmpty() }
+        // the mark before the reactions (proposal A) says so
+        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("To-do, done", substring = true)).fetchSemanticsNodes().isNotEmpty() }
     }
 }

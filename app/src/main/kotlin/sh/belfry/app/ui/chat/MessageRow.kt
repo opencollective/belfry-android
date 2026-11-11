@@ -70,12 +70,17 @@ import sh.belfry.core.model.Special
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
 import sh.belfry.core.model.ThreadInfo
-import sh.belfry.core.model.todoChip
 import sh.belfry.app.ui.kit.MoreIcons
 import sh.belfry.app.ui.kit.Spinner
 import sh.belfry.core.outbox.Attachment
 import sh.belfry.core.outbox.Outbox
 import sh.belfry.core.outbox.OutboxStatus
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 
 /**
  * One message of a feed or a thread: avatar, name and time when it starts a block ([first]),
@@ -179,10 +184,10 @@ fun MessageRow(
             for (media in m.media) MediaView(media, session, chat)
             if (pending != null) for (a in pending.attachments) PendingAttachment(a, session, chat)
             val reactions = world.reactionsOf(groupId, m.id)
-            if (reactions.isNotEmpty()) Reactions(groupId, m, reactions, chat)
-            if (todo != null) TodoChip(groupId, todo)
+            // proposal A (web 2026-11-11): the to-do is a small mark before the reactions
+            if (reactions.isNotEmpty() || todo != null) Reactions(groupId, m, reactions, chat, todo)
             if (thread != null && thread.count > 0 && onToggleThread != null) {
-                ThreadChips(thread, threadOpen, onToggleThread, onOpenThread)
+                ThreadLine(groupId, m.id, thread, threadOpen, onToggleThread)
             }
             if (pending != null) {
                 if (pending.status == OutboxStatus.FAILED) {
@@ -202,36 +207,42 @@ fun MessageRow(
     }
 }
 
-/** The to-do made from a message: tap to tick it off (or back). Locks while it is being sent. */
+/**
+ * The to-do made from a message, as an 18 dp mark before its reactions (web proposal A): a
+ * circle while open, a filled tick once done. Tap to tick it off (or back); it locks and spins
+ * while that is sent.
+ */
 @Composable
-private fun TodoChip(groupId: String, todo: Task) {
+private fun TodoMark(groupId: String, todo: Task) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
     val busy = rememberBusy()
-    val shape = RoundedCornerShape(8.dp)
-    Row(
-        Modifier.padding(top = 4.dp, bottom = 2.dp).clip(shape).background(if (todo.done) c.surface else Color.Transparent).border(1.dp, c.line, shape)
-            .clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = if (todo.done) "Done. Mark as not done" else "To do. Mark as done") {
+    val state = if (todo.done) "done" else todo.assignee?.let { "${world.displayName(it)} is on it" } ?: "open"
+    Box(
+        Modifier.size(26.dp).clip(CircleShape)
+            .clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = if (todo.done) "Mark as not done" else "Mark as done") {
                 busy.run { session.send(Actions.taskAction(groupId, todo.id, if (todo.done) "undone" else "done")) }
             }
-            .padding(horizontal = 8.dp, vertical = 5.dp)
+            .semantics { contentDescription = "To-do, $state: ${todo.title}" }
             .testTag("todo-" + todo.id),
-        verticalAlignment = Alignment.CenterVertically,
+        contentAlignment = Alignment.Center,
     ) {
-        if (busy.busy) Spinner(size = 15.dp, color = c.muted)
-        else Icon(if (todo.done) MoreIcons.Todo else BelfryIcons.Clock, contentDescription = null, tint = if (todo.done) c.text else c.muted, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(world.todoChip(todo), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (todo.done) c.muted else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (busy.busy) Spinner(size = 16.dp, color = c.muted)
+        else if (todo.done) Box(Modifier.size(18.dp).clip(CircleShape).background(Color(0xFF16A34A)), contentAlignment = Alignment.Center) {
+            Icon(MoreIcons.Todo, contentDescription = null, tint = c.bg, modifier = Modifier.size(12.dp))
+        }
+        else Box(Modifier.size(18.dp).border(2.dp, if (todo.assignee != null) c.text else c.faint, CircleShape))
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, chat: ChatState) {
+private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, chat: ChatState, todo: Task? = null) {
     val c = Belfry.colors
     val session = LocalSession.current
     FlowRow(Modifier.padding(top = 4.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (todo != null) TodoMark(groupId, todo)
         for (r in reactions) {
             val busy = rememberBusy()
             val mine = r.mine != null
@@ -252,48 +263,62 @@ private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, ch
                 Text(r.who.size.toString(), fontSize = 13.sp, fontWeight = if (mine) FontWeight.SemiBold else FontWeight.Normal, color = c.text)
             }
         }
-        val shape = RoundedCornerShape(99.dp)
-        Box(
-            Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClickLabel = "Add a reaction") { chat.menu(m, emojiOnly = true) }.padding(horizontal = 8.dp, vertical = 4.dp),
-        ) {
-            Icon(BelfryIcons.SmilePlus, contentDescription = "Add a reaction", tint = c.muted, modifier = Modifier.size(17.dp))
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ThreadChips(thread: ThreadInfo, open: Boolean, onToggle: () -> Unit, onOpen: (() -> Unit)?) {
-    val c = Belfry.colors
-    val world = LocalWorld.current
-    val session = LocalSession.current
-    val shape = RoundedCornerShape(8.dp)
-    FlowRow(Modifier.padding(top = 4.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClick = onToggle).padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AvatarStack(thread.who.take(3).map { world.face(it) }, size = 18.dp)
-            Spacer(Modifier.width(6.dp))
-            Text(
-                if (open) "Hide replies" else "${thread.count} ${if (thread.count == 1) "reply" else "replies"}",
-                fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(ChatFormat.time(world, thread.last), fontSize = 12.sp, color = c.faint, maxLines = 1)
-        }
-        if (onOpen != null) {
-            Row(
-                Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClick = onOpen).padding(horizontal = 8.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically,
+        if (reactions.isNotEmpty()) {
+            val shape = RoundedCornerShape(99.dp)
+            Box(
+                Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClickLabel = "Add a reaction") { chat.menu(m, emojiOnly = true) }.padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
-                Icon(BelfryIcons.Thread, contentDescription = null, tint = c.muted, modifier = Modifier.size(15.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("Open thread", fontSize = 13.sp, color = c.text, maxLines = 1)
+                Icon(BelfryIcons.SmilePlus, contentDescription = "Add a reaction", tint = c.muted, modifier = Modifier.size(17.dp))
             }
         }
     }
 }
+
+/**
+ * Under a message with replies, one line (web proposal A): the repliers' faces, how many, when,
+ * and the start of the last reply. Tap unfolds the replies (their "Open thread" goes further).
+ */
+@Composable
+private fun ThreadLine(groupId: String, rootId: String, thread: ThreadInfo, open: Boolean, onToggle: () -> Unit) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val last = if (open) null else world.threadReplies(groupId, rootId).lastOrNull()
+    val said = last?.let { replyPreview(it.text).ifEmpty { if (it.media.isNotEmpty()) "a photo" else "" } }.orEmpty()
+    Row(
+        Modifier.padding(top = 4.dp, bottom = 2.dp).fillMaxWidth().clip(RoundedCornerShape(6.dp))
+            .clickable(role = Role.Button, onClick = onToggle).padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AvatarStack(thread.who.take(3).map { world.face(it) }, size = 18.dp)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            if (open) "Hide replies" else "${thread.count} ${if (thread.count == 1) "reply" else "replies"}",
+            fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (c.isDark) Color(0xFF60A5FA) else Color(0xFF2563EB), maxLines = 1,
+        )
+        if (!open) {
+            Spacer(Modifier.width(6.dp))
+            Text(ChatFormat.time(world, thread.last), fontSize = 12.sp, color = c.faint, maxLines = 1)
+            if (last != null && said.isNotEmpty()) {
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(world.displayName(last.pubkey)) }
+                        append(": ")
+                        append(said)
+                    },
+                    fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            Spacer(Modifier.width(2.dp))
+            Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.faint, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+/** A reply's text for a one-line preview: without the "@someone" it starts with, on one line. */
+internal fun replyPreview(text: String): String =
+    text.replace(Regex("^(\\s*(nostr:npub1[02-9ac-hj-np-z]+|@\\S+)[,:]?\\s+)+"), "")
+        .replace(Regex("nostr:\\S+"), "@…").replace(Regex("\\s+"), " ").trim().take(120)
 
 /** A photo (tap: full screen) or a file (tap: opens its address). */
 @Composable

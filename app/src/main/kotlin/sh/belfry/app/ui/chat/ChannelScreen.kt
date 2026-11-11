@@ -87,6 +87,8 @@ import sh.belfry.core.model.FeedRow
 import sh.belfry.core.model.Mentions
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.Topics
+import androidx.compose.ui.text.style.TextOverflow
+import sh.belfry.app.ui.kit.Avatar
 
 /**
  * A channel: its top bar (☰ · name · search · follow), the one summary line under the name
@@ -182,7 +184,7 @@ fun ChannelScreen(
 
     Column(modifier.fillMaxSize().background(c.bg).imePadding()) {
         TopBar(
-            title = g?.name ?: groupId,
+            title = (if (world.isPublicChannel(g)) "🌐 " else "") + (g?.name ?: groupId),
             onTitleClick = { chat.lineOpen = !chat.lineOpen },
             navigation = if (onMenu != null) {
                 { IconAction(BelfryIcons.Menu, "Channels", onMenu, badge = dms.unreadTotal) }
@@ -246,8 +248,39 @@ fun ChannelScreen(
         SaveAccountBar(session)
         val readOnly = g != null && g.isPod && g.closed && world.me !in g.members
         val editing = chat.editing
-        if (!readOnly && (chat.topic != Topics.ANNOUNCE || admin)) {
+        // #proposals, #events, #bookings (web 2026-11-11): one type of post, no free text at the top
+        val page = world.webPage(g)
+        val only = page?.posts?.takeIf { it == "proposal" || it == "event" }
+        val isPub = page?.on == true && page.visibility == "public"
+        if (!readOnly && only != null) {
             Hairline()
+            Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    when {
+                        only == "proposal" && isPub -> "Public proposals: anyone on the web sees them."
+                        only == "proposal" -> "Members only: proposals to discuss and vote on."
+                        isPub -> "Public: anyone on the web sees these events."
+                        else -> "Members only: internal bookings."
+                    },
+                    fontSize = 13.sp, color = c.muted, modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(12.dp))
+                BusyButton(
+                    if (only == "proposal") "New proposal" else "New event",
+                    onClick = { nav.go(if (only == "proposal") Routes.createProposal(groupId) else Routes.createEvent(groupId)) },
+                    small = true,
+                )
+            }
+        }
+        if (!readOnly && only == null && isPub) {
+            Hairline()
+            Text(
+                "🌐 Public: anyone on the web sees this channel" + if (page?.posts == "request") ". Members can turn a request into a proposal." else ".",
+                fontSize = 12.sp, color = c.muted, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
+            )
+        }
+        if (!readOnly && only == null && (chat.topic != Topics.ANNOUNCE || admin)) {
+            if (!isPub) Hairline()
             if (editing != null) EditingBar(onCancel = { chat.editing = null; composer.clear() })
             Composer(
                 composer,
@@ -337,18 +370,27 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
             is FeedItem.Activity -> {
                 val key = item.key
                 val open = chat.openThreads.containsKey(key)
-                Column(Modifier.fillMaxWidth().clickable(role = Role.Button) { chat.toggleThread(key) }.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(BelfryIcons.Thread, contentDescription = null, tint = c.faint, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "${world.displayName(item.last.pubkey)} replied to ${world.displayName(item.root.pubkey)}: “${unmarked(world.activitySnippet(item.root))}”",
-                            fontSize = 13.sp, color = c.muted, maxLines = 2, modifier = Modifier.weight(1f),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(ChatFormat.time(world, item.at), fontSize = 12.sp, color = c.faint)
+                // proposal A (web 2026-11-11): the message it answers as one grey quote line,
+                // then who replied, when, and the reply without its leading @mention
+                Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { chat.toggleThread(key) }.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
+                    Avatar(world.face(item.last.pubkey), size = 28.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(2.dp).height(16.dp).background(c.line))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "↳ ${world.displayName(item.root.pubkey)}: ${unmarked(world.activitySnippet(item.root))}",
+                                fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                            Text(world.displayName(item.last.pubkey), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1)
+                            Spacer(Modifier.width(6.dp))
+                            Text(ChatFormat.time(world, item.at), fontSize = 12.sp, color = c.faint)
+                        }
+                        if (!open) Text(replyPreview(unmarked(world.activityReply(item.last))).ifEmpty { "a photo" }, fontSize = 15.sp, color = c.text, maxLines = 3)
                     }
-                    if (!open) Text(unmarked(world.activityReply(item.last)), fontSize = 15.sp, color = c.text, maxLines = 3, modifier = Modifier.padding(start = 23.dp, top = 2.dp))
                 }
                 if (open) {
                     InlineThread(groupId, item.root, chat, focus = chat.openThreads[key] == true, onHide = { chat.openThreads.remove(key) }, onOpen = { openThread(item.root.id) })

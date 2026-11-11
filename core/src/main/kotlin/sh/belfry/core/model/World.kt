@@ -617,6 +617,28 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         return truthy(on)
     }
 
+    // ---- a channel's page on the web, its visibility, its type of post -----------------------
+    // (web model.ts webPage; Belfry webthreads.py, 2026-11-11.) The latest NIP-78 setting
+    // `belfry:web:<channel>` by one of its admins or by the relay's own key (the default
+    // channels). "visibility": public | members; "posts": proposal | event | request.
+
+    data class WebPage(val on: Boolean, val slug: String, val visibility: String, val posts: String?)
+
+    fun webPage(g: Group?): WebPage? {
+        if (g == null) return null
+        val relayKey = all.firstOrNull { it.kind == 39000 && it.t("d") == g.id }?.pubkey
+        val own = all.filter { it.kind == 30078 && it.t("d") == WEB_D + g.id && it.t("h") == g.id && (it.pubkey in g.admins || it.pubkey == relayKey) }
+            .maxByOrNull { it.createdAt } ?: return null
+        val c = parseJsonOrNull(own.content.ifEmpty { "{}" }).obj() ?: return null
+        val vis = c["visibility"]?.str()
+        val members = vis == "members" || (vis == null && c["list"]?.str() == "own")
+        val posts = c["posts"]?.str()?.takeIf { it in setOf("proposal", "event", "request") }
+        return WebPage(c["on"]?.let { truthy(it) } == true, c["slug"]?.str().orEmpty(), if (members) "members" else "public", posts)
+    }
+
+    /** A public channel: its page on the web is on and anyone may read it (a globe, not a hash). */
+    fun isPublicChannel(g: Group?): Boolean = webPage(g)?.let { it.on && it.visibility == "public" } == true
+
     /** The channel's e-mail address. */
     fun mailAddress(groupId: String): String = "$groupId@${ctx.domain}"
 
@@ -942,6 +964,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         const val EDIT_KIND = 1010
         const val ACTIVE_DAYS = 30
         const val INBOX_D = "belfry:inbox"
+        const val WEB_D = "belfry:web:"
         const val INBOX_NS = "belfry/inbox"
         const val PROPOSAL_NS = "belfry/proposal-status"
         const val GUEST_NS = "belfry/guest"

@@ -51,9 +51,10 @@ fun World.authorName(groupId: String, m: Message): String = when (val s = m.spec
 /** The author is a member with a profile to open (not the belfry's own key posting a card). */
 fun Message.hasProfile(): Boolean = special !is Special.InboxCard && special !is Special.SentAsChannel
 
-fun Group.glyph(): ChannelGlyph = when (type) {
+/** WORLD given: a public channel (its page on the web, readable by anyone) shows a globe. */
+fun Group.glyph(world: World? = null): ChannelGlyph = when (type) {
     ChannelType.EVENT -> ChannelGlyph.Event
     ChannelType.POD -> ChannelGlyph.Pod
     ChannelType.PROPOSAL -> ChannelGlyph.Proposal
-    else -> ChannelGlyph.Channel
+    else -> if (world?.isPublicChannel(this) == true) ChannelGlyph.Public else ChannelGlyph.Channel
 }

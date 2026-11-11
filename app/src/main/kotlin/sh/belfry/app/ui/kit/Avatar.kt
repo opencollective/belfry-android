@@ -86,10 +86,11 @@ fun AvatarStack(faces: List<Face>, modifier: Modifier = Modifier, size: Dp = 20.
     }
 }
 
-enum class ChannelGlyph { Channel, Event, Pod, Proposal, Mail }
+enum class ChannelGlyph { Channel, Public, Event, Pod, Proposal, Mail }
 
 fun ChannelGlyph.icon(): ImageVector = when (this) {
     ChannelGlyph.Channel -> BelfryIcons.Hash
+    ChannelGlyph.Public -> BelfryIcons.Globe
     ChannelGlyph.Event -> BelfryIcons.Calendar
     ChannelGlyph.Pod -> BelfryIcons.Pod
     ChannelGlyph.Proposal -> BelfryIcons.Proposal

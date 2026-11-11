@@ -161,7 +161,7 @@ private fun Section(title: String, count: Int) {
 private fun ChannelItem(world: World, g: Group, depth: Int, on: Boolean, onClick: () -> Unit) {
     val last = world.messages(g.id).lastOrNull()
     val sub = if (last != null) "${if (last.hasProfile()) world.displayName(last.pubkey) else world.authorName(g.id, last)}: ${preview(world, last)}" else g.about
-    DrawerItem(icon = { if (g.isPod) PodIcon(g.members.size) else ChannelIcon(g.glyph()) }, title = g.name, sub = sub, on = on, depth = depth, onClick = onClick)
+    DrawerItem(icon = { if (g.isPod) PodIcon(g.members.size) else ChannelIcon(g.glyph(LocalWorld.current)) }, title = g.name, sub = sub, on = on, depth = depth, onClick = onClick)
 }
 
 /** A message as one line without Markdown marks; mentions as @Name. */
