@@ -30,7 +30,17 @@ import java.io.IOException
  * ours: `network` (no connection), `http` (an answer without a known key). [message] is a fixed
  * text of this app chosen by that key: safe to show. The server's own free text is never kept.
  */
-class ApiException(val code: String, val status: Int, message: String, /** 409 `taken` of `/guest/save/verify`: the belfry gave that account the channel (guest mode). */ val moved: Boolean = false) : Exception(message)
+class ApiException(
+    val code: String,
+    val status: Int,
+    message: String,
+    /** 409 `taken` of `/guest/save/verify`: the belfry gave that account the channel (guest mode). */
+    val moved: Boolean = false,
+    /** 409 `taken`: that account's `name@domain`, when the belfry could read it (not checked here). */
+    val nip05: String? = null,
+    /** 422 `wrong_code`: how many tries the code has left, when the belfry says. */
+    val triesLeft: Int? = null,
+) : Exception(message)
 
 data class GuestLink(val url: String, val agentUrl: String?, val days: Int, val people: Int, val linkDays: Int, val expiresAt: String?, val ownAgent: Boolean = false)
 
@@ -398,7 +408,11 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             if (name != null) put("name", JsonPrimitive(name))
         })
         if (!a.ok) {
-            if (a.error == "taken") throw ApiException("taken", a.status, GUEST_ERRORS.getValue("taken"), moved = a.body?.get("moved").bool() == true)
+            if (a.error == "taken") throw ApiException(
+                "taken", a.status, GUEST_ERRORS.getValue("taken"),
+                moved = a.body?.get("moved").bool() == true, nip05 = a.body?.s("nip05")?.take(320),
+            )
+            if (a.error == "wrong_code") throw ApiException("wrong_code", a.status, GUEST_ERRORS.getValue("wrong_code"), triesLeft = a.body?.get("tries_left").int())
             fail(a, GUEST_ERRORS, "That did not work. Try again.")
         }
         return GuestSaved(a.body?.get("joined").bool() == true)

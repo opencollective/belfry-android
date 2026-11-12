@@ -43,7 +43,7 @@ class GuestModeTest : DemoShots() {
 
     private fun waitFor(tag: String) = compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
 
-    private var signIn: Triple<String, String, Boolean>? = null
+    private var signIn: List<Any?>? = null
 
     private fun reading() {
         session.demoGuestMode(Demo.GENERAL)
@@ -52,7 +52,7 @@ class GuestModeTest : DemoShots() {
                 InDemo {
                     Box(Modifier.fillMaxSize()) {
                         ChannelScreen(Demo.GENERAL)
-                        GuestJoinHost { email, channel, moved -> signIn = Triple(email, channel, moved) }
+                        GuestJoinHost { email, channel, moved, nip05 -> signIn = listOf(email, channel, moved, nip05) }
                     }
                 }
             }
@@ -101,7 +101,7 @@ class GuestModeTest : DemoShots() {
         capture("guest-join-code")
         // a wrong code: the fixed message, the boxes emptied
         compose.onNodeWithTag("code-boxes").performTextInput("111111")
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(GuestMode.message("wrong_code")).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("That code is not right. 4 tries left.").fetchSemanticsNodes().isNotEmpty() }
         assertTrue(session.reading)
         compose.onNodeWithTag("code-boxes").performTextInput(GuestMode.DEMO_CODE)
         compose.waitUntil(10_000) { !session.reading }
@@ -126,7 +126,7 @@ class GuestModeTest : DemoShots() {
         capture("guest-join-moved")
         compose.onNodeWithText("Sign in instead").performClick()
         compose.waitUntil(5_000) { signIn != null }
-        assertEquals(Triple(GuestMode.DEMO_TAKEN, Demo.GENERAL, true), signIn)
+        assertEquals(listOf(GuestMode.DEMO_TAKEN, Demo.GENERAL, true, "ana@" + session.community.domain), signIn)
     }
 
     @Test

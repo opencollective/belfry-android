@@ -136,7 +136,7 @@ private fun SignedIn(state: AppState, session: Session) {
                 NoAccessScreen()
             } else {
                 AppNav(controller, shell)
-                GuestJoinHost(onSignIn = { email, channel, moved -> state.signInInstead(email, channel, moved) })
+                GuestJoinHost(onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) })
                 OpenAfterSignIn(state)
                 JoinOffer(state)
                 ChooseAccount(state)

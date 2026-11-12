@@ -147,7 +147,14 @@ open class ActionException(val code: String, message: String) : Exception(messag
  * `name_needed`, `too_many`, `wrong_code`, `expired`, `taken`, `not_guest`, `offline`, `failed`;
  * [moved] (with `taken`): the belfry gave the account with that address the channel.
  */
-class GuestJoinException(code: String, val moved: Boolean = false) : ActionException(code, GuestMode.message(code))
+class GuestJoinException(
+    code: String,
+    val moved: Boolean = false,
+    /** With `taken`: that account's name@domain as the belfry said it (use only through [GuestMode.signInPrefill]). */
+    val nip05: String? = null,
+    /** With `wrong_code`: tries left, when the belfry said. */
+    val triesLeft: Int? = null,
+) : ActionException(code, GuestMode.message(code, triesLeft))
 
 /**
  * One signed-in member's connection to their belfry: the event log, the relays and their
@@ -1167,8 +1174,8 @@ class Session(
         val g = _guest.value
         if (localOnly) { // demo: what the belfry would do
             delay(300)
-            if (email.trim().lowercase() == GuestMode.DEMO_TAKEN) throw GuestJoinException("taken", moved = true)
-            if (code != GuestMode.DEMO_CODE) throw GuestJoinException("wrong_code")
+            if (email.trim().lowercase() == GuestMode.DEMO_TAKEN) throw GuestJoinException("taken", moved = true, nip05 = "ana@${community.domain}")
+            if (code != GuestMode.DEMO_CODE) throw GuestJoinException("wrong_code", triesLeft = 4)
             if (g?.reading == true && n != null) addToLog(GuestMode.demoJoined(g.channel, me, n, clock()))
         } else {
             guestCall { it.guestVerify(signer, email.trim(), code.trim(), n) }
@@ -1187,7 +1194,7 @@ class Session(
         try {
             block(api())
         } catch (e: ApiException) {
-            throw GuestJoinException(if (e.code in GuestMode.CODES) e.code else if (e.code == "network") "offline" else "failed", e.moved)
+            throw GuestJoinException(if (e.code in GuestMode.CODES) e.code else if (e.code == "network") "offline" else "failed", e.moved, e.nip05, e.triesLeft)
         } catch (e: IOException) {
             throw GuestJoinException("offline")
         }

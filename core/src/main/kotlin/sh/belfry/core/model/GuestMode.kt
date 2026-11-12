@@ -25,8 +25,17 @@ object GuestMode {
     /** The codes [message] knows (the web's JoinError). */
     val CODES = setOf("invalid", "name_needed", "too_many", "wrong_code", "expired", "taken", "not_guest", "offline", "failed")
 
-    /** Fixed words for each answer (never the server's text, never a URL's). */
-    fun message(code: String): String = when (code) {
+    /** Fixed words for each answer (never the server's text, never a URL's). TRIES_LEFT: with `wrong_code`, when the belfry said. */
+    fun message(code: String, triesLeft: Int? = null): String = when {
+        code == "wrong_code" && triesLeft != null -> when {
+            triesLeft <= 0 -> "That code is not right. Send a new one."
+            triesLeft == 1 -> "That code is not right. 1 try left."
+            else -> "That code is not right. $triesLeft tries left."
+        }
+        else -> fixed(code)
+    }
+
+    private fun fixed(code: String): String = when (code) {
         "invalid" -> "That doesn’t look like an e-mail address."
         "name_needed" -> "Your name is needed to join."
         "too_many" -> "Too many codes for now. Try again in half an hour."
@@ -58,9 +67,16 @@ object GuestMode {
         else -> "$n guests are reading: they opened an invite link and have not joined yet."
     }
 
-    /** "Sign in instead": the address to prefill in the native sign-in (only a `name@domain` of this belfry). */
-    fun signInPrefill(email: String, domain: String): String? {
-        val e = email.trim().lowercase()
+    /**
+     * "Sign in instead": the address to prefill in the native sign-in. The belfry's `nip05` (that
+     * account's name@domain) first, else the e-mail typed; either only when it is a `name@domain`
+     * of this belfry. Null: leave the field empty (with the hint).
+     */
+    fun signInPrefill(email: String, domain: String, nip05: String? = null): String? =
+        nip05?.let { address(it, domain) } ?: address(email, domain)
+
+    private fun address(raw: String, domain: String): String? {
+        val e = raw.trim().lowercase()
         val at = e.indexOf('@')
         if (at <= 0 || at != e.lastIndexOf('@')) return null
         return if (e.substring(at + 1) == domain.lowercase() && Regex("^[a-z0-9][a-z0-9._-]{0,63}$").matches(e.substring(0, at))) e else null

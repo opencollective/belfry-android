@@ -170,18 +170,15 @@ same event.
 
 ## 14. Guest mode (Android, 2026-11-12; SPEC 19.26, collective-belfry docs/guests.md)
 
-Built against docs/guests.md as it stands; nothing new is needed to run it. Asks, none blocking:
+Built against docs/guests.md. Status of the asks:
 
-- **"Sign in instead" with an e-mail.** After `/guest/save/verify` answers 409 `taken`, the app
-  drops the guest account and opens the native sign-in (SPEC 19.20), which takes `name@domain`
-  only (`sessions.py` `request` reads a NIP-05). The address the person just proved is an
-  e-mail, often not on the belfry's domain, so the field is left empty with a hint (the browser
-  sign-in takes the e-mail). Either let `POST <api>/session` take `{"email"}` for an address that
-  has exactly one account here (same code mail), or put the account's `nip05` in the 409 body
-  (`{"error":"taken","moved":true,"nip05":"ana@belfry.sh"}`) so the app can prefill it. The
-  second is smaller; the app would read `nip05` only when it parses as `name@<this domain>`.
-- **`wrong_code` tries left.** The number is only in `message` (text the app never shows). A
-  `tries_left` field, as `/session/verify` has, would let the sheet say "2 tries left".
-- **A guest-mode key the relay would still store.** Read-only is enforced by the client only
-  (docs/guests.md says so). A relay-side refusal for keys whose latest 9000 carries `reading`
-  would make other clients (and a modified app) unable to post as a nameless guest.
+- **"Sign in instead" with an e-mail — DONE (collective-belfry d2b4c52).** 409 `taken` of
+  `/guest/save/verify` carries `nip05` (that account's name@domain) when the belfry can read it;
+  the app prefills the native sign-in with it (only when it is a `name@<this domain>`), else falls
+  back to the typed e-mail or an empty field with a hint.
+- **`wrong_code` tries left — DONE (d2b4c52).** 422 `wrong_code` carries an int `tries_left`; the
+  sheet says "That code is not right. N tries left.".
+- **A guest-mode key the relay would still store (open, not blocking).** Read-only is enforced by
+  the client only (docs/guests.md says so). A relay-side refusal for keys whose latest 9000
+  carries `reading` would make other clients (and a modified app) unable to post as a nameless
+  guest.

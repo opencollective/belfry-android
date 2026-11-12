@@ -1347,17 +1347,20 @@ of 19.4 for people who have no account on that belfry. Joining with an account (
   e-mail.") and "Use another address" (back to the fields).
 - **Errors** (never the server's text): `invalid` "That doesn’t look like an e-mail address.",
   `name_needed` "Your name is needed to join.", `too_many` "Too many codes for now. Try again in
-  half an hour.", `wrong_code` "That code is not right. Check the e-mail and try again." (boxes
-  emptied), `expired` "That code has expired. Send a new one.", `not_guest` "This guest access
+  half an hour.", `wrong_code` with `tries_left` (int, collective-belfry d2b4c52) "That code is
+  not right. N tries left." / "… 1 try left." / (0) "That code is not right. Send a new one.",
+  without it "That code is not right. Check the e-mail and try again." (boxes emptied), `expired` "That code has expired. Send a new one.", `not_guest` "This guest access
   has ended. Ask for a new invite.", no connection "No connection. Try again.", else "That did
-  not work. Try again.". 409 `taken` (body `{"error":"taken","moved":bool}`): a step titled
+  not work. Try again.". 409 `taken` (body `{"error":"taken","moved":bool,"nip05"?}`; `nip05` =
+  that account's name@domain when the belfry can read it, d2b4c52): a step titled
   "You have an account here": "<address> already has an account on <domain>." + (moved) "Sign
   in with it: # <channel> is waiting there." / (not moved) "Sign in with it instead." and
   **Sign in instead** (+ "Use another address" when not moved). Sign in instead: the guest
   account is dropped from the device (its session revoked unless `moved`, where the belfry closed
   it already), the native sign-in (19.20) starts, and once signed in the channel opens. The
-  native sign-in takes `name@domain`: the typed e-mail is put in the address field only when it
-  is such an address on this belfry's domain; otherwise the field is empty with the fixed hint
+  native sign-in takes `name@domain`: its address field gets the answer's `nip05` when that is a
+  `name@domain` of this belfry (lower-cased), else the typed e-mail when it is one; otherwise the
+  field is empty with the fixed hint
   "Sign in with your address here (name@<domain>), or with the browser using the e-mail you
   typed." (The web's browser sign-in takes the e-mail itself.)
 - **The save-your-account bar** of a guest who has a name but no e-mail (19.3: after their first

@@ -93,7 +93,7 @@ fun GuestBar(groupId: String, modifier: Modifier = Modifier) {
  * writes in guest mode. [onSignIn]: the address has an account here ("Sign in instead").
  */
 @Composable
-fun GuestJoinHost(onSignIn: suspend (email: String, channel: String, moved: Boolean) -> Unit) {
+fun GuestJoinHost(onSignIn: suspend (email: String, channel: String, moved: Boolean, nip05: String?) -> Unit) {
     val session = LocalSession.current
     val asked by session.joinAsked.collectAsState()
     val guest by session.guest.collectAsState()
@@ -113,7 +113,7 @@ private const val RESEND_SECONDS = 30
 fun JoinSheet(
     session: Session,
     onClose: () -> Unit,
-    onSignIn: (suspend (email: String, channel: String, moved: Boolean) -> Unit)? = null,
+    onSignIn: (suspend (email: String, channel: String, moved: Boolean, nip05: String?) -> Unit)? = null,
     saveOnly: Boolean = false,
     onSaved: (email: String) -> Unit = {},
 ) {
@@ -125,6 +125,7 @@ fun JoinSheet(
     var email by rememberSaveable { mutableStateOf("") }
     var sentTo by rememberSaveable { mutableStateOf("") } // what was typed, as it was when the code went out
     var moved by rememberSaveable { mutableStateOf(false) }
+    var nip05 by rememberSaveable { mutableStateOf<String?>(null) }
     val busy = rememberBusy()
     val title = when (step) {
         Step.CODE -> "Check your e-mail"
@@ -141,7 +142,7 @@ fun JoinSheet(
                     sentTo = email.trim()
                     step = Step.CODE
                 },
-                onTaken = { m -> sentTo = email.trim(); moved = m; step = Step.TAKEN },
+                onTaken = { m, n -> sentTo = email.trim(); moved = m; nip05 = n; step = Step.TAKEN },
             )
             Step.CODE -> CodeStep(
                 to = sentTo,
@@ -151,12 +152,12 @@ fun JoinSheet(
                     onSaved(sentTo)
                     onClose()
                 },
-                onTaken = { m -> moved = m; step = Step.TAKEN },
+                onTaken = { m, n -> moved = m; nip05 = n; step = Step.TAKEN },
                 onAnother = { step = Step.WHO },
             )
             Step.TAKEN -> TakenStep(
                 to = sentTo, domain = session.community.domain, label = label, moved = moved,
-                signIn = { onSignIn?.invoke(sentTo, channel, moved) },
+                signIn = { onSignIn?.invoke(sentTo, channel, moved, nip05) },
                 onAnother = { step = Step.WHO },
                 busy = busy,
             )
@@ -172,7 +173,7 @@ private fun WhoStep(
     email: String, onEmail: (String) -> Unit,
     domain: String,
     send: suspend () -> Unit,
-    onTaken: (moved: Boolean) -> Unit,
+    onTaken: (moved: Boolean, nip05: String?) -> Unit,
 ) {
     val c = Belfry.colors
     var error by remember { mutableStateOf<String?>(null) }
@@ -202,7 +203,7 @@ private fun WhoStep(
         enabled = (saveOnly || name.isNotBlank()) && GuestMode.isEmail(email),
         onError = { e ->
             val f = e as? GuestJoinException
-            if (f?.code == "taken") onTaken(f.moved) else error = e.shown()
+            if (f?.code == "taken") onTaken(f.moved, f.nip05) else error = e.shown()
         },
     )
     if (!saveOnly) {
@@ -216,7 +217,7 @@ private fun CodeStep(
     to: String,
     resend: suspend () -> Unit,
     verify: suspend (code: String) -> Unit,
-    onTaken: (moved: Boolean) -> Unit,
+    onTaken: (moved: Boolean, nip05: String?) -> Unit,
     onAnother: () -> Unit,
 ) {
     val c = Belfry.colors
@@ -252,7 +253,7 @@ private fun CodeStep(
                 if (d.length == 6) checking.run(onError = { e ->
                     digits = ""
                     val f = e as? GuestJoinException
-                    if (f?.code == "taken") onTaken(f.moved) else error = e.shown()
+                    if (f?.code == "taken") onTaken(f.moved, f.nip05) else error = e.shown()
                 }) { verify(d) }
             }
         },

@@ -400,13 +400,14 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     /**
      * Guest mode, Join: the address typed has an account here already ([moved]: the belfry gave
      * it the channel and closed this guest). The guest account goes from this device, the native
-     * sign-in starts (with the address when it is a `name@domain` of this belfry) and the channel
-     * opens once signed in.
+     * sign-in starts (with [nip05], the account's name@domain the belfry named, or else the
+     * address typed, when either is a `name@domain` of this belfry) and the channel opens once
+     * signed in.
      */
-    suspend fun signInInstead(email: String, channel: String, moved: Boolean) {
+    suspend fun signInInstead(email: String, channel: String, moved: Boolean, nip05: String? = null) {
         val s = _session.value ?: return
         val domain = s.community.domain
-        val address = sh.belfry.core.model.GuestMode.signInPrefill(email, domain)
+        val address = sh.belfry.core.model.GuestMode.signInPrefill(email, domain, nip05)
         prefill = SignInPrefill(address ?: "", if (address == null) "Sign in with your address here (name@$domain), or with the browser using the e-mail you typed." else null)
         if (channel.isNotEmpty()) _openAfter.value = domain to channel
         signOut(revoke = !moved)

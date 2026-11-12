@@ -128,5 +128,13 @@ class GuestModeTest {
         assertEquals("ana@belfry.sh", GuestMode.signInPrefill(" Ana@Belfry.sh ", "belfry.sh"))
         assertNull(GuestMode.signInPrefill("ana@gmail.com", "belfry.sh"))
         assertNull(GuestMode.signInPrefill("a@b@belfry.sh", "belfry.sh"))
+        // the belfry's nip05 for the account wins; another domain's or a malformed one is ignored
+        assertEquals("ana.lima@belfry.sh", GuestMode.signInPrefill("ana@gmail.com", "belfry.sh", "Ana.Lima@belfry.sh"))
+        assertNull(GuestMode.signInPrefill("ana@gmail.com", "belfry.sh", "ana@evil.example"))
+        assertEquals("ana@belfry.sh", GuestMode.signInPrefill("ana@belfry.sh", "belfry.sh", "<b>x</b>"))
+        assertEquals("That code is not right. 3 tries left.", GuestMode.message("wrong_code", 3))
+        assertEquals("That code is not right. 1 try left.", GuestMode.message("wrong_code", 1))
+        assertEquals("That code is not right. Send a new one.", GuestMode.message("wrong_code", 0))
+        assertEquals(GuestMode.message("wrong_code"), GuestMode.message("wrong_code", null))
     }
 }

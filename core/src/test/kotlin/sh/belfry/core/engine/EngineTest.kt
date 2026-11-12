@@ -461,7 +461,7 @@ class EngineTest {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when (request.path) {
                 "/api/v1/guest/save" -> MockResponse().setResponseCode(202).setBody("""{"sent":true}""")
                 "/api/v1/guest/save/verify" ->
-                    if (request.body.clone().readUtf8().contains("\"code\":\"111111\"")) MockResponse().setResponseCode(422).setBody("""{"error":"wrong_code","message":"x"}""")
+                    if (request.body.clone().readUtf8().contains("\"code\":\"111111\"")) MockResponse().setResponseCode(422).setBody("""{"error":"wrong_code","message":"x","tries_left":4}""")
                     else MockResponse().setBody("""{"saved":true,"joined":true}""")
                 else -> MockResponse().setResponseCode(404).setBody("{}")
             }
@@ -476,7 +476,9 @@ class EngineTest {
         assertEquals(0, srv.requestCount)
         s.guestSave("ana@example.org", "  Ana   Lima ")
         assertEquals("""{"email":"ana@example.org","name":"Ana Lima"}""", srv.takeRequest().body.readUtf8())
-        assertEquals("wrong_code", assertFailsWith<GuestJoinException> { s.guestVerify("ana@example.org", "111111", "Ana Lima") }.code)
+        val wrong = assertFailsWith<GuestJoinException> { s.guestVerify("ana@example.org", "111111", "Ana Lima") }
+        assertEquals("wrong_code", wrong.code)
+        assertEquals("That code is not right. 4 tries left.", wrong.message)
         srv.takeRequest()
         assertTrue(s.reading)
         s.guestVerify("ana@example.org", "123456", "Ana Lima")

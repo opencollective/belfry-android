@@ -709,16 +709,24 @@ class SignInAndApiTest {
             }
             server.takeRequest()
         }
-        // the address has an account here: moved = the belfry gave it the channel
-        server.enqueue(json(409, """{"error":"taken","message":"x","moved":true}"""))
+        // a wrong code says how many tries are left (collective-belfry d2b4c52)
+        server.enqueue(json(422, """{"error":"wrong_code","message":"x","tries_left":2}"""))
+        try { api.guestVerify(guest, "ana@example.org", "000000", "Ana"); fail("must throw") } catch (e: ApiException) {
+            assertEquals("wrong_code", e.code)
+            assertEquals(2, e.triesLeft)
+        }
+        server.takeRequest()
+        // the address has an account here: moved = the belfry gave it the channel; nip05 = which account
+        server.enqueue(json(409, """{"error":"taken","message":"x","moved":true,"nip05":"ana@belfry.sh"}"""))
         try { api.guestVerify(guest, "ana@example.org", "123456", "Ana"); fail("must throw") } catch (e: ApiException) {
             assertEquals("taken", e.code)
             assertTrue(e.moved)
+            assertEquals("ana@belfry.sh", e.nip05)
             assertEquals("This address already has an account here.", e.message)
         }
         server.takeRequest()
         server.enqueue(json(409, """{"error":"taken","moved":false}"""))
-        try { api.guestVerify(guest, "ana@example.org", "123456"); fail("must throw") } catch (e: ApiException) { assertFalse(e.moved) }
+        try { api.guestVerify(guest, "ana@example.org", "123456"); fail("must throw") } catch (e: ApiException) { assertFalse(e.moved); assertEquals(null, e.nip05) }
         server.takeRequest()
         Unit
     }
