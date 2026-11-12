@@ -78,6 +78,15 @@ import sh.belfry.core.model.lineWhen
 import sh.belfry.core.model.needsMyVote
 import sh.belfry.core.model.peopleLine
 import sh.belfry.core.model.todoWho
+import sh.belfry.core.model.latestTasks
+import sh.belfry.app.ui.info.AboutBody
+import sh.belfry.app.ui.info.ChannelSettingsSheet
+import sh.belfry.app.ui.info.InfoTab
+import sh.belfry.app.ui.kit.BelfryTextField
+import sh.belfry.app.ui.kit.BusyButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 /**
  * Under a channel's name there is exactly one line: the most useful thing about the channel
@@ -90,7 +99,7 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
     val world = LocalWorld.current
     val nav = LocalNav.current
     val line = world.channelLine(groupId, now, chat.topic, chat.hiddenPins)
-    val toggle = { chat.lineOpen = !chat.lineOpen }
+    val toggle = { chat.toggleLine() }
     Row(
         modifier
             .fillMaxWidth()
@@ -98,7 +107,7 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
             .pointerInput(groupId) {
                 var moved = 0f
                 detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = {
-                    if (moved > 24f) chat.lineOpen = true else if (moved < -24f) chat.lineOpen = false
+                    if (moved > 24f) chat.pullLine() else if (moved < -24f) chat.pushLine()
                 }) { _, dy -> moved += dy }
             }
             .clickable(role = Role.Button, onClickLabel = if (chat.lineOpen) "Close the channel summary" else "Open the channel summary", onClick = toggle)
@@ -125,7 +134,7 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
                 when (act) {
                     LineAction.ShowAll -> { chat.topic = null }
                     LineAction.Open -> nav.go(Routes.proposal(groupId))
-                    LineAction.Review -> nav.go(Routes.channelInfo(groupId))
+                    LineAction.Review -> nav.go(Routes.channelInfo(groupId, InfoTab.KEY_MEMBERS))
                     is LineAction.OpenProposal -> nav.go(Routes.proposal(act.groupId))
                     is LineAction.OpenEvent -> nav.go(Routes.event(act.coord))
                 }
@@ -176,21 +185,25 @@ fun LinePill(text: String, ask: Boolean, onClick: (() -> Unit)? = null) {
 }
 
 /**
- * The line pulled down: everything it summarises, in the same order (Pinned, Coming up, To
- * decide, To do, Pods, Topics, people). Scrolls on its own; never sideways.
+ * The line pulled down: everything it summarises, in the web's order (the description, Pinned,
+ * Coming up, To decide, To do, Pods, photos, members, topics). Scrolls on its own; never sideways.
+ * [full]: pulled all the way (the web's second level): the same summary showing more (the latest
+ * 20 todos with the done ones and a field to add one, a mosaic of photos, bigger faces with
+ * names), then the rest about the channel (its whole description, e-mail, invite, settings).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String) -> Unit, modifier: Modifier = Modifier) {
+fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String) -> Unit, modifier: Modifier = Modifier, full: Boolean = false) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current
     val f = world.channelFacts(groupId, now)
     val g = f.group ?: return
-    val close = { chat.lineOpen = false }
+    val close = { chat.closeLine() }
     val go: (String) -> Unit = { close(); nav.go(it) }
+    var settings by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth().background(c.bg).verticalScroll(rememberScrollState()).padding(bottom = 4.dp).testTag("pull-down")) {
-        // the description first (web 2026-11-12): its first line, plain
+        // the description first (web 2026-11-12): its first line, plain; the same at both levels
         val about = g.about.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().replace(Regex("[*_`#>]"), "").take(200)
         if (about.isNotEmpty()) {
             Text(about, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp).testTag("pull-about"))
@@ -212,7 +225,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
         if (g.isPod && world.canAdmin(g) && g.applications.isNotEmpty()) {
             PullTitle("Asking to join", g.applications.size)
             PullRow(
-                onClick = { go(Routes.channelInfo(groupId)) },
+                onClick = { go(Routes.channelInfo(groupId, InfoTab.KEY_MEMBERS)) },
                 title = g.applications.take(3).joinToString(", ") { world.displayName(it.pubkey) } + if (g.applications.size > 3) "…" else "",
             ) { LinePill("Review", true) }
         }
@@ -254,11 +267,21 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
                 }
             }
         }
-        if (f.todos.isNotEmpty()) {
+        if (f.todosAll > 0) {
             PullTitle("To do", f.todosDone, of = f.todosAll)
-            // a to-do opens its thread (the message it was made from), like the web
-            for (t in f.todos.take(4)) TodoRow(groupId, t, onOpen = { go(t.source?.let { Routes.thread(groupId, it) } ?: Routes.channelInfo(groupId)) })
-            if (f.todos.size > 4) LinkText("All todos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.channelInfo(groupId)) }
+            // a to-do opens its thread (the message it was made from), like the web; pulled all the
+            // way: the latest 20, the done ones after the open ones
+            val shown = if (full) latestTasks(f.allTasks) else f.todos.take(4)
+            for (t in shown) {
+                TodoRow(groupId, t, onOpen = {
+                    val source = t.source
+                    if (source != null) go(Routes.thread(groupId, source)) else if (!full) chat.fullLine()
+                })
+            }
+            if (!full && f.todosAll > minOf(4, f.todos.size)) {
+                LinkText(if (f.todos.isNotEmpty()) "All todos" else "Nothing left to do · show the done ones", Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("pull-all-todos")) { chat.fullLine() }
+            }
+            if (full) NewTodoRow(groupId)
         }
         if (f.pods.isNotEmpty()) {
             PullTitle("Pods")
@@ -273,6 +296,16 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
                     Text(p.members.size.toString(), fontSize = 12.sp, color = c.muted)
                 }
             }
+        }
+        if (f.photos.isNotEmpty()) PhotosRow(f.photos, chat, full) { go(Routes.files(groupId)) }
+        PullTitle("Members", f.members.size)
+        FacesRow(f.members, full) { go(Routes.profile(it)) }
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            LinkText("All members") { go(Routes.channelInfo(groupId, InfoTab.KEY_MEMBERS)) }
+            if (f.files > 0) LinkText("${f.files} ${if (f.files == 1) "file" else "files"}") { go(Routes.files(groupId)) }
+            if (f.todosAll > 0) LinkText("Todos") { go(Routes.channelInfo(groupId, InfoTab.KEY_TODOS)) }
+            LinkText("Log") { go(Routes.channelInfo(groupId, InfoTab.KEY_LOG)) }
+            if (!full) LinkText("More", Modifier.testTag("pull-more")) { chat.fullLine() }
         }
         val topics = world.topicsBar(groupId, chat.topic)
         val announcements = world.hasAnnouncements(groupId)
@@ -289,55 +322,104 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
                 for (t in topics) Chip("#$t", selected = chat.topic == t, onClick = { chat.topic = if (chat.topic == t) null else t; close() })
             }
         }
-        if (f.photos.isNotEmpty()) PhotosRow(f.photos, chat) { go(Routes.files(groupId)) }
-        PullTitle("Members", f.members.size)
-        FacesRow(f.members) { go(Routes.profile(it)) }
-        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LinkText("All members") { go(Routes.channelInfo(groupId)) }
-            if (f.files > 0) LinkText("${f.files} ${if (f.files == 1) "file" else "files"}") { go(Routes.files(groupId)) }
-            if (f.todosAll > 0) LinkText("Todos") { go(Routes.channelInfo(groupId)) }
-            LinkText("More") { go(Routes.channelInfo(groupId)) }
+        if (full) {
+            // the rest: the whole description, invite, settings, the e-mail line, its page, its id
+            Hairline(Modifier.padding(top = 12.dp))
+            Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp).testTag("pull-about-more")) {
+                AboutBody(g, compact = true, onSettings = { settings = true }, onLeave = close)
+            }
         }
         Spacer(Modifier.height(6.dp))
     }
+    if (settings) ChannelSettingsSheet(g) { settings = false }
 }
 
-/** The latest photos on one row (a tap opens the viewer, which swipes through them), then the channel's files. */
+/** "Add a todo…" under the list pulled all the way. */
 @Composable
-private fun PhotosRow(photos: List<Media>, chat: ChatState, onAll: () -> Unit) {
-    val c = Belfry.colors
+private fun NewTodoRow(groupId: String) {
     val session = LocalSession.current
-    val network = LocalNetworkImages.current
-    val shown = photos.take(6)
-    val urls = photos.take(24).map { it.url }.filter { it.startsWith("https://") && !it.startsWith(Session.LOCAL_BLOB) }
-    PullTitle("Photos", photos.size)
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("pull-photos"), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        for (m in shown) {
-            Box(
-                Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(c.surface2)
-                    .clickable(role = Role.Image, onClickLabel = "Open the photo") {
-                        if (m.url.startsWith(Session.LOCAL_BLOB)) onAll()
-                        else chat.viewer = ViewerImage(m.url, null, m.name, urls, urls.indexOf(m.url).coerceAtLeast(0))
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (network && m.url.startsWith("https://") && !m.url.startsWith(Session.LOCAL_BLOB)) {
-                    AsyncImage(model = m.url, contentDescription = m.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-                } else {
-                    Icon(BelfryIcons.Image, contentDescription = m.name ?: "Photo", tint = c.faint, modifier = Modifier.size(18.dp))
+    var title by remember { mutableStateOf("") }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
+        BelfryTextField(title, { title = it.take(300) }, Modifier.weight(1f).testTag("pull-todo-field"), placeholder = "Add a todo…")
+        Spacer(Modifier.width(8.dp))
+        BusyButton(
+            "Add",
+            onClick = {
+                val t = title.trim()
+                if (t.isNotEmpty()) {
+                    session.send(Actions.addTask(groupId, t))
+                    title = ""
                 }
+            },
+            small = true, enabled = title.isNotBlank(), modifier = Modifier.testTag("pull-todo-add"),
+        )
+    }
+}
+
+/**
+ * The latest photos (a tap opens the viewer, which swipes through them): one row of six, or
+ * pulled all the way a mosaic of twelve.
+ */
+@Composable
+private fun PhotosRow(photos: List<Media>, chat: ChatState, full: Boolean, onAll: () -> Unit) {
+    val c = Belfry.colors
+    val network = LocalNetworkImages.current
+    val shown = photos.take(if (full) 12 else 6)
+    val urls = photos.take(24).map { it.url }.filter { it.startsWith("https://") && !it.startsWith(Session.LOCAL_BLOB) }
+    PullTitle("Latest photos", photos.size)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("pull-photos"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (line in shown.chunked(if (full) 4 else 6)) {
+            val per = if (full) 4 else 6
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (m in line) {
+                    Box(
+                        Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(c.surface2)
+                            .clickable(role = Role.Image, onClickLabel = "Open the photo") {
+                                if (m.url.startsWith(Session.LOCAL_BLOB)) onAll()
+                                else chat.viewer = ViewerImage(m.url, null, m.name, urls, urls.indexOf(m.url).coerceAtLeast(0))
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (network && m.url.startsWith("https://") && !m.url.startsWith(Session.LOCAL_BLOB)) {
+                            AsyncImage(model = m.url, contentDescription = m.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        } else {
+                            Icon(BelfryIcons.Image, contentDescription = m.name ?: "Photo", tint = c.faint, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+                repeat(per - line.size) { Spacer(Modifier.weight(1f)) }
             }
         }
-        repeat(6 - shown.size) { Spacer(Modifier.weight(1f)) }
     }
     if (photos.size > shown.size) LinkText("All ${photos.size} photos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), onAll)
 }
 
-/** Members as a row of faces (a tap opens the profile), "+N" for the rest. */
+/**
+ * Members as faces (a tap opens the profile): a row of eight with "+N", or pulled all the way up
+ * to 24 bigger ones with their names.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun FacesRow(members: List<String>, onProfile: (String) -> Unit) {
+private fun FacesRow(members: List<String>, full: Boolean, onProfile: (String) -> Unit) {
     val c = Belfry.colors
     val world = LocalWorld.current
+    if (full) {
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("pull-faces"),
+            horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (p in members.take(24)) {
+                Column(
+                    Modifier.width(64.dp).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { onProfile(p) }.padding(vertical = 2.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Avatar(world.face(p), size = 44.dp)
+                    Text(world.displayName(p), fontSize = 11.sp, lineHeight = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+        return
+    }
     val shown = members.take(8)
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("pull-faces"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         for (p in shown) {
@@ -380,7 +462,7 @@ private fun LinkText(text: String, modifier: Modifier = Modifier, onClick: () ->
     )
 }
 
-/** A to-do with the box that ticks it off (locks while it is being sent). */
+/** A to-do with the box that ticks it off, or opens it again when it is done (locks while it is being sent). */
 @Composable
 private fun TodoRow(groupId: String, t: Task, onOpen: () -> Unit) {
     val c = Belfry.colors
@@ -390,18 +472,20 @@ private fun TodoRow(groupId: String, t: Task, onOpen: () -> Unit) {
     val now by rememberNow()
     Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
-            Modifier.size(44.dp).clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = "Mark \"${t.title}\" as done") {
-                busy.run { session.send(Actions.taskAction(groupId, t.id, "done")) }
+            Modifier.size(44.dp).clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = if (t.done) "Reopen \"${t.title}\"" else "Mark \"${t.title}\" as done") {
+                busy.run { session.send(Actions.taskAction(groupId, t.id, if (t.done) "undone" else "done")) }
             }.testTag("pull-todo-" + t.id),
             contentAlignment = Alignment.Center,
         ) {
+            val box = RoundedCornerShape(6.dp)
             if (busy.busy) Spinner(size = 16.dp, color = c.muted)
+            else if (t.done) Box(Modifier.size(20.dp).clip(box).background(c.accent), contentAlignment = Alignment.Center) { Icon(BelfryIcons.Check, null, tint = c.onAccent, modifier = Modifier.size(14.dp)) }
             else if (t.isWorking(now)) WorkRing(t.since ?: now, now, size = 22.dp)
-            else Box(Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).border(1.5.dp, if (t.assignee != null) c.text else c.faint, RoundedCornerShape(6.dp)))
+            else Box(Modifier.size(20.dp).clip(box).border(1.5.dp, if (t.assignee != null) c.text else c.faint, box))
         }
         Column(Modifier.weight(1f).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp)) {
-            Text(t.title, fontSize = 14.sp, color = if (t.pending) c.muted else c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(world.todoWho(t, now), fontSize = 12.sp, color = c.muted)
+            Text(t.title, fontSize = 14.sp, color = if (t.pending || t.done) c.muted else c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text((if (t.done) "Done" else world.todoWho(t, now)) + (if (t.source != null) " · thread" else ""), fontSize = 12.sp, color = c.muted)
         }
     }
 }

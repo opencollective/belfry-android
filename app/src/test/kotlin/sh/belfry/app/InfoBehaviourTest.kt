@@ -17,6 +17,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import sh.belfry.app.ui.info.InviteScreen
+import sh.belfry.app.ui.info.LogTab
+import sh.belfry.app.ui.chat.ChannelScreen
+import sh.belfry.app.ui.chat.ChatState
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import sh.belfry.core.model.channelLog
 import sh.belfry.app.ui.info.SearchScreen
 import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.Nav
@@ -156,5 +163,50 @@ class InfoBehaviourTest : DemoShots() {
         compose.waitForIdle()
         assertEquals(hits.first().groupId, seen.channel)
         assertEquals(hits.first().m.id, seen.message)
+    }
+
+    /** The Log: a line unfolds, "Go there" leads to the message; the event itself only in developer mode, for admins. */
+    @Test
+    fun aLogLineUnfoldsAndLeadsThere() {
+        val g = world.group(Demo.GARDEN)!!
+        // the first line that leads somewhere (a message, a thread, the todos, the members)
+        val at = world.channelLog(g.id).indexOfFirst { it.go != null }
+        assertTrue("the demo's garden log has no line to follow near its top: $at", at in 0..6)
+        var tab = -1
+        compose.setContent { BelfryTheme { InDemo { LogTab(g, onTab = { tab = it }) } } }
+        compose.onAllNodesWithTag("log-row")[at].performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("log-go").fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("no developer mode: no raw events", compose.onAllNodesWithTag("log-inspect").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("log-go").performClick()
+        compose.waitUntil(5_000) { nav.went.isNotEmpty() || tab >= 0 }
+    }
+
+    @Test
+    fun developerModeShowsTheNostrEventToAdmins() {
+        val g = world.group(Demo.POD_CLOSED)!!
+        compose.setContent { BelfryTheme { InDemo { LogTab(g, devMode = true) } } }
+        compose.onAllNodesWithTag("log-row").onFirst().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("log-inspect").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("log-inspect").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("log-raw").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** The pull-down's second level: "More" pulls it all the way, where a todo can be added. */
+    @Test
+    fun thePullDownGoesAllTheWay() {
+        started()
+        val chat = ChatState(Demo.GARDEN).apply { lineOpen = true }
+        compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.GARDEN, chat = chat) } } }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("pull-open").fetchSemanticsNodes().isNotEmpty() }
+        assertTrue(compose.onAllNodesWithTag("pull-todo-field").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("pull-handle").performClick()
+        compose.waitUntil(5_000) { chat.lineFull && compose.onAllNodesWithTag("pull-todo-field").fetchSemanticsNodes().isNotEmpty() }
+        val before = world.tasks(Demo.GARDEN).size
+        compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("pull-todo-field"))).performScrollTo().performTextInput("Oil the shears")
+        compose.onNodeWithTag("pull-todo-add").performScrollTo().performClick()
+        compose.waitUntil(10_000) { world.tasks(Demo.GARDEN).size == before + 1 }
+        // the handle once more closes it
+        compose.onNodeWithTag("pull-handle").performClick()
+        compose.waitUntil(5_000) { !chat.lineOpen && !chat.lineFull }
     }
 }

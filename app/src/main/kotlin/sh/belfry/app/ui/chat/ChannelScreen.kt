@@ -176,7 +176,7 @@ fun ChannelScreen(
     LaunchedEffect(chat.hiddenPins) {
         if (chat.hiddenPins.isNotEmpty()) withContext(Dispatchers.IO) { session.store.set(K_HIDDEN_PINS, chat.hiddenPins.toList().takeLast(200).joinToString(",")) }
     }
-    BackHandler(enabled = chat.lineOpen) { chat.lineOpen = false }
+    BackHandler(enabled = chat.lineOpen) { chat.pushLine() }
 
     val pinnedIds = remember(world, groupId) { world.pinned(groupId).map { it.id }.toSet() }
     val todos = remember(world, groupId) { world.todosBySource(groupId) }
@@ -195,7 +195,7 @@ fun ChannelScreen(
     Column(modifier.fillMaxSize().background(c.bg).imePadding()) {
         TopBar(
             title = (if (world.isPublicChannel(g)) "🌐 " else "") + (g?.name ?: groupId),
-            onTitleClick = { chat.lineOpen = !chat.lineOpen },
+            onTitleClick = { chat.toggleLine() },
             navigation = if (onMenu != null) {
                 { IconAction(BelfryIcons.Menu, "Channels", onMenu, badge = dms.unreadTotal) }
             } else null,
@@ -232,24 +232,30 @@ fun ChannelScreen(
                     }
                 }
             }
-            // The summary line pulled down: over the feed, under the top bar.
+            // The summary line pulled down: over the feed, under the top bar. Two levels, like the
+            // web's header: open (as tall as what it shows), and all the way (the whole feed's room:
+            // every to-do, more photos and faces, then the channel's e-mail, invite and settings).
             androidx.compose.animation.AnimatedVisibility(visible = chat.lineOpen, enter = fadeIn(), exit = fadeOut()) {
                 Box(
                     Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Close the channel summary") { chat.lineOpen = false },
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Close the channel summary") { chat.closeLine() },
                 )
             }
             androidx.compose.animation.AnimatedVisibility(visible = chat.lineOpen && g != null, enter = expandVertically(), exit = shrinkVertically()) {
-                Column(Modifier.fillMaxWidth().background(c.bg)) {
-                    PullDown(groupId, chat, now, onShowMessage = { chat.focus = it }, modifier = Modifier.weight(1f, fill = false))
-                    // the handle: tap or drag up to close
+                Column((if (chat.lineFull) Modifier.fillMaxSize() else Modifier.fillMaxWidth()).background(c.bg).testTag(if (chat.lineFull) "pull-full" else "pull-open")) {
+                    PullDown(groupId, chat, now, onShowMessage = { chat.focus = it }, modifier = Modifier.weight(1f, fill = chat.lineFull), full = chat.lineFull)
+                    // the handle: a tap goes one level on (then closes), a drag down or up moves a level
                     Box(
                         Modifier.fillMaxWidth().height(22.dp)
                             .pointerInput(Unit) {
                                 var moved = 0f
-                                detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = { if (moved < -16f) chat.lineOpen = false }) { _, dy -> moved += dy }
+                                detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = { if (moved < -16f) chat.pushLine() else if (moved > 16f) chat.pullLine() }) { _, dy -> moved += dy }
                             }
-                            .clickable(role = Role.Button, onClickLabel = "Close the channel summary") { chat.lineOpen = false },
+                            .clickable(
+                                role = Role.Button,
+                                onClickLabel = if (chat.lineFull) "Close the channel details" else "Show everything about the channel",
+                            ) { chat.cycleLine() }
+                            .testTag("pull-handle"),
                         contentAlignment = Alignment.Center,
                     ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
                     Hairline()

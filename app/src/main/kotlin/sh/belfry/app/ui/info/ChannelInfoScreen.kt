@@ -4,50 +4,68 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import sh.belfry.app.ui.signin.openInBrowser
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.foundation.text.KeyboardOptions
-import sh.belfry.core.model.World
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import sh.belfry.app.ui.chat.ChatFormat
 import sh.belfry.app.ui.chat.face
-import sh.belfry.app.ui.chat.glyph
 import sh.belfry.app.ui.kit.*
 import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
+import sh.belfry.app.ui.signin.openInBrowser
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Group
 import sh.belfry.core.model.PodAccess
+import sh.belfry.core.model.World
 
-/** The tabs of a channel's page, in order. */
+/** The tabs of a channel's page, in the web's order (c6579a0). */
 object InfoTab {
     const val ABOUT = 0
-    const val TODOS = 1
-    const val MEMBERS = 2
+    const val MEMBERS = 1
+    const val TODOS = 2
     const val FILES = 3
-    val LABELS = listOf("About", "Todos", "Members", "Files")
+    const val LOG = 4
+    val LABELS = listOf("About", "Members", "Todos", "Files", "Log")
+
+    /** The names a link uses (`Routes.channelInfo(id, "todos")`; the web's `c/<id>/todos`…). */
+    const val KEY_MEMBERS = "members"
+    const val KEY_TODOS = "todos"
+    const val KEY_FILES = "files"
+    const val KEY_LOG = "log"
+    fun of(key: String?): Int = when (key) {
+        KEY_MEMBERS -> MEMBERS
+        KEY_TODOS, "tasks" -> TODOS
+        KEY_FILES, "photos", "images" -> FILES
+        KEY_LOG -> LOG
+        else -> ABOUT
+    }
 }
 
 /**
- * Everything about a channel: About (description, who is active, e-mail, events, pods, the
- * actions), To-dos, Members, Files. The web shows this as the pulled-down channel header; here it
- * is a page behind the channel's title.
+ * Everything about a channel (web ChannelInfo.tsx, c6579a0): About (no boxes: the description,
+ * who is active, the e-mail line, its page on the web), Members, Todos, Files and a Log of
+ * everything that happened in it. Its admins get a gear in the top bar for the settings.
  */
 @Composable
 fun ChannelInfoScreen(id: String, initialTab: Int = InfoTab.ABOUT, settingsOpen: Boolean = false) {
@@ -56,38 +74,81 @@ fun ChannelInfoScreen(id: String, initialTab: Int = InfoTab.ABOUT, settingsOpen:
     val nav = LocalNav.current
     val g = world.group(id)
     var tab by rememberSaveable { mutableIntStateOf(initialTab) }
+    var settings by remember { mutableStateOf(settingsOpen) }
     Column(Modifier.fillMaxSize().background(Belfry.colors.bg)) {
         TopBar(
             channelLabel(g, id),
             subtitle = world.activeLine(id, session.now()),
             navigation = { BackButton { nav.back() } },
-            actions = { IconAction(BelfryIcons.Search, "Search this channel", { nav.go(Routes.search(id)) }) },
+            actions = {
+                if (g != null && world.canAdmin(g)) {
+                    IconAction(BelfryIcons.Settings, if (g.isPod) "Pod settings" else "Channel settings", { settings = true }, modifier = Modifier.testTag("info-settings"))
+                }
+            },
         )
         Tabs(InfoTab.LABELS, tab, { tab = it })
         if (g == null) {
             EmptyState("This channel is not here", text = "It may have been removed.", icon = BelfryIcons.Hash)
+        } else if (tab == InfoTab.LOG) {
+            // its own lazy list: a channel's log can be a thousand lines
+            LogTab(g, Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), onTab = { tab = it })
         } else {
             Column(
                 Modifier.weight(1f).fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
             ) {
                 when (tab) {
                     InfoTab.TODOS -> TasksTab(id)
-                    InfoTab.MEMBERS -> MembersTab(g)
+                    InfoTab.MEMBERS -> { MembersSummary(g); MembersTab(g) }
                     InfoTab.FILES -> FilesTab(id)
-                    else -> AboutTab(g, onMembers = { tab = InfoTab.MEMBERS }, settingsOpen = settingsOpen)
+                    else -> AboutBody(g, onMembers = { tab = InfoTab.MEMBERS }, onSettings = { settings = true })
                 }
             }
         }
     }
+    if (settings && g != null) ChannelSettingsSheet(g) { settings = false }
 }
 
-private fun ago(at: Long, now: Long): String {
-    val d = (now - at) / 86400
-    return if (d < 1) "today" else if (d == 1L) "yesterday" else "$d days ago"
+/** The top of the Members tab: their faces and how many they are. */
+@Composable
+private fun MembersSummary(g: Group) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val nav = LocalNav.current
+    val all = g.members.toList()
+    val n = 9
+    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (p in all.take(n)) {
+            Avatar(world.face(p), Modifier.clip(CircleShape).clickable(role = Role.Button, onClickLabel = world.displayName(p)) { nav.go(Routes.profile(p)) }, size = 28.dp)
+        }
+        if (all.size > n) Text("+${all.size - n}", fontSize = 13.sp, color = c.muted)
+        Spacer(Modifier.width(4.dp))
+        Text("${all.size} ${if (all.size == 1) "member" else "members"}", fontSize = 13.sp, color = c.muted, maxLines = 1)
+    }
 }
+
+/** A word that is a link, in a line of text. */
+@Composable
+private fun LinkWord(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Text(
+        text, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Belfry.colors.text,
+        modifier = modifier.clip(RoundedCornerShape4).clickable(role = Role.Button, onClick = onClick).padding(vertical = 4.dp),
+    )
+}
+
+private val RoundedCornerShape4 = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
 
 @Composable
-private fun AboutTab(g: Group, onMembers: () -> Unit, settingsOpen: Boolean) {
+private fun Dot() = Text("·", fontSize = 15.sp, color = Belfry.colors.muted, modifier = Modifier.padding(vertical = 4.dp))
+
+/**
+ * About a channel, without boxes (web 2026-11-12): its description, "2/12 active members" with
+ * Invite, what a pod is in and how one joins, the e-mail line, its page on the web, its id.
+ * [compact]: under the channel's pull-down pulled all the way, which shows the description's
+ * first line, the members and the photos itself.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, onSettings: () -> Unit = {}, onLeave: () -> Unit = {}) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -97,163 +158,119 @@ private fun AboutTab(g: Group, onMembers: () -> Unit, settingsOpen: Boolean) {
     val active = remember(world, g.id) { world.recentlyActive(g.id, now) }
     val admin = world.canAdmin(g)
     val member = world.me in g.members
-    var settings by remember { mutableStateOf(settingsOpen) }
     var leaving by remember { mutableStateOf(false) }
     var applying by remember { mutableStateOf(false) }
+    val gap = Modifier.padding(bottom = 12.dp)
 
-    if (g.about.isNotBlank()) {
-        MarkdownText(g.about, rich = false)
-    } else {
-        Text("No description yet.", fontSize = 15.sp, color = c.muted)
+    if (!compact) {
+        if (g.about.isNotBlank()) MarkdownText(g.about, gap, rich = false)
+        else Text("No description yet.", fontSize = 15.sp, color = c.muted, modifier = gap)
+    } else if (g.about.trim().contains('\n')) {
+        // the pull-down shows its first line: here is the whole text
+        MarkdownText(g.about, gap, rich = false)
     }
 
-    if (active.isNotEmpty()) {
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth().clickable(onClick = onMembers), verticalAlignment = Alignment.CenterVertically) {
-            AvatarStack(active.take(6).map { world.face(it.pubkey) }, size = 26.dp, max = 6)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                (if (active.size > 6) "+${active.size - 6} · " else "") + "${active.size} active this month",
-                fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-
-    Spacer(Modifier.height(16.dp))
-    ActionGroup {
-        ActionRow("Invite people", { nav.go(Routes.invite(g.id)) }, icon = BelfryIcons.Users, chevron = true, modifier = Modifier.testTag("info-invite"))
-        ActionRow("Announcements by e-mail", { nav.go(Routes.follow(g.id)) }, icon = BelfryIcons.Bell, chevron = true)
-        ActionRow("Topics", { nav.go(Routes.topics(g.id)) }, icon = BelfryIcons.Pin, chevron = true)
-        ActionRow("Search", { nav.go(Routes.search(g.id)) }, icon = BelfryIcons.Search, chevron = true)
-        if (admin) {
-            ActionRow(
-                if (g.isPod) "Pod settings" else "Channel settings", { settings = true },
-                icon = BelfryIcons.Settings, chevron = true, modifier = Modifier.testTag("info-settings"),
-            )
+    FlowRow(gap.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!compact) {
+            Row(
+                Modifier.clip(RoundedCornerShape4).clickable(role = Role.Button, onClickLabel = "See the members", onClick = onMembers).testTag("about-members"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (active.isNotEmpty()) {
+                    AvatarStack(active.take(6).map { world.face(it.pubkey) }, size = 24.dp, max = 6)
+                    Spacer(Modifier.width(2.dp))
+                }
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("${active.size}/${g.members.size}") }
+                        append(" active members")
+                    },
+                    fontSize = 15.sp, color = c.text, maxLines = 1, modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+            Dot()
+            LinkWord("Invite", Modifier.testTag("info-invite")) { nav.go(Routes.invite(g.id)) }
+        } else {
+            LinkWord("Invite people", Modifier.testTag("info-invite")) { nav.go(Routes.invite(g.id)) }
+            if (admin) {
+                Dot()
+                LinkWord("Settings", onClick = onSettings)
+            }
         }
     }
 
     if (g.isPod) {
-        val parent = world.group(g.parent ?: "general")
-        Spacer(Modifier.height(12.dp))
-        ActionGroup {
-            ActionRow(
-                "Pod in " + channelLabel(parent, g.parent ?: "general"), { nav.openChannel(g.parent ?: "general") },
-                icon = BelfryIcons.Pod, chevron = true,
-                sub = (if (g.closed) "Closed: apply, admins admit" else "Open: any member joins") +
-                    (if (g.closed) "\nQuestion: " + (g.prompt?.ifBlank { null } ?: "—") else ""),
-            )
-            if (member) {
-                ActionRow("Leave pod", { leaving = true }, icon = BelfryIcons.Logout, danger = true)
-            } else if (!g.closed) {
-                BusyRow("Join pod", { session.send(Actions.join(g.id)) }, icon = BelfryIcons.Plus)
-            } else if (g.applications.any { it.pubkey == world.me }) {
-                ActionRow("You asked to join", null, icon = BelfryIcons.Clock, sub = "Its admins will answer.", enabled = false)
-            } else {
-                ActionRow("Ask to join", { applying = true }, icon = BelfryIcons.Plus, chevron = true)
+        val parent = g.parent?.let { world.group(it) }
+        if (!compact && parent != null) {
+            FlowRow(gap.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Pod in", fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
+                LinkWord(channelLabel(parent, parent.id)) { nav.openChannel(parent.id) }
+                Dot()
+                Text(if (g.closed) "closed: apply, admins admit" else "open: any member joins", fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
+            }
+        }
+        if (!compact && g.closed) Text("Question: " + (g.prompt?.ifBlank { null } ?: "—"), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = gap)
+        Row(gap) {
+            when {
+                member -> BusyButton("Leave pod", onClick = { leaving = true }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("about-leave"))
+                !g.closed -> BusyButton("Join pod", onClick = { session.send(Actions.join(g.id)) }, small = true)
+                g.applications.any { it.pubkey == world.me } -> Text("You asked to join: its admins will answer.", fontSize = 15.sp, color = c.muted)
+                else -> BusyButton("Ask to join", onClick = { applying = true }, small = true)
             }
         }
     }
 
-    val upcoming = remember(world, g.id) { world.upcoming(g.id, now) }
-    if (upcoming.isNotEmpty()) {
-        SectionTitle("Next events")
-        ActionGroup {
-            upcoming.take(3).forEach { e ->
-                ActionRow(
-                    e.title, { nav.go(Routes.event(e.coord)) }, icon = BelfryIcons.Calendar, chevron = true,
-                    sub = ChatFormat.short(world, e.start, now) + (if (e.going > 0) " · ${e.going} going" else ""),
-                )
-            }
-            if (upcoming.size > 3) ActionRow("All events", { nav.go(Routes.events(g.id)) }, value = upcoming.size.toString(), chevron = true)
-        }
-    }
-
-    val pods = world.pods(g.id)
-    if (pods.isNotEmpty()) {
-        SectionTitle("Pods")
-        ActionGroup {
-            pods.forEach { p ->
-                ActionRow(
-                    p.name, { nav.go(Routes.pod(p.id)) }, icon = BelfryIcons.Pod, chevron = true,
-                    sub = "${p.members.size} " + (if (p.members.size == 1) "member" else "members") + (if (p.closed) " · closed" else ""),
-                )
-            }
-        }
-    }
-
-    val proposals = world.proposalsIn(g.id)
-    if (proposals.isNotEmpty()) {
-        SectionTitle("Proposals")
-        ActionGroup {
-            proposals.forEach { p ->
-                ActionRow(p.title, { nav.go(Routes.proposal(p.groupId)) }, icon = BelfryIcons.Proposal, chevron = true, sub = p.status.label)
-            }
-        }
-    }
-
-    SectionTitle("Active in the last 30 days · ${active.size}")
-    if (active.isEmpty()) {
-        Hint("Nobody opened this channel yet.")
-    } else {
-        ActionGroup {
-            active.forEach { a ->
-                val f = world.face(a.pubkey)
-                Row(
-                    Modifier.fillMaxWidth().background(c.surface).clickable { nav.go(Routes.profile(a.pubkey)) }.padding(horizontal = 14.dp, vertical = 9.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Avatar(f, size = 28.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Text(world.displayName(a.pubkey), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(ago(a.at, now), fontSize = 13.sp, color = c.muted)
-                }
-            }
-        }
-    }
-    Hint("Opening a channel tells its members you saw it (at most every few hours).", Modifier.padding(top = 6.dp))
-
-    SectionTitle("E-mail")
     // the plain slug (bugs@ rather than bugs-c3e5@) when no other channel answers to it
     val address = world.shownMailAddress(g)
     var copied by remember { mutableStateOf(false) }
-    ActionGroup {
-        ActionRow(
-            address, { copyText(context, address, "E-mail address"); copied = true }, icon = BelfryIcons.Mail,
-            sub = if (world.isInbox(g)) "Anyone can e-mail this address: mails land here as cards, and the channel's admins answer as the channel."
-            else "Members can e-mail this address: their mail shows as their message.",
-            trailing = { Text(if (copied) "Copied" else "Copy", fontSize = 14.sp, color = c.muted) },
-        )
-    }
+    Text(
+        buildAnnotatedString {
+            append(if (world.isInbox(g)) "✉️ Anyone can e-mail " else "✉️ Members can e-mail ")
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(address) }
+            append(
+                if (world.isInbox(g)) ": mails land here as cards, and the channel's admins answer as the channel."
+                else ": their mail shows as their message.",
+            )
+            if (copied) withStyle(SpanStyle(color = c.muted)) { append(" Copied.") }
+        },
+        fontSize = 15.sp, lineHeight = 21.sp, color = c.text,
+        modifier = gap.clickable(role = Role.Button, onClickLabel = "Copy the address") { copyText(context, address, "E-mail address"); copied = true }.testTag("about-mail"),
+    )
 
     val page = world.webPage(g)
     if (page != null && page.on && page.slug.isNotEmpty()) {
         val url = "https://${session.community.domain}/${page.slug}"
-        SectionTitle("On the web")
-        ActionGroup {
-            ActionRow(
-                url.removePrefix("https://"), { openInBrowser(context, url) }, icon = BelfryIcons.Globe, chevron = true,
-                sub = if (page.visibility == "members") "Members only: people from outside open a thread there and see only their own."
-                else "Public: anyone reads this channel's threads there and opens one.",
-                modifier = Modifier.testTag("info-web-page"),
-            )
-        }
+        Text(
+            buildAnnotatedString {
+                append((if (page.visibility == "members") "Members only" else "Public") + " · web page: ")
+                withStyle(SpanStyle(color = c.text, fontWeight = FontWeight.Medium)) { append(url.removePrefix("https://")) }
+            },
+            fontSize = 13.sp, lineHeight = 18.sp, color = c.muted,
+            modifier = gap.clickable(role = Role.Button, onClickLabel = "Open the page") { openInBrowser(context, url) }.testTag("info-web-page"),
+        )
     }
 
-    Spacer(Modifier.height(16.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        ChannelIcon(g.glyph(LocalWorld.current), size = 22.dp)
-        Spacer(Modifier.width(8.dp))
+    Row(gap, verticalAlignment = Alignment.CenterVertically) {
         Text((if (g.isPod) "Pod" else "Channel") + " id ", fontSize = 13.sp, color = c.muted)
         Text(g.id, fontSize = 13.sp, color = c.muted, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
-    Spacer(Modifier.height(24.dp))
 
-    if (settings) ChannelSettingsSheet(g) { settings = false }
+    if (!compact) {
+        // not in the web's About (it has them elsewhere): the pages that have no other door here
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LinkWord("Topics") { nav.go(Routes.topics(g.id)) }
+            Dot()
+            LinkWord("Search") { nav.go(Routes.search(g.id)) }
+            Dot()
+            LinkWord("Announcements by e-mail") { nav.go(Routes.follow(g.id)) }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+
     if (leaving) {
         ConfirmSheet(
             "Leave ${g.name}?", "Leave",
-            onConfirm = { session.send(Actions.leave(g.id)); leaving = false },
+            onConfirm = { session.send(Actions.leave(g.id)); leaving = false; onLeave() },
             onDismiss = { leaving = false },
             message = "You stop being a member of this pod. You can join again later.",
         )

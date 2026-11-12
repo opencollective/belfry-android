@@ -57,6 +57,12 @@ class LineShotsTest : DemoShots() {
         demoShot("pulldown-garden") { ChannelScreen(Demo.GARDEN, onMenu = {}, chat = chat) }
     }
 
+    /** Pulled all the way: every todo with a field to add one, bigger faces with names, the rest about the channel. */
+    @Test fun pullDownFull() {
+        val chat = ChatState(Demo.GARDEN).apply { lineOpen = true; lineFull = true }
+        demoShot("pulldown-full") { ChannelScreen(Demo.GARDEN, onMenu = {}, chat = chat) }
+    }
+
     @Test fun menuWithPinAndTodo() {
         val m = world.messages(Demo.KITCHEN).last { it.pubkey != session.me && it.text.isNotEmpty() }
         val chat = ChatState(Demo.KITCHEN).apply { menu(m) }

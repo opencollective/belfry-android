@@ -57,6 +57,9 @@ class InfoShotsTest : DemoShots() {
 
     @Test fun files() = demoShot("info-files") { ChannelInfoScreen(general, initialTab = InfoTab.FILES) }
 
+    /** Everything that happened in the channel, a day per section. */
+    @Test fun log() = demoShot("info-log") { ChannelInfoScreen(Demo.GARDEN, initialTab = InfoTab.LOG) }
+
     @Test fun settings() = demoScreenShot("info-settings") { ChannelInfoScreen(Demo.POD_CLOSED, settingsOpen = true) }
 
     @Test fun invite() = demoShot("invite") { InviteScreen(Demo.GARDEN) }

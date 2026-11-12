@@ -29,8 +29,9 @@ object Routes {
     const val SEARCH = "search?channel={channel}"
     /** Search one channel, or all of them (null). */
     fun search(channel: String? = null) = if (channel == null) "search" else "search?channel=${enc(channel)}"
-    const val CHANNEL_INFO = "info/{id}"
-    fun channelInfo(channel: String) = "info/${enc(channel)}"
+    const val CHANNEL_INFO = "info/{id}?tab={tab}"
+    /** A channel's page; TAB opens it on Members, Todos, Files or its Log (`InfoTab.KEY_…`). */
+    fun channelInfo(channel: String, tab: String? = null) = "info/${enc(channel)}" + if (tab != null) "?tab=${enc(tab)}" else ""
     const val INVITE = "invite/{id}"
     fun invite(channel: String) = "invite/${enc(channel)}"
     const val TOPICS = "topics/{id}"

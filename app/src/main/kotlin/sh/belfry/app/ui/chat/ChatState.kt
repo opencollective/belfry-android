@@ -36,6 +36,21 @@ class ChatState(val groupId: String) {
     var newTodo by mutableStateOf(false)
     /** The summary line under the channel's name is pulled down. */
     var lineOpen by mutableStateOf(false)
+    /** Pulled all the way (web: the second level): the same summary showing more, over the whole feed. */
+    var lineFull by mutableStateOf(false)
+
+    /** The pull-down's three levels, as the web's handle steps through them. */
+    fun closeLine() { lineOpen = false; lineFull = false }
+    /** Straight to "all the way" ("More", "All todos"). */
+    fun fullLine() { lineOpen = true; lineFull = true }
+    /** A tap on the name or the line: open, or closed again. */
+    fun toggleLine() { if (lineOpen) closeLine() else lineOpen = true }
+    /** One level further down: closed → open → all the way. */
+    fun pullLine() { if (!lineOpen) lineOpen = true else lineFull = true }
+    /** One level back up. */
+    fun pushLine() { if (lineFull) lineFull = false else lineOpen = false }
+    /** A tap on the handle: closed → open → all the way → closed. */
+    fun cycleLine() { if (!lineOpen) lineOpen = true else if (!lineFull) lineFull = true else closeLine() }
     /** Pinned messages I said "Got it, hide" to (kept on the device; the pull-down still lists them). */
     var hiddenPins by mutableStateOf<Set<String>>(emptySet())
     /** A message to scroll to and highlight ("Show in the channel"). */

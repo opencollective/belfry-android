@@ -278,6 +278,8 @@ data class Task(
     val beat: Long? = null,
     /** When the current working stretch began (its first heartbeat): the ring fills with its minutes. */
     val since: Long? = null,
+    /** When it was made. */
+    val at: Long = 0,
 ) {
     /**
      * Being worked on right now: the assignee's heartbeat is under 5 minutes old (agents send one

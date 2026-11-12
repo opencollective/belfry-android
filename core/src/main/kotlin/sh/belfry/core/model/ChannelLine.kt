@@ -87,6 +87,8 @@ class ChannelFacts(
     /** All of the channel's to-dos and how many are done (the line's "done/all"). */
     val todosAll: Int = todos.size,
     val todosDone: Int = 0,
+    /** Every to-do of the channel, done ones included (the pull-down pulled all the way shows the latest 20). */
+    val allTasks: List<Task> = todos,
     val active: List<Active>,
     /** The proposal this channel is the chat of. */
     val own: Proposal?,
@@ -117,6 +119,7 @@ fun World.channelFacts(groupId: String, now: Long): ChannelFacts {
         pins = pinned(groupId),
         todos = tasks(groupId).filter { !it.done },
         todosAll = tasks(groupId).size,
+        allTasks = tasks(groupId),
         todosDone = tasks(groupId).count { it.done },
         active = recentlyActive(groupId, now),
         own = if (g?.isProposal == true) proposalFor(groupId) else null,

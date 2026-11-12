@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import sh.belfry.app.ui.cards.CreateChannelScreen
@@ -144,7 +145,8 @@ class ShellBehaviourTest : DemoShots() {
         started()
         var shown by mutableStateOf(true)
         compose.setContent { BelfryTheme { InDemo { if (shown) CreateChannelScreen() } } }
-        compose.onNodeWithTag("create-name").performTextInput("Orchard")
+        // (the tag is on the field's frame: type into the field inside it)
+        compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("create-name"))).performTextInput("Orchard")
         compose.waitUntil(5_000) { runBlocking { session.formDraft(FormDrafts.CHANNEL) }?.get("name") == "Orchard" }
         shown = false
         compose.waitForIdle()

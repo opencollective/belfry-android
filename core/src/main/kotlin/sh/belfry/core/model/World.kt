@@ -856,7 +856,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         }
         for ((p, b) in beats) { val t = tasks[b.first]; if (t != null && t.assignee == p) t.beat = b.second }
         return tasks.values.map {
-            Task(it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history, it.beat, it.beat?.let { b -> it.assignee?.let { a -> it.stretch[a] } ?: b })
+            Task(it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history, it.beat, it.beat?.let { b -> it.assignee?.let { a -> it.stretch[a] } ?: b }, it.history.firstOrNull()?.at ?: 0)
         }
     }
 

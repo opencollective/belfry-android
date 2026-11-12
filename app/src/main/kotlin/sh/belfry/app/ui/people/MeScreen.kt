@@ -1,5 +1,10 @@
 package sh.belfry.app.ui.people
 
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import sh.belfry.app.ui.kit.DevMode
+import sh.belfry.app.ui.kit.rememberDevMode
+import sh.belfry.app.ui.kit.SwitchRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -76,6 +81,10 @@ fun MeScreen() {
     var leaving by rememberSaveable { mutableStateOf(false) }
     var renaming by rememberSaveable { mutableStateOf(false) }
     if (copied) LaunchedEffect(Unit) { delay(1500); copied = false }
+    // developer mode (web 2026-11-12): for people who administer something here
+    val dev = rememberDevMode()
+    val devScope = rememberCoroutineScope()
+    val adminOfSomething = world.isCommunityAdmin || world.groups.any { me in it.admins }
 
     Page("You") {
         Row(
@@ -131,6 +140,13 @@ fun MeScreen() {
             ActionRow("Community", onClick = null, icon = BelfryIcons.Globe, value = domain)
             ActionRow("Version", onClick = null, value = BuildConfig.VERSION_NAME + if (status.localOnly) " · demo" else "")
             ActionRow("Source code", onClick = { openInBrowser(context, SOURCE_URL) }, icon = BelfryIcons.Link, chevron = true)
+            if (adminOfSomething) {
+                SwitchRow(
+                    "Developer mode", dev.value,
+                    { on -> dev.value = on; devScope.launch { DevMode.write(session, on) } },
+                    sub = "A channel's Log links each item to its Nostr event", modifier = Modifier.testTag("me-dev"),
+                )
+            }
         }
         if (status.localOnly) {
             Spacer(Modifier.height(8.dp))
