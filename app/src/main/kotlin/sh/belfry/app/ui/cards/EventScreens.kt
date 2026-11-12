@@ -267,7 +267,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
     ) {
         PageColumn {
             e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))) }
-            EventLine(e, p, st, asking, going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
+            EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
 
             Panel(Modifier.testTag("event-details")) {
                 Text(ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + endDay(world, e, now), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
