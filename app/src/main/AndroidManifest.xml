@@ -6,6 +6,12 @@
     <!-- Android 13+: asked in the app when it explains why (Me → Notifications), never at launch -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- "Scan an invitation": asked when the scanner opens. A device without a camera installs too. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
     <application
         android:name=".BelfryApp"
         android:allowBackup="false"

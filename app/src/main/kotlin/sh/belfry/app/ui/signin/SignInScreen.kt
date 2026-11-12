@@ -107,6 +107,12 @@ fun SignInScreen(state: AppState) {
     val finishing by state.finishing.collectAsState()
     val pending by state.pendingCode.collectAsState()
     val waiting = pending
+    var scanning by rememberSaveable { mutableStateOf(false) }
+    if (scanning) {
+        // a valid invitation goes where a link the app is opened with goes: the guest-join flow
+        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false })
+        return
+    }
     // reopened while a code was on its way: the address comes back with it
     LaunchedEffect(waiting) { if (waiting != null && address.isBlank()) address = waiting.address }
     if (waiting != null) {
@@ -146,6 +152,7 @@ fun SignInScreen(state: AppState) {
         },
         onBrowser = browser,
         onDemo = { state.demo() },
+        onScan = { scanning = true },
     )
 }
 
@@ -247,6 +254,7 @@ fun SignInContent(
     onContinue: suspend () -> Unit,
     onBrowser: suspend () -> Unit,
     onDemo: suspend () -> Unit,
+    onScan: (() -> Unit)? = null,
 ) {
     val c = Belfry.colors
     val busy = rememberBusy()
@@ -279,6 +287,7 @@ fun SignInContent(
             Spacer(Modifier.height(32.dp))
             ActionGroup {
                 if (!offerBrowser) BusyRow("Sign in with the browser instead", onClick = onBrowser, icon = BelfryIcons.Globe, sub = "On your community’s own sign-in page")
+                if (onScan != null) ActionRow("Scan an invitation", onClick = onScan, icon = BelfryIcons.Qr, sub = "The QR code of a guest link", modifier = Modifier.testTag("signin-scan"))
                 BusyRow("Try the demo", onClick = onDemo, icon = BelfryIcons.Users, sub = "A made-up community. Everything in it stays on this device.")
             }
         }

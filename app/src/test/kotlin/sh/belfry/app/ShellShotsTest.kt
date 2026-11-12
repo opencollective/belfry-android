@@ -1,5 +1,7 @@
 package sh.belfry.app
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -40,7 +42,18 @@ import sh.belfry.core.net.InviteLink
 class ShellShotsTest : DemoShots() {
     private val general = Demo.GENERAL
 
-    @Test fun signIn() = shot("signin") { SignInContent("", {}, null, false, false, {}, {}, {}) }
+    @Test fun signIn() = shot("signin") { SignInContent("", {}, null, false, false, {}, {}, {}, onScan = {}) }
+
+    /** The scanner while another QR code is in view (the camera is a grey box here). */
+    @Test fun scanOtherCode() = shot("scan-not-an-invitation") {
+        sh.belfry.app.scan.ScanContent(sh.belfry.app.scan.ScanUi.SCANNING, sh.belfry.core.net.InviteScan.NOT_AN_INVITE, {}, {}, {}, {}) {
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color(0xFF555555)))
+        }
+    }
+
+    @Test fun scanDenied() = shot("scan-denied") { sh.belfry.app.scan.ScanContent(sh.belfry.app.scan.ScanUi.DENIED, null, {}, {}, {}, {}) {} }
+
+    @Test fun scanNoCamera() = shot("scan-no-camera") { sh.belfry.app.scan.ScanContent(sh.belfry.app.scan.ScanUi.NO_CAMERA, null, {}, {}, {}, {}) {} }
 
     @Test fun signInError() = shot("signin-error") {
         SignInContent("maya@belfry.exmaple", {}, "There is no belfry at belfry.exmaple. Check the address and your connection.", false, false, {}, {}, {})
