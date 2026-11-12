@@ -274,7 +274,27 @@ data class Task(
     val source: String? = null,
     /** Its status steps, oldest first: created, claim, working, done, undone. */
     val history: List<TaskStep> = emptyList(),
-)
+    /** When its assignee last said "working on it now" (a 2101 `working` heartbeat), Unix seconds. */
+    val beat: Long? = null,
+    /** When the current working stretch began (its first heartbeat): the ring fills with its minutes. */
+    val since: Long? = null,
+) {
+    /**
+     * Being worked on right now: the assignee's heartbeat is under 5 minutes old (agents send one
+     * every 2 minutes while busy, `idle` when they stop). One to-do per person at a time.
+     */
+    fun isWorking(now: Long): Boolean = !done && beat != null && now - beat < BEAT_FRESH
+
+    companion object {
+        const val BEAT_FRESH = 300L
+
+        /** "4 min", "1 h 20" (the web's `mins`): at least one minute. */
+        fun stretch(seconds: Long): String {
+            val m = maxOf(1L, Math.round(seconds / 60.0))
+            return if (m < 60) "$m min" else "${m / 60} h" + (if (m % 60 != 0L) " " + (m % 60).toString().padStart(2, '0') else "")
+        }
+    }
+}
 
 data class TaskStep(val at: Long, val who: String, val what: String)
 

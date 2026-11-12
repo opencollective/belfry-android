@@ -24,6 +24,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import sh.belfry.app.ui.nav.LocalSession
+import sh.belfry.core.model.ComposerDraft
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
@@ -136,8 +140,16 @@ fun Composer(
     onPlus: (() -> Unit)? = null,
     groupId: String? = null,
     onInvite: (suspend (pubkey: String) -> String)? = null,
+    /**
+     * Where the unsent text is kept on this device ([ComposerDraft.channel], [ComposerDraft.thread]):
+     * leaving and coming back brings it back, sending clears it (web 2026-11-11). Null: no draft.
+     */
+    draftKey: String? = null,
+    /** True while the box holds something else than a new message (an edit): the draft is left alone. Read in a snapshot. */
+    draftPaused: () -> Boolean = { false },
 ) {
     val c = Belfry.colors
+    if (draftKey != null) ComposerDraftKeeper(state, draftKey, draftPaused)
     val world = LocalWorld.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -334,5 +346,31 @@ fun EditingBar(onCancel: () -> Unit) {
         Spacer(Modifier.width(8.dp))
         Text("Editing your message", fontSize = 13.sp, color = c.text, modifier = Modifier.weight(1f))
         Text("Cancel", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.clickable(role = Role.Button, onClick = onCancel).padding(4.dp))
+    }
+}
+
+/**
+ * Brings the draft of [key] back into an empty box, and keeps what is typed there. The text and
+ * [paused] are read in one snapshot, so the text of an edit is never taken for the draft; the box
+ * as it is found (and as it is left by an edit) is not written, only what changes after.
+ */
+@Composable
+private fun ComposerDraftKeeper(state: ComposerState, key: String, paused: () -> Boolean) {
+    val session = LocalSession.current
+    val isPaused = paused()
+    LaunchedEffect(key, isPaused) {
+        if (isPaused) return@LaunchedEffect
+        val d = try { session.draft(key) } catch (e: Exception) { null } ?: return@LaunchedEffect
+        if (state.value.text.isEmpty() && state.photos.isEmpty() && !paused()) state.set(d.text, d.picked, d.channels)
+    }
+    LaunchedEffect(key) {
+        var skip = true
+        snapshotFlow { if (paused()) null else Triple(state.value.text, state.picked.toList(), state.pickedChannels.toList()) }
+            .distinctUntilChanged()
+            .collect { v ->
+                if (v == null) skip = true
+                else if (skip) skip = false
+                else session.saveDraft(key, v.first, v.second, v.third)
+            }
     }
 }

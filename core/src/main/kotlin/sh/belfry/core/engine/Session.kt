@@ -44,6 +44,8 @@ import sh.belfry.core.model.WorldContext
 import sh.belfry.core.model.inviteText
 import sh.belfry.core.model.isGuest
 import sh.belfry.core.model.eventTagsFor
+import sh.belfry.core.model.ComposerDraft
+import sh.belfry.core.net.Branding
 import sh.belfry.core.net.Access
 import sh.belfry.core.net.ApiException
 import sh.belfry.core.net.BelfryApi
@@ -195,6 +197,8 @@ class Session(
     private val incoming = Channel<Incoming>(Channel.UNLIMITED)
     private val dirty = Channel<Unit>(Channel.CONFLATED)
     private val flushWanted = Channel<Unit>(Channel.CONFLATED)
+    // (declared before init, which starts its reader)
+    private val draftWrites = Channel<Pair<String, ComposerDraft?>>(Channel.UNLIMITED)
     private val jobs = ArrayList<Job>()
     @Volatile private var started = false
     @Volatile private var stopped = false
@@ -231,6 +235,7 @@ class Session(
         jobs += scope.launch(Dispatchers.Default) { for (u in dirty) { rebuild(); delay(REBUILD_MS) } }
         jobs += scope.launch(Dispatchers.Default) { intake() }
         jobs += scope.launch(Dispatchers.Default) { for (u in flushWanted) flush() }
+        jobs += scope.launch(Dispatchers.IO) { writeDrafts() }
     }
 
     // ---- the world ---------------------------------------------------------------------------------
@@ -376,8 +381,11 @@ class Session(
             val r = relay(t) ?: continue
             r.authSigner = signer
             r.onEvent = { _, e -> incoming.trySend(Incoming.Ev(e)) }
-            r.onEose = { sub -> if (sub == SUB) incoming.trySend(Incoming.Eose(t)) }
-            r.onClosed = { _, reason -> if (t == Target.GROUPS) noteRefusal(reason) }
+            r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t)) } }
+            r.onClosed = { sub, reason ->
+                if (t == Target.GROUPS) noteRefusal(reason)
+                if (sub == SUB) reopen(t, reason)
+            }
             r.onAuthRefused = { reason -> if (t == Target.GROUPS) noteRefusal(reason) }
             r.onAuthenticated = { requestFlush() }
             r.onConnected = { requestFlush() }
@@ -397,10 +405,36 @@ class Session(
         requestFlush()
     }
 
+    private val reopens = IntArray(Target.entries.size)
+
+    /**
+     * The relay ended the live subscription for a reason that is not a refusal: without a new one
+     * nothing arrives until a restart (web sync.ts, 2026-11-11). Opened again while the socket
+     * lives, 2 s later (then 4, 8… up to a minute if the relay keeps closing it). `auth-required`
+     * is not handled here: the relay asks for NIP-42 and the subscriptions are sent again after it.
+     */
+    private fun reopen(t: Target, reason: String) {
+        if (Access.isRefusal(reason) || reason.startsWith("auth-required")) return
+        val n = reopens[t.ordinal].also { reopens[t.ordinal] = minOf(it + 1, 5) }
+        scope.launch(Dispatchers.Default) {
+            delay(minOf(60_000L, 2_000L shl n))
+            val r = relay(t) ?: return@launch
+            if (!stopped && r.isUp && _status.value.access != AccessState.REFUSED) r.subscribe(SUB, filters(t))
+        }
+    }
+
+    /** A relay socket that says it is open but does not answer is dropped and opened again at once. */
+    private fun probe() {
+        for (t in Target.entries) {
+            val r = relay(t) ?: continue
+            launchSafely { if (r.isUp && !r.probe()) r.wake() }
+        }
+    }
+
     /** A wake-up: the app is back in the foreground. Reconnects now and sends what waits. */
     fun wake() {
         if (!started || stopped || localOnly) return
-        if (_status.value.online) for (t in Target.entries) relay(t)?.wake()
+        if (_status.value.online) { for (t in Target.entries) relay(t)?.wake(); probe() }
         launchSafely { dm.process() }
         requestFlush()
     }
@@ -495,6 +529,43 @@ class Session(
         markDirty()
     }
 
+    // ---- drafts (unsent text per channel / thread, on this device) -----------------------------------
+
+    /** The draft kept for KEY ([ComposerDraft.channel], [ComposerDraft.thread]), or null. */
+    suspend fun draft(key: String): ComposerDraft? = withContext(Dispatchers.IO) {
+        ComposerDraft.parse(store.get(ComposerDraft.storeKey(key)), clock())
+    }
+
+    /** Keeps (blank text: forgets) the draft of KEY. Returns at once; writes happen in order off the caller's thread. */
+    fun saveDraft(key: String, text: String, picked: List<Pair<String, String>> = emptyList(), channels: List<Pair<String, String>> = emptyList()) {
+        if (stopped) return
+        draftWrites.trySend(key to if (text.isBlank()) null else ComposerDraft(text, picked.filter { text.contains("@" + it.first) }, channels.filter { text.contains(it.first) }, clock()))
+    }
+
+    private suspend fun writeDrafts() {
+        for ((key, d) in draftWrites) {
+            try {
+                if (d == null) store.remove(ComposerDraft.storeKey(key)) else store.set(ComposerDraft.storeKey(key), d.toJsonString())
+            } catch (e: Exception) {
+                // a full disk: no draft
+            }
+        }
+    }
+
+    // ---- branding (admins) ---------------------------------------------------------------------------
+
+    /** The belfry's logo, cover and colours as this device knows them. */
+    val branding: Branding get() = community.branding
+
+    /** An admin of the belfry sets its branding ("" clears a value). Throws [ActionException] (`not_admin`, `invalid`, `no_key`). */
+    suspend fun saveBranding(b: Branding): Branding {
+        val saved = if (localOnly) b else call { it.saveBranding(signer, b) }
+        community = community.withBranding(saved)
+        onRecordChanged?.invoke(community, _guest.value)
+        rebuild()
+        return saved
+    }
+
     // ---- writing: the outbox (SPEC 5) ---------------------------------------------------------------
 
     private fun newLocalId(): String = "local-" + Random.hex(8)
@@ -584,10 +655,25 @@ class Session(
                 for (left in result.items) if (before[left.localId] != left) store.putOutbox(left)
                 for (f in result.failed) dm.onFailed(f)
                 rebuild()
-                if (result.stalled.isNotEmpty()) break
+                if (result.sent.isNotEmpty()) retryStep = 0
+                if (result.stalled.isNotEmpty()) { retrySoon(); break }
             } while (again)
         } finally {
             flushLock.unlock()
+        }
+    }
+
+    // A send that failed for now (a dropped socket, a signer that was reconnecting) is tried again
+    // within seconds, not at the next watchdog tick: 1.5 s, 3 s, 6 s, then every 12 s (web sync.ts).
+    @Volatile private var retryStep = 0
+    private val retryPending = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun retrySoon() {
+        if (stopped || !retryPending.compareAndSet(false, true)) return
+        val ms = minOf(12_000L, 1_500L shl minOf(retryStep, 4))
+        retryStep += 1
+        scope.launch(Dispatchers.Default) {
+            try { delay(ms) } finally { retryPending.set(false) }
+            if (!stopped) requestFlush()
         }
     }
 
@@ -651,6 +737,13 @@ class Session(
             SendOutcome.Ok(ev)
         } catch (e: RelayException) {
             if (e.reason.startsWith("restricted") && target == Target.GROUPS) noteRefusal(e.reason)
+            // no answer on a socket that says it is open: it is dead (a proxy restart can leave it so).
+            // Drop it and open a new one now; the outbox tries again on that one.
+            if (e.reason == "timeout: the relay did not answer" && r.isUp) {
+                r.close()
+                r.subscribe(SUB, filters(target))
+                r.wake()
+            }
             SendOutcome.Error(e.reason)
         } catch (e: SignerTimeout) {
             SendOutcome.Error("timeout: the signer did not answer")

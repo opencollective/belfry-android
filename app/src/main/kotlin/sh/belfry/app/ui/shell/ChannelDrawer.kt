@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,9 +89,33 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
     val mine = world.yourEvents(session.now())
     val name = world.ctx.communityName.ifEmpty { session.community.name }
     Column(modifier.fillMaxSize().background(c.bg)) {
-        TopBar(name, actions = { IconAction(BelfryIcons.Plus, "New channel", { go(Routes.CREATE_CHANNEL) }) })
+        // the belfry's branding (web 2026-11-11): its logo before the name, its cover under the bar
+        val brand = session.branding
+        val pictures = androidx.compose.ui.platform.LocalInspectionMode.current.not() && sh.belfry.app.ui.kit.LocalNetworkImages.current
+        val logo = brand.logo.takeIf { it.isNotEmpty() && pictures }
+        val logoSlot: (@Composable () -> Unit)? = if (logo == null) null else {
+            {
+                Spacer(Modifier.width(12.dp))
+                coil.compose.AsyncImage(
+                    model = logo, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.size(26.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp)),
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+        }
+        TopBar(
+            name,
+            navigation = logoSlot,
+            actions = { IconAction(BelfryIcons.Plus, "New channel", { go(Routes.CREATE_CHANNEL) }) },
+        )
         Hairline()
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            if (brand.cover.isNotEmpty() && pictures) item(key = "<cover>") {
+                coil.compose.AsyncImage(
+                    model = brand.cover, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().height(96.dp),
+                )
+            }
             // the top (web 2026-11-11): Upcoming events, @Mentions, Direct messages
             item(key = "<events>") {
                 val next = world.calendar.filter { it.status != EventStatus.CANCELLED && it.start > session.now() }.minByOrNull { it.start }
@@ -209,8 +234,8 @@ private fun DrawerItem(icon: @Composable () -> Unit, title: String, sub: String,
         }
         if (badge > 0) {
             Spacer(Modifier.width(8.dp))
-            Box(Modifier.size(22.dp).clip(CircleShape).background(c.orange), contentAlignment = Alignment.Center) {
-                Text(if (badge > 99) "99" else badge.toString(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White)
+            Box(Modifier.size(22.dp).clip(CircleShape).background(c.badge), contentAlignment = Alignment.Center) {
+                Text(if (badge > 99) "99" else badge.toString(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.onBadge)
             }
         }
     }

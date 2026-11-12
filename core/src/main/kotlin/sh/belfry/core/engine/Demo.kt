@@ -291,7 +291,10 @@ object Demo {
         val rota = events.last { it.kind == 9 && it.pubkey == joris.pubkey && it.tag("h") == GARDEN }
         post(joris, now - 3 * day + 120, Actions.pinMessage(GARDEN, rota.id, true))
         post(maya, now - day, Actions.addTask(GARDEN, "Empty the left compost bin", compost.id))
-        post(tomas, now - 20 * h, Actions.addTask(GARDEN, "Mend the greenhouse door"))
+        val door = post(tomas, now - 20 * h, Actions.addTask(GARDEN, "Mend the greenhouse door"))
+        // Tomás took it and is on it right now: heartbeats every few minutes for the last quarter of an hour
+        post(tomas, now - 19 * h, Actions.taskAction(GARDEN, door.id, "claim"))
+        for (ago in listOf(14, 10, 6, 2)) post(tomas, now - ago * 60, Actions.taskAction(GARDEN, door.id, "working"))
         say(maya, GARDEN, now - 5 * h, "Seed swap this Sunday at 11, by the greenhouse. #seeds")
         say(aroha, KITCHEN, now - 2 * day, "Thursday dinner: dal, rice, flatbread. **12 seats**, 7 taken.")
         say(sam, KITCHEN, now - day, "Count me in. I can do the dishes.")

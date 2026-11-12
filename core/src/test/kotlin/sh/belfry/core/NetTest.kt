@@ -348,7 +348,7 @@ class RelayTest {
 
     @Test
     fun bunkerSignerTimesOutAndStartsFresh() = runBlocking {
-        val f = fake(connections = 2)
+        val f = fake(connections = 3)
         val fs = FakeSigner(f)
         val signer = BunkerSigner(BunkerUrl.parse(fs.bunkerUrl)!!, LocalSigner.random().secretHex, fs.member.pubkey, client, scope, timeoutMs = 700)
         fs.silent = true
@@ -361,7 +361,8 @@ class RelayTest {
         fs.silent = false
         signer.timeoutMs = 5000
         assertTrue(signer.sign(EventTemplate(9, "found", emptyList())).isValid())
-        assertEquals(2, f.opens)
+        // the silent request was asked once more on a fresh connection before giving up
+        assertEquals(3, f.opens)
         signer.disconnect()
     }
 

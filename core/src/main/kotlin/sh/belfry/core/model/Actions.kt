@@ -169,6 +169,20 @@ object Actions {
     // ---- channel settings ----
 
     /** Turn a channel's shared inbox on or off (counts only from the channel's admins). */
+    /**
+     * A channel's page on the web and its visibility (admins; web actions.ts setWebPage): NIP-78,
+     * `d` = belfry:web:<channel>. `posts` (a one-type channel) is kept when the channel has one.
+     */
+    fun setWebPage(groupId: String, on: Boolean, slug: String, visibility: String, posts: String? = null): Draft {
+        val content = kotlinx.serialization.json.buildJsonObject {
+            put("on", kotlinx.serialization.json.JsonPrimitive(on))
+            put("slug", kotlinx.serialization.json.JsonPrimitive(slug))
+            put("visibility", kotlinx.serialization.json.JsonPrimitive(if (visibility == "members") "members" else "public"))
+            if (posts != null) put("posts", kotlinx.serialization.json.JsonPrimitive(posts))
+        }.toString()
+        return Draft(Target.GROUPS, 30078, content, listOf(listOf("d", World.WEB_D + groupId), listOf("h", groupId), listOf("t", "belfry-web")))
+    }
+
     fun setInbox(groupId: String, on: Boolean): Draft =
         Draft(Target.GROUPS, 30078, "{\"on\":$on}", listOf(listOf("d", World.INBOX_D), listOf("h", groupId)))
 

@@ -93,11 +93,11 @@ fun IconAction(
                         .offset(x = 8.dp, y = (-6).dp)
                         .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
                         .clip(CircleShape)
-                        .background(c.orange)
+                        .background(c.badge)
                         .padding(horizontal = 4.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(if (badge > 99) "99+" else badge.toString(), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    Text(if (badge > 99) "99+" else badge.toString(), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, color = c.onBadge)
                 }
             }
         }

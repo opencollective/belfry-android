@@ -63,8 +63,8 @@ fun SessionScope(session: Session, nav: Nav, content: @Composable () -> Unit) {
         LocalDms provides dms,
         LocalStatus provides status,
         LocalNav provides nav,
-        // the belfry's branding: its primary colour as the accent
-        LocalBelfryColors provides LocalBelfryColors.current.branded(session.community.brandPrimary),
+        // the belfry's branding: its primary colour as the accent, its secondary on count badges
+        LocalBelfryColors provides LocalBelfryColors.current.branded(session.community.brandPrimary, session.community.brandSecondary),
         content = content,
     )
 }

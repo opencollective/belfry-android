@@ -52,12 +52,12 @@ import java.io.ByteArrayOutputStream
 internal object AvatarPhoto {
     const val MAX_SIDE = 512
 
-    suspend fun load(context: Context, uri: Uri): ByteArray? {
+    suspend fun load(context: Context, uri: Uri, maxSide: Int = MAX_SIDE): ByteArray? {
         val picked = Photos.load(context, uri, 0) ?: return null
         return withContext(Dispatchers.Default) {
             try {
                 val full = BitmapFactory.decodeByteArray(picked.attachment.bytes, 0, picked.attachment.bytes.size) ?: return@withContext null
-                val scale = MAX_SIDE.toFloat() / maxOf(full.width, full.height)
+                val scale = maxSide.toFloat() / maxOf(full.width, full.height)
                 val small = if (scale < 1f) {
                     Bitmap.createScaledBitmap(full, (full.width * scale).toInt().coerceAtLeast(1), (full.height * scale).toInt().coerceAtLeast(1), true)
                 } else {

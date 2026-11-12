@@ -65,11 +65,13 @@ fun World.todoChip(t: Task): String = when {
     else -> "To do"
 }
 
-/** Who is on a to-do, as the pull-down says it. */
-fun World.todoWho(t: Task): String = when (t.assignee) {
-    null -> "Nobody on it yet"
-    me -> "You are on it"
-    else -> displayName(t.assignee!!) + " is on it"
+/** Who is on a to-do, as the pull-down says it; with NOW, also whether they are working on it right now and for how long. */
+fun World.todoWho(t: Task, now: Long = 0): String {
+    val a = t.assignee ?: return "Nobody on it yet"
+    val busy = now > 0 && t.isWorking(now)
+    val time = if (busy) " · " + Task.stretch(now - (t.since ?: now)) else ""
+    return if (a == me) (if (busy) "You are working on it$time" else "You are on it")
+    else displayName(a) + (if (busy) " is working on it$time" else " is on it")
 }
 
 /** Everything the line and its pull-down show about a channel. */

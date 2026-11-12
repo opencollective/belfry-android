@@ -7,6 +7,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import sh.belfry.app.ui.signin.openInBrowser
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
+import sh.belfry.core.model.World
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -209,7 +214,8 @@ private fun AboutTab(g: Group, onMembers: () -> Unit, settingsOpen: Boolean) {
     Hint("Opening a channel tells its members you saw it (at most every few hours).", Modifier.padding(top = 6.dp))
 
     SectionTitle("E-mail")
-    val address = world.mailAddress(g.id)
+    // the plain slug (bugs@ rather than bugs-c3e5@) when no other channel answers to it
+    val address = world.shownMailAddress(g)
     var copied by remember { mutableStateOf(false) }
     ActionGroup {
         ActionRow(
@@ -218,6 +224,20 @@ private fun AboutTab(g: Group, onMembers: () -> Unit, settingsOpen: Boolean) {
             else "Members can e-mail this address: their mail shows as their message.",
             trailing = { Text(if (copied) "Copied" else "Copy", fontSize = 14.sp, color = c.muted) },
         )
+    }
+
+    val page = world.webPage(g)
+    if (page != null && page.on && page.slug.isNotEmpty()) {
+        val url = "https://${session.community.domain}/${page.slug}"
+        SectionTitle("On the web")
+        ActionGroup {
+            ActionRow(
+                url.removePrefix("https://"), { openInBrowser(context, url) }, icon = BelfryIcons.Globe, chevron = true,
+                sub = if (page.visibility == "members") "Members only: people from outside open a thread there and see only their own."
+                else "Public: anyone reads this channel's threads there and opens one.",
+                modifier = Modifier.testTag("info-web-page"),
+            )
+        }
     }
 
     Spacer(Modifier.height(16.dp))
@@ -271,6 +291,13 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
     var closed by remember(g.id) { mutableStateOf(g.closed) }
     var prompt by remember(g.id) { mutableStateOf(g.prompt ?: "") }
     var openMail by remember(g.id) { mutableStateOf(wasInbox) }
+    // its visibility and its page on the web (web 2026-11-11): one setting, kept in one event
+    val wasPage = remember(g.id) { world.webPage(g) }
+    var public by remember(g.id) { mutableStateOf(wasPage?.visibility != "members") }
+    var webOn by remember(g.id) { mutableStateOf(wasPage?.on == true) }
+    var slug by remember(g.id) { mutableStateOf(wasPage?.slug?.ifEmpty { null } ?: World.slugify(g.name)) }
+    var slugError by remember(g.id) { mutableStateOf<String?>(null) }
+    val domain = session.community.domain
     val busy = rememberBusy()
 
     BelfryTextField(name, { name = it }, label = "Name", enabled = !busy.busy)
@@ -297,13 +324,48 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
             sub = "Mail from outside lands here as cards; admins answer as the channel.",
         )
     }
-    Hint("The address is ${world.mailAddress(g.id)}. Off: only members' mail comes in, as their message.", Modifier.padding(top = 6.dp))
+    Hint("The address is ${world.shownMailAddress(g)}. Off: only members' mail comes in, as their message.", Modifier.padding(top = 6.dp))
+    if (!g.isPod) {
+        Spacer(Modifier.height(14.dp))
+        Hint("Visibility")
+        Spacer(Modifier.height(6.dp))
+        Segmented(listOf("Public", "Members only"), if (public) 0 else 1, { public = it == 0 }, enabled = !busy.busy, modifier = Modifier.testTag("settings-visibility"))
+        Hint(if (public) "Anyone reads its threads on the web." else "People from outside see only their own thread.", Modifier.padding(top = 6.dp))
+        Spacer(Modifier.height(14.dp))
+        ActionGroup {
+            SwitchRow(
+                "Threads from the web", webOn, { webOn = it; slugError = null }, icon = BelfryIcons.Globe, enabled = !busy.busy,
+                sub = "A page at $domain/${World.slugify(slug).ifEmpty { "…" }} where anyone opens a thread: it lands here as a card, and members' replies are mailed back to its author.",
+                modifier = Modifier.testTag("settings-web"),
+            )
+        }
+        if (webOn) {
+            Spacer(Modifier.height(10.dp))
+            BelfryTextField(
+                slug, { slug = it.lowercase().take(60); slugError = null }, label = "Page address", error = slugError, enabled = !busy.busy,
+                hint = "$domain/${World.slugify(slug).ifEmpty { "…" }}",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Uri),
+                modifier = Modifier.testTag("settings-slug"),
+            )
+        }
+    }
     Spacer(Modifier.height(16.dp))
     BusyButton(
         "Save",
         onClick = {
             val n = name.trim()
             val a = about.trim()
+            val address = World.slugify(slug)
+            if (!g.isPod && webOn) {
+                val problem = world.webSlugProblem(g, address)
+                if (problem != null) { slugError = problem; return@BusyButton }
+            }
+            if (!g.isPod) {
+                val visibility = if (public) "public" else "members"
+                val keptSlug = if (webOn) address else wasPage?.slug.orEmpty()
+                val changed = webOn != (wasPage?.on == true) || keptSlug != wasPage?.slug.orEmpty() || visibility != (wasPage?.visibility ?: "public")
+                if (changed) session.send(Actions.setWebPage(g.id, webOn, keptSlug, visibility, wasPage?.posts))
+            }
             if (n != g.name || a != g.about || g.isPod) {
                 session.send(if (g.isPod) Actions.editPod(g.id, n, a, PodAccess(closed, prompt)) else Actions.editChannel(g.id, n, a))
             }

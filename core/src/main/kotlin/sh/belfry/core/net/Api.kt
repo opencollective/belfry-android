@@ -178,6 +178,15 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         throw ApiException(code, a.status, messages[code] ?: COMMON[code] ?: fallback)
     }
 
+    // ---- branding (branding.py) -------------------------------------------------------------------
+
+    /** An admin sets the belfry's logo, cover and two colours ("" clears one). Returns them as saved. */
+    suspend fun saveBranding(signer: Signer, b: Branding): Branding {
+        val a = signed(signer, "$base/branding", "POST", b.toJson())
+        if (!a.ok || a.body == null) fail(a, BRANDING_ERRORS, "The branding could not be saved just now.")
+        return Branding.clean(a.body)
+    }
+
     // ---- guest links (guests.py) ------------------------------------------------------------------
 
     /**
@@ -503,6 +512,12 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             "unauthorized" to "Your session was not accepted. Sign in again.",
             "no_pass" to "Only members can do this.",
             "invalid_json" to GENERIC,
+        )
+        private val BRANDING_ERRORS = mapOf(
+            "not_admin" to "Only the belfry’s admins change its branding.",
+            "invalid" to "The belfry did not accept these values: a picture’s address, and colours like #2563eb.",
+            "no_key" to "This belfry has no key of its own yet: its branding can’t be saved.",
+            "unsupported" to "This belfry has no branding settings yet.",
         )
         private val INVITE_ERRORS = mapOf(
             "invalid" to "This channel can’t have guest links.",

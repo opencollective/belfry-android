@@ -639,8 +639,31 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** A public channel: its page on the web is on and anyone may read it (a globe, not a hash). */
     fun isPublicChannel(g: Group?): Boolean = webPage(g)?.let { it.on && it.visibility == "public" } == true
 
-    /** The channel's e-mail address. */
+    /** The channel's e-mail address (what its answers go out as: always the full id). */
     fun mailAddress(groupId: String): String = "$groupId@${ctx.domain}"
+
+    /**
+     * The left part of the address a channel shows (web model.ts mailLocal, 2026-11-12): its plain
+     * slug, bugs@ rather than bugs-c3e5@, when no other channel answers to it; the belfry resolves
+     * it the same way (mail.channel_by_slug) and keeps taking the full id.
+     */
+    fun mailLocal(g: Group): String {
+        fun bare(id: String) = id.replace(ID_TAIL, "")
+        val want = slugify(g.name).ifEmpty { bare(g.id) }
+        if (want.isEmpty() || want == g.id) return g.id
+        return if (groups.count { bare(it.id) == want || slugify(it.name) == want } == 1) want else g.id
+    }
+
+    /** The address to give people for this channel. */
+    fun shownMailAddress(g: Group): String = "${mailLocal(g)}@${ctx.domain}"
+
+    /** Why this page address can't be the channel's (fixed text), or null when it can. SLUG is [slugify]'d. */
+    fun webSlugProblem(g: Group, slug: String): String? = when {
+        slug.length < 2 -> "Give the page an address: two letters or more."
+        slug in WEB_RESERVED -> "${ctx.domain}/$slug is taken by ${ctx.domain} itself: pick another address."
+        else -> groups.firstOrNull { it.id != g.id && webPage(it)?.let { w -> w.on && w.slug == slug } == true }
+            ?.let { "${ctx.domain}/$slug is the page of #${it.name}: pick another address." }
+    }
 
     /** Per e-mail card id: open / answered / closed, who has it, how many answers went out. */
     fun inboxStates(groupId: String): Map<String, CardState> {
@@ -698,8 +721,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val listId = listIdFor(groupId)
         class T(val id: String, val title: String, val author: String, val pending: Boolean, val source: String?) {
             var assignee: String? = null; var done = false; val comments = ArrayList<TaskComment>(); val history = ArrayList<TaskStep>()
+            var lastBeat = 0L; var beat: Long? = null
+            /** Per person: the last of working / idle / done they said here, and when their current stretch began. */
+            val lastSaid = HashMap<String, String>(); val stretch = HashMap<String, Long>()
         }
         val tasks = LinkedHashMap<String, T>()
+        val beats = HashMap<String, Pair<String, Long>>() // per person: their latest heartbeat (task, at)
         for (e in sorted) {
             if (e.kind !in 2100..2103 || e.t("t") != listId) continue
             if (e.kind == 2100) {
@@ -712,13 +739,23 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 when (e.t("action")) {
                     "claim" -> t.assignee = e.pubkey
                     "unclaim" -> if (t.assignee == e.pubkey) t.assignee = null
-                    "done" -> t.done = true
+                    "done" -> { t.done = true; t.lastSaid[e.pubkey] = "done" }
                     "undone" -> t.done = false
                     "delete" -> if (e.pubkey == t.author) tasks.remove(t.id)
+                    "working" -> {
+                        // one stretch: beats of the same person less than BEAT_FRESH apart
+                        if (!(t.lastSaid[e.pubkey] == "working" && t.lastBeat > 0 && e.createdAt - t.lastBeat < Task.BEAT_FRESH)) t.stretch[e.pubkey] = e.createdAt
+                        t.lastBeat = e.createdAt; t.lastSaid[e.pubkey] = "working"
+                        beats[e.pubkey] = t.id to e.createdAt
+                    }
+                    "idle" -> { t.lastSaid[e.pubkey] = "idle"; if (beats[e.pubkey]?.first == t.id) beats.remove(e.pubkey) }
                 }
             }
         }
-        return tasks.values.map { Task(it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history) }
+        for ((p, b) in beats) { val t = tasks[b.first]; if (t != null && t.assignee == p) t.beat = b.second }
+        return tasks.values.map {
+            Task(it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history, it.beat, it.beat?.let { b -> it.assignee?.let { a -> it.stretch[a] } ?: b })
+        }
     }
 
     // ---- calendar (NIP-52) ---------------------------------------------------------------------
@@ -973,6 +1010,20 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         /** Member labels keep the web chat's namespace so both clients read each other's. */
         const val LABEL_NS = "osv/member-label"
         private val META = listOf("name", "about", "picture")
+
+        private val ID_TAIL = Regex("-[0-9a-z]{3,8}$")
+        private val MARKS = Regex("[\\u0300-\\u036f]")
+        private val NOT_SLUG = Regex("[^a-z0-9]+")
+        private val DASH_ENDS = Regex("^-+|-+$")
+
+        /** A page address from a name (web model.ts slugify): lower case, accents folded, dashes, 40 characters. */
+        fun slugify(s: String): String =
+            java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFKD).replace(MARKS, "").replace(NOT_SLUG, "-").replace(DASH_ENDS, "").take(40)
+
+        /** Paths of the belfry's own: a channel's page can't take them (webthreads.RESERVED). */
+        val WEB_RESERVED: Set<String> = ("api admin apply apps bridge calendar chat check claim console connect door drop events feedback follow git groups hooks internal " +
+            "market me mentions people photos programme shop signin skills static steward theme tokens vote wallet welcome invite brand " +
+            "changelog monitor privacy terms refunds rules help").split(" ").toSet()
 
         fun seenD(groupId: String): String = "seen:$groupId"
         fun isPodId(id: String): Boolean = id.startsWith("pod-")

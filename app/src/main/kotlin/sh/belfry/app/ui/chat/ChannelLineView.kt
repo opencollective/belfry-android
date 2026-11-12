@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +60,8 @@ import sh.belfry.core.model.ChannelLine
 import sh.belfry.core.model.LineAction
 import sh.belfry.core.model.LineIcon
 import sh.belfry.core.model.Task
+import sh.belfry.app.ui.kit.rememberNow
+import sh.belfry.app.ui.kit.WorkRing
 import sh.belfry.core.model.Topics
 import sh.belfry.core.model.channelFacts
 import sh.belfry.core.model.channelLine
@@ -333,6 +336,7 @@ private fun TodoRow(groupId: String, t: Task, onOpen: () -> Unit) {
     val world = LocalWorld.current
     val session = LocalSession.current
     val busy = rememberBusy()
+    val now by rememberNow()
     Row(Modifier.fillMaxWidth().padding(start = 6.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
             Modifier.size(44.dp).clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = "Mark \"${t.title}\" as done") {
@@ -341,11 +345,12 @@ private fun TodoRow(groupId: String, t: Task, onOpen: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) {
             if (busy.busy) Spinner(size = 16.dp, color = c.muted)
+            else if (t.isWorking(now)) WorkRing(t.since ?: now, now, size = 22.dp)
             else Box(Modifier.size(20.dp).clip(RoundedCornerShape(6.dp)).border(1.5.dp, if (t.assignee != null) c.text else c.faint, RoundedCornerShape(6.dp)))
         }
         Column(Modifier.weight(1f).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp)) {
             Text(t.title, fontSize = 14.sp, color = if (t.pending) c.muted else c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(world.todoWho(t), fontSize = 12.sp, color = c.muted)
+            Text(world.todoWho(t, now), fontSize = 12.sp, color = c.muted)
         }
     }
 }

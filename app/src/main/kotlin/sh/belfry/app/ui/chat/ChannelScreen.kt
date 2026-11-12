@@ -20,6 +20,7 @@ import sh.belfry.app.ui.kit.BelfryTextField
 import sh.belfry.app.ui.kit.MoreIcons
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
+import sh.belfry.core.model.ComposerDraft
 import sh.belfry.core.model.pinned
 import sh.belfry.core.model.todosBySource
 import sh.belfry.core.model.agentOwner
@@ -300,6 +301,8 @@ fun ChannelScreen(
                     }
                 },
                 modifier = Modifier.navigationBarsPadding(),
+                draftKey = ComposerDraft.channel(groupId),
+                draftPaused = { chat.editing != null },
                 photos = editing == null,
                 onPlus = if (editing == null) ({ chat.plusOpen = true }) else null,
                 groupId = groupId,

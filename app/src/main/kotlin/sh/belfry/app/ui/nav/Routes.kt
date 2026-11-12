@@ -51,6 +51,8 @@ object Routes {
     const val SESSIONS = "sessions"
     /** Me → Notifications (push). */
     const val NOTIFICATIONS = "notifications"
+    /** Me → Branding (admins of the belfry): its logo, cover and colours. */
+    const val BRANDING = "branding"
     /** Everyone in the community. */
     const val MEMBERS = "members"
     /** Direct messages and e-mail: the list. */

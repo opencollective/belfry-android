@@ -114,6 +114,9 @@ fun MeScreen() {
             ActionRow("Messages", onClick = { nav.go(Routes.MESSAGES) }, icon = BelfryIcons.Mail, sub = "Direct messages and e-mail", chevron = true)
             ActionRow("Notifications", onClick = { nav.go(Routes.NOTIFICATIONS) }, icon = BelfryIcons.Bell, sub = "On this phone: messages, mentions, announcements", chevron = true, modifier = Modifier.testTag("me-notifications"))
             ActionRow("Signed-in devices", onClick = { nav.go(Routes.SESSIONS) }, icon = BelfryIcons.Lock, sub = "The apps and devices signed in as you", chevron = true)
+            if (world.isCommunityAdmin) {
+                ActionRow("Branding", onClick = { nav.go(Routes.BRANDING) }, icon = BelfryIcons.Image, sub = "Logo, cover image and colours of ${session.community.name}", chevron = true, modifier = Modifier.testTag("me-branding"))
+            }
         }
         if (status.queued > 0 || status.failed > 0) {
             SectionTitle("Not sent yet")

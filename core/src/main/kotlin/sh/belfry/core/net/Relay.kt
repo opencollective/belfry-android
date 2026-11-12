@@ -120,6 +120,7 @@ class Relay(
     private val queries = HashMap<String, QueryBox>()
 
     private var keep = false
+    private var probing = false
     private var attempts = 0
     private var reconnectJob: Job? = null
 
@@ -162,6 +163,31 @@ class Relay(
         if (wanted && !isUp) {
             reconnectJob?.cancel()
             scope.launch { tryConnect() }
+        }
+    }
+
+    /**
+     * Is the socket really alive? A phone that slept can keep a socket that says "open" and is
+     * dead: nothing arrives and nothing says so until the next ping times out. Asks something tiny;
+     * no answer in [timeoutMs] = dead: the socket is dropped and, when [keepConnected], opened again
+     * (the caller's [onDisconnect] runs, as for any drop). Returns false when it was dropped.
+     */
+    suspend fun probe(timeoutMs: Long = 6_000): Boolean {
+        val ws = synchronized(lock) { if (isOpen && !probing) { probing = true; socket } else null } ?: return true
+        try {
+            val id = "p" + Random.hex(4)
+            val box = QueryBox()
+            synchronized(lock) { if (socket === ws) queries[id] = box }
+            ws.send(req(id, listOf(Filters.of(kinds = listOf(39000), limit = 1))))
+            val answered = withTimeoutOrNull(timeoutMs) { box.done.await() } != null
+            val still = synchronized(lock) { queries.remove(id) != null }
+            if (answered) { if (still) ws.send(closeMsg(id)); return true }
+            if (synchronized(lock) { socket !== ws }) return true // dropped meanwhile: handled there
+            ws.cancel() // → onFailure → dropped(): waiters fail, onDisconnect, reconnect
+            dropped(ws)
+            return false
+        } finally {
+            synchronized(lock) { probing = false }
         }
     }
 

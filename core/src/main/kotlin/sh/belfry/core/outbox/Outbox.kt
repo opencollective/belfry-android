@@ -40,8 +40,10 @@ object Outbox {
     fun nextCreatedAt(last: Long, now: Long = System.currentTimeMillis() / 1000): Long = maxOf(last + 1, now)
 
     /** The line under a message that is not out yet; null once nothing needs saying. */
-    fun stateText(item: OutboxItem): String = when {
+    fun stateText(item: OutboxItem, connected: Boolean = false): String = when {
         item.status == OutboxStatus.FAILED -> "Not sent"
+        // the relay is connected: a send that is tried again says so (web 2026-11-11)
+        item.tries > 0 && connected -> "Sending again…"
         item.tries > 0 -> "Waiting for connection…"
         else -> "Sending…"
     }

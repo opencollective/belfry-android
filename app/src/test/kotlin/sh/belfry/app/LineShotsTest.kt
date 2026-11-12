@@ -102,20 +102,15 @@ class LineShotsTest : DemoShots() {
         compose.waitUntil(10_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().size >= 2 }
     }
 
+    /** No to-do mark on the message any more (web 2026-11-12); the pull-down shows who is working on it now. */
     @Test
-    fun tickingAToDoFromItsMessageMarksItDoneOnce() {
-        started()
-        val (source, task) = world.todosBySource(Demo.GARDEN).entries.first().let { it.key to it.value }
-        compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.GARDEN) } } }
-        val chip = compose.onNodeWithTag("todo-" + task.id)
-        // (The test harness lets the first tap finish before a second one, so the lock against a
-        // double tap is BusyState's, checked in ShellBehaviourTest; here: one tap, one tick.)
-        chip.performClick()
-        compose.waitUntil(10_000) { world.todosBySource(Demo.GARDEN)[source]?.done == true }
-        settle()
-        val ticks = world.all.count { it.kind == 2101 && it.tag("e") == task.id }
-        assertEquals("the to-do was ticked more than once", 1, ticks)
-        // the mark before the reactions (proposal A) says so
-        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("To-do, done", substring = true)).fetchSemanticsNodes().isNotEmpty() }
+    fun aToDoBeingWorkedOnShowsInThePullDown() {
+        val task = world.tasks(Demo.GARDEN).first { it.title.startsWith("Mend") }
+        assertTrue(task.isWorking(NOW))
+        assertEquals(NOW - 14 * 60, task.since)
+        val chat = ChatState(Demo.GARDEN).apply { lineOpen = true }
+        compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.GARDEN, chat = chat) } } }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("Working on it for 14 min")).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue(compose.onAllNodes(hasContentDescription("To-do, ", substring = true)).fetchSemanticsNodes().isEmpty())
     }
 }

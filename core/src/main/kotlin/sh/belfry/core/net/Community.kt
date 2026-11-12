@@ -55,7 +55,18 @@ data class Community(
     val brandPrimary: String? = null,
     /** Its logo (https only). */
     val brandLogo: String? = null,
+    /** Its cover image (https only) and its secondary colour (#rrggbb): badges and highlights. */
+    val brandCover: String? = null,
+    val brandSecondary: String? = null,
 ) {
+    /** The four branding values as the belfry's `/branding` takes them ("" = none). */
+    val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty())
+
+    fun withBranding(b: Branding): Community = copy(
+        brandLogo = b.logo.ifEmpty { null }, brandCover = b.cover.ifEmpty { null },
+        brandPrimary = b.primary.ifEmpty { null }, brandSecondary = b.secondary.ifEmpty { null },
+    )
+
     /** The web chat's link to a channel (the member invite link). */
     fun channelLink(id: String): String = chatUrl + "#/c/" + encodeURIComponent(id)
 
@@ -80,6 +91,9 @@ data class Community(
         put("chatUrl", JsonPrimitive(chatUrl))
         if (belfryPubkey != null) put("belfryPubkey", JsonPrimitive(belfryPubkey))
         if (agents.isNotEmpty()) put("agents", buildJsonObject { agents.forEach { (a, o) -> put(a, JsonPrimitive(o)) } })
+        // kept so the colours and the logo are there before the belfry answers (and offline)
+        val b = branding
+        if (b != Branding()) put("branding", b.toJson())
     }
 
     /** For the offline cache. */
@@ -119,10 +133,7 @@ data class Community(
             fun wss(v: String?): String? = clean(v)?.takeIf { it.startsWith("wss://") || it.startsWith("ws://") }
 
             doc.s("name")?.trim()?.takeIf { it.isNotEmpty() }?.let { c = c.copy(name = it) }
-            doc["branding"].obj()?.let { b ->
-                b.s("primary")?.trim()?.takeIf { Regex("^#[0-9a-fA-F]{6}$").matches(it) }?.let { c = c.copy(brandPrimary = it.lowercase()) }
-                https(b.s("logo"))?.takeIf { it.startsWith("https://") }?.let { c = c.copy(brandLogo = it) }
-            }
+            c = c.withBranding(Branding.clean(doc["branding"].obj()))
             val relays = doc["relays"].obj()
             wss(relays?.s("groups"))?.let { c = c.copy(groupsRelay = it) }
             wss(relays?.s("community"))?.let { c = c.copy(mainRelay = it) }
@@ -174,12 +185,39 @@ data class Community(
                 chatUrl = o.s("chatUrl") ?: d.chatUrl,
                 belfryPubkey = o.s("belfryPubkey")?.takeIf(Hex::isKey),
                 agents = agentsOf(o["agents"].obj()),
-            )
+            ).withBranding(Branding.clean(o["branding"].obj()))
         }
 
         /** `{agent key: member key}`, both 64-hex; anything else dropped. */
         fun agentsOf(o: JsonObject?): Map<String, String> =
             o?.entries?.mapNotNull { (a, v) -> v.str()?.takeIf { Hex.isKey(a) && Hex.isKey(it) }?.let { a to it } }?.toMap() ?: emptyMap()
+    }
+}
+
+/**
+ * The belfry's branding (web core/branding.ts, 2026-11-11): admins set it (Me → Branding,
+ * `POST <api>/branding`), the belfry keeps it in its own key's profile and lists it in
+ * belfry.json `branding`. "" = not set. Addresses are https only, colours `#rrggbb`.
+ */
+data class Branding(val logo: String = "", val cover: String = "", val primary: String = "", val secondary: String = "") {
+    fun toJson(): JsonObject = buildJsonObject {
+        put("logo", JsonPrimitive(logo)); put("cover", JsonPrimitive(cover))
+        put("primary", JsonPrimitive(primary)); put("secondary", JsonPrimitive(secondary))
+    }
+
+    companion object {
+        private val HEX = Regex("^#[0-9a-fA-F]{6}$")
+        private val URL = Regex("^https://[^\\s\"<>]+$")
+        fun isColour(s: String): Boolean = HEX.matches(s)
+        fun isImageUrl(s: String): Boolean = s.length <= 2000 && URL.matches(s)
+
+        /** Only well-formed values survive; anything else reads as not set. */
+        fun clean(o: JsonObject?): Branding = Branding(
+            logo = o?.s("logo")?.trim()?.takeIf(::isImageUrl).orEmpty(),
+            cover = o?.s("cover")?.trim()?.takeIf(::isImageUrl).orEmpty(),
+            primary = o?.s("primary")?.trim()?.takeIf(::isColour)?.lowercase().orEmpty(),
+            secondary = o?.s("secondary")?.trim()?.takeIf(::isColour)?.lowercase().orEmpty(),
+        )
     }
 }
 

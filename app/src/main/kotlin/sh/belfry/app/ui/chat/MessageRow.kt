@@ -69,6 +69,8 @@ import sh.belfry.core.model.Reaction
 import sh.belfry.core.model.Special
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
+import sh.belfry.core.net.RelayState
+import sh.belfry.app.ui.nav.LocalStatus
 import sh.belfry.core.model.ThreadInfo
 import sh.belfry.app.ui.kit.MoreIcons
 import sh.belfry.app.ui.kit.Spinner
@@ -181,11 +183,12 @@ fun MessageRow(
             if (extra.isNotEmpty()) {
                 Text(extra.joinToString("  ") { "#$it" }, fontSize = 13.sp, color = c.orange, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            for (media in m.media) MediaView(media, session, chat)
+            val pictures = if (m.media.size > 1) m.media.filter { it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
+            for (media in m.media) MediaView(media, session, chat, pictures)
             if (pending != null) for (a in pending.attachments) PendingAttachment(a, session, chat)
             val reactions = world.reactionsOf(groupId, m.id)
-            // proposal A (web 2026-11-11): the to-do is a small mark before the reactions
-            if (reactions.isNotEmpty() || todo != null) Reactions(groupId, m, reactions, chat, todo)
+            // no to-do mark here any more (web 2026-11-12): the ⏳ / ☑️ reactions say it
+            if (reactions.isNotEmpty()) Reactions(groupId, m, reactions, chat)
             if (thread != null && thread.count > 0 && onToggleThread != null) {
                 ThreadLine(groupId, m.id, thread, threadOpen, onToggleThread)
             }
@@ -200,49 +203,19 @@ fun MessageRow(
                         )
                     }
                 } else {
-                    Text(Outbox.stateText(pending), fontSize = 13.sp, color = c.faint, modifier = Modifier.padding(top = 2.dp))
+                    Text(Outbox.stateText(pending, LocalStatus.current.groups.let { it == RelayState.UP || it == RelayState.AUTH }), fontSize = 13.sp, color = c.faint, modifier = Modifier.padding(top = 2.dp))
                 }
             }
         }
     }
 }
 
-/**
- * The to-do made from a message, as an 18 dp mark before its reactions (web proposal A): a
- * circle while open, a filled tick once done. Tap to tick it off (or back); it locks and spins
- * while that is sent.
- */
-@Composable
-private fun TodoMark(groupId: String, todo: Task) {
-    val c = Belfry.colors
-    val world = LocalWorld.current
-    val session = LocalSession.current
-    val busy = rememberBusy()
-    val state = if (todo.done) "done" else todo.assignee?.let { "${world.displayName(it)} is on it" } ?: "open"
-    Box(
-        Modifier.size(26.dp).clip(CircleShape)
-            .clickable(enabled = !busy.busy, role = Role.Checkbox, onClickLabel = if (todo.done) "Mark as not done" else "Mark as done") {
-                busy.run { session.send(Actions.taskAction(groupId, todo.id, if (todo.done) "undone" else "done")) }
-            }
-            .semantics { contentDescription = "To-do, $state: ${todo.title}" }
-            .testTag("todo-" + todo.id),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (busy.busy) Spinner(size = 16.dp, color = c.muted)
-        else if (todo.done) Box(Modifier.size(18.dp).clip(CircleShape).background(Color(0xFF16A34A)), contentAlignment = Alignment.Center) {
-            Icon(MoreIcons.Todo, contentDescription = null, tint = c.bg, modifier = Modifier.size(12.dp))
-        }
-        else Box(Modifier.size(18.dp).border(2.dp, if (todo.assignee != null) c.text else c.faint, CircleShape))
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, chat: ChatState, todo: Task? = null) {
+private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, chat: ChatState) {
     val c = Belfry.colors
     val session = LocalSession.current
     FlowRow(Modifier.padding(top = 4.dp, bottom = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (todo != null) TodoMark(groupId, todo)
         for (r in reactions) {
             val busy = rememberBusy()
             val mine = r.mine != null
@@ -322,7 +295,7 @@ internal fun replyPreview(text: String): String =
 
 /** A photo (tap: full screen) or a file (tap: opens its address). */
 @Composable
-private fun MediaView(media: Media, session: Session, chat: ChatState) {
+private fun MediaView(media: Media, session: Session, chat: ChatState, pictures: List<String> = emptyList()) {
     val c = Belfry.colors
     if (!media.isImage) {
         val uri = LocalUriHandler.current
@@ -343,7 +316,7 @@ private fun MediaView(media: Media, session: Session, chat: ChatState) {
     val w = media.w ?: 0
     val h = media.h ?: 0
     val ratio = if (w > 0 && h > 0) (w.toFloat() / h).coerceIn(0.6f, 2.4f) else 4f / 3f
-    PhotoBox(ratio, media.name, onClick = { chat.viewer = ViewerImage(media.url.takeIf { local == null }, local, media.name) }) {
+    PhotoBox(ratio, media.name, onClick = { chat.viewer = ViewerImage(media.url.takeIf { local == null }, local, media.name, pictures, pictures.indexOf(media.url).coerceAtLeast(0)) }) {
         val bitmap = local
         if (bitmap != null) {
             Image(bitmap, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())

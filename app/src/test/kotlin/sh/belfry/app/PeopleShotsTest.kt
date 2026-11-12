@@ -27,6 +27,16 @@ import sh.belfry.core.net.SessionInfo
 
 /** Profiles, Me, sessions, members, messages and e-mail in demo mode. */
 class PeopleShotsTest : DemoShots() {
+    /** Me → Branding (admins): the form with a colour of each kind picked. */
+    @Test fun branding() = demoShot("branding") {
+        Column(Modifier.padding(16.dp)) {
+            sh.belfry.app.ui.people.BrandingForm(
+                sh.belfry.core.net.Branding("https://example.org/logo.png", "", "#2563eb", "#f59e0b"), {}, null, true,
+                sh.belfry.app.ui.kit.rememberBusy(), sh.belfry.app.ui.kit.rememberBusy(), {}, {}, {},
+            )
+        }
+    }
+
     @Test fun profileOther() = demoShot("profile-other") { ProfileScreen(Demo.maya.pubkey) }
 
     @Test fun profileMine() = demoShot("profile-me") { ProfileScreen(session.me) }

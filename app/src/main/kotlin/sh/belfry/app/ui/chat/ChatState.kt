@@ -11,7 +11,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import sh.belfry.core.model.Message
 
 /** A picture opened full screen: a remote address or one decoded on the device. */
-class ViewerImage(val url: String?, val bitmap: ImageBitmap?, val name: String?)
+/**
+ * A photo to show full screen. [more]: the addresses of every picture of the same message, in
+ * order, with this one at [index]: the viewer swipes through them (web lightbox, 2026-11-11).
+ */
+class ViewerImage(val url: String?, val bitmap: ImageBitmap?, val name: String?, val more: List<String> = emptyList(), val index: Int = 0)
 
 /** What is open in one channel (or one thread screen): unfolded threads, sheets, the edit in progress. */
 @Stable

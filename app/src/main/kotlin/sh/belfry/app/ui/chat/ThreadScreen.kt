@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import sh.belfry.core.model.ComposerDraft
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -119,6 +120,8 @@ fun ThreadScreen(
                 }
             },
             modifier = Modifier.navigationBarsPadding(),
+            draftKey = ComposerDraft.thread(rootId),
+            draftPaused = { chat.editing != null },
             photos = editing == null,
             groupId = groupId,
             onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },

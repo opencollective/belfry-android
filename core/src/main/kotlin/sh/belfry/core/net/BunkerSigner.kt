@@ -62,8 +62,10 @@ class SignerRefused(message: String) : Exception(message)
 /**
  * NIP-46 remote signer (SPEC 3): the member's key stays in the belfry's signer; this device holds
  * only a client key. Requests are kind 24133, NIP-44 encrypted JSON-RPC, [timeoutMs] each
- * (connection included); a timeout drops the connection so the next request starts fresh, and
- * throws [SignerTimeout] (the outbox tries again later).
+ * (connection included). A request that gets no answer drops the connection and is asked once
+ * more on a fresh one (a deploy restarts the belfry's proxy and every socket drops; signing or
+ * decrypting twice is harmless: web auth.ts, 2026-11-11); then [SignerTimeout] (the outbox tries
+ * again later).
  *
  * @param clientSecretHex this device's key for the bunker (kept in Keystore-encrypted storage)
  * @param pubkey the member's key if known already (cached so the app opens offline)
@@ -74,7 +76,7 @@ class BunkerSigner(
     pubkey: String?,
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
-    var timeoutMs: Long = 20_000,
+    var timeoutMs: Long = 10_000,
 ) : Signer {
     private val client = LocalSigner(clientSecretHex)
     val clientPubkey: String get() = client.pubkey
@@ -184,7 +186,16 @@ class BunkerSigner(
         }
     }
 
-    private suspend fun request(method: String, params: List<String>): String {
+    private suspend fun request(method: String, params: List<String>): String =
+        try {
+            once(method, params, retry = true)
+        } catch (e: RetryOnFresh) {
+            once(method, params, retry = false)
+        }
+
+    private class RetryOnFresh : Exception()
+
+    private suspend fun once(method: String, params: List<String>, retry: Boolean): String {
         try {
             return withTimeout(timeoutMs) {
                 val r = ensureConnected()
@@ -192,6 +203,7 @@ class BunkerSigner(
             }
         } catch (e: TimeoutCancellationException) {
             reset(null)
+            if (retry) throw RetryOnFresh()
             throw SignerTimeout("timeout: the signer did not answer")
         } catch (e: RelayException) {
             reset(null)
