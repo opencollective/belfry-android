@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -51,7 +53,12 @@ fun WorkRing(since: Long, now: Long, modifier: Modifier = Modifier, size: Dp = 2
 @Composable
 fun rememberNow(everyMs: Long = 30_000): State<Long> {
     val session = LocalSession.current
-    return produceState(session.now(), session) {
-        while (true) { delay(everyMs); value = session.now() }
+    val now = remember(session) { mutableLongStateOf(session.now()) }
+    LaunchedEffect(session, everyMs) {
+        while (true) {
+            delay(everyMs)
+            now.longValue = session.now()
+        }
     }
+    return now
 }

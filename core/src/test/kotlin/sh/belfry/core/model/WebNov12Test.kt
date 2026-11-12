@@ -126,7 +126,7 @@ class WebNov12Test {
         assertEquals("Give the page an address: two letters or more.", w().webSlugProblem(help, "h"))
         assertEquals("example.org/events is taken by example.org itself: pick another address.", w().webSlugProblem(help, "events"))
         assertEquals("example.org/garden is the page of #Garden: pick another address.", w().webSlugProblem(help, "garden"))
-        assertNull(w().webSlugProblem(help, "help"))
+        assertNull(w().webSlugProblem(help, "helpdesk"))
         assertNull(w().webSlugProblem(w().group(g)!!, "garden"))
     }
 
