@@ -24,6 +24,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import sh.belfry.app.ui.kit.Avatar
+import sh.belfry.app.ui.kit.LocalNetworkImages
+import sh.belfry.core.engine.Session
+import sh.belfry.core.model.Media
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -130,6 +138,7 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
                     "events" -> Icon(BelfryIcons.Calendar, null, tint = c.faint, modifier = Modifier.size(13.dp))
                     "proposals" -> Icon(BelfryIcons.Proposal, null, tint = c.faint, modifier = Modifier.size(13.dp))
                     "pods" -> PodShape(6, size = 13.dp, color = c.faint)
+                    "photos" -> Icon(BelfryIcons.Image, null, tint = c.faint, modifier = Modifier.size(13.dp))
                     else -> Icon(MoreIcons.Todo, null, tint = c.faint, modifier = Modifier.size(13.dp))
                 }
                 Spacer(Modifier.width(3.dp))
@@ -181,6 +190,11 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
     val close = { chat.lineOpen = false }
     val go: (String) -> Unit = { close(); nav.go(it) }
     Column(modifier.fillMaxWidth().background(c.bg).verticalScroll(rememberScrollState()).padding(bottom = 4.dp).testTag("pull-down")) {
+        // the description first (web 2026-11-12): its first line, plain
+        val about = g.about.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().replace(Regex("[*_`#>]"), "").take(200)
+        if (about.isNotEmpty()) {
+            Text(about, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 2.dp).testTag("pull-about"))
+        }
         val parent = g.parent?.let { world.group(it) }
         if ((g.isPod || g.isProposal) && parent != null) {
             Text(
@@ -241,7 +255,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
             }
         }
         if (f.todos.isNotEmpty()) {
-            PullTitle("To do", f.todos.size)
+            PullTitle("To do", f.todosDone, of = f.todosAll)
             // a to-do opens its thread (the message it was made from), like the web
             for (t in f.todos.take(4)) TodoRow(groupId, t, onOpen = { go(t.source?.let { Routes.thread(groupId, it) } ?: Routes.channelInfo(groupId)) })
             if (f.todos.size > 4) LinkText("All ${f.todos.size} to-dos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.channelInfo(groupId)) }
@@ -275,35 +289,72 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
                 for (t in topics) Chip("#$t", selected = chat.topic == t, onClick = { chat.topic = if (chat.topic == t) null else t; close() })
             }
         }
+        if (f.photos.isNotEmpty()) PhotosRow(f.photos, chat) { go(Routes.files(groupId)) }
+        PullTitle("Members", f.members.size)
+        FacesRow(f.members) { go(Routes.profile(it)) }
+        FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            LinkText("All members") { go(Routes.channelInfo(groupId)) }
+            if (f.files > 0) LinkText("${f.files} ${if (f.files == 1) "file" else "files"}") { go(Routes.files(groupId)) }
+            if (f.todosAll > 0) LinkText("To-dos") { go(Routes.channelInfo(groupId)) }
+            LinkText("More") { go(Routes.channelInfo(groupId)) }
+        }
         Spacer(Modifier.height(6.dp))
-        Hairline()
-        Row(
-            Modifier.fillMaxWidth().clickable(role = Role.Button) { go(Routes.channelInfo(groupId)) }.padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(BelfryIcons.Users, null, tint = c.muted, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(peopleLine(f.active.size), fontSize = 14.sp, color = c.text)
-                Text("Members, files, settings", fontSize = 12.sp, color = c.muted)
+    }
+}
+
+/** The latest photos on one row (a tap opens the viewer, which swipes through them), then the channel's files. */
+@Composable
+private fun PhotosRow(photos: List<Media>, chat: ChatState, onAll: () -> Unit) {
+    val c = Belfry.colors
+    val session = LocalSession.current
+    val network = LocalNetworkImages.current
+    val shown = photos.take(6)
+    val urls = photos.take(24).map { it.url }.filter { it.startsWith("https://") && !it.startsWith(Session.LOCAL_BLOB) }
+    PullTitle("Photos", photos.size)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("pull-photos"), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (m in shown) {
+            Box(
+                Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(6.dp)).background(c.surface2)
+                    .clickable(role = Role.Image, onClickLabel = "Open the photo") {
+                        if (m.url.startsWith(Session.LOCAL_BLOB)) onAll()
+                        else chat.viewer = ViewerImage(m.url, null, m.name, urls, urls.indexOf(m.url).coerceAtLeast(0))
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (network && m.url.startsWith("https://") && !m.url.startsWith(Session.LOCAL_BLOB)) {
+                    AsyncImage(model = m.url, contentDescription = m.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    Icon(BelfryIcons.Image, contentDescription = m.name ?: "Photo", tint = c.faint, modifier = Modifier.size(18.dp))
+                }
             }
-            Icon(BelfryIcons.Chevron, null, tint = c.faint, modifier = Modifier.size(18.dp))
         }
-        val about = g.about.lineSequence().firstOrNull().orEmpty().take(200)
-        if (about.isNotEmpty()) {
-            MarkdownText(about, rich = false, color = c.muted, fontSize = 13.sp, maxLines = 3, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+        repeat(6 - shown.size) { Spacer(Modifier.weight(1f)) }
+    }
+    if (photos.size > shown.size) LinkText("All ${photos.size} photos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), onAll)
+}
+
+/** Members as a row of faces (a tap opens the profile), "+N" for the rest. */
+@Composable
+private fun FacesRow(members: List<String>, onProfile: (String) -> Unit) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val shown = members.take(8)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("pull-faces"), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (p in shown) {
+            Avatar(world.face(p), Modifier.clip(CircleShape).clickable(role = Role.Button, onClickLabel = world.displayName(p)) { onProfile(p) }, size = 30.dp)
         }
+        if (members.size > shown.size) Text("+${members.size - shown.size}", fontSize = 13.sp, color = c.muted)
     }
 }
 
 @Composable
-private fun PullTitle(text: String, count: Int? = null) {
+private fun PullTitle(text: String, count: Int? = null, of: Int? = null) {
     val c = Belfry.colors
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp)) {
         Text(text, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted)
         if (count != null) {
             Spacer(Modifier.width(6.dp))
-            Text(count.toString(), fontSize = 13.sp, color = c.faint)
+            Text(count.toString() + (of?.let { "/$it" } ?: ""), fontSize = 13.sp, color = c.faint)
         }
     }
 }

@@ -90,6 +90,11 @@ class ChannelFacts(
     val active: List<Active>,
     /** The proposal this channel is the chat of. */
     val own: Proposal?,
+    /** Its members (web 2026-11-12: the line counts them, the pull-down shows their faces). */
+    val members: List<String> = emptyList(),
+    /** Every picture posted here, newest first, each address once; and how many other files (videos left out). */
+    val photos: List<Media> = emptyList(),
+    val files: Int = 0,
 )
 
 private val OPEN_STATUS = setOf(ProposalStatus.DRAFT, ProposalStatus.FEEDBACK, ProposalStatus.VOTING)
@@ -99,7 +104,12 @@ fun World.needsMyVote(p: Proposal): Boolean = p.votingNow && p.poll?.votes?.get(
 fun World.channelFacts(groupId: String, now: Long): ChannelFacts {
     val g = group(groupId)
     val subs = groups.filter { it.parent == groupId }
+    val media = files(groupId).distinctBy { it.url }
+    val photos = media.filter { it.isImage }
     return ChannelFacts(
+        members = g?.members?.toList() ?: emptyList(),
+        photos = photos,
+        files = media.size - photos.size - media.count { it.mime.startsWith("video/") },
         group = g,
         pods = subs.filter { it.isPod },
         proposals = subs.filter { it.isProposal }.mapNotNull { proposalFor(it.id) }.filter { it.status in OPEN_STATUS },
@@ -166,6 +176,8 @@ fun World.lineWhen(e: CalEvent): String = when {
 private fun World.dayAt(e: CalEvent, now: Long): String = lineDay(e.start, now) + if (e.allDay) "" else " " + lineTime(e.start)
 
 fun peopleLine(n: Int): String = if (n > 0) "$n ${if (n == 1) "person" else "people"} active this month" else "Nobody active this month yet"
+/** "12 members": what the line says when nothing else needs saying (web 2026-11-12). */
+fun membersLine(n: Int): String = "$n ${if (n == 1) "member" else "members"}"
 
 private fun membersWord(n: Int) = "$n ${if (n == 1) "member" else "members"}"
 private fun cap(s: String) = s.replaceFirstChar { it.uppercase() }
@@ -179,13 +191,13 @@ fun World.pinLine(m: Message): String =
  * The line, picked in this order: the topic the feed is filtered on; (a proposal's chat: its
  * state); what needs me (people asking to join a pod I administer, a vote I have not cast, an
  * event within 7 days I have not answered); a pinned message I did not hide; the next event; an
- * open proposal; (a pod: its members); else how many people were active this month.
+ * open proposal; (a pod: its members); else how many members it has.
  */
 fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenPins: Set<String> = emptySet()): ChannelLine {
     val f = channelFacts(groupId, now)
     val g = f.group
     var shown = ""
-    var line = ChannelLine(LineIcon.PEOPLE, "", peopleLine(f.active.size), quiet = true)
+    var line = ChannelLine(LineIcon.PEOPLE, "", membersLine(f.members.size), quiet = true)
 
     val pin = f.pins.firstOrNull { it.id !in hiddenPins }
     val next = f.events.firstOrNull()
@@ -225,6 +237,7 @@ fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenP
         LineCount("events", f.events.size - if (shown == "event") 1 else 0, shown == "event", "more events"),
         LineCount("proposals", f.proposals.size - if (shown == "proposal") 1 else 0, shown == "proposal", "more open proposals"),
         LineCount("pods", f.pods.size, false, "pods"),
+        LineCount("photos", f.photos.size, false, "photos"),
         LineCount("todos", f.todosDone, false, "to-dos done of ${f.todosAll}", of = f.todosAll),
     ).filter { it.n > 0 || (it.of ?: 0) > 0 }
     return line.copy(counts = counts)

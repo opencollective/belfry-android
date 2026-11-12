@@ -104,7 +104,7 @@ class ChannelLineTest {
         var line = world(events).channelLine(g, now)
         assertEquals(LineIcon.PEOPLE, line.icon)
         assertTrue(line.quiet)
-        assertEquals("2 people active this month", line.text)
+        assertEquals("2 members", line.text)
         // a topic filter says so first
         assertEquals(LineAction.ShowAll, world(events).channelLine(g, now, topic = "seeds").action)
         // an open proposal (draft: nothing to vote)

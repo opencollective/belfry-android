@@ -23,6 +23,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Core tests (shared vectors)
         run: ./gradlew :core:test --stacktrace
+      - name: Upload the timings (PerfTest; relative numbers, a CI runner is not a phone)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf
+          path: core/build/perf.txt
+          if-no-files-found: ignore
       - name: Upload the test report
         if: failure()
         uses: actions/upload-artifact@v4
