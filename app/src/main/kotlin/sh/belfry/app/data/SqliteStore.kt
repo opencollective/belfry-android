@@ -129,11 +129,35 @@ class SqliteStore(context: Context, name: String? = "belfry.db") : Store {
         db.insertWithOnConflict("blobs", null, v, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    /**
+     * Read a megabyte at a time: Android gives a query's rows through a window of about 2 MB, so a
+     * bigger blob (half an hour of audio is 11 MB) cannot be read in one piece.
+     */
     @Synchronized
     override fun blob(key: String): ByteArray? {
-        db.rawQuery("SELECT bytes FROM blobs WHERE key = ?", arrayOf(key)).use { c ->
-            return if (c.moveToFirst()) c.getBlob(0) else null
+        val size = db.rawQuery("SELECT length(bytes) FROM blobs WHERE key = ?", arrayOf(key)).use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else return null
         }
+        if (size <= BLOB_STEP) {
+            db.rawQuery("SELECT bytes FROM blobs WHERE key = ?", arrayOf(key)).use { c ->
+                return if (c.moveToFirst()) c.getBlob(0) else null
+            }
+        }
+        if (size > Int.MAX_VALUE) return null
+        val out = ByteArray(size.toInt())
+        var at = 0
+        while (at < out.size) {
+            val n = minOf(BLOB_STEP, out.size - at)
+            // substr counts from 1
+            db.rawQuery("SELECT substr(bytes, ?, ?) FROM blobs WHERE key = ?", arrayOf((at + 1).toString(), n.toString(), key)).use { c ->
+                if (!c.moveToFirst()) return null
+                val piece = c.getBlob(0) ?: return null
+                if (piece.size != n) return null
+                System.arraycopy(piece, 0, out, at, n)
+            }
+            at += n
+        }
+        return out
     }
 
     @Synchronized
@@ -175,6 +199,10 @@ class SqliteStore(context: Context, name: String? = "belfry.db") : Store {
     }
 
     fun close() = helper.close()
+
+    private companion object {
+        const val BLOB_STEP = 1024 * 1024
+    }
 }
 
 /** One SQLite database per account ([sh.belfry.core.engine.Slots.database]): `belfry.db` for the first, `belfry-a2.db`… */

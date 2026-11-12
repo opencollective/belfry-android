@@ -24,6 +24,22 @@ class DataTest {
     private fun ev(id: String, kind: Int, at: Long, content: String = "hi") =
         Event(id, "ab".repeat(32), at, kind, listOf(listOf("h", "general"), listOf("t", "é\"x")), content, "00".repeat(64))
 
+    /** Half an hour of audio is 11 MB; Android reads a row through a window of about 2 MB. */
+    @Test
+    fun aBigBlobIsReadWhole() {
+        val store = SqliteStore(ApplicationProvider.getApplicationContext(), name = null)
+        val big = ByteArray(3 * 1024 * 1024 + 123) { (it * 31 + it / 1000).toByte() }
+        store.putBlob("big", big)
+        assertArrayEquals(big, store.blob("big"))
+        val exact = ByteArray(1024 * 1024) { it.toByte() }
+        store.putBlob("exact", exact)
+        assertArrayEquals(exact, store.blob("exact"))
+        store.putBlob("empty", ByteArray(0))
+        assertArrayEquals(ByteArray(0), store.blob("empty"))
+        assertNull(store.blob("none"))
+        store.close()
+    }
+
     @Test
     fun sqliteStoreRoundTrip() {
         val store = SqliteStore(ApplicationProvider.getApplicationContext(), name = null)

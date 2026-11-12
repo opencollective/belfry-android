@@ -74,5 +74,7 @@ object MoreIcons {
 
     /** A to-do: a ticked box. */
     val Todo by lazy { icon("todo", "M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z", "M8.5 12.5l2.5 2.5 4.5-5.5") }
+    /** A microphone (audio recording). */
+    val Mic by lazy { icon("mic", "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z", "M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6") }
     val ChevronUp by lazy { icon("chevron-up", "M6 15l6-6 6 6") }
 }

@@ -263,6 +263,8 @@ fun ChannelScreen(
             }
         }
 
+        // a recording that runs, or one that was not posted (the web's RecordingBar)
+        RecordingBar(groupId)
         SaveAccountBar(session)
         val readOnly = g != null && g.isPod && g.closed && world.me !in g.members
         val editing = chat.editing
@@ -347,7 +349,8 @@ fun ChannelScreen(
         onOpenThread = { m -> openThread(m.id) },
         onEdit = startEdit,
     )
-    if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false }, onTodo = { chat.newTodo = true })
+    if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false }, onTodo = { chat.newTodo = true }, onRecord = { chat.recorderOpen = true })
+    if (chat.recorderOpen) RecorderSheet(groupId, onClose = { chat.recorderOpen = false })
     if (chat.newTodo) BelfrySheet(onDismiss = { chat.newTodo = false }, title = "New todo") { NewTodoContent(groupId, onDone = { chat.newTodo = false }) }
     chat.viewer?.let { ImageViewer(it) { chat.viewer = null } }
 }
@@ -426,15 +429,18 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
 
 /** ＋ : what can be added to the conversation, as a Discord-style list. */
 @Composable
-private fun PlusSheet(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, onTodo: () -> Unit) {
+private fun PlusSheet(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, onTodo: () -> Unit, onRecord: () -> Unit) {
     val nav = LocalNav.current
-    BelfrySheet(onDismiss = onClose) { PlusSheetContent(groupId, admin, composer, onClose, nav::go, onTodo) }
+    BelfrySheet(onDismiss = onClose) { PlusSheetContent(groupId, admin, composer, onClose, nav::go, onTodo, onRecord) }
 }
 
 @Composable
-fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, go: (String) -> Unit, onTodo: (() -> Unit)? = null) {
+fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, go: (String) -> Unit, onTodo: (() -> Unit)? = null, onRecord: (() -> Unit)? = null) {
     ActionGroup {
         ActionRow("Photos", onClick = { onClose(); composer.pickPhotos?.invoke() }, icon = BelfryIcons.Image)
+        if (onRecord != null) {
+            ActionRow("Audio recording", onClick = { onClose(); onRecord() }, icon = MoreIcons.Mic, sub = "Record here; kept on this device until it is posted", modifier = Modifier.testTag("plus-record"))
+        }
     }
     Spacer(Modifier.height(12.dp))
     ActionGroup {

@@ -32,6 +32,8 @@ class ChatState(val groupId: String) {
     var deleting by mutableStateOf<Message?>(null)
     var viewer by mutableStateOf<ViewerImage?>(null)
     var plusOpen by mutableStateOf(false)
+    /** ＋ → Audio recording: the recorder's sheet. */
+    var recorderOpen by mutableStateOf(false)
     /** The "New to-do" sheet. */
     var newTodo by mutableStateOf(false)
     /** The summary line under the channel's name is pulled down. */
