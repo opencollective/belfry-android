@@ -414,7 +414,7 @@ class Onboarding(
         found
     }
 
-    private fun reopen(rec: AccountRecord): Session? {
+    private suspend fun reopen(rec: AccountRecord): Session? {
         val s = saved(rec.slot) ?: return null
         if (AccountList.id(s.community.domain, s.pubkey) != rec.id) return null
         if (s.demo) {
