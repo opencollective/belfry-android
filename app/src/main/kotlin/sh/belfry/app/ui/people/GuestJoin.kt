@@ -70,6 +70,7 @@ fun GuestBar(groupId: String, modifier: Modifier = Modifier) {
     val session = LocalSession.current
     val guest by session.guest.collectAsState()
     if (guest?.reading != true) return
+    val label = channelLabel(groupId)
     Column(modifier.fillMaxWidth().background(c.surface).testTag("guest-bar")) {
         Hairline()
         Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -77,7 +78,7 @@ fun GuestBar(groupId: String, modifier: Modifier = Modifier) {
                 buildAnnotatedString {
                     withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("Guest mode") }
                     append(" · ")
-                    append(GuestMode.barLine(channelLabel(groupId)))
+                    append(GuestMode.barLine(label))
                 },
                 fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f),
             )

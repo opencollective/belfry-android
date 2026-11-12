@@ -153,7 +153,8 @@ private fun OpenAfterSignIn(state: AppState) {
     val open = state.openAfter.collectAsState().value ?: return
     val session = LocalSession.current
     val nav = LocalNav.current
-    if (open.first != session.community.domain || session.guest.value?.reading == true) return
+    val guest by session.guest.collectAsState()
+    if (open.first != session.community.domain || guest?.reading == true) return
     LaunchedEffect(open) {
         state.forgetOpenAfter()
         nav.openChannel(open.second)

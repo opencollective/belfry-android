@@ -451,10 +451,12 @@ class EngineTest {
         assertFailsWith<ActionException> { s.setFollow("garden", "asap") }
         s.markSeen("garden") // silently nothing
         assertTrue(s.store.outbox().isEmpty())
+    }
 
-        // joining: name and e-mail are required in guest mode, checked before any request
-        assertEquals("name_needed", assertFailsWith<GuestJoinException> { s.guestSave("ana@example.org", " ") }.code)
-        assertEquals("invalid", assertFailsWith<GuestJoinException> { s.guestSave("ana", "Ana") }.code)
+    /** Joining from guest mode against a belfry (the session signs NIP-98 with a local key here). */
+    @Test
+    fun guestModeJoinAgainstTheBelfry() = runBlocking<Unit> {
+        val srv = server()
         srv.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when (request.path) {
                 "/api/v1/guest/save" -> MockResponse().setResponseCode(202).setBody("""{"sent":true}""")
@@ -464,13 +466,27 @@ class EngineTest {
                 else -> MockResponse().setResponseCode(404).setBody("{}")
             }
         }
+        val c = Community.defaults("example.org").copy(apiBase = srv.url("/api/v1").toString())
+        val s = Session(c, MemoryStore(), LocalSigner.random(), http, scope, false, { 1_800_000_000 }, GuestInfo("garden", saved = false, reading = true), ZoneOffset.UTC).also { sessions.add(it) }
+        var record: GuestInfo? = null
+        s.onRecordChanged = { _, g -> record = g }
+        // name and e-mail are required in guest mode, checked before any request
+        assertEquals("name_needed", assertFailsWith<GuestJoinException> { s.guestSave("ana@example.org", " ") }.code)
+        assertEquals("invalid", assertFailsWith<GuestJoinException> { s.guestSave("ana", "Ana") }.code)
+        assertEquals(0, srv.requestCount)
         s.guestSave("ana@example.org", "  Ana   Lima ")
+        assertEquals("""{"email":"ana@example.org","name":"Ana Lima"}""", srv.takeRequest().body.readUtf8())
         assertEquals("wrong_code", assertFailsWith<GuestJoinException> { s.guestVerify("ana@example.org", "111111", "Ana Lima") }.code)
+        srv.takeRequest()
         assertTrue(s.reading)
         s.guestVerify("ana@example.org", "123456", "Ana Lima")
+        assertEquals("""{"email":"ana@example.org","code":"123456","name":"Ana Lima"}""", srv.takeRequest().body.readUtf8())
         assertFalse(s.reading)
         assertEquals(true, s.guest.value?.saved)
-        assertFalse(on.resume()!!.reading)
+        assertEquals(false, record?.reading) // the app saves it with the session
+        // writing works now (queued on the device)
+        s.postMessage("garden", "Hello!")
+        assertEquals(1, s.store.outbox().size)
     }
 
     @Test
