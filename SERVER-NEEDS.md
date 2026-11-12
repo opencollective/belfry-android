@@ -134,3 +134,18 @@ same event.
 - **A channel's slug address** (`bugs@` for `bugs-c3e5`): the app shows it when exactly one
   channel answers to the slug, as the web does; it trusts `mail.channel_by_slug` to resolve it
   the same way.
+
+## 11. Meetings (from the Android meetings work, 2026-11-12; none blocking)
+
+- **`POST /meeting-guests` right after the meeting is made** answers `no_channel` / `not_host`
+  until the relay has the chat and its admin list: the app tries six times over ~15 s, as the
+  web does. An answer that says "not yet" apart from "never" (e.g. 425) would let it wait
+  exactly as long as needed.
+- **A held account's name.** The app shows the `name` of the 9000 the belfry publishes; the
+  answer of `/meeting-guests` could carry it too (`{"pubkey","name"}`) so the row is right
+  before the relay delivers the join.
+- **Who may check people in** is every host on the client (labels by the chat's admins and its
+  creator count). The relay accepts kind 1985 from any member of the chat; fine as long as
+  readers filter by host, which both clients do.
+- **Old belfries**: a 404 without an `error` key reads "This belfry can’t make accounts for
+  people yet." (members can still be invited by their faces).

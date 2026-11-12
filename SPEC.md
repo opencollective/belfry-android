@@ -1100,3 +1100,106 @@ extras, calendar and proposals, are `prev`'s own objects. Anything else: everyth
 again. `World.feedKey(channel)` is equal across such snapshots for an untouched channel; the
 channel screen draws its rows from the snapshot it has until the key changes. The result must be
 identical with and without `prev` (`WorldCarryTest`: 400 random steps compared view by view).
+
+### 19.23 The second pass of 2026-11-12 (chat-source c6579a0, collective-belfry 60c82bf)
+
+For the iPhone app to port; the web's code is the reference for each.
+
+- **Form drafts** (web `useFormDraft`, 5ccc71f). A new event, proposal, todo, channel and meeting
+  keep their fields on the device until sent: store key `form:<key>`, value
+  `{"at": <unix s>, "v": {field: text}}`, thirty days. Keys: `event:<visibility>`,
+  `proposal:<parent>`, `todo:<channel>`, `channel`, `meeting:<channel>`. Not for an edit, not
+  for a proposal made from a request. The fields as the form opened are not written; only what
+  changes after. Sending forgets them.
+- **An edit and the channel's draft.** Editing borrows the message box. When the edit is sent
+  or cancelled, empty the box *while the edit is still open*, then end the edit: the draft's
+  keeper is paused during an edit, so it never takes the emptied box for an emptied draft, and
+  the channel's own draft comes back into the box.
+- **"Todo"**, not "To-do", in everything a person reads ("New todo", "Turn into a todo", "Add a
+  todo…", "made a todo", the Todos tab). The to-do mark on a message is gone (the ⏳ / ☑️
+  reactions say it); the web's own code has no clock reaction besides ⏰ in the emoji picker.
+- **Photo viewer.** Pinch zooms (1× to 5×), one finger moves a zoomed photo, a double tap zooms
+  to 2.5× on the spot tapped and back, a pull down of more than 120 pt closes (the black fades
+  with the pull). Zoomed: no page turn; a single tap shows the photo whole before it closes.
+- **The pull-down's second level** (web ChannelHeader level 2, ChannelLine `full`). Three
+  levels: closed, open, all the way. The handle steps closed → open → all the way → closed; a
+  drag down goes a level further, up a level back; "More" and "All todos" go all the way; back
+  goes one level up. All the way = the same summary, as tall as the feed: the latest 20 todos
+  (newest first; open ones, then done ones; a done one can be reopened) with "Add a todo…",
+  12 photos as a mosaic, up to 24 faces with names, then About in its compact form (the whole
+  description when it has more than one line, Invite people · Settings, a pod's Leave / Join,
+  the e-mail line, the web page, the id). Order of the summary: description, parent, pinned,
+  coming up, to decide, to do, pods, photos, members and its links (All members, N files,
+  Todos, Log, More), topics.
+- **Channel info** (web ChannelInfo.tsx). Tabs About, Members, Todos, Files, Log. A gear in the
+  top bar for the channel's admins opens the settings. About has no boxes: description;
+  "**active/members** active members · Invite" (faces of the six most recently active; a tap
+  opens Members); a pod: "Pod in <parent> · closed: apply, admins admit | open: any member
+  joins", its question, Leave pod / Join pod; "✉️ Members can e-mail **<slug>@<domain>**: their
+  mail shows as their message." (inbox on: "Anyone can e-mail …: mails land here as cards, and
+  the channel's admins answer as the channel."); "Public | Members only · web page:
+  <domain>/<slug>"; "Channel id <id>".
+- **Log.** Every event with the channel's `h`, newest first, at most 1000, a section per day,
+  the days as chips that jump. A line: an icon, **who** what, a short detail, the time; a tap
+  unfolds the whole detail, the full date and "Go there". Who = the member's name, or the
+  community's name for the key that signed the channel's 39000 (the relay). Words by kind
+  (Android: `core/model/ChannelLog.kt`, tested line by line):
+  9 → "posted a message" 💬 (with `pod`: "created a pod" ⬡; `proposal`: "made a proposal" 📄;
+  imeta `m audio/…`: "posted a recording" 🎙; `image/…`: "posted a photo" / "posted N photos"
+  🖼; other imeta: "posted a file" 📎; `mail-from`: "an e-mail came in" ✉️); 1111 "replied in a
+  thread" ↩️; 1010 "edited a message" ✏️; 7 "reacted" (its emoji when ≤ 4 UTF-16 units and not
+  "+", else 👍); 5 / 9005 "deleted something" 🗑 (`k` = 7: "took back a reaction"); 2100 "made a
+  todo" ☑️; 2101 by `action`: claim "took a todo", unclaim "let go of a todo", done "marked a
+  todo done" ✅, undone "reopened a todo", delete "deleted a todo" (working / idle: no line);
+  2103 "commented on a todo"; 9000 "added someone" 👋 (a `p` with role admin: "made someone an
+  admin"); 9001 "removed someone" 🚪; 9021 "asked to join" 🙋; 9022 "left" 🚪; 9002 "changed the
+  channel" ⚙️; 9007 "created the channel" ✨; 1985 by its `l`: pinned / unpinned 📌 "pinned |
+  unpinned a message", attended ✅ "checked someone in", absent "marked someone not there",
+  saved "saved their account", member "became a member", cancelled "cancelled the event",
+  scheduled "reopened the event", assigned "assigned a mail", done "closed a mail", open
+  "reopened a mail", `L` = `#t` "changed the pinned topics", else "labelled something <l>" 🏷;
+  30078 "changed a setting" ⚙️ (`d` = `seen:…`: no line); 31922 / 31923 "set the event" 📅 (`t`
+  = meeting: "set the meeting" 👥); 31925 "answered going | can't go | maybe"; anything else
+  "kind <n>" •. "Go there": the message in the channel (9, 1010, 7 and labels with an `e`), the
+  thread (1111: its `E`), the Todos tab (2100–2103), the Members tab (9000, 9001).
+- **Developer mode** (Me, for people who administer something; a flag on the device): in the
+  Log a channel's admins get "Inspect the Nostr event": the event as indented JSON, and Copy.
+- **Meetings** (web core/meetings.ts, ui/Meeting.tsx; 78d7424, 2215f2a, 6029788). ＋ → Meeting
+  (not for guests). A meeting is a Belfry event (19.18) whose NIP-52 event also carries
+  `["t","meeting"]`, `["channel",<the channel it was made from>]` and one
+  `["p",<pubkey>,"","invited"]` per person invited; visibility `members`; no slug. Its chat
+  `ev-<d>` is made `closed` (no ticket) and each member invited is put in it:
+  `9000 [["h","ev-<d>"],["p",<pubkey>,"member"]]` by the maker. **Every later version of the
+  event must keep those three kinds of tags** (an edit from the event form included).
+  - Form: topic (≤ 200), people, when (the next full hour), how long (30, 45, 60, 90, 120 min;
+    "45 min", "1 h", "1 h 30"), where (default: the place of my last meeting, else of my last
+    event; chips: the last five meeting places; "Add a video link" = a Jitsi link from the
+    topic). People: a grid of faces, the 12 first of: most recently active in the channel,
+    then in its parent, then their members, never me; a tap picks or unpicks. "+" asks "Name or
+    e-mail", lists up to six members whose name matches ("Already here:"), then asks for the
+    other of the two (optional). An address alone takes the part before its @ as the name.
+  - People who are not on the belfry: after the meeting's events are queued,
+    `POST <api>/meeting-guests {"channel":"ev-<d>","name","email"?}` (NIP-98, a member who is an
+    admin of that chat) → `{"pubkey","held"?,"member"?}`; the belfry puts them in the chat
+    (a 9000 with `invited-by`, `name`, and `unsaved` when there is no e-mail). Tried up to six
+    times, 1 s to 5 s apart, while the belfry answers `no_channel`, `not_host`, `signer` or
+    there is no connection (the chat may not be on the relay yet). Then one new version of the
+    event with their `p … invited` tags. Errors (fixed messages): 422 `invalid`, 403 `not_host`
+    / `guest`, 404 `no_channel`, 409 `unsupported`, 503 `signer`.
+  - On the event's page, under when and where: "People · N · M there": the maker, the invited
+    and whoever answered; under each name "There", else their RSVP, else "Host", else
+    "Invited", plus "· account held by you" for a name-only account I made (a guest join in
+    that chat with `unsaved`, `invited-by` = me). A host sees per person a button "Confirm"
+    ("Check in" from an hour before the start; "✓ There" once marked): kind 1985 in the chat,
+    `[["h",<chat>],["L","belfry/attendance"],["l","attended"|"absent","belfry/attendance"],
+    ["p",<pubkey>],["a",<coord>]]`; the latest label per person by a host counts. Hosts also
+    add someone by name (the call above, then 9000 + a new version) and "Hand over" an account
+    they hold: `POST <api>/meeting-guests/transfer {"pubkey","email"}` → `{"transferred":true}`
+    (409 `not_yours` / `has_email` / `taken`).
+  - Elsewhere: the page's subtitle "Meeting · members only"; rows say "Meeting" and "N people"
+    (maker + invited + who answered) instead of "N going"; "Your events" includes meetings I am
+    invited to; made from a channel's ＋, its URL goes into that channel's message box.
+- **Audio in messages** (59c4b10). An attachment whose imeta `m` starts with `audio/` is a
+  player in the feed: play / pause, position / length, one at a time, nothing fetched before
+  play. The web records Opus in WebM (Chrome, Firefox) or AAC in MP4 (Safari): play both.
+  Recording itself is not in the Android app yet (PARITY.md says why).

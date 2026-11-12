@@ -297,6 +297,11 @@ internal fun replyPreview(text: String): String =
 @Composable
 private fun MediaView(media: Media, session: Session, chat: ChatState, pictures: List<String> = emptyList()) {
     val c = Belfry.colors
+    // a recording plays here (web 2026-11-12); one still on this device only (not sent yet) is a file row
+    if (media.mime.startsWith("audio/") && media.url.startsWith("https://") && !media.url.startsWith(Session.LOCAL_BLOB)) {
+        AudioRow(media)
+        return
+    }
     if (!media.isImage) {
         val uri = LocalUriHandler.current
         val shape = RoundedCornerShape(10.dp)

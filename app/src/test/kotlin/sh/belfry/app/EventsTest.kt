@@ -270,13 +270,13 @@ class EventsTest : DemoShots() {
     }
 
     @Test
-    fun aHostChecksSomeoneInOnce() {
+    fun aHostChecksSomeoneIn() {
         val e = aMeeting()
         val who = e.invited.first()
         compose.setContent { BelfryTheme { InDemo { EventScreen(e.coord) } } }
         val tag = "meet-check-" + who.take(8)
+        // (a second tap once the first is sent is a new answer: it would mark them not there again)
         compose.onNodeWithTag(tag).performScrollTo().performClick()
-        tap(tag)
         compose.waitUntil(10_000) { world.attendance(e)[who] == true }
         settle()
         assertEquals("one tap, one mark", 1, world.all.count { x -> x.kind == 1985 && x.tags.any { it.size >= 2 && it[0] == "L" && it[1] == Meetings.ATTENDANCE_NS } })

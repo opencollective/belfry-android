@@ -14,6 +14,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
 import sh.belfry.app.ui.theme.BelfryTheme
 import sh.belfry.app.ui.chat.ChannelScreen
 import sh.belfry.app.ui.chat.ChatState
@@ -207,5 +209,13 @@ class ShellShotsTest : DemoShots() {
         check(rows.any { it.item is FeedItem.Join }) { "no guest join in #general" }
         check(world.threadsOf(general).isNotEmpty()) { "no thread in #general" }
         check(world.outboxItems.isNotEmpty()) { "no queued item" }
+    }
+
+    /** A recording in a message: play / pause, how far it is (nothing is loaded before it is played). */
+    @Test
+    fun audioRow() = demoShot("audio-row") {
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.padding(16.dp)) {
+            sh.belfry.app.ui.chat.AudioRow(sh.belfry.core.model.Media("https://blossom.belfry.example/abc.m4a", "audio/mp4", "Garden meeting, part 1.m4a"))
+        }
     }
 }

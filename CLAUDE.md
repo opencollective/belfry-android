@@ -73,7 +73,8 @@ minSdk 26, JDK 17.
   - info: `ui/info/InfoRoutes.kt` → search, channel info, invite, topics, files, drop link, follow.
   - people: `ui/people/PeopleRoutes.kt` → profile, me, sessions, members, messages,
     conversation, new conversation; and `ui/people/SaveAccountBar.kt` (shown above the composer).
-  - cards: `ui/cards/CardsRoutes.kt` → events, event, pod, proposal, the four create screens;
+  - cards: `ui/cards/CardsRoutes.kt` → events, event, pod, proposal, the create screens
+    (`MeetingScreens.kt`: the meeting form and a meeting's people on its event page);
     `ui/cards/SpecialCards.kt` (`SpecialCard(groupId, message)`: what a card / e-mail post shows
     in the feed) and `ui/cards/ChannelBars.kt` (`ChannelBars(groupId)`: bars under a channel's
     top bar: only the Join / Ask to join bar of a pod I am not in; the summary line and its pull-down are `ui/chat/ChannelLineView.kt`).
@@ -103,6 +104,16 @@ minSdk 26, JDK 17.
   key; the member's identity key never leaves the belfry's signer.
 - Relay events are signature-checked before storage; seals always.
 - Never render text from a URL; server errors are mapped to fixed messages by their `error` code.
+- Forms keep a draft on the device (`ui/kit/FormDraft.kt`: `rememberFormDraft(key) { restore }`,
+  `draft.Keep(…)`, `draft.clear()` once sent; keys in `core/model/Drafts.kt` `FormDrafts`). A new
+  create screen should do the same.
+- A `BelfryTextField`'s test tag is on its frame, not on the editable node: tests type with
+  `compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag(tag)))`.
+- Channel info opens on a tab with `Routes.channelInfo(id, InfoTab.KEY_…)`. The Log's words are
+  `core/model/ChannelLog.kt` (the web's `logItem`): a new kind of event gets its line there.
+- Meetings are Belfry events with three extra kinds of tags (`core/model/Meetings.kt`, SPEC
+  19.23); `EventActions.edit` keeps them. Audio attachments play in `ui/chat/AudioPlayer.kt`;
+  recording is not built (PARITY says why: it needs a device).
 - Push (SPEC 19.19, collective-belfry docs/push.md): FCM data-only messages decrypted in
   `app/.../push/` (`AndroidPush`, `BelfryMessagingService`), the device key in `Secrets`;
   `core/push/Push.kt` reads payloads. Firebase is optional: the google-services plugin is applied
@@ -157,3 +168,6 @@ minSdk 26, JDK 17.
 - Day and time labels in the channel line are fixed English / 24 h, not the device locale.
 - Push has never run end to end (no Firebase project yet; SERVER-NEEDS 3).
 - `Secrets` (Keystore AES-GCM) cannot run under Robolectric; its test skips there.
+- Gestures written blind: the photo viewer (pinch, double-tap, swipe down inside a pager) and the
+  pull-down's handle. Robolectric drives a double-tap and a swipe; a real finger may differ.
+- The audio player has never made a sound; `POST /meeting-guests` never met a belfry.
