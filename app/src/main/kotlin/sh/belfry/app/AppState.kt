@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import sh.belfry.core.engine.Invitation
 import sh.belfry.core.engine.Onboarding
 import sh.belfry.core.engine.OnboardingException
+import sh.belfry.core.engine.PendingCode
 import sh.belfry.core.engine.Session
 import sh.belfry.core.engine.Vault
 import sh.belfry.core.net.Community
@@ -45,6 +46,10 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     private val _finishing = MutableStateFlow(false)
     val finishing: StateFlow<Boolean> = _finishing
 
+    /** The native sign-in is waiting for the 6-digit code (screen 2), also after the app was killed meanwhile. */
+    private val _pendingCode = MutableStateFlow<PendingCode?>(null)
+    val pendingCode: StateFlow<PendingCode?> = _pendingCode
+
     /** Signed in and opened from a guest link: offer to join as yourself. */
     private val _joinOffer = MutableStateFlow<InviteLink?>(null)
     val joinOffer: StateFlow<InviteLink?> = _joinOffer
@@ -77,7 +82,11 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         scope.launch {
             val s = try { onboarding.resume() } catch (e: Exception) { null }
             if (s != null) enter(s) else {
-                val invite = try { onboarding.pendingInvite } catch (e: Exception) { null }
+                // the vault decrypts with the Keystore: not on the main thread
+                val (invite, code) = withContext(Dispatchers.Default) {
+                    (try { onboarding.pendingInvite } catch (e: Exception) { null }) to (try { onboarding.pendingCode } catch (e: Exception) { null })
+                }
+                _pendingCode.value = code
                 _phase.value = if (invite != null) Phase.Joining(invite) else Phase.SignedOut
             }
         }
@@ -121,6 +130,45 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         }
     }
 
+    /**
+     * Native sign-in, screen 1: ADDRESS is `name@domain`; a code goes to the member's e-mail and
+     * [pendingCode] opens screen 2. Throws [OnboardingException] with a fixed message (code
+     * `browser`: an older belfry, offer the browser).
+     */
+    suspend fun requestCode(address: String) {
+        _message.value = null
+        _pendingCode.value = onboarding.requestCode(address)
+    }
+
+    /** "Send a new code". */
+    suspend fun resendCode() {
+        _pendingCode.value = onboarding.resendCode()
+    }
+
+    /** Back to screen 1. */
+    fun cancelCode() {
+        try { onboarding.cancelCode() } catch (e: Exception) { }
+        _pendingCode.value = null
+    }
+
+    /**
+     * Screen 2: the six digits. In on success. A failure that ends the request (expired, another
+     * key needed…) goes back to screen 1 with its fixed message; the others throw for screen 2.
+     */
+    suspend fun verifyCode(code: String) {
+        try {
+            enter(onboarding.verifyCode(code))
+            _pendingCode.value = null
+        } catch (e: OnboardingException) {
+            val still = withContext(Dispatchers.Default) { try { onboarding.pendingCode } catch (x: Exception) { null } }
+            if (still == null) {
+                _message.value = e.message
+                _pendingCode.value = null
+            }
+            throw e
+        }
+    }
+
     /** The app was opened with a guest link. */
     fun onInviteLink(link: InviteLink) {
         try { onboarding.pendingInvite = link } catch (e: Exception) { }
@@ -152,6 +200,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
 
     suspend fun demo() {
         _message.value = null
+        cancelCode()
         enter(onboarding.demo())
     }
 

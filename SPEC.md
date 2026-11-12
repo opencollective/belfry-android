@@ -982,3 +982,59 @@ them).
   and each of my channels' level; a channel's bell shows its push level next to the e-mail follow.
 - A build without push (Android: no `google-services.json`) says so; the settings can still be
   changed (they apply to the person's other devices).
+
+### 19.20 Signing in without a browser (collective-belfry `sessions.py`, 2026-11-12)
+
+The default sign-in of the phone apps. Section 2 (the browser, OAuth code + PKCE) stays as the
+second way ("Sign in with the browser instead") and is what the app offers by itself on an older
+belfry. The contract is the module docstring of `services/onboarding/belfry_onboarding/sessions.py`.
+
+- **Screen 1.** One field, the member's address `name@domain` (e-mail keyboard, no
+  capitalisation, ≥ 16 pt). Accept it only as: trimmed, lower-cased, exactly one `@`, name
+  `[a-z0-9][a-z0-9._-]{0,63}`, domain a hostname (section 1's rule). Fetch
+  `https://<domain>/.well-known/belfry.json`; no document → "There is no belfry at <domain>."
+  (the domain is the one typed and validated; nothing from an answer is shown).
+- **Session key.** The app makes the NIP-46 client key *before* asking (a fresh 32-byte key)
+  and keeps it with the address in secure storage until the sign-in ends: the same key signs
+  the resend, the verify, and is the client key of the session afterwards (the belfry binds the
+  connection to it when it creates it). Keep the pending request across a process death: the
+  person leaves the app to read the e-mail. A new address, or `key_taken`, makes a new key.
+- **Ask for a code.** `POST <api.base>/session`, NIP-98 signed **by the session key**, body
+  `{"nip05":"name@domain","app":"sh.belfry.app://connect","client":"belfry-android"}` (iOS:
+  `belfry-ios`; `client` names the session, `app` is the approved native app address).
+  - 200 `{"state":"code_sent","to":"x•••@example.org","nip05":"name@domain"}` → screen 2. Show
+    `to` only when it matches `^[^\s@•]•••@<hostname>$` (≤ 260 characters); otherwise say "your
+    e-mail address".
+  - `{"error": key}` → a fixed message per key: 404 `unknown` (no such member here, or the
+    belfry answers for another domain), 409 `no_email`, 422 `invalid` (also `app_address`), 429
+    `too_many` ("try again in half an hour"), 401 `unauthorized` (a wrong clock is the usual
+    cause).
+  - 404 / 405 **without an `error` key** (FastAPI's `{"detail":"Not Found"}`, a proxy's page):
+    an older belfry → say so and turn the main button into the browser sign-in of section 2.
+- **NIP-98 `created_at`.** The belfry accepts each signed event once. Use
+  `max(last + 1, now)` for these calls so a resend or a retry in the same second is a different
+  event.
+- **Screen 2.** Six digit boxes over one numeric field (number pad; typing advances, backspace
+  goes back; whatever is typed or pasted is reduced to its first six ASCII digits, so "123 456"
+  fills them); the sixth digit submits. "Send a new code" repeats the first request with the same
+  key and is locked for 30 s after each send. Back (the system's and a "Use another address"
+  row) returns to screen 1 with the address still in the field. The request lives 15 minutes on
+  the belfry (a code 10): after that the app forgets it.
+- **Verify.** `POST <api.base>/session/verify` `{"code":"123456"}`, signed by the same key.
+  - 200 `{"state":"open","bunker_url":"bunker://…","pubkey":"<hex>","npub":"…","nip05":"…"}`:
+    accept only with `state` = `open`, a parsable bunker URL and a 64-hex `pubkey`. Connect as
+    in section 3 with the session key, then ask the signer `get_public_key` (do not trust the
+    answer's `pubkey` for that): it **must equal** `pubkey`, else disconnect, forget the request
+    and show the `mismatch` message. Store the session exactly like section 2's. Keep the bunker
+    URL with the pending request until the signer has answered: the code is spent, so "Try
+    again" after a timeout reconnects without a second verify.
+  - 422 `wrong_code` with `tries_left` (int): empty the boxes, "That code is not right. N tries
+    left." (0 → "Ask for a new one."). 410 `expired` → screen 1 with a fixed note. 409
+    `key_taken` → forget the key, screen 1 (the next try makes a new key). 409 `own_key` (the
+    member holds their own key: the app cannot sign them in yet), 409 `mismatch`, 403
+    `app_not_approved` → screen 1 with their messages. 429, no connection → stay on screen 2
+    with the digits and a "Try again" button.
+- The server's `message` field is never shown. Guest links (19.4) are unchanged.
+- Android: `core/net/NativeSignIn.kt` (the two calls, the checks), `Onboarding.requestCode /
+  resendCode / verifyCode / pendingCode` (vault key `native-signin`), `ui/signin/SignInScreen.kt`
+  (`SignInContent`, `CodeContent`, `CodeBoxes`); tests `NativeSignInTest`.

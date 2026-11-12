@@ -6,7 +6,15 @@ import android.graphics.Color
 import android.graphics.Paint
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
+import org.junit.Assert.assertEquals
 import org.junit.Test
+import sh.belfry.app.ui.theme.BelfryTheme
 import sh.belfry.app.ui.chat.ChannelScreen
 import sh.belfry.app.ui.chat.ChatState
 import sh.belfry.app.ui.chat.ComposerState
@@ -17,6 +25,8 @@ import sh.belfry.app.ui.shell.ShellState
 import sh.belfry.app.ui.signin.JoinContent
 import sh.belfry.app.ui.signin.NoAccessScreen
 import sh.belfry.app.ui.signin.SignInContent
+import sh.belfry.app.ui.signin.CodeContent
+import sh.belfry.core.net.NativeSignIn
 import sh.belfry.core.engine.Demo
 import sh.belfry.core.engine.Invitation
 import sh.belfry.core.model.FeedItem
@@ -28,10 +38,55 @@ import sh.belfry.core.net.InviteLink
 class ShellShotsTest : DemoShots() {
     private val general = Demo.GENERAL
 
-    @Test fun signIn() = shot("signin") { SignInContent("", {}, null, false, {}, {}) }
+    @Test fun signIn() = shot("signin") { SignInContent("", {}, null, false, false, {}, {}, {}) }
 
     @Test fun signInError() = shot("signin-error") {
-        SignInContent("belfry.exmaple", {}, "No belfry answered at this address. Check the address and your connection.", false, {}, {})
+        SignInContent("maya@belfry.exmaple", {}, "There is no belfry at belfry.exmaple. Check the address and your connection.", false, false, {}, {}, {})
+    }
+
+    /** An older belfry (no /session API): the main button becomes the browser sign-in. */
+    @Test fun signInOlderBelfry() = shot("signin-browser") {
+        SignInContent("maya@example.org", {}, "This belfry can’t sign you in here yet. Sign in with the browser instead.", false, true, {}, {}, {})
+    }
+
+    @Test fun signInCode() = shot("signin-code") {
+        CodeContent("m•••@example.org", "maya@belfry.sh", "", {}, false, null, null, 24, null, {}, {})
+    }
+
+    @Test fun signInCodeTyped() = shot("signin-code-typed") {
+        CodeContent(null, "maya@belfry.sh", "4821", {}, false, null, "A new code is on its way.", 0, null, {}, {})
+    }
+
+    @Test fun signInCodeWrong() = shot("signin-code-wrong") {
+        CodeContent("m•••@example.org", "maya@belfry.sh", "", {}, false, "That code is not right. 3 tries left.", null, 0, null, {}, {})
+    }
+
+    @Test fun signInCodeVerifying() = shot("signin-code-verifying") {
+        CodeContent("m•••@example.org", "maya@belfry.sh", "482193", {}, true, null, null, 0, null, {}, {})
+    }
+
+    /** Typing or pasting six digits submits by itself; fewer do not. */
+    @Test fun codeBoxesSubmitOnTheSixthDigit() {
+        var digits by mutableStateOf("")
+        val sent = ArrayList<String>()
+        compose.setContent {
+            BelfryTheme {
+                CodeContent(null, "maya@belfry.sh", digits, { raw ->
+                    val d = NativeSignIn.digits(raw)
+                    digits = d
+                    if (d.length == 6) sent.add(d)
+                }, false, null, null, 0, null, {}, {})
+            }
+        }
+        val field = compose.onNodeWithTag("code-boxes")
+        field.performTextInput("12")
+        compose.waitForIdle()
+        assertEquals("12", digits)
+        assertEquals(emptyList<String>(), sent)
+        field.performTextReplacement("Your code: 123 456")
+        compose.waitForIdle()
+        assertEquals("123456", digits)
+        assertEquals(listOf("123456"), sent)
     }
 
     @Test fun join() = shot("join") {

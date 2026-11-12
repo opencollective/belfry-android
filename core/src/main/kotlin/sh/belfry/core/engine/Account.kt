@@ -17,6 +17,10 @@ import sh.belfry.core.net.Community
 import sh.belfry.core.net.Discovery
 import sh.belfry.core.net.InviteInfo
 import sh.belfry.core.net.InviteLink
+import sh.belfry.core.net.MemberAddress
+import sh.belfry.core.net.NativeSignIn
+import sh.belfry.core.net.SessionException
+import sh.belfry.core.net.SessionFailure
 import sh.belfry.core.net.SignIn
 import sh.belfry.core.net.SignInException
 import sh.belfry.core.nostr.LocalSigner
@@ -106,6 +110,8 @@ class Onboarding(
     private val scope: CoroutineScope,
     private val clock: () -> Long = ::unixNow,
     private val zone: ZoneId = ZoneId.systemDefault(),
+    /** belfry.json of a domain (a seam for tests). Throws IOException when there is none. */
+    private val discovery: suspend (String) -> Community = { Discovery.fetch(it, http) },
 ) {
     /** Is there a saved session ([resume] will open it)? */
     val hasSession: Boolean get() = vault.get(V_SESSION) != null
@@ -120,7 +126,7 @@ class Onboarding(
         val d = Community.cleanDomain(domain)
         if (!Community.isDomain(d)) throw OnboardingException("not_a_domain", "Type your community's address, like belfry.sh.")
         return try {
-            Discovery.fetch(d, http)
+            discovery(d)
         } catch (e: IOException) {
             throw OnboardingException("not_found", "No belfry answered at this address. Check the address and your connection.")
         }
@@ -162,8 +168,89 @@ class Onboarding(
         open(flow.community, token.bunkerUrl, Keys.generateSecretHex(), token.pubkey, null)
     }
 
-    /** Connects to the signer with this device's key, saves the session and builds it over a clean store. */
-    private suspend fun open(community: Community, bunkerUrl: String, clientSecret: String, pubkey: String?, guest: GuestInfo?): Session {
+    // ---- native sign-in (SPEC 19.20: name@domain → a code by e-mail → NIP-46) ----------------------
+
+    /** A native sign-in waiting for its code (kept in the vault: reading the e-mail may kill the app). */
+    val pendingCode: PendingCode?
+        get() = nativeFlow()?.takeIf { it.sentAt > 0 && clock() - it.sentAt < CODE_SECONDS }?.let { PendingCode(it.address.toString(), it.to) }
+
+    private fun nativeFlow(): NativeFlow? = vault.get(V_NATIVE)?.let(NativeFlow::fromJsonString)
+
+    /**
+     * Screen 1: ADDRESS is `name@domain`. Finds the belfry at that domain, makes this device's
+     * session key (the same key for a resend or a second try) and asks the belfry to mail a code.
+     * Throws [OnboardingException]: `not_an_address`, `no_belfry`, `browser` (an older belfry:
+     * offer the browser sign-in), or a [SessionFailure]'s name in lower case.
+     */
+    suspend fun requestCode(address: String): PendingCode = withContext(Dispatchers.Default) {
+        val a = MemberAddress.parse(address) ?: throw OnboardingException("not_an_address", "Type your address like name@belfry.sh.")
+        val community = try {
+            discovery(a.domain)
+        } catch (e: IOException) {
+            // the domain is what the person typed, checked as a hostname by MemberAddress.parse
+            throw OnboardingException("no_belfry", "There is no belfry at ${a.domain}. Check the address and your connection.")
+        }
+        val kept = nativeFlow()?.takeIf { it.address == a && it.bunkerUrl == null }
+        val secret = kept?.secret ?: Keys.generateSecretHex()
+        // kept before asking, so a retry after a lost answer signs with the same key
+        vault.set(V_NATIVE, NativeFlow(community, a, secret, kept?.to, kept?.sentAt ?: 0).toJsonString())
+        val sent = try {
+            NativeSignIn(community, http, clock).request(a, secret)
+        } catch (e: SessionException) {
+            if (e.failure == SessionFailure.KEY_TAKEN) vault.remove(V_NATIVE)
+            throw e.toOnboarding()
+        }
+        vault.set(V_NATIVE, NativeFlow(community, a, secret, sent.to, clock()).toJsonString())
+        PendingCode(a.toString(), sent.to)
+    }
+
+    /** "Send a new code": the first request again, signed by the same key. */
+    suspend fun resendCode(): PendingCode {
+        val flow = nativeFlow() ?: throw OnboardingException("expired", SessionFailure.EXPIRED.message)
+        return requestCode(flow.address.toString())
+    }
+
+    /** Back to screen 1, or the code expired: forget the request (the address is the screen's to keep). */
+    fun cancelCode() = vault.remove(V_NATIVE)
+
+    /**
+     * Screen 2: the six digits. With the right code the belfry opens a NIP-46 session bound to
+     * this device's session key; the app connects, checks the signer's key is the one the belfry
+     * named, and returns a ready [Session] (not started). Throws [OnboardingException]:
+     * `wrong_code` (message says how many tries are left), `expired` and `key_taken` (start again
+     * from screen 1), `own_key`, `mismatch`, `not_approved`, `too_many`, `network`, `signer`.
+     */
+    suspend fun verifyCode(code: String): Session = withContext(Dispatchers.Default) {
+        var flow = nativeFlow() ?: throw OnboardingException("expired", SessionFailure.EXPIRED.message)
+        if (flow.bunkerUrl == null || flow.pubkey == null) {
+            val opened = try {
+                NativeSignIn(flow.community, http, clock).verify(code, flow.secret)
+            } catch (e: SessionException) {
+                if (e.failure in ENDS_THE_REQUEST) vault.remove(V_NATIVE)
+                throw e.toOnboarding()
+            }
+            // kept until the signer answered: the code is spent, a retry must not need another
+            flow = flow.copy(bunkerUrl = opened.bunkerUrl, pubkey = opened.pubkey)
+            vault.set(V_NATIVE, flow.toJsonString())
+        }
+        val s = try {
+            open(flow.community, flow.bunkerUrl!!, flow.secret, null, null, expect = flow.pubkey)
+        } catch (e: OnboardingException) {
+            if (e.code == "mismatch") vault.remove(V_NATIVE)
+            throw e
+        }
+        vault.remove(V_NATIVE)
+        s
+    }
+
+    private fun SessionException.toOnboarding() =
+        OnboardingException(if (failure == SessionFailure.UNSUPPORTED) "browser" else failure.name.lowercase(), display)
+
+    /**
+     * Connects to the signer with this device's key, saves the session and builds it over a clean
+     * store. With EXPECT the signer is asked for its key (`get_public_key`), which must be that one.
+     */
+    private suspend fun open(community: Community, bunkerUrl: String, clientSecret: String, pubkey: String?, guest: GuestInfo?, expect: String? = null): Session {
         val bunker = BunkerUrl.parse(bunkerUrl) ?: throw OnboardingException("signer", "The belfry sent a signer link this app does not understand.")
         val signer = BunkerSigner(bunker, clientSecret, pubkey?.takeIf(Hex::isKey), http, scope)
         val me = try {
@@ -174,6 +261,10 @@ class Onboarding(
         } catch (e: Exception) {
             signer.disconnect()
             throw OnboardingException("signer", "The belfry's signer refused this session. Please sign in again.")
+        }
+        if (expect != null && me != expect) {
+            signer.disconnect()
+            throw OnboardingException("mismatch", SessionFailure.MISMATCH.message)
         }
         val old = saved()
         if (old == null || old.pubkey != me || old.community.domain != community.domain) withContext(Dispatchers.IO) { store.wipe() }
@@ -271,6 +362,7 @@ class Onboarding(
         vault.remove(V_SESSION)
         vault.remove(V_FLOW)
         vault.remove(V_JOIN_KEY)
+        vault.remove(V_NATIVE)
         return if (demo) null else SignIn.logoutUrl(community)
     }
 
@@ -279,5 +371,50 @@ class Onboarding(
         const val V_FLOW = "signin-flow"
         const val V_INVITE = "pending-invite"
         const val V_JOIN_KEY = "join-key"
+        const val V_NATIVE = "native-signin"
+        /** The belfry keeps a request for 15 minutes (a code for 10): after that, screen 1 again. */
+        const val CODE_SECONDS = 900L
+        private val ENDS_THE_REQUEST = setOf(
+            SessionFailure.EXPIRED, SessionFailure.KEY_TAKEN, SessionFailure.OWN_KEY, SessionFailure.MISMATCH, SessionFailure.NOT_APPROVED,
+        )
+    }
+}
+
+/** What screen 2 of the native sign-in shows: the address typed and, when the belfry gave a well-formed one, the masked e-mail. */
+data class PendingCode(val address: String, val to: String?)
+
+/** The native sign-in in progress, in the [Vault]: this device's session key and, once the code was right, the session to connect to. */
+internal data class NativeFlow(
+    val community: Community,
+    val address: MemberAddress,
+    val secret: String,
+    val to: String? = null,
+    val sentAt: Long = 0,
+    val bunkerUrl: String? = null,
+    val pubkey: String? = null,
+) {
+    fun toJsonString(): String = buildJsonObject {
+        put("community", community.toJson())
+        put("address", JsonPrimitive(address.toString()))
+        put("secret", JsonPrimitive(secret))
+        if (to != null) put("to", JsonPrimitive(to))
+        put("sentAt", JsonPrimitive(sentAt))
+        if (bunkerUrl != null) put("bunkerUrl", JsonPrimitive(bunkerUrl))
+        if (pubkey != null) put("pubkey", JsonPrimitive(pubkey))
+    }.toString()
+
+    companion object {
+        fun fromJsonString(text: String): NativeFlow? {
+            val o = parseJsonOrNull(text) as? JsonObject ?: return null
+            return NativeFlow(
+                community = o["community"]?.let { Community.fromJsonString(it.toString()) } ?: return null,
+                address = o.s("address")?.let(MemberAddress::parse) ?: return null,
+                secret = o.s("secret")?.takeIf(Hex::isKey) ?: return null,
+                to = o.s("to")?.takeIf(NativeSignIn::isMaskedAddress),
+                sentAt = (o["sentAt"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0,
+                bunkerUrl = o.s("bunkerUrl")?.takeIf { BunkerUrl.parse(it) != null },
+                pubkey = o.s("pubkey")?.takeIf(Hex::isKey),
+            )
+        }
     }
 }

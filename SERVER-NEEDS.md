@@ -46,11 +46,33 @@ key, sign-out still wipes the device but the server-side session stays until rem
 Please confirm which key identifies a session, and what the signer answers once a session is
 removed (so the app can ask the person to sign in again instead of retrying).
 
+## 4b. Native sign-in (`POST /session`, `/session/verify`) — built in the app 2026-11-12, not run live
+
+The app follows sessions.py's docstring (SPEC 19.20). Small things that would help, none blocking:
+
+- **Telling an older belfry apart.** The app treats a 404 / 405 *without an `error` key* as "no
+  such API here" and offers the browser. belfry.json could say so instead (e.g.
+  `sign_in.session: "<api.base>/session"`), and the app would not need to guess from a 404.
+- **`unknown` means two things** (no such member; the belfry answers for another domain). One
+  message covers both ("No member has this address"). Fine as is.
+- **`tries_left: 0`**: the app says "Ask for a new one." and assumes the code is dead; if the
+  belfry answers `expired` on the next try that is handled too.
+- **`own_key`** is also what any failure of `create_bunker` returns (the `except Exception`):
+  a signer outage reads "You hold your own key" to the member. A separate key (503
+  `signer_down`) would let the app say "try again".
+- **Rate limit per session key / IP on `POST /session`** for unknown names is the belfry's to
+  decide: the app cannot enumerate members itself, but the endpoint tells `unknown` from
+  `code_sent` to anyone with a key.
+- Sign-out revokes the session through `/me/sessions/revoke` as before (item 4); a session made
+  by `/session` is listed like the browser's ("Belfry for Android").
+
 ## 5. NIP-98 replay protection (note)
 
 The server refuses an authorization it has already seen. Two identical requests in the same
 second share an event id, so the second gets 401. The app avoids firing identical signed GETs
-at once, but a nonce tag accepted by the server would remove the edge case.
+at once, but a nonce tag accepted by the server would remove the edge case. The native sign-in
+calls (4b) use a `created_at` that only grows (`max(last + 1, now)`), so a resend is never the
+same event.
 
 ## 6. belfry.json (settled / small)
 
