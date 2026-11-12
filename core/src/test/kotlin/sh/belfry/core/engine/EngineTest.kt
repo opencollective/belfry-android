@@ -461,7 +461,7 @@ class EngineTest {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when (request.path) {
                 "/api/v1/guest/save" -> MockResponse().setResponseCode(202).setBody("""{"sent":true}""")
                 "/api/v1/guest/save/verify" ->
-                    if (request.body.readUtf8().contains("\"code\":\"111111\"")) MockResponse().setResponseCode(422).setBody("""{"error":"wrong_code","message":"x"}""")
+                    if (request.body.clone().readUtf8().contains("\"code\":\"111111\"")) MockResponse().setResponseCode(422).setBody("""{"error":"wrong_code","message":"x"}""")
                     else MockResponse().setBody("""{"saved":true,"joined":true}""")
                 else -> MockResponse().setResponseCode(404).setBody("{}")
             }
