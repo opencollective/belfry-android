@@ -176,3 +176,20 @@ class SqliteStore(context: Context, name: String? = "belfry.db") : Store {
 
     fun close() = helper.close()
 }
+
+/** One SQLite database per account ([sh.belfry.core.engine.Slots.database]): `belfry.db` for the first, `belfry-a2.db`… */
+class SqliteStores(context: Context) : sh.belfry.core.engine.StoreProvider {
+    private val context = context.applicationContext
+    private val open = HashMap<String, SqliteStore>()
+
+    @Synchronized
+    override fun open(slot: String): Store = open.getOrPut(slot) { SqliteStore(context, sh.belfry.core.engine.Slots.database(slot)) }
+
+    /** Sign-out of that account: its database file goes. */
+    @Synchronized
+    override fun delete(slot: String) {
+        if (!sh.belfry.core.engine.Slots.isSlot(slot)) return
+        try { open.remove(slot)?.close() } catch (e: Exception) { }
+        try { context.deleteDatabase(sh.belfry.core.engine.Slots.database(slot)) } catch (e: Exception) { }
+    }
+}

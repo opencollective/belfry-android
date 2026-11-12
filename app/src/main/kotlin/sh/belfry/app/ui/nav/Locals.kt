@@ -47,6 +47,21 @@ val LocalNav = staticCompositionLocalOf<Nav> { RecordingNav() }
 /** Signs out (wipes the device) and returns the belfry's logout address to optionally open; set by AppRoot. */
 val LocalSignOut = staticCompositionLocalOf<suspend () -> String?> { { null } }
 
+/**
+ * The accounts on this device, for the switcher at the drawer's bottom (SPEC 19.24). [others] are
+ * the accounts that are not open (the open one is read from its session); [switchTo] opens one,
+ * [add] opens the sign-in screen over the app. Empty outside the app (tests, previews).
+ */
+class AccountsUi(
+    val others: List<sh.belfry.core.engine.AccountRecord> = emptyList(),
+    /** Accounts with something new since they were last open. */
+    val unread: Set<String> = emptySet(),
+    val switchTo: suspend (id: String) -> Unit = {},
+    val add: () -> Unit = {},
+)
+
+val LocalAccounts = staticCompositionLocalOf { AccountsUi() }
+
 /** The world when there is a session, else null (kit components that work signed out too). */
 val LocalWorldOrNull = compositionLocalOf<World?> { null }
 

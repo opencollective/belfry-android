@@ -105,7 +105,7 @@ data class Invitation(val link: InviteLink, val community: Community, val info: 
  */
 class Onboarding(
     private val vault: Vault,
-    private val store: Store,
+    private val stores: StoreProvider,
     private val http: OkHttpClient,
     private val scope: CoroutineScope,
     private val clock: () -> Long = ::unixNow,
@@ -113,11 +113,59 @@ class Onboarding(
     /** belfry.json of a domain (a seam for tests). Throws IOException when there is none. */
     private val discovery: suspend (String) -> Community = { Discovery.fetch(it, http) },
 ) {
-    /** Is there a saved session ([resume] will open it)? */
-    val hasSession: Boolean get() = vault.get(V_SESSION) != null
+    /** One account's store given: the first account lives in it, others in memory (tests, the demo). */
+    constructor(
+        vault: Vault, store: Store, http: OkHttpClient, scope: CoroutineScope,
+        clock: () -> Long = ::unixNow, zone: ZoneId = ZoneId.systemDefault(),
+        discovery: suspend (String) -> Community = { Discovery.fetch(it, http) },
+    ) : this(vault, MemoryStores(store), http, scope, clock, zone, discovery)
 
-    private fun saved(): SavedSession? = vault.get(V_SESSION)?.let(SavedSession::fromJsonString)
-    private fun save(s: SavedSession) = vault.set(V_SESSION, s.toJsonString())
+    /** Is there a saved session ([resume] will open it)? */
+    val hasSession: Boolean get() = accounts.current != null
+
+    private fun saved(slot: String): SavedSession? = vault.get(Slots.key(V_SESSION, slot))?.let(SavedSession::fromJsonString)
+    private fun save(slot: String, s: SavedSession) = vault.set(Slots.key(V_SESSION, slot), s.toJsonString())
+
+    // ---- the accounts on this device (SPEC 19.24) ---------------------------------------------------
+
+    private val accountsLock = Any()
+
+    /**
+     * The accounts on this device and which one is open. A device that had one account before
+     * accounts existed gets its list here, the first time it is read: that account in the first
+     * slot, where its saved session, store and outbox already are (nothing moves; see
+     * [AccountList.migrated]). An entry without a readable saved session is dropped.
+     */
+    val accounts: AccountList
+        get() = synchronized(accountsLock) {
+            val stored = vault.get(V_ACCOUNTS)?.let(AccountList::fromJsonString)
+            if (stored != null) return@synchronized stored
+            val legacy = saved("") ?: return@synchronized AccountList.EMPTY
+            AccountList.migrated(legacy).also { vault.set(V_ACCOUNTS, it.toJsonString()) }
+        }
+
+    private fun changeAccounts(f: (AccountList) -> AccountList): AccountList = synchronized(accountsLock) {
+        val before = accounts
+        val after = f(before)
+        if (after != before) vault.set(V_ACCOUNTS, after.toJsonString())
+        after
+    }
+
+    /** What the switcher shows about an account (its session tells, when it learns it). */
+    fun describe(id: String, name: String, address: String, community: String, picture: String, guest: Boolean): AccountList =
+        changeAccounts { it.described(id, name, address, community, picture, guest) }
+
+    /**
+     * Something to do as an account that is not open (register this device for its pushes): its
+     * belfry's API and its signer, connected for the time of [block]. Null when it has no session.
+     */
+    suspend fun <T> asAccount(id: String, block: suspend (BelfryApi, sh.belfry.core.nostr.Signer) -> T): T? = withContext(Dispatchers.Default) {
+        val rec = accounts[id]?.takeIf { !it.demo } ?: return@withContext null
+        val s = saved(rec.slot) ?: return@withContext null
+        val bunker = BunkerUrl.parse(s.bunkerUrl) ?: return@withContext null
+        val signer = BunkerSigner(bunker, s.clientSecret, s.pubkey, http, scope)
+        try { block(BelfryApi(s.community, http), signer) } finally { signer.disconnect() }
+    }
 
     // ---- finding the belfry ---------------------------------------------------------------------
 
@@ -271,15 +319,30 @@ class Onboarding(
             signer.disconnect()
             throw OnboardingException("mismatch", SessionFailure.MISMATCH.message)
         }
-        val old = saved()
-        if (old == null || old.pubkey != me || old.community.domain != community.domain) withContext(Dispatchers.IO) { store.wipe() }
-        save(SavedSession(community, bunkerUrl, clientSecret, me, guest))
-        return session(community, signer, guest, localOnly = false)
+        val rec = account(community.domain, me, demo = false, guest = guest != null)
+        save(rec.slot, SavedSession(community, bunkerUrl, clientSecret, me, guest))
+        return session(rec, community, signer, guest, localOnly = false)
     }
 
-    private fun session(community: Community, signer: sh.belfry.core.nostr.Signer, guest: GuestInfo?, localOnly: Boolean): Session {
-        val s = Session(community, store, signer, http, scope, localOnly, clock, guest, zone)
-        s.onRecordChanged = { c, g -> saved()?.let { save(it.copy(community = c, guest = g)) } }
+    /**
+     * The account of this identity in this belfry, added to the list when it is new and made the
+     * current one. Signing in again to an account that is here keeps its store (the log, the
+     * outbox, drafts); a new account starts on an empty one. Other accounts are not touched.
+     */
+    private suspend fun account(domain: String, pubkey: String, demo: Boolean, guest: Boolean): AccountRecord {
+        var out: AccountRecord? = null
+        var fresh = false
+        changeAccounts { list -> list.signedIn(domain, pubkey, demo, guest).also { out = it.second; fresh = it.third }.first }
+        val rec = out!!
+        if (fresh) withContext(Dispatchers.IO) { stores.open(rec.slot).wipe() }
+        return rec
+    }
+
+    private fun session(rec: AccountRecord, community: Community, signer: sh.belfry.core.nostr.Signer, guest: GuestInfo?, localOnly: Boolean): Session {
+        val s = Session(community, stores.open(rec.slot), signer, http, scope, localOnly, clock, guest, zone)
+        s.accountId = rec.id
+        s.slot = rec.slot
+        s.onRecordChanged = { c, g -> saved(rec.slot)?.let { save(rec.slot, it.copy(community = c, guest = g)) } }
         return s
     }
 
@@ -331,40 +394,68 @@ class Onboarding(
 
     // ---- reopening --------------------------------------------------------------------------------
 
-    /** The saved session, opened without the network (null when there is none). Not started. */
-    suspend fun resume(): Session? = withContext(Dispatchers.Default) {
-        val s = saved() ?: return@withContext null
-        if (s.demo) {
-            if (store.allEvents().isEmpty()) Demo.seed(store, clock(), LocalSigner(s.clientSecret))
-            return@withContext session(s.community, LocalSigner(s.clientSecret), null, localOnly = true)
+    /**
+     * An account's saved session, opened without the network and not started: the current account,
+     * or the one named (which becomes the current one: switching). Null when there is none. An
+     * account whose saved session cannot be read is taken off the list and the next one opens.
+     */
+    suspend fun resume(id: String? = null): Session? = withContext(Dispatchers.Default) {
+        if (id != null && accounts[id] == null) return@withContext null
+        var list = if (id != null) changeAccounts { it.select(id) } else accounts
+        var found: Session? = null
+        while (found == null) {
+            val rec = list.currentAccount ?: break
+            found = reopen(rec)
+            if (found == null) {
+                list = changeAccounts { it.without(rec.id) }
+                if (id != null) break
+            }
         }
-        val bunker = BunkerUrl.parse(s.bunkerUrl) ?: return@withContext null
-        session(s.community, BunkerSigner(bunker, s.clientSecret, s.pubkey, http, scope), s.guest, localOnly = false)
+        found
+    }
+
+    private fun reopen(rec: AccountRecord): Session? {
+        val s = saved(rec.slot) ?: return null
+        if (AccountList.id(s.community.domain, s.pubkey) != rec.id) return null
+        if (s.demo) {
+            val store = stores.open(rec.slot)
+            if (store.allEvents().isEmpty()) Demo.seed(store, clock(), LocalSigner(s.clientSecret))
+            return session(rec, s.community, LocalSigner(s.clientSecret), null, localOnly = true)
+        }
+        val bunker = BunkerUrl.parse(s.bunkerUrl) ?: return null
+        return session(rec, s.community, BunkerSigner(bunker, s.clientSecret, s.pubkey, http, scope), s.guest, localOnly = false)
     }
 
     /**
      * The demo: a made-up community seeded on this device, nothing leaves it. NAME is the
-     * person's name in it. Replaces whatever was stored.
+     * person's name in it. It is an account like another (seeded again when it was here already).
      */
     suspend fun demo(name: String = Demo.DEFAULT_NAME): Session = withContext(Dispatchers.Default) {
-        store.wipe()
         val me = Demo.me(name)
-        Demo.seed(store, clock(), me, name)
         val community = Demo.community(me.pubkey)
-        save(SavedSession(community, "", me.secretHex, me.pubkey, demo = true))
-        session(community, me, null, localOnly = true)
+        val rec = account(community.domain, me.pubkey, demo = true, guest = false)
+        val store = stores.open(rec.slot)
+        store.wipe()
+        Demo.seed(store, clock(), me, name)
+        save(rec.slot, SavedSession(community, "", me.secretHex, me.pubkey, demo = true))
+        session(rec, community, me, null, localOnly = true)
     }
 
     /**
-     * Signs out: ends the session with the belfry (best effort), wipes the store and forgets the
-     * saved session. Returns the address that also ends the browser's session with the belfry
-     * (open it in a Custom Tab if the person wants to switch accounts), null for the demo.
+     * Signs out of this account only: ends its session with the belfry (best effort), wipes its
+     * store and forgets its saved session; it leaves the list and [accounts]`.current` is the
+     * next one, if any ([resume] opens it). Returns the address that also ends the browser's
+     * session with the belfry (open it in a Custom Tab if the person wants to switch accounts),
+     * null for the demo.
      */
     suspend fun signOut(session: Session): String? {
         val community = session.community
         val demo = session.localOnly
+        val slot = session.slot
         session.signOut()
-        vault.remove(V_SESSION)
+        vault.remove(Slots.key(V_SESSION, slot))
+        changeAccounts { it.without(session.accountId) }
+        try { stores.delete(slot) } catch (e: Exception) { }
         vault.remove(V_FLOW)
         vault.remove(V_JOIN_KEY)
         vault.remove(V_NATIVE)
@@ -373,6 +464,8 @@ class Onboarding(
 
     companion object {
         const val V_SESSION = "session"
+        /** The list of accounts ([AccountList]); each account's session is `session` / `session@<slot>`. */
+        const val V_ACCOUNTS = "accounts"
         const val V_FLOW = "signin-flow"
         const val V_INVITE = "pending-invite"
         const val V_JOIN_KEY = "join-key"

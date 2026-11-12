@@ -1,6 +1,18 @@
 package sh.belfry.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
+import sh.belfry.app.Adding
+import sh.belfry.app.ui.kit.ActionGroup
+import sh.belfry.app.ui.kit.rememberBusy
+import sh.belfry.app.ui.nav.AccountsUi
+import sh.belfry.app.ui.nav.LocalAccounts
+import sh.belfry.app.ui.shell.AccountRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
@@ -50,12 +62,27 @@ import sh.belfry.core.net.InviteLink
 @Composable
 fun AppRoot(state: AppState) {
     val phase by state.phase.collectAsState()
+    val adding by state.adding.collectAsState()
     when (val p = phase) {
         is Phase.Loading -> Splash()
         is Phase.SignedOut -> SignInScreen(state)
         is Phase.Joining -> JoinScreen(state, p.link)
-        is Phase.SignedIn -> key(p.session) { SignedIn(state, p.session) }
+        is Phase.SignedIn -> Box(Modifier.fillMaxSize()) {
+            key(p.session) { SignedIn(state, p.session) }
+            // Adding another account: the sign-in screens over the app, which stays as it was under them.
+            when (val a = adding) {
+                null -> Unit
+                is Adding.SignIn -> Over { SignInScreen(state, onBack = { state.cancelAdd() }) }
+                is Adding.Join -> Over { JoinScreen(state, a.link) }
+            }
+        }
     }
+}
+
+/** A full screen over the app that takes every touch (nothing under it can be tapped). */
+@Composable
+private fun Over(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Belfry.colors.bg).pointerInput(Unit) { detectTapGestures { } }.testTag("add-account")) { content() }
 }
 
 @Composable
@@ -64,22 +91,56 @@ private fun SignedIn(state: AppState, session: Session) {
     val shell = remember { ShellState(session.guest.value?.channel ?: "general") }
     val nav = remember { AppNavigator(controller, shell) }
     val signOut = remember { suspend { state.signOut() } }
+    val view by state.accounts.collectAsState()
+    val accounts = remember(view, session) {
+        AccountsUi(
+            others = view.list.accounts.filter { it.id != session.accountId },
+            unread = view.unread,
+            switchTo = { state.switchTo(it) },
+            add = { state.addAccount() },
+        )
+    }
     // The channel that was open last time.
     LaunchedEffect(Unit) {
         val last = withContext(Dispatchers.IO) { session.store.get(ShellState.K_LAST_CHANNEL) }
         if (last != null && session.guest.value == null) shell.restore(last)
     }
-    CompositionLocalProvider(LocalSignOut provides signOut) {
+    CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts) {
         SessionScope(session, nav) {
             if (LocalStatus.current.access == AccessState.REFUSED) {
                 NoAccessScreen()
             } else {
                 AppNav(controller, shell)
                 JoinOffer(state)
+                ChooseAccount(state)
                 EventLinkOpener(state)
                 PushOpener(state)
             }
         }
+    }
+}
+
+/** A guest link for a belfry where this device has several accounts: which one joins? */
+@Composable
+private fun ChooseAccount(state: AppState) {
+    val link = state.chooseFor.collectAsState().value ?: return
+    val session = LocalSession.current
+    val view by state.accounts.collectAsState()
+    val here = view.list.onDomain(link.domain)
+    val busy = rememberBusy()
+    BelfrySheet(onDismiss = { state.forgetChoice() }, title = "Join with which account?") {
+        Text("You have ${here.size} accounts in this community. The invitation adds a channel to the one you pick.", fontSize = 15.sp, color = Belfry.colors.muted)
+        Spacer(Modifier.height(16.dp))
+        ActionGroup {
+            for (a in here) {
+                AccountRow(
+                    pubkey = a.pubkey, name = a.name.ifEmpty { "Account" }, line = a.line, picture = a.picture,
+                    current = a.id == session.accountId, unread = false, busy = busy, onClick = { state.chooseAccount(a.id) },
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        BusyButton("Not now", onClick = { state.forgetChoice() }, modifier = Modifier.fillMaxWidth(), kind = ButtonKind.Ghost)
     }
 }
 
@@ -101,7 +162,7 @@ private fun EventLinkOpener(state: AppState) {
         return
     }
     BelfrySheet(onDismiss = { state.forgetEventLink() }, title = "Another community’s event") {
-        Text("This event is in another community. Sign out first to open it here, or open it in the browser.", fontSize = 15.sp, color = Belfry.colors.muted)
+        Text("This event is in a community you have no account in on this device. Add an account there to open it here, or open it in the browser.", fontSize = 15.sp, color = Belfry.colors.muted)
         Spacer(Modifier.height(16.dp))
         BusyButton("OK", onClick = { state.forgetEventLink() }, modifier = Modifier.fillMaxWidth())
     }
@@ -147,7 +208,7 @@ private fun JoinOffer(state: AppState) {
     BelfrySheet(onDismiss = { state.forgetInvite() }, title = "Join with your account?") {
         val info = invitation?.info
         val text = when {
-            !sameCommunity -> "This invite is for another community. Sign out first to use it."
+            !sameCommunity -> "This invite is for another community."
             info == null -> if (error == null) "Opening the invite…" else ""
             info.closedMessage != null -> info.closedMessage ?: ""
             else -> "${info.inviter.ifEmpty { "A member" }} invited you to # ${info.channelName}. You join as yourself: no new account."

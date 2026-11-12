@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.height
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,6 +90,7 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
     val (rows, _) = tree(world)
     val mine = world.yourEvents(session.now())
     val name = world.ctx.communityName.ifEmpty { session.community.name }
+    var accountsOpen by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(c.bg)) {
         // the belfry's branding (web 2026-11-11): its logo before the name, its cover under the bar
         val brand = session.branding
@@ -174,7 +177,7 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
         }
         Hairline()
         Row(
-            Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "You") { go(Routes.ME) }.padding(horizontal = 16.dp, vertical = 10.dp).navigationBarsPadding().testTag("drawer-me"),
+            Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Accounts") { accountsOpen = true }.padding(horizontal = 16.dp, vertical = 10.dp).navigationBarsPadding().testTag("drawer-me"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Avatar(world.face(world.me), size = 36.dp)
@@ -184,8 +187,17 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
                 val sub = world.myAddress ?: if (session.localOnly) "Demo: nothing leaves this device" else session.community.domain
                 Text(sub, fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            // something came for another account of this device
+            val accounts = sh.belfry.app.ui.nav.LocalAccounts.current
+            if (accounts.others.any { it.id in accounts.unread }) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(c.badge))
+                Spacer(Modifier.width(8.dp))
+            }
+            androidx.compose.material3.Icon(BelfryIcons.ChevronDown, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp))
         }
     }
+    // "you" opens the accounts on this device (switch, add) and Me
+    if (accountsOpen) AccountsSheet(onDismiss = { accountsOpen = false }, go = go)
 }
 
 @Composable

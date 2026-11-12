@@ -162,6 +162,10 @@ class Session(
     /** My public key (hex). */
     val me: String = signer.pubkey
 
+    /** Which account on this device this is (SPEC 19.24): its id and where its things are kept. Set by [Onboarding]. */
+    @Volatile var accountId: String = ""
+    @Volatile var slot: String = ""
+
     /** Told when the community document was refreshed or the guest state changed (the app saves them). */
     @Volatile var onRecordChanged: ((Community, GuestInfo?) -> Unit)? = null
 

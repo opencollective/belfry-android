@@ -38,7 +38,7 @@ class MainActivity : ComponentActivity() {
      * link, checked by [EventLink.parse]).
      */
     private fun handle(intent: Intent?) {
-        AndroidPush.openOf(intent)?.let { state.onPushOpen(it); return }
+        AndroidPush.openOf(intent)?.let { state.onPushOpen(it, AndroidPush.accountOf(intent)); return }
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
         if (uri.scheme == SignIn.REDIRECT_SCHEME && uri.host == SignIn.REDIRECT_HOST) {

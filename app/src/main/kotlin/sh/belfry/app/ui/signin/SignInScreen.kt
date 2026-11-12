@@ -98,7 +98,7 @@ fun openInBrowser(context: Context, url: String) {
  * browser sign-in (the belfry's own page) stays as a second way, and is what an older belfry gets.
  */
 @Composable
-fun SignInScreen(state: AppState) {
+fun SignInScreen(state: AppState, onBack: (() -> Unit)? = null) {
     val context = LocalContext.current
     var address by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -119,6 +119,7 @@ fun SignInScreen(state: AppState) {
         CodeScreen(state, waiting)
         return
     }
+    if (onBack != null) BackHandler(onBack = onBack)
     val browser: suspend () -> Unit = {
         error = null
         val typed = address.trim()
@@ -153,6 +154,7 @@ fun SignInScreen(state: AppState) {
         onBrowser = browser,
         onDemo = { state.demo() },
         onScan = { scanning = true },
+        onBack = onBack,
     )
 }
 
@@ -255,15 +257,24 @@ fun SignInContent(
     onBrowser: suspend () -> Unit,
     onDemo: suspend () -> Unit,
     onScan: (() -> Unit)? = null,
+    /** Given while adding an account to a device that has one: a back arrow that returns to it. */
+    onBack: (() -> Unit)? = null,
 ) {
     val c = Belfry.colors
     val busy = rememberBusy()
     SignedOutPage {
+        if (onBack != null) {
+            Box(Modifier.padding(bottom = 12.dp).testTag("signin-back")) { sh.belfry.app.ui.kit.BackButton(onBack) }
+        }
         Logo()
         Spacer(Modifier.height(40.dp))
-        Text("Sign in to your community", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+        Text(if (onBack != null) "Add an account" else "Sign in to your community", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
         Spacer(Modifier.height(8.dp))
-        Text("Type your address in your community. A 6-digit code goes to your e-mail; no password.", fontSize = 15.sp, color = c.muted)
+        Text(
+            if (onBack != null) "Another address in this community, or your address in another one. A 6-digit code goes to your e-mail; no password. The account you are in stays on this device."
+            else "Type your address in your community. A 6-digit code goes to your e-mail; no password.",
+            fontSize = 15.sp, color = c.muted,
+        )
         Spacer(Modifier.height(24.dp))
         if (finishing) {
             Row(verticalAlignment = Alignment.CenterVertically) {

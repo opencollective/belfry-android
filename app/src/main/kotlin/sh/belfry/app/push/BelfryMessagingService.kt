@@ -12,8 +12,13 @@ import kotlinx.coroutines.launch
 class BelfryMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         val payload = message.data["b"] ?: return
-        val sent = (application as? BelfryApp)?.currentSession()?.lastDmSentMs ?: 0L
-        try { AndroidPush.show(applicationContext, payload, sent) } catch (e: Exception) { /* never crash on a push */ }
+        val app = application as? BelfryApp
+        val session = app?.currentSession()
+        try {
+            // for an account that is not open: its dot in the switcher
+            val other = AndroidPush.show(applicationContext, payload, session?.lastDmSentMs ?: 0L, session?.accountId)
+            if (other != null) app?.accountsChanged()
+        } catch (e: Exception) { /* never crash on a push */ }
     }
 
     /** A new FCM token: register it with the belfry now if signed in (else at the next start). */
@@ -22,6 +27,7 @@ class BelfryMessagingService : FirebaseMessagingService() {
         val session = app.currentSession() ?: return
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
             try { AndroidPush.register(applicationContext, session) } catch (e: Exception) { }
+            try { app.registerOtherAccounts(session) } catch (e: Exception) { }
         }
     }
 }

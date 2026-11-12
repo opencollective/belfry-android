@@ -68,17 +68,20 @@ fun JoinScreen(state: AppState, link: InviteLink) {
         },
         onSignIn = { closed -> if (closed) state.forgetInvite() else state.signInInstead() },
         onClose = { state.forgetInvite() },
+        onBack = { state.forgetInvite() },
     )
 }
 
 /** [onSignIn] gets true when the invite is closed (it is dropped rather than kept for after sign-in). */
 @Composable
-fun JoinContent(invitation: Invitation?, error: String?, onJoin: suspend (name: String) -> Unit, onSignIn: (closed: Boolean) -> Unit, onClose: () -> Unit) {
+fun JoinContent(invitation: Invitation?, error: String?, onJoin: suspend (name: String) -> Unit, onSignIn: (closed: Boolean) -> Unit, onClose: () -> Unit, onBack: (() -> Unit)? = null) {
     val c = Belfry.colors
     var name by rememberSaveable { mutableStateOf("") }
     val info = invitation?.info
     val closed = info?.closedMessage
+    if (onBack != null) androidx.activity.compose.BackHandler(onBack = onBack)
     SignedOutPage {
+        if (onBack != null) androidx.compose.foundation.layout.Box(Modifier.padding(bottom = 12.dp)) { sh.belfry.app.ui.kit.BackButton(onBack) }
         Logo(invitation?.community?.name ?: "Your community's own chat")
         Spacer(Modifier.height(40.dp))
         if (info == null || closed != null) {
