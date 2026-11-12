@@ -192,6 +192,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         var createdAt = at
         var lastActivity = at
         var members = LinkedHashSet<String>()
+        /** Guest mode (SPEC 19.26): keys that opened a guest link and have not joined. */
+        val reading = LinkedHashSet<String>()
         val admins = LinkedHashSet<String>()
         var parent: String? = null
         var closed = false
@@ -236,6 +238,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 if (!p.isNullOrEmpty()) {
                     if (e.kind == 9000) g.members.add(p) else g.members.remove(p)
                     decided[id to p] = e.createdAt
+                    // guest mode: a 9000 tagged `reading` is someone who opened a guest link and has
+                    // not joined; a later 9000 without it (they joined), a 9001 or a label ends it
+                    if (e.kind == 9000 && e.t(GuestMode.TAG) == "1") g.reading.add(p) else g.reading.remove(p)
                     // a co-host (events): put in with the admin role; the relay's 39001 says the same
                     if (e.kind == 9000 && e.tags.any { it.size >= 3 && it[0] == "p" && it[1] == p && it[2] == "admin" }) g.admins.add(p)
                 }
@@ -249,7 +254,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 if (!g.closed && e.tags.none { it.firstOrNull() == "waitlist" || it.firstOrNull() == "ticket" }) g.members.add(e.pubkey) else applied[id to e.pubkey] = e
             }
             if (e.kind == 9022) { g.members.remove(e.pubkey); applied.remove(id to e.pubkey) }
+            if (e.kind == 1985 && e.t("L") == GUEST_NS && e.tags.any { it.size >= 2 && it[0] == "l" && (it[1] == "saved" || it[1] == "member") }) {
+                e.t("p")?.let(g.reading::remove)
+            }
         }
+        // … and until then they are in no member list or count (the relay's 39002 has their key)
+        for (g in map.values) for (p in g.reading) if (p != me) g.members.remove(p)
         // a pod or proposal lives where it was announced: the first post carrying its tag
         for (e in sorted) {
             if (e.kind != 9) continue
@@ -271,6 +281,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                     id = it.id, name = it.name, about = it.about, picture = it.picture, createdAt = it.createdAt,
                     lastActivity = it.lastActivity, members = it.members, admins = it.admins, type = typeOfId(it.id),
                     parent = it.parent, closed = it.closed, prompt = it.prompt, applications = it.applications, pending = it.pending,
+                    reading = it.reading,
                 )
             }
     }
@@ -565,6 +576,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (e.kind == 9001) { val p = e.t("p"); if (!p.isNullOrEmpty()) gone[p] = maxOf(gone[p] ?: 0, e.createdAt) }
             else if (e.kind == 9 || e.kind == 1111) wrote.add(e.pubkey)
             if (e.kind != 9000 || e.t("invited-by").isNullOrEmpty()) continue
+            // guest mode: opened the link, not joined: no line, no guest chip
+            if (e.t(GuestMode.TAG) == "1") continue
             val p = e.t("p")
             if (p.isNullOrEmpty()) continue
             // the register (whois) knows who became a member; the labels are the fallback
@@ -592,7 +605,20 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     private val allGuestJoins: List<GuestJoin> by lazy { groups.flatMap { guestJoins(it.id) }.filter { !it.member } }
 
     /** Am I (still) a guest here, and not a member. */
-    val amGuest: Boolean by lazy { allGuestJoins.any { it.pubkey == me } }
+    val amGuest: Boolean by lazy { allGuestJoins.any { it.pubkey == me } || groups.any { me in it.reading } }
+
+    /** Keys that are reading somewhere (guest mode) and in no channel otherwise: nobody to mention or list. */
+    val readingOnly: Set<String> by lazy {
+        val r = HashSet<String>()
+        for (g in groups) r.addAll(g.reading)
+        if (r.isEmpty()) return@lazy r
+        for (g in groups) r.removeAll(g.members)
+        r.remove(me)
+        r
+    }
+
+    /** How many guests are reading GROUP_ID (guest mode), me left out: "N guests are reading". */
+    fun readingCount(groupId: String): Int = group(groupId)?.reading?.count { it != me } ?: 0
 
     /** Why this person can't be made an admin of the belfry (fixed text), or null when they can. */
     fun noAdminReason(pubkey: String): String? {
@@ -622,7 +648,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if ((last[e.pubkey] ?: 0) < e.createdAt) last[e.pubkey] = e.createdAt
         }
         val known = if (g != null && g.members.isNotEmpty()) g.members + g.admins else null
-        return last.entries.filter { known == null || it.key in known }.map { Active(it.key, it.value) }.sortedByDescending { it.at }
+        return last.entries.filter { (known == null || it.key in known) && (g == null || it.key !in g.reading) }.map { Active(it.key, it.value) }.sortedByDescending { it.at }
     }
 
     /** "N active members this month" under a channel's name. */
@@ -1095,7 +1121,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     /** People who can be mentioned or messaged: (pubkey, name) of everyone with a name, me left out. */
     val people: List<Pair<String, String>> by lazy {
-        profiles.entries.filter { it.key != me && !it.value.name.isNullOrEmpty() }.map { it.key to it.value.name!! }
+        profiles.entries.filter { it.key != me && !it.value.name.isNullOrEmpty() && it.key !in readingOnly }.map { it.key to it.value.name!! }
     }
 
     // ---- search (SPEC 14) ----------------------------------------------------------------------

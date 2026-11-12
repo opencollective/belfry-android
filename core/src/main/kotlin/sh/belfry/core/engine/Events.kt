@@ -45,7 +45,8 @@ class EventsService internal constructor(private val s: Session) {
     private val world get() = s.world.value
     private val amGuest: Boolean get() = world.amGuest
 
-    private suspend fun <T> api(block: suspend (EventsApi) -> T): T = s.apiCall { block(EventsApi(it, s.signer)) }
+    /** WRITE false: a read (GET), allowed in guest mode. */
+    private suspend fun <T> api(write: Boolean = true, block: suspend (EventsApi) -> T): T = s.apiCall(write) { block(EventsApi(it, s.signer)) }
 
     /** The coordinate of an event the belfry told us about (for the `a` tag of a message). */
     fun knownCoord(link: String): String? = _remote.value[link]?.api?.coord
@@ -58,7 +59,7 @@ class EventsService internal constructor(private val s: Session) {
         val had = _remote.value[link]
         if (!force && had != null && s.now() - had.at < 60) return had
         val got = if (s.localOnly) RemoteEvent(error = "not_found", at = s.now()) else try {
-            RemoteEvent(api = api { it.event(link) }, at = s.now())
+            RemoteEvent(api = api(write = false) { it.event(link) }, at = s.now())
         } catch (e: ActionException) {
             RemoteEvent(error = e.code, at = s.now())
         }
@@ -94,7 +95,7 @@ class EventsService internal constructor(private val s: Session) {
             return SlugCheck(problem == null && !other, name, problem)
         }
         if (problem != null) return SlugCheck(false, name, problem)
-        return api { it.slug(name, d) }
+        return api(write = false) { it.slug(name, d) }
     }
 
     suspend fun claimSlug(d: String, slug: String) {

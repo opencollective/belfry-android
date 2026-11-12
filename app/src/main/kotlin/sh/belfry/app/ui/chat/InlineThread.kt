@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,7 +55,8 @@ fun InlineThread(groupId: String, root: Message, chat: ChatState, focus: Boolean
                 val first = prev == null || prev.pubkey != r.pubkey || r.at - prev.at > 300
                 MessageRow(groupId, r, first, chat, compact = true)
             }
-            Composer(
+            // guest mode: no reply box (the channel's bar says Join)
+            if (session.guest.collectAsState().value?.reading != true) Composer(
                 composer,
                 placeholder = if (shown.isNotEmpty() || hidden > 0) "Reply in the thread" else "Reply (starts a thread)",
                 onSend = { text, files, picked, _ -> session.replyInThread(groupId, root.ev, text, files, picked) },

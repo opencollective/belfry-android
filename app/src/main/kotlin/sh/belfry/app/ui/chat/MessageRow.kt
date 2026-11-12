@@ -129,7 +129,7 @@ fun MessageRow(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onLongClickLabel = "Message actions",
-                onLongClick = { chat.menu(m) },
+                onLongClick = { if (session.reading) session.askToJoin() else chat.menu(m) },
                 onClick = {},
             )
             .padding(start = if (compact) 0.dp else 16.dp, end = if (compact) 0.dp else 16.dp, top = if (first) 8.dp else 1.dp, bottom = 1.dp)
@@ -239,7 +239,7 @@ private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, ch
         if (reactions.isNotEmpty()) {
             val shape = RoundedCornerShape(99.dp)
             Box(
-                Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClickLabel = "Add a reaction") { chat.menu(m, emojiOnly = true) }.padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.clip(shape).border(1.dp, c.line, shape).clickable(role = Role.Button, onClickLabel = "Add a reaction") { if (session.reading) session.askToJoin() else chat.menu(m, emojiOnly = true) }.padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Icon(BelfryIcons.SmilePlus, contentDescription = "Add a reaction", tint = c.muted, modifier = Modifier.size(17.dp))
             }

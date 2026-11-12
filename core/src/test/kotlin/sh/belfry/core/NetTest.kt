@@ -619,6 +619,29 @@ class SignInAndApiTest {
         auth = authEvent(req.getHeader("Authorization"))
         assertEquals(session.pubkey, auth.pubkey)
         assertEquals(sha256Hex(body), auth.tag("payload"))
+        assertEquals(false, joined.reading)
+
+        // guest mode (SPEC 19.26): no name, body {}; the answer says reading and whose key it is
+        server.enqueue(json(200, """{"channel":"garden-1a2b","new":true,"guest":true,"reading":true,"bunker_url":"$bunker","pubkey":"${"cd".repeat(32)}"}"""))
+        val reading = api.joinAsNew(token, null, session.secretHex)
+        assertTrue(reading.reading)
+        assertEquals("cd".repeat(32), reading.pubkey)
+        req = server.takeRequest()
+        body = req.body.readUtf8()
+        assertEquals("{}", body)
+        assertEquals(sha256Hex(body), authEvent(req.getHeader("Authorization")).tag("payload"))
+        for ((status, code, text) in listOf(
+            Triple(410, "for_agent", "This link is for an AI agent, not a person."),
+            Triple(409, "unsupported", "This belfry does not take guests."),
+            Triple(422, "name_needed", "This belfry is being updated. Try again in a few minutes."),
+        )) {
+            server.enqueue(json(status, """{"error":"$code","message":"<b>server text</b>"}"""))
+            try { api.joinAsNew(token, null, session.secretHex); fail("must throw") } catch (e: ApiException) {
+                assertEquals(code, e.code)
+                assertEquals(text, e.message)
+            }
+            server.takeRequest()
+        }
 
         server.enqueue(json(409, """{"error":"session_taken","message":"This session belongs to another account."}"""))
         try { api.joinAsNew(token, "Grace", session.secretHex); fail("must throw") } catch (e: ApiException) { assertEquals("session_taken", e.code) }
@@ -626,7 +649,7 @@ class SignInAndApiTest {
         server.enqueue(json(410, """{"error":"closed","message":"whatever"}"""))
         try { api.joinAsNew(token, "Grace", session.secretHex); fail("must throw") } catch (e: ApiException) {
             assertEquals("closed", e.code)
-            assertEquals("This invite is closed. Ask for a new one.", e.message)
+            assertEquals("This invite can’t be used any more. Ask for a new one.", e.message)
         }
         server.takeRequest()
 
@@ -638,6 +661,66 @@ class SignInAndApiTest {
         req = server.takeRequest()
         assertEquals("{}", req.body.readUtf8())
         assertEquals(member.pubkey, authEvent(req.getHeader("Authorization")).pubkey)
+    }
+
+    /** Joining from guest mode (SPEC 19.26): name + e-mail, then the code; fixed texts by code. */
+    @Test
+    fun guestModeJoin() = runBlocking {
+        val api = BelfryApi(community(), http)
+        val guest = LocalSigner.random()
+
+        server.enqueue(json(202, """{"sent":true}"""))
+        api.guestSave(guest, " ana@example.org ", "Ana Lima")
+        var req = server.takeRequest()
+        assertEquals("/api/v1/guest/save", req.path)
+        var body = req.body.readUtf8()
+        assertEquals("""{"email":"ana@example.org","name":"Ana Lima"}""", body)
+        var auth = authEvent(req.getHeader("Authorization"))
+        assertEquals(guest.pubkey, auth.pubkey)
+        assertEquals(sha256Hex(body), auth.tag("payload"))
+
+        // a guest who has a name already: the e-mail alone
+        server.enqueue(json(202, """{"sent":true}"""))
+        api.guestSave(guest, "ana@example.org")
+        assertEquals("""{"email":"ana@example.org"}""", server.takeRequest().body.readUtf8())
+
+        server.enqueue(json(200, """{"saved":true,"joined":true}"""))
+        assertTrue(api.guestVerify(guest, "ana@example.org", "123456", "Ana Lima").joined)
+        req = server.takeRequest()
+        assertEquals("/api/v1/guest/save/verify", req.path)
+        assertEquals("""{"email":"ana@example.org","code":"123456","name":"Ana Lima"}""", req.body.readUtf8())
+        server.enqueue(json(200, """{"saved":true,"joined":false}"""))
+        assertFalse(api.guestVerify(guest, "ana@example.org", "123456").joined)
+        server.takeRequest()
+
+        for ((status, code, text) in listOf(
+            Triple(422, "invalid", "That doesn’t look like an e-mail address."),
+            Triple(422, "name_needed", "Your name is needed to join."),
+            Triple(429, "too_many", "Too many codes for now. Try again in half an hour."),
+            Triple(422, "wrong_code", "That code is not right. Check the e-mail and try again."),
+            Triple(410, "expired", "That code has expired. Send a new one."),
+            Triple(409, "not_guest", "This guest access has ended. Ask for a new invite."),
+        )) {
+            server.enqueue(json(status, """{"error":"$code","message":"<i>server text (3 tries left)</i>"}"""))
+            try { api.guestVerify(guest, "ana@example.org", "000000", "Ana"); fail("must throw") } catch (e: ApiException) {
+                assertEquals(code, e.code)
+                assertEquals(text, e.message)
+                assertFalse(e.moved)
+            }
+            server.takeRequest()
+        }
+        // the address has an account here: moved = the belfry gave it the channel
+        server.enqueue(json(409, """{"error":"taken","message":"x","moved":true}"""))
+        try { api.guestVerify(guest, "ana@example.org", "123456", "Ana"); fail("must throw") } catch (e: ApiException) {
+            assertEquals("taken", e.code)
+            assertTrue(e.moved)
+            assertEquals("This address already has an account here.", e.message)
+        }
+        server.takeRequest()
+        server.enqueue(json(409, """{"error":"taken","moved":false}"""))
+        try { api.guestVerify(guest, "ana@example.org", "123456"); fail("must throw") } catch (e: ApiException) { assertFalse(e.moved) }
+        server.takeRequest()
+        Unit
     }
 
     @Test

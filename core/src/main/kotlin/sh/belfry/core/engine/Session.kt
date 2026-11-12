@@ -46,6 +46,7 @@ import sh.belfry.core.model.isGuest
 import sh.belfry.core.model.eventTagsFor
 import sh.belfry.core.model.ComposerDraft
 import sh.belfry.core.model.FormDrafts
+import sh.belfry.core.model.GuestMode
 import sh.belfry.core.net.Branding
 import sh.belfry.core.net.Access
 import sh.belfry.core.net.ApiException
@@ -122,6 +123,11 @@ data class GuestInfo(
     val saved: Boolean,
     /** A co-host link (an event's) used before saving an e-mail: used again once the e-mail is proven. */
     val coHost: String? = null,
+    /**
+     * Guest mode (SPEC 19.26): only opened a link so far, no name. They read; nothing is sent
+     * until they join with a name, an e-mail and the code mailed to it.
+     */
+    val reading: Boolean = false,
 )
 
 /** A photo or file to send with a message. */
@@ -134,7 +140,14 @@ data class PlaceResults(val places: List<Place>, val attribution: String?)
  * from the server or from a URL). [code] is the server's error key when there is one
  * (`guest_not_saved`, `agent`, `not_member`, `last_admin`, `taken`, `network`…).
  */
-class ActionException(val code: String, message: String) : Exception(message)
+open class ActionException(val code: String, message: String) : Exception(message)
+
+/**
+ * Joining from guest mode or saving a guest account did not work (SPEC 19.26). [code]: `invalid`,
+ * `name_needed`, `too_many`, `wrong_code`, `expired`, `taken`, `not_guest`, `offline`, `failed`;
+ * [moved] (with `taken`): the belfry gave the account with that address the channel.
+ */
+class GuestJoinException(code: String, val moved: Boolean = false) : ActionException(code, GuestMode.message(code))
 
 /**
  * One signed-in member's connection to their belfry: the event log, the relays and their
@@ -187,6 +200,22 @@ class Session(
     private val _guest = MutableStateFlow(guest)
     /** Not null while I am here as a guest of one channel. */
     val guest: StateFlow<GuestInfo?> = _guest
+
+    /** Guest mode (SPEC 19.26): reading only; every write is refused here and opens the Join sheet. */
+    val reading: Boolean get() = _guest.value?.reading == true
+
+    private val _joinAsked = MutableStateFlow(false)
+    /** Something that writes was tried in guest mode (or Join was tapped): the Join sheet is open. */
+    val joinAsked: StateFlow<Boolean> = _joinAsked
+    fun askToJoin() { if (reading) _joinAsked.value = true }
+    fun closeJoin() { _joinAsked.value = false }
+
+    /** Every write goes through here first: in guest mode it is refused and the Join sheet opens. */
+    private fun guard() {
+        if (!reading) return
+        _joinAsked.value = true
+        throw ActionException(GuestMode.REFUSED, GuestMode.REFUSED_TEXT)
+    }
 
     private val dm: DirectMessages
     /** Direct messages and e-mail. */
@@ -355,7 +384,8 @@ class Session(
     private suspend fun onGroupsEose() {
         setStatus { it.copy(access = AccessState.IN) }
         // A new belfry's groups relay has no channel yet: the first member in opens #general. Once.
-        if (firstChannelTried) return
+        // (Not a guest in guest mode: reading leaves no trace.)
+        if (firstChannelTried || reading) return
         val any = synchronized(logLock) { log.any { it.kind == 39000 } }
         if (any) return
         firstChannelTried = true
@@ -465,9 +495,9 @@ class Session(
         (signer as? BunkerSigner)?.disconnect()
     }
 
-    /** Ends this device's session with the belfry (best effort, 3 s), stops, and wipes everything stored. */
-    suspend fun signOut() {
-        if (!localOnly) {
+    /** Ends this device's session with the belfry (best effort, 3 s; not when REVOKE is false: the belfry closed it), stops, and wipes everything stored. */
+    suspend fun signOut(revoke: Boolean = true) {
+        if (!localOnly && revoke) {
             val b = signer as? BunkerSigner
             if (b != null) withTimeoutOrNull(3_000) {
                 try { api().revokeSession(signer, b.bunker.remotePubkey) } catch (e: Exception) { /* offline: an admin or the member can end it later */ }
@@ -577,6 +607,7 @@ class Session(
 
     /** An admin of the belfry sets its branding ("" clears a value). Throws [ActionException] (`not_admin`, `invalid`, `no_key`). */
     suspend fun saveBranding(b: Branding): Branding {
+        guard()
         val saved = if (localOnly) b else call { it.saveBranding(signer, b) }
         community = community.withBranding(saved)
         onRecordChanged?.invoke(community, _guest.value)
@@ -594,6 +625,7 @@ class Session(
      * (the event ids while they are pending). Never throws for network reasons.
      */
     suspend fun send(drafts: List<Draft>, attachments: List<NewAttachment> = emptyList()): List<String> = withContext(Dispatchers.Default) {
+        guard()
         val ids = ArrayList<String>()
         enqueueLock.withLock {
             drafts.forEachIndexed { i, d ->
@@ -620,6 +652,7 @@ class Session(
 
     /** Saves an event that is signed already (a gift wrap) and publishes it when the relay answers. */
     suspend fun enqueueSigned(target: Target, event: Event, dm: String? = null): String = withContext(Dispatchers.Default) {
+        guard()
         val item = OutboxItem(newLocalId(), target, event.kind, event.content, event.tags, event.createdAt, signed = event, dm = dm)
         store.putOutbox(item)
         countOutbox()
@@ -815,6 +848,7 @@ class Session(
 
     /** Opening a channel tells the others I was there, at most every 6 hours per channel (SPEC 11). */
     suspend fun markSeen(groupId: String) {
+        if (reading) return // guest mode: reading leaves no trace
         val w = _world.value
         if (w.group(groupId) == null || !w.maySee(groupId)) return
         val key = K_SEEN_SENT + groupId
@@ -889,6 +923,7 @@ class Session(
 
     /** Uploads a picture (resized by the app) to the file server and returns its URL; the demo keeps it on the device. */
     suspend fun uploadPicture(bytes: ByteArray, name: String, mime: String = "image/jpeg"): String = withContext(Dispatchers.Default) {
+        guard()
         if (localOnly) {
             val key = Random.hex(8)
             store.putBlob(key, bytes)
@@ -986,7 +1021,8 @@ class Session(
     /** Belfry events: tickets, applications, the belfry's API (engine/Events.kt). */
     val events: EventsService by lazy { EventsService(this) }
 
-    internal suspend fun <T> apiCall(block: suspend (BelfryApi) -> T): T = call(block)
+    /** WRITE: it changes something at the belfry (refused in guest mode). */
+    internal suspend fun <T> apiCall(write: Boolean, block: suspend (BelfryApi) -> T): T { if (write) guard(); return call(block) }
     /** The zone times are set in on this device (a new version of an event keeps it). */
     internal val zoneId: String get() = zone.id
     /** The demo: events "published" by others (the belfry's groups key issuing a ticket). */
@@ -1017,6 +1053,7 @@ class Session(
      * agent that joins as my own (show its [GuestLink.agentUrl]). Throws [ActionException].
      */
     suspend fun createGuestLink(channel: String, people: Int = 1, linkDays: Int = 1, agent: Boolean = false): GuestLink {
+        guard()
         if (localOnly) {
             val token = "demo-" + Random.hex(12)
             return GuestLink("https://chat.${community.domain}/join/$token", "https://belfry.${community.domain}/invite/$token.md", if (agent) 0 else 30, if (people == 50 && !agent) 50 else 1, linkDays, null, agent)
@@ -1034,6 +1071,7 @@ class Session(
      * a closed pod I don't administer: the message says it takes an application. Throws [ActionException].
      */
     suspend fun inviteMember(groupId: String, pubkey: String): Invited {
+        guard()
         val w = _world.value
         if (w.isGuest(pubkey)) {
             val got = if (localOnly) ChannelGuest(added = true, already = false, member = false) else call { it.addChannelGuest(signer, groupId, pubkey) }
@@ -1072,6 +1110,7 @@ class Session(
 
     /** Changes them ([set]: one switch or one channel's level) and returns them as now. Throws [ActionException]. */
     suspend fun setNotifications(set: kotlinx.serialization.json.JsonObject): sh.belfry.core.push.NotificationSettings {
+        guard()
         if (localOnly) { demoNotifications = demoNotifications.merged(set); return demoNotifications }
         return call { it.notifications(signer, set) }
     }
@@ -1089,6 +1128,7 @@ class Session(
      * older belfries), not_agent, not_yours.
      */
     suspend fun setMyAgent(pubkey: String, mine: Boolean): MyAgents {
+        guard()
         val out = if (localOnly) null else call { it.setMyAgent(signer, pubkey, mine) }
         community = community.copy(agents = if (mine) community.agents + (pubkey to me) else community.agents - pubkey)
         rebuild()
@@ -1105,21 +1145,57 @@ class Session(
         return joined
     }
 
-    /** A guest saves their account: a 6-digit code goes to EMAIL. Codes: `invalid`, `taken`, … */
-    suspend fun guestSave(email: String) {
-        if (localOnly) return
-        call { it.guestSave(signer, email) }
+    /**
+     * Join from guest mode, or save a guest account (SPEC 19.26): a 6-digit code goes by e-mail to
+     * EMAIL. NAME: in guest mode (required there), else null. Throws [GuestJoinException].
+     */
+    suspend fun guestSave(email: String, name: String? = null) {
+        val n = name?.let(GuestMode::cleanName)
+        if (reading && n.isNullOrEmpty()) throw GuestJoinException("name_needed")
+        if (!GuestMode.isEmail(email)) throw GuestJoinException("invalid")
+        if (localOnly) { delay(300); return } // demo: no mail; the code is 123456
+        guestCall { it.guestSave(signer, email.trim(), n) }
     }
 
-    /** The code from the e-mail; on success the guest's account is saved. */
-    suspend fun guestVerify(email: String, code: String) {
-        if (!localOnly) call { it.guestVerify(signer, email, code) }
-        val g = _guest.value ?: return
-        setGuest(g.copy(saved = true))
+    /**
+     * The code from the e-mail: the account is saved under that address (and, in guest mode, that
+     * name: the channel then gets the join line). Guest mode ends. Throws [GuestJoinException]
+     * (`taken` with [GuestJoinException.moved]: sign in with that address instead).
+     */
+    suspend fun guestVerify(email: String, code: String, name: String? = null) {
+        val n = name?.let(GuestMode::cleanName)?.takeIf { it.isNotEmpty() }
+        val g = _guest.value
+        if (localOnly) { // demo: what the belfry would do
+            delay(300)
+            if (email.trim().lowercase() == GuestMode.DEMO_TAKEN) throw GuestJoinException("taken", moved = true)
+            if (code != GuestMode.DEMO_CODE) throw GuestJoinException("wrong_code")
+            if (g?.reading == true && n != null) addToLog(GuestMode.demoJoined(g.channel, me, n, clock()))
+        } else {
+            guestCall { it.guestVerify(signer, email.trim(), code.trim(), n) }
+        }
+        if (g == null) return
+        setGuest(g.copy(saved = true, reading = false))
+        _joinAsked.value = false
+        rebuild()
         // the co-host link waiting for this: now it makes them a host of the event
         val token = g.coHost ?: return
         joinWithAccount(token)
         _guest.value?.let { setGuest(it.copy(coHost = null)) }
+    }
+
+    private suspend fun <T> guestCall(block: suspend (BelfryApi) -> T): T = withContext(Dispatchers.Default) {
+        try {
+            block(api())
+        } catch (e: ApiException) {
+            throw GuestJoinException(if (e.code in GuestMode.CODES) e.code else if (e.code == "network") "offline" else "failed", e.moved)
+        } catch (e: IOException) {
+            throw GuestJoinException("offline")
+        }
+    }
+
+    /** The demo (and screenshots): this device as a guest of CHANNEL in guest mode. */
+    fun demoGuestMode(channel: String) {
+        if (localOnly) setGuest(GuestInfo(channel, saved = false, reading = true))
     }
 
     private fun setGuest(g: GuestInfo?) {
@@ -1136,6 +1212,7 @@ class Session(
 
     /** A place that is not in the list: it takes the point of NEAR (a listed city). */
     suspend fun addPlace(name: String, country: String, near: Place): Place {
+        guard()
         if (localOnly) return Place(country, "b:demo", name, null, near.lat, near.lon, near.name)
         val nearId = near.id ?: throw ActionException("invalid", "Pick the nearest city from the list first.")
         val p = call { it.addPlace(signer, name, country, nearId) }
@@ -1147,6 +1224,7 @@ class Session(
      * `not_admin`, `not_member`, `guest_not_saved`, `agent`, `last_admin`.
      */
     suspend fun setAdmin(pubkey: String, admin: Boolean) {
+        guard()
         if (!localOnly) call { it.setAdmin(signer, pubkey, admin) }
         val now = (community.admins.toSet() + extraAdmins).let { if (admin) it + pubkey else it - pubkey }
         if (localOnly) {
@@ -1168,6 +1246,7 @@ class Session(
 
     /** CHOICE: `asap`, `monthly` or `stop`. Returns what is in force now (null = not following). */
     suspend fun setFollow(channel: String, choice: String): String? {
+        guard()
         if (localOnly) {
             if (choice == "stop") demoFollows.remove(channel) else demoFollows[channel] = choice
             return demoFollows[channel]
@@ -1177,6 +1256,7 @@ class Session(
 
     /** Changes my address here (`<username>@<domain>`) and puts it in my profile. Codes: `taken`, `invalid`, `not_member`, `own_key`. */
     suspend fun setUsername(username: String): String {
+        guard()
         val w = _world.value
         val nip05 = if (localOnly) "${username.trim().lowercase()}@${community.domain}" else call { it.setUsername(signer, username.trim().lowercase()) }
         val p = w.profiles[me]
@@ -1200,6 +1280,7 @@ class Session(
 
     /** Admins: make the site a message links to (an nsite reference) the community's website. */
     suspend fun publishWebsite(ref: String, messageId: String) {
+        guard()
         if (localOnly) return
         call { it.publishWebsite(signer, ref, messageId) }
     }

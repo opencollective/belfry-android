@@ -125,6 +125,16 @@ minSdk 26, JDK 17.
   `slot`; anything kept outside its `Store` must be named with `Slots.key(name, slot)`. One
   session is live at a time. Never rename the empty slot's names (`session`, `belfry.db`,
   `push-key`): they are what a single-account install has.
+- Guest mode (SPEC 19.26, web b2e968b): a guest link with no account here goes straight in
+  (`Onboarding.openInvite`, `AppState.openInvite`; the loading screen is `AppState.opening`, drawn
+  over everything by `AppRoot` and cleared by the joined session's SignedIn when the groups relay
+  answered or after 10 s). `GuestInfo.reading` (saved with the session) = read-only: every write
+  passes `Session.guard()` (`send`, `enqueueSigned`, `uploadPicture`, the API writes,
+  `apiCall(write = true)`); a new write path must call it too. A refused write sets
+  `Session.joinAsked`, which `GuestJoinHost` (`ui/people/GuestJoin.kt`) shows as the Join sheet;
+  `GuestBar` stands where the composer would be. Others' reading guests are left out in `World`
+  (`Group.reading`, `readingOnly`, `readingCount`; `core/model/GuestMode.kt` has the fixed texts).
+  Never auto-send anything from a `LaunchedEffect` without a try: `guard()` throws.
 - The invitation scanner is `app/.../scan/` (CameraX + ZXing, no Play services); it only hands
   over what `InviteScan.read` (= `InviteLink.parse`) takes.
 - Push (SPEC 19.19, collective-belfry docs/push.md): FCM data-only messages decrypted in

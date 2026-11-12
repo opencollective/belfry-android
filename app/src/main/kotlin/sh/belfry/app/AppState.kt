@@ -40,6 +40,19 @@ sealed interface Adding {
     data class Join(val link: InviteLink) : Adding
 }
 
+/**
+ * A guest link being opened (SPEC 19.26): one loading screen from the link to its channel.
+ * [channelName] comes from the belfry's answer about the invite (null until it is in).
+ */
+data class Opening(
+    val channelName: String? = null,
+    /** The account the link made, once its session exists (only that session ends the loading screen). */
+    val account: String? = null,
+)
+
+/** What the sign-in screen starts with after "Sign in instead" (guest mode, an address with an account). */
+data class SignInPrefill(val address: String, val hint: String?)
+
 /** What the switcher shows of an account that is not open (the open one is read from its session). */
 data class AccountsView(val list: AccountList = AccountList.EMPTY, val unread: Set<String> = emptySet())
 
@@ -70,6 +83,21 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     /** Signed in and opened from a guest link: offer to join as yourself. */
     private val _joinOffer = MutableStateFlow<InviteLink?>(null)
     val joinOffer: StateFlow<InviteLink?> = _joinOffer
+
+    private val _opening = MutableStateFlow<Opening?>(null)
+    /** Not null while a guest link is being opened: the loading screen is over everything (AppRoot). */
+    val opening: StateFlow<Opening?> = _opening
+    /** The channel can be drawn in full (the relay sent what it has, or said no, or 10 s went by). */
+    fun doneOpening() { _opening.value = null }
+
+    @Volatile private var prefill: SignInPrefill? = null
+    /** Taken once by the sign-in screen. */
+    fun takePrefill(): SignInPrefill? = prefill.also { prefill = null }
+
+    /** (domain, channel): opened once signed in to that belfry ("Sign in instead"). */
+    private val _openAfter = MutableStateFlow<Pair<String, String>?>(null)
+    val openAfter: StateFlow<Pair<String, String>?> = _openAfter
+    fun forgetOpenAfter() { _openAfter.value = null }
 
     /** Opened from an event's address: the event page opens once signed in (kept until then). */
     private val _eventLink = MutableStateFlow<EventLink?>(null)
@@ -351,11 +379,38 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
 
     suspend fun inviteInfo(link: InviteLink): Invitation = onboarding.inviteInfo(link)
 
-    /** Joins as a new guest with a name only. Throws [OnboardingException] with a fixed message. */
-    suspend fun joinAsNew(invitation: Invitation, name: String) {
-        val s = onboarding.joinAsNew(invitation, name)
+    /**
+     * Opens a guest link with no account here (SPEC 19.26): no question; this device uses the link
+     * in guest mode and the loading screen stays until the channel can be drawn. Throws
+     * [OnboardingException] with a fixed message (the loading screen is gone then).
+     */
+    suspend fun openInvite(link: InviteLink) {
+        if (_opening.value == null) _opening.value = Opening()
+        val s = try {
+            onboarding.openInvite(link) { info -> if (_opening.value != null) _opening.value = Opening(info.channelName) }
+        } catch (e: Exception) {
+            _opening.value = null
+            throw e
+        }
         forgetInvite()
+        _opening.value?.let { _opening.value = it.copy(account = s.accountId) }
         enter(s, fresh = true)
+    }
+
+    /**
+     * Guest mode, Join: the address typed has an account here already ([moved]: the belfry gave
+     * it the channel and closed this guest). The guest account goes from this device, the native
+     * sign-in starts (with the address when it is a `name@domain` of this belfry) and the channel
+     * opens once signed in.
+     */
+    suspend fun signInInstead(email: String, channel: String, moved: Boolean) {
+        val s = _session.value ?: return
+        val domain = s.community.domain
+        val address = sh.belfry.core.model.GuestMode.signInPrefill(email, domain)
+        prefill = SignInPrefill(address ?: "", if (address == null) "Sign in with your address here (name@$domain), or with the browser using the e-mail you typed." else null)
+        if (channel.isNotEmpty()) _openAfter.value = domain to channel
+        signOut(revoke = !moved)
+        if (_session.value != null) _adding.value = Adding.SignIn
     }
 
     /** "Already have an account? Sign in": the link stays pending and is offered again after sign-in. */
@@ -384,7 +439,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
      * session with the belfry (null for the demo); the caller may open it. The work runs in the
      * app's own scope: the screen that asked goes away meanwhile.
      */
-    suspend fun signOut(): String? {
+    suspend fun signOut(revoke: Boolean = true): String? {
         val s = _session.value ?: return null
         watcher?.cancel()
         _phase.value = Phase.Loading
@@ -392,7 +447,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
             val url = withContext(Dispatchers.Default) {
                 // the belfry forgets this phone's push device first (signed by the session), then the session is revoked
                 try { beforeSignOut?.invoke(s) } catch (e: Exception) { }
-                try { onboarding.signOut(s) } catch (e: Exception) { null }
+                try { onboarding.signOut(s, revoke) } catch (e: Exception) { null }
             }
             if (_session.value === s) _session.value = null
             val next = try { onboarding.resume() } catch (e: Exception) { null }

@@ -53,6 +53,7 @@ import sh.belfry.core.model.World
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -86,6 +87,7 @@ import sh.belfry.app.ui.nav.LocalStatus
 import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.people.SaveAccountBar
+import sh.belfry.app.ui.people.GuestBar
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.markdown.Markdown
 import sh.belfry.core.model.FeedItem
@@ -124,6 +126,9 @@ fun ChannelScreen(
     val g = world.group(groupId)
     val admin = world.canAdmin(g)
     val now = session.now()
+    // guest mode (SPEC 19.26): reading only; the composer's place says so, with Join
+    val guestInfo by session.guest.collectAsState()
+    val guestReading = guestInfo?.reading == true
 
     LaunchedEffect(groupId, g != null) { if (g != null) session.markSeen(groupId) }
     // a new event made from this channel's ＋: its URL waits in the composer, ready to send
@@ -215,6 +220,8 @@ fun ChannelScreen(
             if (rows.isEmpty()) {
                 if (chat.topic != null) {
                     EmptyState("Nothing here yet", text = if (chat.topic == Topics.ANNOUNCE) "No announcements in this channel." else "No messages in #${chat.topic}.")
+                } else if (guestReading) {
+                    EmptyState("No messages here yet.", icon = BelfryIcons.Hash)
                 } else {
                     EmptyState(
                         "${g?.name ?: groupId} is new",
@@ -266,7 +273,8 @@ fun ChannelScreen(
         // a recording that runs, or one that was not posted (the web's RecordingBar)
         RecordingBar(groupId)
         SaveAccountBar(session)
-        val readOnly = g != null && g.isPod && g.closed && world.me !in g.members
+        if (guestReading) GuestBar(groupId)
+        val readOnly = guestReading || (g != null && g.isPod && g.closed && world.me !in g.members)
         val editing = chat.editing
         // #proposals, #events, #bookings (web 2026-11-11): one type of post, no free text at the top
         val page = world.webPage(g)
@@ -331,7 +339,7 @@ fun ChannelScreen(
                 groupId = groupId,
                 onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
             )
-        } else {
+        } else if (!guestReading) {
             Spacer(Modifier.navigationBarsPadding())
         }
     }

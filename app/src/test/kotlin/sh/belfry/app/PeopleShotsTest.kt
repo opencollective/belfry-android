@@ -18,7 +18,7 @@ import sh.belfry.app.push.PushState
 import sh.belfry.core.push.NotificationSettings
 import sh.belfry.core.push.PushLevel
 import sh.belfry.app.ui.people.ProfileScreen
-import sh.belfry.app.ui.people.SaveAccountFlow
+import sh.belfry.app.ui.people.SaveAccountLine
 import sh.belfry.app.ui.people.SessionsContent
 import sh.belfry.app.ui.people.SessionsScreen
 import sh.belfry.core.engine.Demo
@@ -102,10 +102,9 @@ class PeopleShotsTest : DemoShots() {
     /** The guest's "save your account" bar, step by step. */
     @Test fun saveAccount() = shot("save-account") {
         Column(Modifier.padding(top = 40.dp)) {
-            for (step in listOf("line", "email", "code", "done")) {
-                SaveAccountFlow(step, if (step == "line") "" else "marcel@example.org", {}, {}, {}, {}, onHide = {})
-                Spacer(Modifier.height(24.dp))
-            }
+            SaveAccountLine("Save your account: add your e-mail to come back from any device.", "Save", {}, onHide = {})
+            Spacer(Modifier.height(24.dp))
+            SaveAccountLine("Saved. Sign in with marcel@example.org on any device.", "OK", {}, onHide = null)
         }
     }
 }

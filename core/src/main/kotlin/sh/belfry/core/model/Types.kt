@@ -54,6 +54,8 @@ data class Group(
     val applications: List<Application>,
     /** Its creation is still in my outbox. */
     val pending: Boolean,
+    /** Guest mode (SPEC 19.26): who opened a guest link and has not joined; not in [members]. */
+    val reading: Set<String> = emptySet(),
 ) {
     val isEvent get() = type == ChannelType.EVENT
     val isPod get() = type == ChannelType.POD

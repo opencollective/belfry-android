@@ -126,6 +126,10 @@ fun MembersTab(g: Group) {
             }
         }
     }
+    // guest mode: people who opened an invite link and have not joined are a number, not members
+    sh.belfry.core.model.GuestMode.readingLine(world.readingCount(g.id))?.let {
+        Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = Modifier.padding(top = 10.dp).testTag("guests-reading"))
+    }
     Spacer(Modifier.height(24.dp))
 
     declining?.let { a ->

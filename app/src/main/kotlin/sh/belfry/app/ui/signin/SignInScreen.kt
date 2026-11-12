@@ -108,6 +108,9 @@ fun SignInScreen(state: AppState, onBack: (() -> Unit)? = null) {
     val pending by state.pendingCode.collectAsState()
     val waiting = pending
     var scanning by rememberSaveable { mutableStateOf(false) }
+    // "Sign in instead" from guest mode: the address when it is one of this belfry, else a hint
+    var hint by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { state.takePrefill()?.let { p -> if (p.address.isNotEmpty()) address = p.address; hint = p.hint } }
     if (scanning) {
         // a valid invitation goes where a link the app is opened with goes: the guest-join flow
         sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false })
@@ -138,6 +141,7 @@ fun SignInScreen(state: AppState, onBack: (() -> Unit)? = null) {
         address = address,
         onAddress = { address = it.take(320); error = null; offerBrowser = false; state.clearMessage() },
         error = error ?: message,
+        hint = hint,
         finishing = finishing,
         offerBrowser = offerBrowser,
         onContinue = {
@@ -259,6 +263,8 @@ fun SignInContent(
     onScan: (() -> Unit)? = null,
     /** Given while adding an account to a device that has one: a back arrow that returns to it. */
     onBack: (() -> Unit)? = null,
+    /** A fixed line under the explanation (after "Sign in instead" in guest mode). */
+    hint: String? = null,
 ) {
     val c = Belfry.colors
     val busy = rememberBusy()
@@ -275,6 +281,10 @@ fun SignInContent(
             else "Type your address in your community. A 6-digit code goes to your e-mail; no password.",
             fontSize = 15.sp, color = c.muted,
         )
+        if (hint != null) {
+            Spacer(Modifier.height(8.dp))
+            Text(hint, fontSize = 15.sp, color = c.text, modifier = Modifier.testTag("signin-hint"))
+        }
         Spacer(Modifier.height(24.dp))
         if (finishing) {
             Row(verticalAlignment = Alignment.CenterVertically) {

@@ -26,17 +26,16 @@ import sh.belfry.app.ui.chat.Photos
 import sh.belfry.app.ui.chat.ThreadScreen
 import sh.belfry.app.ui.shell.HomeScreen
 import sh.belfry.app.ui.shell.ShellState
-import sh.belfry.app.ui.signin.JoinContent
+import sh.belfry.app.ui.signin.InviteUnusable
+import sh.belfry.app.ui.signin.OpeningScreen
 import sh.belfry.app.ui.signin.NoAccessScreen
 import sh.belfry.app.ui.signin.SignInContent
 import sh.belfry.app.ui.signin.CodeContent
 import sh.belfry.core.net.NativeSignIn
 import sh.belfry.core.engine.Demo
-import sh.belfry.core.engine.Invitation
 import sh.belfry.core.model.FeedItem
 import sh.belfry.core.model.Mentions
 import sh.belfry.core.net.InviteInfo
-import sh.belfry.core.net.InviteLink
 
 /** The shell's screens in demo mode: sign-in, drawer, feed, threads, menus, composer. */
 class ShellShotsTest : DemoShots() {
@@ -104,20 +103,11 @@ class ShellShotsTest : DemoShots() {
         assertEquals(listOf("123456"), sent)
     }
 
-    @Test fun join() = shot("join") {
-        val invitation = Invitation(
-            InviteLink(Demo.DOMAIN, "demo-token-0123456789abcdef"), Demo.community(session.me),
-            InviteInfo(Demo.NAME, Demo.GARDEN, "garden", "Beds, compost, seeds and who waters when.", "Maya Okafor", "open", 30),
-        )
-        JoinContent(invitation, null, {}, {}, {})
-    }
+    /** A guest link being opened: the one loading screen (SPEC 19.26). */
+    @Test fun join() = shot("join") { OpeningScreen("garden") }
 
     @Test fun joinClosed() = shot("join-closed") {
-        val invitation = Invitation(
-            InviteLink(Demo.DOMAIN, "demo-token-0123456789abcdef"), Demo.community(session.me),
-            InviteInfo(Demo.NAME, Demo.GARDEN, "garden", "", "Maya Okafor", "expired", 30),
-        )
-        JoinContent(invitation, null, {}, {}, {})
+        InviteUnusable(InviteInfo(Demo.NAME, Demo.GARDEN, "garden", "", "Maya Okafor", "expired", 30).closedMessage!!, closed = true, onRetry = {}, onSignIn = {}, onClose = {})
     }
 
     @Test fun noAccess() = demoShot("no-access") { NoAccessScreen() }

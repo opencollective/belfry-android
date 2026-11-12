@@ -21,6 +21,7 @@ import sh.belfry.core.dm.DmReader
 import sh.belfry.core.dm.GiftWrap
 import sh.belfry.core.dm.Report
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.GuestMode
 import sh.belfry.core.model.Share
 import sh.belfry.core.net.Community
 import sh.belfry.core.net.InviteInfo
@@ -392,15 +393,112 @@ class EngineTest {
         assertEquals("{\"name\":\"Marcel\"}", second.body.readUtf8())
         assertEquals("/channel-invites/$token/join", second.path)
 
-        // 409: that key belongs to another account in the signer → a fresh key next time
+        // 409: that key belongs to another account in the signer → once more with a fresh key, then give up
         api.enqueue(MockResponse().setResponseCode(409).setBody("{\"error\":\"client_key_taken\"}"))
+        api.enqueue(MockResponse().setResponseCode(409).setBody("{\"error\":\"session_taken\"}"))
         val e = assertFailsWith<OnboardingException> { on.joinAsNew(invitation, "Marcel") }
         assertEquals("session_taken", e.code)
-        api.takeRequest()
+        assertEquals(first, signerOf(api.takeRequest().getHeader("Authorization")!!))
+        val fresh = signerOf(api.takeRequest().getHeader("Authorization")!!)
+        assertTrue(first != fresh)
         assertNull(vault.get(Onboarding.V_JOIN_KEY))
         api.enqueue(MockResponse().setResponseCode(500).setBody("{}"))
         assertFailsWith<OnboardingException> { on.joinAsNew(invitation, "Marcel") }
         assertTrue(first != signerOf(api.takeRequest().getHeader("Authorization")!!))
+    }
+
+    /** A belfry answering a guest link in guest mode (SPEC 19.26): by path, as the two calls race. */
+    private fun guestModeBelfry(join: MockResponse, state: String = "open"): MockWebServer = server().also { srv ->
+        srv.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when {
+                request.method == "POST" && request.path!!.endsWith("/join") -> join
+                request.method == "GET" -> MockResponse().setBody("""{"community":"Example","channel":"garden","channel_name":"Garden","about":"","inviter":"Maya","state":"$state","days":30}""")
+                else -> MockResponse().setResponseCode(404).setBody("{}")
+            }
+        }
+    }
+
+    @Test
+    fun guestModeOpensWithoutAName() = runBlocking<Unit> {
+        val token = "abcdefghijklmnopqrstuvwxyz012345"
+        val guestKey = "cd".repeat(32)
+        val bunker = "bunker://${"ab".repeat(32)}?relay=wss://bunker.example.org&secret=xyz"
+        val srv = guestModeBelfry(MockResponse().setBody("""{"channel":"garden","new":true,"guest":true,"reading":true,"bunker_url":"$bunker","pubkey":"$guestKey"}"""))
+        val c = Community.defaults("example.org").copy(apiBase = srv.url("/api/v1").toString(), channelInvites = srv.url("/api/v1/channel-invites").toString())
+        val vault = MemoryVault()
+        val on = Onboarding(vault, MemoryStore(), http, scope, discovery = { c })
+        var told: InviteInfo? = null
+        val s = on.openInvite(InviteLink("example.org", token)) { told = it }.also { sessions.add(it) }
+        assertEquals(guestKey, s.me) // the belfry said whose key: the signer was not asked
+        assertEquals("garden", s.guest.value?.channel)
+        assertTrue(s.reading)
+        assertNull(vault.get(Onboarding.V_JOIN_KEY))
+        assertNull(on.pendingInvite)
+        val join = (1..srv.requestCount).map { srv.takeRequest() }.first { it.method == "POST" }
+        assertEquals("{}", join.body.readUtf8())
+        if (told != null) assertEquals("Garden", told!!.channelName)
+        // kept with the saved session: reopened, still reading
+        assertTrue(on.resume()!!.reading)
+
+        // nothing is sent while reading: refused at the queue, and the Join sheet is asked for
+        assertFalse(s.joinAsked.value)
+        val refused = assertFailsWith<ActionException> { s.postMessage("garden", "hello") }
+        assertEquals("guest_mode", refused.code)
+        assertTrue(s.joinAsked.value)
+        s.closeJoin()
+        assertFailsWith<ActionException> { s.toggleReaction("garden", "ee".repeat(32), "ff".repeat(32), "👍") }
+        assertFailsWith<ActionException> { s.createGuestLink("garden") }
+        assertFailsWith<ActionException> { s.setFollow("garden", "asap") }
+        s.markSeen("garden") // silently nothing
+        assertTrue(s.store.outbox().isEmpty())
+
+        // joining: name and e-mail are required in guest mode, checked before any request
+        assertEquals("name_needed", assertFailsWith<GuestJoinException> { s.guestSave("ana@example.org", " ") }.code)
+        assertEquals("invalid", assertFailsWith<GuestJoinException> { s.guestSave("ana", "Ana") }.code)
+        srv.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when (request.path) {
+                "/api/v1/guest/save" -> MockResponse().setResponseCode(202).setBody("""{"sent":true}""")
+                "/api/v1/guest/save/verify" ->
+                    if (request.body.readUtf8().contains("\"code\":\"111111\"")) MockResponse().setResponseCode(422).setBody("""{"error":"wrong_code","message":"x"}""")
+                    else MockResponse().setBody("""{"saved":true,"joined":true}""")
+                else -> MockResponse().setResponseCode(404).setBody("{}")
+            }
+        }
+        s.guestSave("ana@example.org", "  Ana   Lima ")
+        assertEquals("wrong_code", assertFailsWith<GuestJoinException> { s.guestVerify("ana@example.org", "111111", "Ana Lima") }.code)
+        assertTrue(s.reading)
+        s.guestVerify("ana@example.org", "123456", "Ana Lima")
+        assertFalse(s.reading)
+        assertEquals(true, s.guest.value?.saved)
+        assertFalse(on.resume()!!.reading)
+    }
+
+    @Test
+    fun guestModeClosedLinkSaysWhy() = runBlocking<Unit> {
+        val srv = guestModeBelfry(MockResponse().setResponseCode(410).setBody("""{"error":"closed","message":"<b>x</b>"}"""), state = "expired")
+        val c = Community.defaults("example.org").copy(apiBase = srv.url("/api/v1").toString(), channelInvites = srv.url("/api/v1/channel-invites").toString())
+        val on = Onboarding(MemoryVault(), MemoryStore(), http, scope, discovery = { c })
+        val e = assertFailsWith<OnboardingException> { on.openInvite(InviteLink("example.org", "abcdefghijklmnopqrstuvwxyz012345")) }
+        assertEquals("closed", e.code)
+        assertEquals("This invite has expired. Ask for a new one.", e.message)
+    }
+
+    /** The demo answers like the belfry: 123456 is right, taken@example.org has an account (moved). */
+    @Test
+    fun guestModeInTheDemo() = runBlocking<Unit> {
+        val on = Onboarding(MemoryVault(), MemoryStore(), http, scope, clock = { 1_800_000_000 }, zone = ZoneOffset.UTC)
+        val s = on.demo().also { sessions.add(it) }
+        s.demoGuestMode(Demo.GENERAL)
+        assertTrue(s.reading)
+        val taken = assertFailsWith<GuestJoinException> { s.guestVerify(GuestMode.DEMO_TAKEN, "123456", "Ana") }
+        assertEquals("taken", taken.code)
+        assertTrue(taken.moved)
+        assertEquals("This address already has an account here.", taken.message)
+        s.guestVerify("ana@example.org", GuestMode.DEMO_CODE, "Ana")
+        s.settle()
+        assertFalse(s.reading)
+        // the join line now comes from the 9000 with the name
+        assertTrue(s.world.value.guestJoins(Demo.GENERAL).any { it.pubkey == s.me })
     }
 
     @Test

@@ -167,3 +167,21 @@ same event.
 - The app posts `audio/mp4` (.m4a, AAC-LC) parts of about 11 MB (30 minutes at 48 kbit/s), up to
   three in a message. Blossom's 25 MB limit holds each. Nothing to change; noted so the limit is
   not lowered under ~12 MB without telling the apps.
+
+## 14. Guest mode (Android, 2026-11-12; SPEC 19.26, collective-belfry docs/guests.md)
+
+Built against docs/guests.md as it stands; nothing new is needed to run it. Asks, none blocking:
+
+- **"Sign in instead" with an e-mail.** After `/guest/save/verify` answers 409 `taken`, the app
+  drops the guest account and opens the native sign-in (SPEC 19.20), which takes `name@domain`
+  only (`sessions.py` `request` reads a NIP-05). The address the person just proved is an
+  e-mail, often not on the belfry's domain, so the field is left empty with a hint (the browser
+  sign-in takes the e-mail). Either let `POST <api>/session` take `{"email"}` for an address that
+  has exactly one account here (same code mail), or put the account's `nip05` in the 409 body
+  (`{"error":"taken","moved":true,"nip05":"ana@belfry.sh"}`) so the app can prefill it. The
+  second is smaller; the app would read `nip05` only when it parses as `name@<this domain>`.
+- **`wrong_code` tries left.** The number is only in `message` (text the app never shows). A
+  `tries_left` field, as `/session/verify` has, would let the sheet say "2 tries left".
+- **A guest-mode key the relay would still store.** Read-only is enforced by the client only
+  (docs/guests.md says so). A relay-side refusal for keys whose latest 9000 carries `reading`
+  would make other clients (and a modified app) unable to post as a nameless guest.

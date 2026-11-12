@@ -58,6 +58,31 @@ class ModelVectorsTest {
         }
     }
 
+    /** Guest mode (SPEC 19.26): who is reading, and what that leaves out. */
+    @Test
+    fun guestMode() {
+        val cases = Vectors.load("guestmode.json")["cases"].list()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val w = world(c)
+            val name = c["name"].sOrNull()
+            val e = c["expect"].o()
+            for ((id, want) in e["channels"].o()) {
+                val x = want.o()
+                val g = w.group(id) ?: fail("$name: no $id")
+                assertEquals(x["reading"].strs().sorted(), g.reading.sorted(), "$name reading")
+                assertEquals(x["members"].strs(), g.members.sorted(), "$name members")
+                val lines = w.guestJoins(id)
+                assertEquals(x["join_lines"].list().map { it["pubkey"].sOrNull() }, lines.map { it.pubkey }, "$name join lines")
+                assertEquals(x["join_lines"].list().map { it["unsaved"].bool() }, lines.map { it.unsaved }, "$name unsaved")
+                assertEquals(x["active"].strs(), w.recentlyActive(id, c["now"].long()!!).map { it.pubkey }, "$name active")
+                assertEquals(x["reading_count"].int(), w.readingCount(id), "$name reading count")
+            }
+            assertEquals(e["reading_only"].strs().sorted(), w.readingOnly.sorted(), "$name reading only")
+            assertEquals(e["am_guest"].bool(), w.amGuest, "$name am guest")
+        }
+    }
+
     @Test
     fun messages() {
         val cases = Vectors.load("messages.json")["cases"].list()

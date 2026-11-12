@@ -1,6 +1,8 @@
 package sh.belfry.core.engine
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -72,6 +74,7 @@ data class SavedSession(
         if (guest != null) put("guest", buildJsonObject {
             put("channel", JsonPrimitive(guest.channel)); put("saved", JsonPrimitive(guest.saved))
             if (guest.coHost != null) put("cohost", JsonPrimitive(guest.coHost))
+            if (guest.reading) put("reading", JsonPrimitive(true))
         })
         if (demo) put("demo", JsonPrimitive(true))
     }.toString()
@@ -85,7 +88,7 @@ data class SavedSession(
             val g = o["guest"].obj()
             return SavedSession(
                 community, o.s("bunkerUrl") ?: "", secret, pubkey,
-                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false, it.s("cohost")?.takeIf { t -> InviteLink.isToken(t) }) },
+                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false, it.s("cohost")?.takeIf { t -> InviteLink.isToken(t) }, it["reading"].bool() ?: false) },
                 demo = o["demo"].bool() ?: false,
             )
         }
@@ -370,26 +373,61 @@ class Onboarding(
     }
 
     /**
-     * Joins as a new guest with just a name: this device makes its session key, signs the request
-     * with it, and the belfry answers with the account's session. ONE key per invite is kept in
-     * the vault until the join succeeds, so a second tap or a retry gets the same account.
-     * Returns a ready [Session] (not started); `session.guest.value.channel` is where to go.
+     * Joins as a new guest: this device makes its session key, signs the request with it, and the
+     * belfry answers with the account's session. NAME null = guest mode (SPEC 19.26: no name, the
+     * guest reads until they join). ONE key per invite is kept in the vault until the join
+     * succeeds, so a retry gets the same account. `session_taken` (the key is another account's):
+     * once more with a fresh key. Returns a ready [Session] (not started);
+     * `session.guest.value.channel` is where to go.
      */
-    suspend fun joinAsNew(invitation: Invitation, name: String): Session = withContext(Dispatchers.Default) {
-        val token = invitation.link.token
+    suspend fun joinAsNew(invitation: Invitation, name: String? = null): Session =
+        joinAsNew(invitation.link, invitation.community, name)
+
+    private suspend fun joinAsNew(link: InviteLink, community: Community, name: String?, retried: Boolean = false): Session = withContext(Dispatchers.Default) {
+        val token = link.token
         val kept = vault.get(V_JOIN_KEY)?.split(" ")?.takeIf { it.size == 2 && it[0] == token && Hex.isKey(it[1]) }?.get(1)
         val secret = kept ?: Keys.generateSecretHex().also { vault.set(V_JOIN_KEY, "$token $it") }
         val joined = try {
-            BelfryApi(invitation.community, http).joinAsNew(token, name, secret)
+            BelfryApi(community, http).joinAsNew(token, name, secret)
         } catch (e: ApiException) {
-            // this device's key is another account's in the signer: a fresh key next time
-            if (e.code == "session_taken") vault.remove(V_JOIN_KEY)
+            // this device's key is another account's in the signer: a fresh key, once more
+            if (e.code == "session_taken") {
+                vault.remove(V_JOIN_KEY)
+                if (!retried) return@withContext joinAsNew(link, community, name, retried = true)
+            }
             throw OnboardingException(e.code, e.message ?: "Joining did not work just now. Try again.")
         }
-        val s = open(invitation.community, joined.bunkerUrl, secret, joined.pubkey, GuestInfo(joined.channel, false, if (joined.emailNeeded) token else null))
+        val guest = GuestInfo(joined.channel, false, if (joined.emailNeeded) token else null, reading = joined.reading)
+        val s = open(community, joined.bunkerUrl, secret, joined.pubkey, guest)
         vault.remove(V_JOIN_KEY)
         pendingInvite = null
         s
+    }
+
+    /**
+     * Opening a guest link with no account here (SPEC 19.26): no question asked. The invite's info
+     * is read alongside (ON_INFO gets it, for the loading line) while this device uses the link
+     * in guest mode. A link that can't be used throws [OnboardingException] with the reason (a
+     * closed invite says why).
+     */
+    suspend fun openInvite(link: InviteLink, onInfo: (InviteInfo) -> Unit = {}): Session = withContext(Dispatchers.Default) {
+        val community = try { discovery(link.domain) } catch (e: IOException) { Community.defaults(link.domain) }
+        coroutineScope {
+            val info = async {
+                try { BelfryApi(community, http).inviteInfo(link.token).also { if (it.isOpen) onInfo(it) } } catch (e: Exception) { null }
+            }
+            try {
+                joinAsNew(link, community, null).also { info.cancel() }
+            } catch (e: OnboardingException) {
+                val closed = info.await()?.closedMessage
+                if (closed != null) throw OnboardingException("closed", closed)
+                throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw OnboardingException("network", "No connection to the belfry. Try again.")
+            }
+        }
     }
 
     // ---- reopening --------------------------------------------------------------------------------
@@ -448,11 +486,11 @@ class Onboarding(
      * session with the belfry (open it in a Custom Tab if the person wants to switch accounts),
      * null for the demo.
      */
-    suspend fun signOut(session: Session): String? {
+    suspend fun signOut(session: Session, revoke: Boolean = true): String? {
         val community = session.community
         val demo = session.localOnly
         val slot = session.slot
-        session.signOut()
+        session.signOut(revoke)
         vault.remove(Slots.key(V_SESSION, slot))
         changeAccounts { it.without(session.accountId) }
         try { stores.delete(slot) } catch (e: Exception) { }

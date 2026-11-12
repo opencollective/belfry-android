@@ -30,7 +30,7 @@ import java.io.IOException
  * ours: `network` (no connection), `http` (an answer without a known key). [message] is a fixed
  * text of this app chosen by that key: safe to show. The server's own free text is never kept.
  */
-class ApiException(val code: String, val status: Int, message: String) : Exception(message)
+class ApiException(val code: String, val status: Int, message: String, /** 409 `taken` of `/guest/save/verify`: the belfry gave that account the channel (guest mode). */ val moved: Boolean = false) : Exception(message)
 
 data class GuestLink(val url: String, val agentUrl: String?, val days: Int, val people: Int, val linkDays: Int, val expiresAt: String?, val ownAgent: Boolean = false)
 
@@ -75,7 +75,12 @@ data class JoinedNew(
     val pubkey: String?,
     /** A co-host link (an event's): a host needs a proven e-mail; after saving it, use the link again with the account. */
     val emailNeeded: Boolean = false,
+    /** Guest mode (SPEC 19.26): a nameless guest who reads until they join with a name and an e-mail. */
+    val reading: Boolean = false,
 )
+
+/** What `POST /guest/save/verify` did: the account is saved; [joined]: they were in guest mode until now. */
+data class GuestSaved(val joined: Boolean)
 
 /** An existing account used a guest link. */
 data class JoinedAccount(val channel: String, val already: Boolean, val guest: Boolean)
@@ -329,15 +334,16 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
     }
 
     /**
-     * A new guest: this device's fresh session key signs the request and sends a name; the belfry
-     * makes the account and answers with its session, bound to that key. Keep ONE session key per
-     * invite until this succeeds (the server is idempotent per key): a retry must sign with the
-     * same key. [ApiException.code] `session_taken` (409) means that key belongs to another
-     * account: make a new key and try again.
+     * A new guest: this device's fresh session key signs the request; the belfry makes the account
+     * and answers with its session, bound to that key. NAME null = guest mode (body `{}`, SPEC
+     * 19.26: the guest reads until they join with a name and an e-mail); a name = a named guest
+     * at once (older flow). Keep ONE session key per invite until this succeeds (the server is
+     * idempotent per key): a retry must sign with the same key. [ApiException.code]
+     * `session_taken` (409) means that key belongs to another account: make a new key and try again.
      */
-    suspend fun joinAsNew(token: String, name: String, sessionSecretHex: String): JoinedNew {
+    suspend fun joinAsNew(token: String, name: String?, sessionSecretHex: String): JoinedNew {
         val url = "${community.channelInvites}/$token/join"
-        val text = buildJsonObject { put("name", JsonPrimitive(name.trim().take(100))) }.toString()
+        val text = if (name == null) "{}" else buildJsonObject { put("name", JsonPrimitive(name.trim().take(100))) }.toString()
         val auth = try {
             Nip98.headerNow(LocalSigner(sessionSecretHex), url, "POST", text)
         } catch (e: Exception) {
@@ -350,7 +356,10 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             if (a.status == 409 && a.error !in JOIN_ERRORS) throw ApiException("session_taken", 409, "Joining did not work just now. Try again.")
             fail(a, JOIN_ERRORS, "Joining did not work just now. Try again.")
         }
-        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey), b["email_needed"].bool() ?: false)
+        // guest mode unless the belfry says it named them (an older belfry answers without `reading`
+        // only to a name, so a request without one is in guest mode)
+        val reading = b["reading"].bool() ?: (name == null)
+        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey), b["email_needed"].bool() ?: false, reading)
     }
 
     /** Someone signed in uses a guest link: their account gets the channel (no second account). */
@@ -364,18 +373,35 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         return JoinedAccount(channel, b["already"].bool() ?: false, b["guest"].bool() ?: false)
     }
 
-    /** A guest saves their account: a 6-digit code goes to this address. */
-    suspend fun guestSave(signer: Signer, email: String) {
-        val a = signed(signer, "$base/guest/save", "POST", buildJsonObject { put("email", JsonPrimitive(email.trim())) })
+    /**
+     * A guest saves their account, or joins from guest mode (SPEC 19.26): a 6-digit code goes to
+     * EMAIL. NAME is sent when the guest has none yet (guest mode needs it). Codes: `invalid`,
+     * `name_needed`, `not_guest`, `too_many`.
+     */
+    suspend fun guestSave(signer: Signer, email: String, name: String? = null) {
+        val a = signed(signer, "$base/guest/save", "POST", buildJsonObject {
+            put("email", JsonPrimitive(email.trim()))
+            if (name != null) put("name", JsonPrimitive(name))
+        })
         if (!a.ok) fail(a, GUEST_ERRORS, "That did not work. Try again.")
     }
 
-    suspend fun guestVerify(signer: Signer, email: String, code: String) {
+    /**
+     * The code from the e-mail. Codes: `wrong_code`, `expired`, `name_needed`, `not_guest`,
+     * `taken` (then [ApiException.moved]: the belfry gave that account the channel and closed this
+     * guest).
+     */
+    suspend fun guestVerify(signer: Signer, email: String, code: String, name: String? = null): GuestSaved {
         val a = signed(signer, "$base/guest/save/verify", "POST", buildJsonObject {
             put("email", JsonPrimitive(email.trim()))
             put("code", JsonPrimitive(code.trim()))
+            if (name != null) put("name", JsonPrimitive(name))
         })
-        if (!a.ok) fail(a, GUEST_ERRORS, "That did not work. Try again.")
+        if (!a.ok) {
+            if (a.error == "taken") throw ApiException("taken", a.status, GUEST_ERRORS.getValue("taken"), moved = a.body?.get("moved").bool() == true)
+            fail(a, GUEST_ERRORS, "That did not work. Try again.")
+        }
+        return GuestSaved(a.body?.get("joined").bool() == true)
     }
 
     // ---- places (places.py) -----------------------------------------------------------------------
@@ -565,19 +591,23 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             "unsupported" to "This belfry does not have agents.",
         )
         private val JOIN_ERRORS = mapOf(
-            "name_needed" to "Tell us your name.",
-            "closed" to "This invite is closed. Ask for a new one.",
-            "unsupported" to "This belfry does not have guest links.",
+            // (guest mode sends no name: only an older belfry asks for one)
+            "name_needed" to "This belfry is being updated. Try again in a few minutes.",
+            "closed" to "This invite can’t be used any more. Ask for a new one.",
+            "for_agent" to "This link is for an AI agent, not a person.",
+            "unsupported" to "This belfry does not take guests.",
             "relay" to "The channel could not be reached just now. Try again.",
             "failed" to "Joining did not work just now. Try again.",
         )
-        private val GUEST_ERRORS = mapOf(
-            "invalid" to "That is not an e-mail address.",
+        /** The web's JOIN_ERRORS (core/guestjoin.ts): fixed words by code, never the server's text. */
+        internal val GUEST_ERRORS = mapOf(
+            "invalid" to "That doesn’t look like an e-mail address.",
+            "name_needed" to "Your name is needed to join.",
             "too_many" to "Too many codes for now. Try again in half an hour.",
-            "wrong_code" to "That code is not right.",
-            "expired" to "That code expired. Send a new one.",
-            "taken" to "This address belongs to a member already: sign in with it instead.",
-            "not_guest" to "This account is not a guest account.",
+            "wrong_code" to "That code is not right. Check the e-mail and try again.",
+            "expired" to "That code has expired. Send a new one.",
+            "taken" to "This address already has an account here.",
+            "not_guest" to "This guest access has ended. Ask for a new invite.",
         )
         private val PLACE_ERRORS = mapOf(
             "bad_country" to "That country code is not known.",

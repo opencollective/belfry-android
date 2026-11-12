@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import sh.belfry.core.model.ComposerDraft
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -105,10 +106,12 @@ fun ThreadScreen(
                 }
             }
         }
-        Hairline()
+        val reading = session.guest.collectAsState().value?.reading == true
+        if (reading) sh.belfry.app.ui.people.GuestBar(groupId)
+        if (!reading) Hairline()
         val editing = chat.editing
-        if (editing != null) EditingBar(onCancel = { chat.editing = null; composer.clear() })
-        Composer(
+        if (editing != null && !reading) EditingBar(onCancel = { chat.editing = null; composer.clear() })
+        if (!reading) Composer(
             composer,
             placeholder = if (editing != null) "Edit your message" else "Reply in the thread",
             onSend = { text, files, picked, _ ->

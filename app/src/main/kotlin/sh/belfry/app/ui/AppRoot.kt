@@ -47,6 +47,8 @@ import sh.belfry.app.ui.nav.LocalStatus
 import sh.belfry.app.ui.nav.SessionScope
 import sh.belfry.app.ui.shell.ShellState
 import sh.belfry.app.ui.signin.JoinScreen
+import sh.belfry.app.ui.signin.OpeningScreen
+import sh.belfry.app.ui.people.GuestJoinHost
 import sh.belfry.app.ui.signin.NoAccessScreen
 import sh.belfry.app.ui.signin.SignInScreen
 import sh.belfry.app.ui.signin.Splash
@@ -63,6 +65,17 @@ import sh.belfry.core.net.InviteLink
 fun AppRoot(state: AppState) {
     val phase by state.phase.collectAsState()
     val adding by state.adding.collectAsState()
+    val opening by state.opening.collectAsState()
+    Box(Modifier.fillMaxSize()) {
+        Phases(state, phase, adding)
+        // A guest link being opened (SPEC 19.26): one loading screen over everything, from the link
+        // until the channel can be drawn in full; nothing under it shows in between.
+        opening?.let { o -> Over { OpeningScreen(o.channelName) } }
+    }
+}
+
+@Composable
+private fun Phases(state: AppState, phase: Phase, adding: Adding?) {
     when (val p = phase) {
         is Phase.Loading -> Splash()
         is Phase.SignedOut -> SignInScreen(state)
@@ -100,23 +113,50 @@ private fun SignedIn(state: AppState, session: Session) {
             add = { state.addAccount() },
         )
     }
-    // The channel that was open last time.
+    // The channel that was open last time (not when a channel waits to be opened after signing in).
     LaunchedEffect(Unit) {
         val last = withContext(Dispatchers.IO) { session.store.get(ShellState.K_LAST_CHANNEL) }
-        if (last != null && session.guest.value == null) shell.restore(last)
+        if (last != null && session.guest.value == null && state.openAfter.value?.first != session.community.domain) shell.restore(last)
+    }
+    // A guest link just used: the loading screen stays until the relay has let this key in and sent
+    // what it has (or said no), at most 10 s more.
+    val openingAll by state.opening.collectAsState()
+    val opening = openingAll?.takeIf { it.account == session.accountId }
+    val status by session.status.collectAsState()
+    LaunchedEffect(opening != null, status.access) {
+        if (opening == null) return@LaunchedEffect
+        if (session.localOnly || status.access != AccessState.UNKNOWN) state.doneOpening()
+        else { kotlinx.coroutines.delay(10_000); state.doneOpening() }
     }
     CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts) {
         SessionScope(session, nav) {
-            if (LocalStatus.current.access == AccessState.REFUSED) {
+            if (opening != null) {
+                // under the loading screen: nothing is drawn (no empty channel, no home)
+            } else if (LocalStatus.current.access == AccessState.REFUSED) {
                 NoAccessScreen()
             } else {
                 AppNav(controller, shell)
+                GuestJoinHost(onSignIn = { email, channel, moved -> state.signInInstead(email, channel, moved) })
+                OpenAfterSignIn(state)
                 JoinOffer(state)
                 ChooseAccount(state)
                 EventLinkOpener(state)
                 PushOpener(state)
             }
         }
+    }
+}
+
+/** Signed in after guest mode said "you have an account here": the channel they were reading. */
+@Composable
+private fun OpenAfterSignIn(state: AppState) {
+    val open = state.openAfter.collectAsState().value ?: return
+    val session = LocalSession.current
+    val nav = LocalNav.current
+    if (open.first != session.community.domain || session.guest.value?.reading == true) return
+    LaunchedEffect(open) {
+        state.forgetOpenAfter()
+        nav.openChannel(open.second)
     }
 }
 
