@@ -107,13 +107,26 @@ minSdk 26, JDK 17.
 - Forms keep a draft on the device (`ui/kit/FormDraft.kt`: `rememberFormDraft(key) { restore }`,
   `draft.Keep(…)`, `draft.clear()` once sent; keys in `core/model/Drafts.kt` `FormDrafts`). A new
   create screen should do the same.
+- A count badge is `CountBadge` (kit); never draw one inside an `IconButton` (it clips to a 40 dp
+  circle) and never give one a fixed size (`BadgeShotsTest` renders them at font scale 2).
 - A `BelfryTextField`'s test tag is on its frame, not on the editable node: tests type with
   `compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag(tag)))`.
 - Channel info opens on a tab with `Routes.channelInfo(id, InfoTab.KEY_…)`. The Log's words are
   `core/model/ChannelLog.kt` (the web's `logItem`): a new kind of event gets its line there.
 - Meetings are Belfry events with three extra kinds of tags (`core/model/Meetings.kt`, SPEC
   19.23); `EventActions.edit` keeps them. Audio attachments play in `ui/chat/AudioPlayer.kt`;
-  recording is not built (PARITY says why: it needs a device).
+  recording is `core/audio/` (rules, ADTS, the .m4a writer) + `app/.../rec/` (`Recorder`, the thin
+  `RecordingService`) + `ui/chat/RecorderSheet.kt` (SPEC 19.25). Record ADTS, never MP4; the
+  .m4a is made at posting. A change to `M4a.kt` must keep `tools/adts2m4a.py` and the fixture in
+  step (run the script, check with ffprobe, replace `sample.m4a`).
+- Several accounts (SPEC 19.24): `core/engine/Accounts.kt` (`AccountList`, slots, `StoreProvider`),
+  `Onboarding.accounts / resume(id) / asAccount`, `AppState.switchTo / addAccount / adding`,
+  the switcher `ui/shell/AccountsSheet.kt`, `LocalAccounts`. A session knows its `accountId` and
+  `slot`; anything kept outside its `Store` must be named with `Slots.key(name, slot)`. One
+  session is live at a time. Never rename the empty slot's names (`session`, `belfry.db`,
+  `push-key`): they are what a single-account install has.
+- The invitation scanner is `app/.../scan/` (CameraX + ZXing, no Play services); it only hands
+  over what `InviteScan.read` (= `InviteLink.parse`) takes.
 - Push (SPEC 19.19, collective-belfry docs/push.md): FCM data-only messages decrypted in
   `app/.../push/` (`AndroidPush`, `BelfryMessagingService`), the device key in `Secrets`;
   `core/push/Push.kt` reads payloads. Firebase is optional: the google-services plugin is applied
@@ -141,8 +154,10 @@ minSdk 26, JDK 17.
 
 ## Known debt
 
-- Nothing has run on a device or emulator yet: only JVM tests (core) and Robolectric renders
-  (app). First thing to do with a phone: sign in on a real belfry, send, go offline/online.
+- The owner runs it on an e-ink tablet since 2026-11-12, but nothing here was checked on a device by
+  an agent: only JVM tests (core) and Robolectric renders (app). Written blind and waiting for his
+  word: the camera scanner, switching accounts on a real belfry, the recorder (microphone, the
+  foreground service, focus, the notification's buttons), push with several accounts.
 - The toolchain is pinned to late-2024 versions (AGP 8.7.3, Kotlin 2.0.21, Compose BOM
   2024.12.01, target SDK 35) because they were known to work together without a local build.
   Upgrade in one step with CI before any store release (Play requires a recent target SDK).

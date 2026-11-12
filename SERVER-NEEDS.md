@@ -149,3 +149,21 @@ same event.
   readers filter by host, which both clients do.
 - **Old belfries**: a 404 without an `error` key reads "This belfry can’t make accounts for
   people yet." (members can still be invited by their faces).
+
+## 12. Several accounts on one device (Android, 2026-11-12; SPEC 19.24)
+
+- **One push device row per (token, owner).** docs/push.md: "the same token again replaces the
+  old row (a new key, a new owner)". A phone with two identities in one belfry has one FCM
+  token, so only the identity registered last gets pushes. The app registers one account per
+  belfry (the open one, else the first). Asked: key the row by token + owner, and have
+  `{"remove": token}` remove only the signer's own row. The app already tries every account's
+  key K on a payload, so nothing else changes on the phone.
+- **`{"remove": token}` today**: the app calls it at sign-out of one identity; if it removes the
+  row whatever its owner, the other identity re-registers at the next launch (it does so anyway).
+- Nothing is needed for accounts in different belfries.
+
+## 13. Audio recordings from Android (2026-11-12; SPEC 19.25)
+
+- The app posts `audio/mp4` (.m4a, AAC-LC) parts of about 11 MB (30 minutes at 48 kbit/s), up to
+  three in a message. Blossom's 25 MB limit holds each. Nothing to change; noted so the limit is
+  not lowered under ~12 MB without telling the apps.

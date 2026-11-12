@@ -76,7 +76,10 @@ class RecorderShotsTest : DemoShots() {
         val id = "0123456789abcdef0123456789abcdef"
         val aac = javaClass.getResourceAsStream("/audio/sample.aac")!!.use { it.readBytes() }
         // cut in the middle of a frame, as a kill would leave it
-        File(dir, "$id.aac").writeBytes(aac.copyOf(aac.size - 50))
+        val cut = aac.copyOf(aac.size - 50)
+        val whole = sh.belfry.core.audio.Adts.scan(cut).frames.size
+        assertTrue(whole in 70..79)
+        File(dir, "$id.aac").writeBytes(cut)
         val startedAt = (DemoShots.NOW - 3600) * 1000
         File(dir, "$id.json").writeText(RecMeta(id, session.accountId, Demo.GENERAL, startedAt, 1_000, RecPhase.RECORDING).toJsonString())
         // another account's recording is not this one's to post
@@ -86,7 +89,7 @@ class RecorderShotsTest : DemoShots() {
         val left = Recorder.unfinished(context, session.accountId)
         assertEquals(listOf(id), left.map { it.id })
         assertEquals(RecPhase.STOPPED, left[0].phase)
-        assertEquals(79 * 1024L * 1000 / 32_000, left[0].ms)
+        assertEquals(whole * 1024L * 1000 / 32_000, left[0].ms)
 
         started()
         runBlocking { Recorder.post(context, session, left[0], Demo.GENERAL) }

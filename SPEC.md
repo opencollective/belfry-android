@@ -1202,4 +1202,94 @@ For the iPhone app to port; the web's code is the reference for each.
 - **Audio in messages** (59c4b10). An attachment whose imeta `m` starts with `audio/` is a
   player in the feed: play / pause, position / length, one at a time, nothing fetched before
   play. The web records Opus in WebM (Chrome, Firefox) or AAC in MP4 (Safari): play both.
-  Recording itself is not in the Android app yet (PARITY.md says why).
+  Recording on Android: 19.25.
+
+### 19.24 Several accounts on one device (Android, 2026-11-12)
+
+Not in the web chat (a browser profile holds one account). For the iPhone app to port.
+
+- **An account** is one identity in one belfry: id `<pubkey hex>@<domain>`. Two identities in
+  one belfry are two accounts; so is the same person in two belfries. The demo is an account.
+- **Everything is kept per account**, named after the account's *slot* (`""`, `a2`, `a3`…; a
+  numbered slot is never given twice): the saved session (session key, bunker URL, community
+  document, guest state) under `session` / `session@<slot>`, the push device key K under
+  `push-key` / `push-key@<slot>`, and a store of its own (event log, outbox with its files,
+  drafts, settings, last channel): `belfry.db` / `belfry-<slot>.db`. The list itself
+  (`accounts`: current id, next slot number, and per account id, slot, domain, pubkey, and what
+  the switcher shows: name, address, community name, picture, guest) holds no secret.
+- **Migration.** A device with the one saved session of earlier versions gets a list of one
+  account in the empty slot, whose names are the old ones. Nothing is moved or signed again:
+  the person stays signed in, queued outbox items stay queued. An entry whose saved session
+  cannot be read is dropped when it is opened.
+- **Signing in** to an identity that is on the device keeps its slot and store (a new session
+  key replaces the old); a new one gets an emptied store. It becomes the open account.
+- **One account is live**: switching stops the open session (relays, subscriptions, signer
+  connection) and starts the other from its store. A non-open account's outbox waits until it
+  is opened. (A client may do better; say so.)
+- **The switcher** is behind "you" at the drawer's bottom-left: the accounts (face, name,
+  `name@domain` or "Guest · community" or the community's name; a check on the open one; a dot
+  when a notification came for it since it was last open), "Add an account", "Me". Add an
+  account = the sign-in screen over the app with a back arrow (address + code, browser, scan
+  an invitation, demo); the open account is untouched until the new one is in.
+- **Push.** Each account registers the device with its own belfry: the same APNs/FCM token, its
+  own K. A payload is tried with each account's K; the one that opens it says whose it is (the
+  tap rule of 19.19 then uses that account's domain). The notification carries the account id;
+  a tap opens that account first, then the target. With several accounts the notification
+  names the account (its address, else its community). Because a belfry keeps one owner per
+  token, one account per belfry registers: the open one, else the first; the open account
+  registers first, the others once per launch through a short-lived signer connection.
+  Signing out removes that account's row; the token itself is deleted with the last account.
+- **Links.** A guest link (`chat.<domain>/join/<token>`), opened or scanned: no account in that
+  belfry → the join screen, adding an account ("Already have an account? Sign in" leads to Add
+  an account and the link is offered after); one account there → it is opened if needed and
+  offered "Join with your account?"; several → "Join with which account?", then the same. An
+  event link opens in an account of its belfry (the open one first); none: a fixed message.
+- **Sign out** signs out of the open account only (revoke, wipe its store, forget its session
+  and K) and opens the next account in the list (the one after it, else the one before); the
+  sign-in screen only when none is left.
+
+**Scan an invitation** (same date). On the sign-in screen, a row opens a camera scanner. The
+camera permission is asked there. Only a QR code whose text the guest-link parser takes
+(`https://chat.<domain>/join/<token>`, `/#/join/` too; at most 512 characters) counts; it then
+goes exactly where an opened link goes. Anything else: the fixed text "This isn’t a Belfry
+invitation." for three seconds, scanning goes on. No text of a code is ever shown. Android:
+CameraX + ZXing, no Play services.
+
+### 19.25 Audio recording (Android, 2026-11-12; web 59c4b10 `core/recorder.ts`, `ui/Recorder.tsx`)
+
+What is posted is the web's: a kind 9 message in the channel (or the event's chat) with content
+`🎙 Recording · <clock>` (+ ` · N parts`), the files as attachments through the outbox (imeta
+`url`, `m`, `size`, `x`, `alt <file name>`; the URLs appended to the content). Clock: `m:ss`,
+`h:mm:ss`. File names: `recording-YYYY-MM-DD-HHMM[-partN].<ext>` in the device's time zone.
+
+- **Format.** Record AAC-LC, one channel, 32 kHz, 48 kbit/s as ADTS (`.aac`): frames with their
+  own headers, written as they come, so a file cut anywhere is whole up to its last full frame.
+  Never record straight to MP4 (its index is written at the end; a cut file does not play).
+  To post, make an `.m4a` (`audio/mp4`) from the frames without re-encoding, per part, in one
+  go: `ftyp` (M4A / mp42 / isom), `moov` first (mvhd, one trak: tkhd, mdhd with timescale =
+  sample rate, hdlr `soun`, smhd, dref, stsd/mp4a/esds with the 2-byte AudioSpecificConfig,
+  stts one entry of 1024, stsc 32 frames a chunk, stsz, stco), then `mdat`. `tools/adts2m4a.py`
+  is that writer; `core/src/test/resources/audio/` holds a sample and its expected output. If
+  making it fails, post the `.aac` (`audio/aac`). iOS may record AAC in a CAF or ADTS file the
+  same way, or use fragmented MP4, as long as a kill loses seconds only.
+- **Parts.** 30 minutes each (56 250 frames; about 11 MB; Blossom takes 25 MB), each a file
+  that plays alone. Up to three parts: one message. More: one message a part, content
+  `🎙 Recording · <clock of the whole> · part K of N`.
+- **Rules** (`core/audio/Recorder.kt`, `RecorderTest`): one recording at a time. Pause / resume
+  by the person. An interruption (a call, an alarm: transient loss of audio focus) pauses and it
+  resumes by itself when that ends, unless the person paused meanwhile. Another app taking the
+  audio for good pauses until the person resumes. Not started under 50 MB free; stopped and
+  kept under 15 MB. A microphone error stops and keeps. Each has a fixed text (`RecNotice`).
+- **Keeping it going.** Android: a foreground service of type `microphone` started while the
+  app is in front, with Pause / Resume and Stop in its notification, and a partial wake lock.
+  The microphone permission is asked at Start. iOS: the `audio` background mode.
+- **At the end** (not in an event's own chat, `ev-…`, where it is posted at once): "Which event
+  or meeting was it?": Belfry events not cancelled that start within 12 h and ended less than
+  36 h ago, the one going on first, then the nearest, six at most; or the channel it was
+  started in. (The web also offers "New meeting…"; Android does not yet.)
+- **Left on the device.** Each recording has a small state file (id, account, channel, start,
+  recorded ms, state). One not posted is offered in the chat, above the message box: "An
+  unfinished recording · <clock> · <day>", "Post it" / "Discard" (Discard asks). One whose
+  state still says recording was cut short: its length is measured from its frames. A
+  recording is deleted from the device only once the outbox holds its files.
+

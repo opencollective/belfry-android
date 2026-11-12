@@ -83,10 +83,10 @@ data class RecMeta(
 /** What the app's recorder must do next. */
 enum class RecCommand { START_ENGINE, PAUSE_ENGINE, RESUME_ENGINE, STOP_ENGINE, SAVE }
 
-/** The recorder at one moment. [since]: when the current stretch of recording began (ms), 0 while not recording. */
-data class RecState(val meta: RecMeta? = null, val since: Long = 0, val notice: RecNotice? = null) {
+/** The recorder at one moment. [since]: when the current stretch of recording began (ms), -1 while not recording. */
+data class RecState(val meta: RecMeta? = null, val since: Long = -1, val notice: RecNotice? = null) {
     val live: Boolean get() = meta != null && meta.phase != RecPhase.STOPPED
-    fun elapsed(now: Long): Long = (meta?.ms ?: 0) + if (since > 0) (now - since).coerceAtLeast(0) else 0
+    fun elapsed(now: Long): Long = (meta?.ms ?: 0) + if (since >= 0) (now - since).coerceAtLeast(0) else 0
 }
 
 /**
@@ -115,13 +115,13 @@ class RecorderMachine {
         val m = state.meta ?: return emptyList()
         if (m.phase == RecPhase.PAUSED && by == PauseBy.USER && m.pausedBy != PauseBy.USER) {
             // paused by a call, and now by the person too: it no longer goes on by itself
-            state = RecState(m.copy(pausedBy = PauseBy.USER), since = 0)
+            state = RecState(m.copy(pausedBy = PauseBy.USER), since = -1)
             return listOf(RecCommand.SAVE)
         }
         // (a person's pause is never replaced by an interruption's, which would resume by itself)
         if (m.phase != RecPhase.RECORDING) return emptyList()
         state = RecState(
-            m.copy(ms = state.elapsed(now), phase = RecPhase.PAUSED, pausedBy = by), since = 0,
+            m.copy(ms = state.elapsed(now), phase = RecPhase.PAUSED, pausedBy = by), since = -1,
             notice = when (by) { PauseBy.INTERRUPTION -> RecNotice.INTERRUPTED; PauseBy.TAKEN -> RecNotice.TAKEN; PauseBy.USER -> null },
         )
         return listOf(RecCommand.PAUSE_ENGINE, RecCommand.SAVE)
@@ -143,7 +143,7 @@ class RecorderMachine {
     fun stop(now: Long, notice: RecNotice? = null): List<RecCommand> {
         val m = state.meta ?: return emptyList()
         if (m.phase == RecPhase.STOPPED) return emptyList()
-        state = RecState(m.copy(ms = state.elapsed(now), phase = RecPhase.STOPPED, pausedBy = null), since = 0, notice = notice)
+        state = RecState(m.copy(ms = state.elapsed(now), phase = RecPhase.STOPPED, pausedBy = null), since = -1, notice = notice)
         return listOf(RecCommand.STOP_ENGINE, RecCommand.SAVE)
     }
 
