@@ -93,6 +93,7 @@ import sh.belfry.core.model.eventUrl
 import sh.belfry.core.model.eventsIn
 import sh.belfry.core.model.isHost
 import sh.belfry.core.model.isOpen
+import sh.belfry.core.model.meetingPeople
 import sh.belfry.core.model.myState
 import sh.belfry.core.model.stateLabel
 import sh.belfry.core.model.stillGoing
@@ -174,10 +175,11 @@ private fun EventRow(e: CalEvent) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (e.status == EventStatus.CANCELLED) { Badge("Cancelled", Tone.Bad); GapW(6) }
+                if (e.meeting) { Badge("Meeting"); GapW(6) }
                 Text(e.title, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Muted(ChatFormat.day(world, e.start, LocalSession.current.now()) + " · " + CardFormat.whenText(world, e) + (if (!e.location.isNullOrEmpty()) " · " + e.location else "") + (if (e.links.isNotEmpty()) " · online" else ""), maxLines = 1)
-            Muted((if (s != null) "$s · " else "") + "${e.going} going", maxLines = 1)
+            Muted((if (s != null) "$s · " else "") + if (e.meeting) "${world.meetingPeople(e).size} people" else "${e.going} going", maxLines = 1)
         }
     }
 }
@@ -260,7 +262,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
 
     CardScreen(
         e.title,
-        subtitle = if (e.isNew) "Event · " + world.ctx.communityName.ifEmpty { session.community.name } else CardFormat.dayAndWhen(world, e, now),
+        subtitle = if (e.meeting) "Meeting · members only" else if (e.isNew) "Event · " + world.ctx.communityName.ifEmpty { session.community.name } else CardFormat.dayAndWhen(world, e, now),
         actions = { IconAction(BelfryIcons.More, "More", { sheet = EventSheet.Menu }, Modifier.testTag("event-more")) },
     ) {
         PageColumn {
@@ -283,6 +285,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
                 }
                 if (e.links.isEmpty() && api?.online == true) { Gap(6); Muted("Online: the link shows once you have a place.") }
             }
+
+            // a meeting: who is invited, what they answered, who was there (hosts check people in)
+            if (e.meeting && !e.remote) MeetingPeople(e, host)
 
             if (open) {
                 Column {
@@ -338,7 +343,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
                     )
                 }
                 when {
-                    g != null && inside -> ActionRow("Open the event's chat", onClick = { nav.openChannel(e.groupId) }, modifier = Modifier.testTag("event-chat"), icon = BelfryIcons.Thread, sub = "Members, files, to-dos", chevron = true)
+                    g != null && inside -> ActionRow("Open the event's chat", onClick = { nav.openChannel(e.groupId) }, modifier = Modifier.testTag("event-chat"), icon = BelfryIcons.Thread, sub = "Members, files, todos", chevron = true)
                     g == null && !e.isNew && !e.remote -> BusyRow(
                         "Open a chat for it",
                         onClick = { session.send(Actions.openEventChat(e)); nav.openChannel(e.groupId) },

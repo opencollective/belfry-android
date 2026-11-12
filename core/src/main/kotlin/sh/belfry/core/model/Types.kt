@@ -225,6 +225,15 @@ data class CalEvent(
     val remote: Boolean = false,
     /** The count the API gave (remote events), else the size of [goingKeys]. */
     val goingCount: Int = goingKeys.size,
+    /**
+     * A meeting (web 2026-11-12, core/meetings.ts): a members-only event made from a channel's ＋
+     * with a topic, the people invited, a time, a length and a place. Its `t` tag is `meeting`.
+     */
+    val meeting: Boolean = false,
+    /** The people invited to a meeting: its `p` tags marked `invited` (64-hex keys, each once). */
+    val invited: List<String> = emptyList(),
+    /** The channel a meeting was made from (its `channel` tag). */
+    val madeIn: String? = null,
 ) {
     val going: Int get() = goingCount
     val author: String get() = ev.pubkey

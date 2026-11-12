@@ -187,6 +187,8 @@ data class EventForm(
     val cover: String? = null,
     /** Making an event: coming takes an application with this question (one 30402 ticket). Null: anyone RSVPs. */
     val applicationPrompt: String? = null,
+    /** Making an event: its chat is closed without a ticket (a meeting: the invited are put in). */
+    val closed: Boolean = false,
 )
 
 data class TicketForm(
@@ -373,7 +375,7 @@ fun World.eventsIn(tab: EventsTab, now: Long, channel: String? = null): List<Cal
 fun World.yourEvents(now: Long): List<CalEvent> {
     val since = now - 30 * 86400L
     return calendar.filter { e ->
-        e.isNew && endOf(e) >= since && (me in e.hosts || myState(e) in setOf(MyState.HOST, MyState.TICKET, MyState.MAYBE, MyState.APPLIED, MyState.WAITLIST))
+        e.isNew && endOf(e) >= since && (me in e.hosts || (e.meeting && me in e.invited) || myState(e) in setOf(MyState.HOST, MyState.TICKET, MyState.MAYBE, MyState.APPLIED, MyState.WAITLIST))
     }
 }
 
@@ -413,25 +415,31 @@ object EventActions {
      * application question, one ticket that takes applications (and the group closed). No post in
      * any channel: sending its URL in one shows its card there. Returns the drafts.
      */
-    fun create(n: EventForm, d: String, me: String, groupsRelay: String, mainRelay: String, ticketId: String = Random.hex(3)): List<Draft> {
+    fun create(n: EventForm, d: String, me: String, groupsRelay: String, mainRelay: String, ticketId: String = Random.hex(3), extra: List<Tag> = emptyList()): List<Draft> {
         val groupId = "ev-$d"
-        val closed = n.applicationPrompt != null
+        val byApplication = n.applicationPrompt != null
+        val closed = byApplication || n.closed
         val out = ArrayList<Draft>()
         out.add(Draft(Target.GROUPS, 9007, tags = listOf(listOf("h", groupId))))
         out.add(Draft(Target.GROUPS, 9002, tags = listOf(listOf("h", groupId), listOf("name", n.title.jsTrim()), listOf("about", about(n.description))) +
             (if (!n.cover.isNullOrEmpty()) listOf(listOf("picture", n.cover)) else emptyList()) + listOf(listOf(if (closed) "closed" else "open"))))
-        val (kind, tags) = versionTags(d, n, groupsRelay)
+        val (kind, tags) = versionTags(d, n, groupsRelay, extra)
         out.add(Draft(Target.MAIN, kind, n.description, tags))
-        if (closed) {
+        if (byApplication) {
             val coord = "$kind:$me:$d"
             out.add(ticketDraft(d, coord, groupId, TicketForm(ticketId, "Application", closed = true, prompt = n.applicationPrompt.orEmpty(), position = 1), mainRelay))
         }
         return out
     }
 
-    /** A host's new version (rule B), and the group's name / picture when they changed. */
-    fun edit(e: CalEvent, n: EventForm, g: Group?, groupsRelay: String): List<Draft> {
-        val (kind, tags) = versionTags(e.d, n, groupsRelay, if (e.status == EventStatus.CANCELLED) listOf(listOf("status", "cancelled")) else emptyList())
+    /**
+     * A host's new version (rule B), and the group's name / picture when they changed. A meeting's
+     * own tags stay (what it is, where it was made, who is invited); EXTRA adds to them.
+     */
+    fun edit(e: CalEvent, n: EventForm, g: Group?, groupsRelay: String, extra: List<Tag> = emptyList()): List<Draft> {
+        val keep = e.ev.tags.filter { t -> (t.size >= 2 && t[0] == "t" && t[1] == "meeting") || t.firstOrNull() == "channel" || (t.size >= 4 && t[0] == "p" && t[3] == "invited") }
+        val more = keep.filter { it !in extra } + extra + if (e.status == EventStatus.CANCELLED) listOf(listOf("status", "cancelled")) else emptyList()
+        val (kind, tags) = versionTags(e.d, n, groupsRelay, more)
         val out = arrayListOf(Draft(Target.MAIN, kind, n.description, tags))
         if (g != null && (g.name != n.title.jsTrim() || (!n.cover.isNullOrEmpty() && g.picture != n.cover)))
             out.add(Draft(Target.GROUPS, 9002, tags = listOf(listOf("h", e.groupId), listOf("name", n.title.jsTrim()), listOf("about", g.about)) +

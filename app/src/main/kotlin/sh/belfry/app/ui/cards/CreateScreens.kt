@@ -88,9 +88,9 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 
-private fun shown(e: Throwable): String = (e as? ActionException)?.message ?: "That did not work. Try again."
+internal fun shown(e: Throwable): String = (e as? ActionException)?.message ?: "That did not work. Try again."
 
-private val words = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+internal val words = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
 
 @Composable
 fun CreateChannelScreen() {
@@ -246,12 +246,12 @@ fun CreateProposalScreen(parent: String, from: String? = null, fromChannel: Stri
 
 // ---- events ------------------------------------------------------------------------------
 
-private val DATE = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH)
-private val TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
+internal val DATE = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH)
+internal val TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.ROOT)
 
 /** A field that opens a picker: looks like the text fields, is a button. */
 @Composable
-private fun PickerField(label: String, value: String, icon: ImageVector, tag: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+internal fun PickerField(label: String, value: String, icon: ImageVector, tag: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = Belfry.colors
     val shape = RoundedCornerShape(8.dp)
     Column(modifier) {
@@ -269,7 +269,7 @@ private fun PickerField(label: String, value: String, icon: ImageVector, tag: St
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickDate(initial: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
+internal fun PickDate(initial: LocalDate, onDismiss: () -> Unit, onPick: (LocalDate) -> Unit) {
     val state = rememberDatePickerState(initialSelectedDateMillis = initial.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
     DatePickerDialog(
         onDismissRequest = onDismiss,
@@ -285,7 +285,7 @@ private fun PickDate(initial: LocalDate, onDismiss: () -> Unit, onPick: (LocalDa
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickTime(initial: LocalTime, onDismiss: () -> Unit, onPick: (LocalTime) -> Unit) {
+internal fun PickTime(initial: LocalTime, onDismiss: () -> Unit, onPick: (LocalTime) -> Unit) {
     val state = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,

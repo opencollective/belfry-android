@@ -983,6 +983,8 @@ class Session(
     val events: EventsService by lazy { EventsService(this) }
 
     internal suspend fun <T> apiCall(block: suspend (BelfryApi) -> T): T = call(block)
+    /** The zone times are set in on this device (a new version of an event keeps it). */
+    internal val zoneId: String get() = zone.id
     /** The demo: events "published" by others (the belfry's groups key issuing a ticket). */
     internal fun addLocal(events: List<Event>) = addToLog(events)
 

@@ -10,6 +10,12 @@ import sh.belfry.core.model.EventActions
 import sh.belfry.core.model.EventForm
 import sh.belfry.core.model.EventLinks
 import sh.belfry.core.model.EventStatus
+import sh.belfry.core.model.MeetingForm
+import sh.belfry.core.model.Meetings
+import sh.belfry.core.model.Named
+import sh.belfry.core.model.World
+import sh.belfry.core.model.attendance
+import kotlinx.coroutines.delay
 import sh.belfry.core.model.Rsvp
 import sh.belfry.core.model.SlugCheck
 import sh.belfry.core.model.Ticket
@@ -191,6 +197,94 @@ class EventsService internal constructor(private val s: Session) {
         return api { it.coHostLink(e.groupId) }
     }
 
+    // ---- meetings (web core/meetings.ts, 2026-11-12) ------------------------------------------------
+
+    /**
+     * A meeting made from CHANNEL: a members-only event with a closed chat, the members picked put
+     * in it; then an account for each person added by name (once the chat is on the relay: tried a
+     * few times), who are invited on a new version of the event. Returns the event's id (`d`).
+     * Throws [ActionException]; code `named`: the meeting is made, someone could not be added.
+     */
+    suspend fun createMeeting(channel: String, m: MeetingForm): String {
+        val d = EventLinks.newD(s.now())
+        s.send(Meetings.create(channel, m, d, s.me, s.community.groupsRelay, s.community.mainRelay))
+        val named = m.named.filter { it.name.isNotBlank() }
+        if (named.isEmpty()) return d
+        val keys = ArrayList<String>()
+        for (n in named) {
+            var tries = 0
+            while (true) {
+                try {
+                    keys.add(accountFor("ev-$d", n))
+                    break
+                } catch (x: ActionException) {
+                    // the belfry does not know the meeting's chat yet: it is on its way through the outbox
+                    if (tries >= 5 || x.code !in RETRY_LATER) {
+                        throw ActionException("named", "The meeting is made, but ${n.name.trim().take(100)} could not be added: ${x.message} Add them from the meeting.")
+                    }
+                    tries++
+                    delay(1000L * tries)
+                }
+            }
+        }
+        // the new version needs the event as this device sees it: wait for the snapshot that has it
+        var e = world.calendar.firstOrNull { it.d == d }
+        var waited = 0
+        while (e == null && waited < 20) { delay(100); waited++; e = world.calendar.firstOrNull { it.d == d } }
+        if (e != null) s.send(Meetings.invite(e, keys, world.group(e.groupId), s.community.groupsRelay, s.zoneId))
+        return d
+    }
+
+    /**
+     * An account for someone who isn't on the belfry (meetingguests.py): with an e-mail, the
+     * account behind that address; without, one held by me until I hand it over. Returns its key;
+     * the belfry puts it in the chat GROUPID. The demo makes a key and the join itself.
+     */
+    suspend fun accountFor(groupId: String, n: Named): String {
+        val name = n.name.trim().take(100)
+        val email = n.email?.trim()?.takeIf { it.isNotEmpty() }
+        if (s.localOnly) {
+            val pk = Random.hex(32)
+            val tags = arrayListOf(listOf("h", groupId), listOf("p", pk, "member"), listOf("guest", ""), listOf("invited-by", s.me), listOf("name", name))
+            if (email == null) tags.add(listOf("unsaved", "1"))
+            s.addLocal(listOf(Demo.groups.signNow(EventTemplate(9000, "", tags, s.now()))))
+            return pk
+        }
+        return api { it.meetingGuest(groupId, name, email) }
+    }
+
+    /** Invite more people (their keys) to a meeting: into its chat and on the event. */
+    suspend fun invite(e: CalEvent, keys: List<String>) {
+        val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
+        val drafts = Meetings.invite(now, keys, world.group(now.groupId), s.community.groupsRelay, s.zoneId)
+        if (drafts.isNotEmpty()) s.send(drafts)
+    }
+
+    /** Someone added by name joins the meeting: their account, invited. Returns their key. */
+    suspend fun addByName(e: CalEvent, n: Named): String {
+        val pk = accountFor(e.groupId, n)
+        invite(e, listOf(pk))
+        return pk
+    }
+
+    /** Hand a name-only account I made to its person: their address goes on it (they sign in with it). */
+    suspend fun handOver(groupId: String, pubkey: String, email: String) {
+        if (s.localOnly) {
+            s.addLocal(listOf(Demo.groups.signNow(EventTemplate(1985, "", listOf(
+                listOf("h", groupId), listOf("L", World.GUEST_NS), listOf("l", "saved", World.GUEST_NS), listOf("p", pubkey),
+            ), s.now()))))
+            return
+        }
+        api { it.meetingGuestTransfer(pubkey, email) }
+    }
+
+    /** A host marks someone as there, or not (a label in the meeting's chat). The same mark again: nothing sent. */
+    suspend fun checkIn(e: CalEvent, pubkey: String, on: Boolean) {
+        val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
+        if (world.attendance(now)[pubkey] == on) return
+        s.send(Meetings.checkIn(now, pubkey, on))
+    }
+
     /** The event by its URL's last part: this device's, or null (ask [fetch]). */
     fun local(link: String): CalEvent? = world.eventByLink(link)
 
@@ -204,6 +298,9 @@ class EventsService internal constructor(private val s: Session) {
     }
 
     companion object {
+        /** The belfry may not have seen the meeting's chat yet, or its signer is busy: worth another try. */
+        private val RETRY_LATER = setOf("no_channel", "not_host", "signer", "network")
+
         /** A ticket id for a new ticket type. */
         fun newTicketId(): String = Random.hex(3)
     }

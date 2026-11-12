@@ -442,6 +442,10 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
             ActionRow("Announcement", onClick = { onClose(); composer.announce = true; composer.focus?.invoke() }, icon = BelfryIcons.Megaphone, sub = "Stands out; followers get it by e-mail")
         }
         ActionRow("Event", onClick = { onClose(); go(Routes.createEvent(groupId)) }, icon = BelfryIcons.Calendar)
+        // a meeting makes accounts and puts members in a chat: not for guests (as the web)
+        if (!LocalWorld.current.amGuest) {
+            ActionRow("Meeting", onClick = { onClose(); go(Routes.createMeeting(groupId)) }, icon = BelfryIcons.Users, sub = "Members only: a topic, people, a time", modifier = Modifier.testTag("plus-meeting"))
+        }
         if (onTodo != null) {
             ActionRow("Todo", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
         }

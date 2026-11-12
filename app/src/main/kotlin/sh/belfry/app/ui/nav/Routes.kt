@@ -84,6 +84,9 @@ object Routes {
     fun createPod(parent: String) = "create-pod/${enc(parent)}"
     const val CREATE_EVENT = "create-event/{channel}"
     fun createEvent(channel: String) = "create-event/${enc(channel)}"
+    /** A new meeting made from a channel's ＋ (web 2026-11-12). */
+    const val CREATE_MEETING = "create-meeting/{channel}"
+    fun createMeeting(channel: String) = "create-meeting/${enc(channel)}"
     const val CREATE_PROPOSAL = "create-proposal/{parent}?from={from}&in={in}"
     /** FROM: a request (message id in channel FROMCHANNEL) the proposal starts from. */
     fun createProposal(parent: String, from: String? = null, fromChannel: String? = null) =

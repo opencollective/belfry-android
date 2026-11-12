@@ -18,6 +18,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import sh.belfry.app.ui.cards.CoHostSheet
 import sh.belfry.app.ui.cards.CreateEventScreen
+import kotlinx.coroutines.runBlocking
+import androidx.compose.ui.test.onAllNodesWithText
+import sh.belfry.core.model.meetingSuggestions
+import sh.belfry.core.model.attendance
+import sh.belfry.core.model.Named
+import sh.belfry.core.model.Meetings
+import sh.belfry.core.model.MeetingForm
+import sh.belfry.app.ui.cards.EventHandoff
+import sh.belfry.app.ui.cards.CreateMeetingScreen
 import sh.belfry.app.ui.cards.EventCardView
 import sh.belfry.app.ui.cards.EventRefCard
 import sh.belfry.core.model.EventRef
@@ -203,5 +212,74 @@ class EventsTest : DemoShots() {
         assertEquals("soup-night", e.slug)
         assertEquals(null, world.messages(Demo.KITCHEN).firstOrNull { it.text.contains("/events/") })
         assertEquals("https://${Demo.DOMAIN}/events/soup-night", sh.belfry.app.ui.cards.EventHandoff.take(Demo.KITCHEN))
+    }
+
+    // ---- meetings (web 2026-11-12) ---------------------------------------------------------------------
+
+    /** A meeting made in the demo: two members, one person by name (her account is mine to hand over). */
+    private fun aMeeting(): CalEvent {
+        started()
+        val people = world.people.map { it.first }.filter { it != session.me }.take(2)
+        val d = runBlocking {
+            session.events.createMeeting(Demo.GARDEN, MeetingForm("Plan the garden day", people, listOf(Named("Ines Duarte", null)), NOW + 2 * 3600, 45, "The shed", "", "UTC"))
+        }
+        repeat(200) {
+            settle()
+            val e = world.calendar.firstOrNull { it.d == d }
+            if (e != null && e.invited.size == 3 && !world.isPending(e.ev.id)) return e
+            Thread.sleep(25)
+        }
+        error("the meeting never showed")
+    }
+
+    @Test
+    fun meetingForm() = demoShot("meeting-new") { CreateMeetingScreen(Demo.GARDEN) }
+
+    @Test
+    fun meetingPage() {
+        val e = aMeeting()
+        runBlocking { session.events.checkIn(e, e.invited.first(), true) }
+        var tries = 0
+        while (world.attendance(e).isEmpty() && tries++ < 200) { settle(); Thread.sleep(25) }
+        demoShot("meeting-page") { EventScreen(e.coord) }
+    }
+
+    @Test
+    fun aMeetingIsMadeFromTheFormOnce() {
+        started()
+        val before = world.calendar.count { it.meeting }
+        compose.setContent { BelfryTheme { InDemo { CreateMeetingScreen(Demo.GARDEN) } } }
+        val someone = world.meetingSuggestions(Demo.GARDEN, NOW).first()
+        field("meet-topic").performTextInput("Plan the garden day")
+        compose.onNodeWithTag("meet-face-" + someone.take(8)).performScrollTo().performClick()
+        compose.onNodeWithTag("create-submit").performScrollTo().performClick()
+        tap("create-submit")
+        tap("create-submit")
+        compose.waitUntil(10_000) { world.calendar.count { it.meeting } == before + 1 }
+        settle()
+        assertEquals("one tap, one meeting", before + 1, world.calendar.count { it.meeting })
+        val e = world.calendar.first { it.meeting }
+        assertEquals(listOf(someone), e.invited)
+        assertEquals(Demo.GARDEN, e.madeIn)
+        // its chat is closed and the person invited was put in it
+        assertEquals(1, world.all.count { it.kind == 9000 && it.tag("h") == e.groupId && it.tag("p") == someone })
+        // its URL waits for the channel's message box, and the form is left
+        compose.waitUntil(5_000) { EventHandoff.pending?.first == Demo.GARDEN }
+        assertTrue(nav.went.contains("<back>"))
+        EventHandoff.take(Demo.GARDEN)
+    }
+
+    @Test
+    fun aHostChecksSomeoneInOnce() {
+        val e = aMeeting()
+        val who = e.invited.first()
+        compose.setContent { BelfryTheme { InDemo { EventScreen(e.coord) } } }
+        val tag = "meet-check-" + who.take(8)
+        compose.onNodeWithTag(tag).performScrollTo().performClick()
+        tap(tag)
+        compose.waitUntil(10_000) { world.attendance(e)[who] == true }
+        settle()
+        assertEquals("one tap, one mark", 1, world.all.count { x -> x.kind == 1985 && x.tags.any { it.size >= 2 && it[0] == "L" && it[1] == Meetings.ATTENDANCE_NS } })
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("✓ There").fetchSemanticsNodes().isNotEmpty() }
     }
 }

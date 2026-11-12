@@ -3,6 +3,7 @@ package sh.belfry.core.net
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import sh.belfry.core.crypto.Hex
 import sh.belfry.core.model.ApiEvent
 import sh.belfry.core.model.ApiMe
 import sh.belfry.core.model.ApiTicket
@@ -94,7 +95,50 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
         return url
     }
 
+    // ---- meetings: people who are not on the belfry (meetingguests.py) --------------------------------
+
+    /**
+     * The belfry makes an account for someone a meeting's host adds by name: with EMAIL, the
+     * account behind that address (a member stays themselves); without, a guest account held by
+     * the host until they hand it over. CHANNEL is the meeting's chat (`ev-<d>`); the person is
+     * put in it. Returns their key. Codes: `invalid`, `not_host`, `guest`, `no_channel`,
+     * `unsupported`, `signer`.
+     */
+    suspend fun meetingGuest(channel: String, name: String, email: String?): String {
+        val (status, body) = api.signedFetch(signer, api.community.apiBase + "/meeting-guests", "POST", buildJsonObject {
+            put("channel", JsonPrimitive(channel))
+            put("name", JsonPrimitive(name.trim().take(100)))
+            if (!email.isNullOrBlank()) put("email", JsonPrimitive(email.trim()))
+        })
+        val pubkey = body?.s("pubkey")?.lowercase()
+        if (status !in 200..299 || pubkey == null || !Hex.isKey(pubkey)) fail(status, body, "Could not add them just now.", MEETING_ERRORS)
+        return pubkey
+    }
+
+    /** The host who made a name-only account hands it to its person: their address goes on it. Codes: `invalid`, `not_yours`, `has_email`, `taken`. */
+    suspend fun meetingGuestTransfer(pubkey: String, email: String) {
+        val (status, body) = api.signedFetch(signer, api.community.apiBase + "/meeting-guests/transfer", "POST", buildJsonObject {
+            put("pubkey", JsonPrimitive(pubkey))
+            put("email", JsonPrimitive(email.trim()))
+        })
+        if (status !in 200..299) fail(status, body, "That did not work. Try again.", MEETING_ERRORS)
+    }
+
     companion object {
+        private val MEETING_ERRORS = mapOf(
+            "invalid" to "That name or e-mail can’t be used.",
+            "invalid_json" to "That did not work. Try again.",
+            "not_host" to "Only the meeting’s hosts add people to it.",
+            "guest" to "Only members add people to a meeting.",
+            "no_channel" to "The meeting is not on the belfry yet. Try again in a moment.",
+            "not_yours" to "Only who added this person can hand their account over.",
+            "has_email" to "This account has an e-mail already.",
+            "taken" to "That address has an account already.",
+            "unsupported" to "This belfry can’t make accounts for people yet.",
+            "signer" to "The account could not be made just now. Try again.",
+            "http" to "This belfry can’t make accounts for people yet.",
+        )
+
         /** The API's answer, or null when it is not an event. Text fields are cut to sane lengths. */
         fun parse(o: JsonObject): ApiEvent? {
             val d = o.s("d") ?: return null
