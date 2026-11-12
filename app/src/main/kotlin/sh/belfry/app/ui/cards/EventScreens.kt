@@ -137,7 +137,14 @@ fun EventsScreen(channel: String?, initialTab: Int = 0) {
     ) {
         Tabs(EventsTab.entries.map { it.label }, tab, { tab = it }, Modifier.testTag("events-tabs"))
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(rows) { item ->
+            items(rows, key = { item ->
+                when (item) {
+                    is EventsItem.Day -> "day:" + item.label
+                    is EventsItem.Row -> "event:" + item.e.coord
+                    is EventsItem.Empty -> "<empty>"
+                    is EventsItem.New -> "<new>"
+                }
+            }) { item ->
                 when (item) {
                     is EventsItem.Day -> SectionTitle(item.label, Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 2.dp))
                     is EventsItem.Row -> EventRow(item.e)

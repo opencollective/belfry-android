@@ -26,8 +26,8 @@ fun World.canPin(groupId: String): Boolean = mayPin(group(groupId), me)
 fun World.pinned(groupId: String): List<Message> {
     val g = group(groupId)
     val state = HashMap<String, Pair<Boolean, Long>>()
-    for (e in sorted) {
-        if (e.kind != 1985 || e.tag("h") != groupId || e.tag("L") != PIN_NS || !mayPin(g, e.pubkey)) continue
+    for (e in groupEventsSorted(groupId)) {
+        if (e.kind != 1985 || e.tag("L") != PIN_NS || !mayPin(g, e.pubkey)) continue
         val id = e.tag("e") ?: continue
         val l = e.tag("l")
         if (l != "pinned" && l != "unpinned") continue

@@ -63,6 +63,8 @@ jobs:
         run: ./gradlew :app:assembleDebug --stacktrace
       - name: Lint
         run: ./gradlew :app:lintDebug --stacktrace
+      - name: Build the minified APK (R8 with the keep rules; a check, and something to try on a phone)
+        run: ./gradlew :app:assembleMinified --stacktrace
       - name: Screenshots (Robolectric + Roborazzi, demo mode)
         run: ./gradlew :app:recordRoborazziDebug --stacktrace
       - name: Upload screenshots
@@ -77,6 +79,12 @@ jobs:
         with:
           name: belfry-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+      - name: Upload the minified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: belfry-minified-apk
+          path: app/build/outputs/apk/minified/*.apk
+          if-no-files-found: warn
       - name: Upload reports
         if: failure()
         uses: actions/upload-artifact@v4

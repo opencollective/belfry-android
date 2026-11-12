@@ -165,6 +165,7 @@ class Session(
     @Volatile var onRecordChanged: ((Community, GuestInfo?) -> Unit)? = null
 
     private val logLock = Any()
+    private val rebuildLock = Any()
     private val log = ArrayList<Event>()
     @Volatile private var extraAdmins: Set<String> = emptySet()
     @Volatile private var bridge: String? = null
@@ -246,15 +247,16 @@ class Session(
         groupsRelay = community.groupsRelay, agents = community.agents, kinds = HashMap(kinds),
     )
 
-    private fun buildWorld(): World {
+    /** The next snapshot; what PREV worked out for the channels nothing arrived in is taken over (see [World]). */
+    private fun buildWorld(prev: World? = null, box: List<OutboxItem> = store.outbox()): World {
         val events = synchronized(logLock) { ArrayList(log) }
-        return World(events, store.outbox(), ctx())
+        return World(events, box, ctx(), prev)
     }
 
     private fun rebuild() {
-        val w = buildWorld()
-        _world.value = w
-        countOutbox()
+        val box = store.outbox()
+        val w = synchronized(rebuildLock) { buildWorld(_world.value, box).also { _world.value = it } }
+        countOutbox(box)
         askWhoisAbout(w)
     }
 
@@ -303,8 +305,7 @@ class Session(
 
     private fun markDirty() { dirty.trySend(Unit) }
 
-    private fun countOutbox() {
-        val box = store.outbox()
+    private fun countOutbox(box: List<OutboxItem> = store.outbox()) {
         val queued = box.count { it.status == OutboxStatus.QUEUED }
         val failed = box.count { it.status == OutboxStatus.FAILED }
         setStatus { it.copy(queued = queued, failed = failed) }

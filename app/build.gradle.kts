@@ -41,8 +41,21 @@ android {
 
     buildTypes {
         release {
+            // Not minified yet: nothing minified has run on a phone. Try the `minified` build below
+            // on a device first (CI artifact belfry-minified-apk), then turn these on here.
             isMinifyEnabled = false
             if (keystore != null) signingConfig = signingConfigs.getByName("release")
+        }
+        // The release build as R8 would ship it (code shrunk and optimised, unused resources
+        // dropped, keep rules in proguard-rules.pro), signed with the debug key so it installs
+        // next to nothing else: built by CI on every push so the rules never rot.
+        create("minified") {
+            initWith(getByName("release"))
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
         }
     }
     compileOptions {
@@ -76,6 +89,12 @@ android {
             }
         }
     }
+}
+
+// The core's model is immutable data (a new snapshot per change): tell the Compose compiler, so
+// a row whose data is equal is skipped even when its objects were made again.
+composeCompiler {
+    stabilityConfigurationFile.set(layout.projectDirectory.file("compose-stability.conf"))
 }
 
 dependencies {

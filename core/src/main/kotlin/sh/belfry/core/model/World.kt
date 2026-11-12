@@ -23,18 +23,68 @@ import java.util.concurrent.ConcurrentHashMap
  * access.ts canAdmin and the feed logic of ui/Chat.tsx).
  *
  * Nothing here reads the clock: functions that depend on the time take `now` (Unix seconds).
+ *
+ * [prev], the snapshot before this one, is only a way to do less work: when this log is that
+ * one plus a few everyday events (messages, reactions, thread replies, seen markers, to-do steps
+ * in ordinary channels; gift wraps), what [prev] worked out for the channels they did not touch
+ * is taken over as it is, the very same objects. Anything else (a deletion, an edit, a profile,
+ * membership, an event, a proposal, a change in the outbox, another context) and everything is
+ * worked out again. The result is the same with or without [prev] (WorldCarryTest).
  */
-class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx: WorldContext) {
+class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx: WorldContext, prev: World? = null) {
 
     val me: String get() = ctx.me
 
     /** The whole outbox, oldest first (gift wraps on their way included). */
     val outboxItems: List<OutboxItem> = outbox.sortedBy { it.createdAt }
 
-    private val pendingById: Map<String, OutboxItem> = outbox.filter { it.signed == null }.associateBy { it.localId }
+    private val log: List<Event> = events
+    private val pendingItems: List<OutboxItem> = outbox.filter { it.signed == null }
+    private val pendingById: Map<String, OutboxItem> = pendingItems.associateBy { it.localId }
 
     /** All events, queued ones shown as if published (not the pre-signed gift wraps). In arrival order. */
-    val all: List<Event> = events + outbox.filter { it.signed == null }.map { it.asEvent(ctx.me) }
+    val all: List<Event> = if (pendingItems.isEmpty()) events else events + pendingItems.map { it.asEvent(ctx.me) }
+
+    // ---- what the snapshot before already worked out -----------------------------------------------
+
+    /** The channels whose events changed since [prev] and whether to-dos did; null: nothing is taken over. */
+    private class Delta(val groups: Set<String>, val tasks: Boolean)
+    private val delta: Delta? = prev?.let { deltaFrom(it) }
+
+    private fun deltaFrom(prev: World): Delta? {
+        val old = prev.log
+        if (old.size > log.size || prev.ctx != ctx || prev.pendingItems != pendingItems) return null
+        for (i in old.indices) if (old[i] !== log[i]) return null
+        val groups = HashSet<String>()
+        var tasks = pendingItems.any { it.kind in 2100..2103 }
+        for (i in old.size until log.size) {
+            val e = log[i]
+            val h = e.t("h")
+            if (!isEveryday(e, h)) return null
+            if (h != null) groups.add(h)
+            if (e.kind in 2100..2103) tasks = true
+        }
+        // what waits in the outbox is shown from fresh copies: its channels are worked out again
+        for (p in pendingItems) p.tags.firstOrNull { it.isNotEmpty() && it[0] == "h" }?.getOrNull(1)?.let(groups::add)
+        return Delta(groups, tasks)
+    }
+
+    /**
+     * Changes when anything a message row may show from outside its own channel changed
+     * (profiles, membership, events, proposals, pods, the outbox, who is who): the same object as
+     * the snapshot before when only everyday events arrived. See [feedKey].
+     */
+    val epoch: Any = if (delta != null) prev!!.epoch else Any()
+
+    private fun <V : Any> seeded(prev: World?, drop: Boolean = false, pick: (World) -> ConcurrentHashMap<String, V>): ConcurrentHashMap<String, V> {
+        val out = ConcurrentHashMap<String, V>()
+        val d = delta ?: return out
+        if (prev != null && !drop) for ((k, v) in pick(prev)) if (k !in d.groups) out[k] = v
+        return out
+    }
+
+    private fun <T : Any> kept(prev: World?, pick: (World) -> Lazy<T>): T? =
+        if (delta != null && prev != null) pick(prev).takeIf { it.isInitialized() }?.value else null
 
     /** [all] by `created_at`, ties by id. */
     val sorted: List<Event> by lazy { all.sortedWith(BY_TIME) }
@@ -49,7 +99,14 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         out
     }
     private val byKind: Map<Int, List<Event>> by lazy { all.groupBy { it.kind } }
-    private val sortedByH = ConcurrentHashMap<String, List<Event>>()
+    private val sortedByH: ConcurrentHashMap<String, List<Event>> = seeded(prev) { it.sortedByH }
+
+    /** Who wrote each event, by id (deletions and edits count only from the author). */
+    private val authorOf: Map<String, String> by lazy {
+        val out = HashMap<String, String>(all.size * 2)
+        for (e in all) out[e.id] = e.pubkey
+        out
+    }
 
     /** Events carrying this `h`, in arrival order. */
     private fun inGroup(id: String): List<Event> = byH[id] ?: emptyList()
@@ -63,8 +120,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** Deleted event ids and addresses (`kind:pubkey:d`): kind 5 by the same author, kind 9005 by a moderator. */
     val deleted: Set<String> by lazy {
         val out = HashSet<String>()
-        val authors = HashMap<String, String>()
-        for (e in all) authors[e.id] = e.pubkey
+        val authors = authorOf
         for (e in ofKind(9005)) for (t in e.tags) if (t.size >= 2 && t[0] == "e" && t[1].isNotEmpty()) out.add(t[1])
         for (e in ofKind(5)) for (t in e.tags) {
             if (t.size < 2) continue
@@ -76,18 +132,21 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- profiles ------------------------------------------------------------------------------
 
-    val profiles: Map<String, Profile> by lazy {
+    private val keptProfiles: Map<String, Profile>? = kept(prev) { it.profilesLazy }
+    private val profilesLazy: Lazy<Map<String, Profile>> = lazy { keptProfiles ?: readProfiles() }
+    val profiles: Map<String, Profile> by profilesLazy
+
+    private fun readProfiles(): Map<String, Profile> {
         val out = HashMap<String, Profile>()
         val guests = ArrayList<Pair<String, String>>()
-        for (e in all) {
-            if (e.kind == 9000) {
-                val name = e.t("name")
-                val p = e.t("p")
-                if (!name.isNullOrEmpty() && !p.isNullOrEmpty()) guests.add(p to name.sliceUnits(100))
-            }
-            if (e.kind != 0) continue
-            val prev = out[e.pubkey]
-            if (prev != null && prev.at >= e.createdAt) continue
+        for (e in ofKind(9000)) {
+            val name = e.t("name")
+            val p = e.t("p")
+            if (!name.isNullOrEmpty() && !p.isNullOrEmpty()) guests.add(p to name.sliceUnits(100))
+        }
+        for (e in ofKind(0)) {
+            val had = out[e.pubkey]
+            if (had != null && had.at >= e.createdAt) continue
             val o = parseJsonOrNull(e.content).obj() ?: continue
             out[e.pubkey] = Profile(
                 name = o["display_name"].str()?.takeIf { it.isNotEmpty() } ?: o["name"].str(),
@@ -101,7 +160,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             val had = out[pk]
             if (had?.name.isNullOrEmpty()) out[pk] = (had ?: Profile()).copy(name = name)
         }
-        out
+        return out
     }
 
     /** The name other people know someone by (never "You"): e-mail From lines, mentions. "" when unknown. */
@@ -243,8 +302,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     /** The author's latest edit (kind 1010) per message id. Edits by anyone else are ignored. */
     private val edits: Map<String, Event> by lazy {
-        val authors = HashMap<String, String>()
-        for (e in all) authors[e.id] = e.pubkey
+        val authors = authorOf
         val out = HashMap<String, Event>()
         for (e in ofKind(EDIT_KIND)) {
             if (e.id in deleted) continue
@@ -320,7 +378,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         return mail ?: Special.None
     }
 
-    private val messagesCache = ConcurrentHashMap<String, List<Message>>()
+    private val messagesCache: ConcurrentHashMap<String, List<Message>> = seeded(prev) { it.messagesCache }
 
     /** A channel's messages: kind 9, not deleted, oldest first, each as its author last edited it. */
     fun messages(groupId: String): List<Message> = messagesCache.getOrPut(groupId) {
@@ -348,7 +406,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- threads (NIP-22 kind 1111, `E` = the message) -----------------------------------------
 
-    private val repliesCache = ConcurrentHashMap<String, List<Message>>()
+    private val repliesCache: ConcurrentHashMap<String, List<Message>> = seeded(prev) { it.repliesCache }
     private fun allReplies(groupId: String): List<Message> = repliesCache.getOrPut(groupId) {
         inGroupSorted(groupId).filter { it.kind == 1111 && it.id !in deleted }.map(::parse)
     }
@@ -362,7 +420,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         return shown to (replies.size - shown.size)
     }
 
-    private val threadsCache = ConcurrentHashMap<String, Map<String, ThreadInfo>>()
+    private val threadsCache: ConcurrentHashMap<String, Map<String, ThreadInfo>> = seeded(prev) { it.threadsCache }
 
     /** Per message id: how many replies its thread has, the latest time, who wrote (in arrival order). */
     fun threadsOf(groupId: String): Map<String, ThreadInfo> = threadsCache.getOrPut(groupId) {
@@ -377,6 +435,23 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     }
 
     // ---- the feed ------------------------------------------------------------------------------
+
+    /**
+     * Everything a channel's message rows show, as one value to compare: equal to the key of the
+     * snapshot before when nothing those rows read has changed (the channel's own messages,
+     * replies, reactions, threads, joins, and [epoch] for what lies outside it). The screen keeps
+     * showing the feed from the snapshot it has while the key stays the same, so a message arriving
+     * in another channel redraws nothing here.
+     */
+    fun feedKey(groupId: String): FeedKey =
+        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId)))
+
+    /** Compared part by part, by identity. */
+    class FeedKey internal constructor(private val parts: Array<Any>) {
+        override fun equals(other: Any?): Boolean =
+            other is FeedKey && parts.size == other.parts.size && parts.indices.all { parts[it] === other.parts[it] }
+        override fun hashCode(): Int = parts.size
+    }
 
     /**
      * A channel's feed: messages, guest joins and resurfaced threads, by time (at equal times
@@ -448,7 +523,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- reactions (NIP-25) --------------------------------------------------------------------
 
-    private val reactionsCache = ConcurrentHashMap<String, Map<String, List<Reaction>>>()
+    private val reactionsCache: ConcurrentHashMap<String, Map<String, List<Reaction>>> = seeded(prev) { it.reactionsCache }
 
     /** Per message id: its reactions, most given first; `mine` is my reaction event (to undo it). */
     fun reactions(groupId: String): Map<String, List<Reaction>> = reactionsCache.getOrPut(groupId) {
@@ -471,7 +546,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- guests --------------------------------------------------------------------------------
 
-    private val joinsCache = ConcurrentHashMap<String, List<GuestJoin>>()
+    private val joinsCache: ConcurrentHashMap<String, List<GuestJoin>> = seeded(prev) { it.joinsCache }
 
     /** Who joined a channel as its guest, oldest first (SPEC 13 and 19). */
     fun guestJoins(groupId: String): List<GuestJoin> = joinsCache.getOrPut(groupId) {
@@ -624,10 +699,27 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     data class WebPage(val on: Boolean, val slug: String, val visibility: String, val posts: String?)
 
+    /** The `belfry:web:<channel>` settings by their `d`, and who first signed each channel's metadata: read once. */
+    private val webEvents: Map<String, List<Event>> by lazy {
+        val out = HashMap<String, MutableList<Event>>()
+        for (e in ofKind(30078)) { val d = e.t("d") ?: continue; if (d.startsWith(WEB_D)) out.getOrPut(d) { ArrayList() }.add(e) }
+        out
+    }
+    private val firstMetaAuthor: Map<String, String> by lazy {
+        val out = HashMap<String, String>()
+        for (e in ofKind(39000)) { val d = e.t("d") ?: continue; if (d !in out) out[d] = e.pubkey }
+        out
+    }
+    private val webCache: ConcurrentHashMap<String, List<WebPage>> = seeded(prev) { it.webCache }
+
     fun webPage(g: Group?): WebPage? {
         if (g == null) return null
-        val relayKey = all.firstOrNull { it.kind == 39000 && it.t("d") == g.id }?.pubkey
-        val own = all.filter { it.kind == 30078 && it.t("d") == WEB_D + g.id && it.t("h") == g.id && (it.pubkey in g.admins || it.pubkey == relayKey) }
+        return webCache.getOrPut(g.id) { listOfNotNull(readWebPage(g)) }.firstOrNull()
+    }
+
+    private fun readWebPage(g: Group): WebPage? {
+        val relayKey = firstMetaAuthor[g.id]
+        val own = (webEvents[WEB_D + g.id] ?: return null).filter { it.t("h") == g.id && (it.pubkey in g.admins || it.pubkey == relayKey) }
             .maxByOrNull { it.createdAt } ?: return null
         val c = parseJsonOrNull(own.content.ifEmpty { "{}" }).obj() ?: return null
         val vis = c["visibility"]?.str()
@@ -717,7 +809,18 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- task list (tasklist.sh protocol, kinds 2100-2103) -------------------------------------
 
-    fun tasks(groupId: String): List<Task> {
+    /** To-do events (2100-2103) by their list (`t`), by time: read once. */
+    private val taskEvents: Map<String, List<Event>> by lazy {
+        val out = HashMap<String, MutableList<Event>>()
+        for (kind in 2100..2103) for (e in ofKind(kind)) { val t = e.t("t") ?: continue; out.getOrPut(t) { ArrayList() }.add(e) }
+        for (list in out.values) list.sortWith(BY_TIME)
+        out
+    }
+    private val tasksCache: ConcurrentHashMap<String, List<Task>> = seeded(prev, drop = delta?.tasks == true) { it.tasksCache }
+
+    fun tasks(groupId: String): List<Task> = tasksCache.getOrPut(groupId) { readTasks(groupId) }
+
+    private fun readTasks(groupId: String): List<Task> {
         val listId = listIdFor(groupId)
         class T(val id: String, val title: String, val author: String, val pending: Boolean, val source: String?) {
             var assignee: String? = null; var done = false; val comments = ArrayList<TaskComment>(); val history = ArrayList<TaskStep>()
@@ -727,8 +830,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         }
         val tasks = LinkedHashMap<String, T>()
         val beats = HashMap<String, Pair<String, Long>>() // per person: their latest heartbeat (task, at)
-        for (e in sorted) {
-            if (e.kind !in 2100..2103 || e.t("t") != listId) continue
+        for (e in taskEvents[listId] ?: emptyList()) {
             if (e.kind == 2100) {
                 val title = e.content.jsTrim().sliceUnits(300)
                 if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q")).also { it.history.add(TaskStep(e.createdAt, e.pubkey, "created")) }
@@ -765,7 +867,11 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * versions with that d signed by a host (the group's creator and admins), the newest counts and
      * the coordinate stays the creator's (rule B). Older events (session-<x> ↔ ws-<x>): one author.
      */
-    val calendar: List<CalEvent> by lazy {
+    private val keptCalendar: List<CalEvent>? = kept(prev) { it.calendarLazy }
+    private val calendarLazy: Lazy<List<CalEvent>> = lazy { keptCalendar ?: readCalendar() }
+    val calendar: List<CalEvent> by calendarLazy
+
+    private fun readCalendar(): List<CalEvent> {
         val gs = groups.associateBy { it.id }
         val creators = HashMap<String, String>() // group id → its creator (first 9007)
         for (e in ofKind(9007).sortedWith(BY_TIME)) { val h = e.t("h") ?: continue; if (h !in creators) creators[h] = e.pubkey }
@@ -853,7 +959,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             for (l in EventLinks.linksIn(e.content, ctx.domain)) byLink[l]?.let(found::add)
             for (i in found) if (out[i].groupId != h) channels.getOrPut(i) { LinkedHashSet() }.add(h)
         }
-        out.mapIndexed { i, x -> channels[i]?.let { x.copy(channels = it.toList()) } ?: x }.sortedBy { it.start }
+        return out.mapIndexed { i, x -> channels[i]?.let { x.copy(channels = it.toList()) } ?: x }.sortedBy { it.start }
     }
 
     private fun calTime(v: String?, allDay: Boolean): Long? {
@@ -892,7 +998,11 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- proposals -----------------------------------------------------------------------------
 
-    val proposals: List<Proposal> by lazy {
+    private val keptProposals: List<Proposal>? = kept(prev) { it.proposalsLazy }
+    private val proposalsLazy: Lazy<List<Proposal>> = lazy { keptProposals ?: readProposals() }
+    val proposals: List<Proposal> by proposalsLazy
+
+    private fun readProposals(): List<Proposal> {
         val latest = LinkedHashMap<String, Event>()
         for (e in ofKind(30023)) {
             if (!e.hasTag("t", "proposal")) continue
@@ -934,7 +1044,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 version = e.t("version")?.toIntOrNull()?.takeIf { it != 0 } ?: 1, status = status, poll = poll,
             ))
         }
-        out
+        return out
     }
 
     /** The proposal whose chat this group is. */
@@ -952,7 +1062,11 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     // ---- people: tags and places (kind 30078, d = belfry:profile) ------------------------------
 
     /** Every member's tags and place, newest event per member. */
-    val extras: Map<String, Extras> by lazy {
+    private val keptExtras: Map<String, Extras>? = kept(prev) { it.extrasLazy }
+    private val extrasLazy: Lazy<Map<String, Extras>> = lazy { keptExtras ?: readExtras() }
+    val extras: Map<String, Extras> by extrasLazy
+
+    private fun readExtras(): Map<String, Extras> {
         val out = HashMap<String, Extras>()
         for (e in ofKind(30078)) {
             if (!e.hasTag("d", PROFILE_D)) continue
@@ -960,7 +1074,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (prev != null && prev.at >= e.createdAt) continue
             People.parseExtras(e.content, e.createdAt)?.let { out[e.pubkey] = it }
         }
-        out
+        return out
     }
 
     /** Tags any member uses, most used first: the suggestions when you add yours. */
@@ -1024,6 +1138,23 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val WEB_RESERVED: Set<String> = ("api admin apply apps bridge calendar chat check claim console connect door drop events feedback follow git groups hooks internal " +
             "market me mentions people photos programme shop signin skills static steward theme tokens vote wallet welcome invite brand " +
             "changelog monitor privacy terms refunds rules help").split(" ").toSet()
+
+        /**
+         * An everyday event: it changes nothing outside its own (ordinary) channel that another
+         * channel's rows could show. Messages without a card, reactions, thread replies, seen
+         * markers and to-do steps in a plain channel; gift wraps and old direct messages.
+         */
+        internal fun isEveryday(e: Event, h: String?): Boolean {
+            if (e.kind == 1059 || e.kind == 4) return true
+            if (h.isNullOrEmpty() || typeOfId(h) != ChannelType.CHANNEL) return false
+            return when (e.kind) {
+                9 -> e.tags.none { it.isNotEmpty() && (it[0] == "pod" || it[0] == "proposal" || it[0] == "a") } && !e.content.contains("/events/")
+                7, 1111 -> true
+                30078 -> e.t("d")?.startsWith("seen:") == true
+                in 2100..2103 -> true
+                else -> false
+            }
+        }
 
         fun seenD(groupId: String): String = "seen:$groupId"
         fun isPodId(id: String): Boolean = id.startsWith("pod-")

@@ -1,6 +1,6 @@
 # Parity with the web chat
 
-Reference: `village-app`, branch `belfry-chat`, at commit ef9e1cc (2026-11-10), Belfry theme. Belfry events (605d9c7 and later) are in their own section below.
+Reference: the web chat, `commonshub/collective-belfry` branch `chat-source` (= `village-app`), at commit c6579a0 (2026-11-12), Belfry theme. The tables below were written against ef9e1cc (2026-11-10); what the web changed since is in "Since the web's 2026-11-11 changes" and "Web changes of 2026-11-11 and 12 (up to c6579a0)". Belfry events (605d9c7 and later) are in their own section.
 Status words: **done** (built, rendered in demo mode in CI, covered by a screenshot and, where
 noted, a behaviour test), **partial** (what is missing is named), **not yet**.
 
@@ -57,12 +57,34 @@ Since the web's 2026-11-11 changes:
 |---|---|---|
 | Replies always open the thread (no inline replies) | done | |
 | Drawer: Upcoming events, @Mentions (new screen), Direct messages; Public channels, Members only | done | |
-| Proposal A: a to-do is a small mark before the reactions; replies are one line with the start of the last reply; a reply to an older message quotes it in one grey line | done | The mark has no filling ring while someone works on it (the app does not read `working` heartbeats yet). |
+| Proposal A: replies are one line with the start of the last reply; a reply to an older message quotes it in one grey line | done | The to-do mark before the reactions is gone again (web 9768c93: "the ⏳ / ☑️ reactions say it"), here too. |
 | To-do steps in a thread (made, taken, started, done; merged when together) | done | `TaskSteps` (core, unit-tested); lines between the replies of the thread screen. |
 | Public channels show a globe | done | `World.webPage` reads the `belfry:web:<channel>` setting (its admins' or the relay key's). |
 | #proposals / #events / #bookings: one type of post (a New proposal / New event bar instead of the composer) | done | A new event made from #events does not default to Public yet. |
 | #requests: a member turns a request into a proposal | done | Message menu → the new-proposal form starts from the request and links back; the request's thread says so. |
-| Branding (logo, cover, colours from belfry.json) | partial | The primary colour is the accent (buttons, badges). The logo, the cover and the secondary colour are not shown yet. |
+| Branding (logo, cover, colours from belfry.json) | done | See the next table. |
+
+Web changes of 2026-11-11 and 12 (up to c6579a0), each checked against the web's code:
+
+| Web feature (commit) | Status | Notes |
+|---|---|---|
+| To-dos: the one being worked on now (e597816, d6cfae1: 2101 `working` heartbeat fresh for 5 min, `idle` stops it; a ring filling with the minutes of the stretch, "1h" past an hour) | done | `Task.beat` / `since` / `isWorking` (core, unit-tested); `WorkRing` in the pull-down and the To-dos tab, "X is working on it · 14 min". The demo seeds one. The screen's clock moves every 30 s. |
+| To-do steps in the thread, done/total (91c1b6b) | done | Was done on 2026-11-11; the pull-down's title now says done/total too. |
+| Live updates: probe the sockets, reopen a closed subscription (49d378d) | done | OkHttp pings every 25 s find a dead socket by themselves; on top: a probe when the app comes to the foreground (a tiny REQ, 6 s, else drop and reconnect), and a live subscription the relay CLOSED for a reason that is not a refusal is opened again (2 s, then longer). Fakes only: a silent socket cannot be simulated in the tests. |
+| Sending after a dropped connection (b86d662) | done | A stalled outbox tries again after 1.5 / 3 / 6 / 12 s (not the 15 s watchdog); a publish that gets no answer drops the socket and reconnects at once; the signer is asked once more on a fresh connection (10 s each); "Sending again…" while the relay is connected. |
+| Drafts per channel and per thread (f845d47) | done | Kept in the device's store (`draft:c:<id>`, `draft:t:<root>`), with the picked @people and #channels, 30 days; sending clears it; an edit in progress leaves it alone (editing then sending forgets the channel's draft: the box is reused). Core + session tests; the composer part is untested on a device. |
+| Drafts of the forms: new event, proposal, to-do, channel (5ccc71f) | not yet | Small; the forms keep their fields only while they are open. |
+| Images open in a lightbox (dabedd9, 9768c93: swipe through a message's pictures, swipe down closes) | partial | The viewer swipes through the pictures of one message (and the pull-down's photos), "2 / 5". No pinch-zoom, no swipe-down (a tap, ✕ or back closes). |
+| E-mail threads: the subject in the header, not in every bubble (4bde2b2) | done | Was so already. |
+| Branding: admins set logo, cover and two colours, Me → Branding (ab57a9d) | done, never run live | Logo before the community's name and the cover at the top of the drawer; primary = accent, secondary = count badges; `POST <api>/branding` with fixed messages for `not_admin` / `invalid` / `no_key`; uploads through the file server (logo ≤ 512 px, cover ≤ 1600 px). Colours: a hex field and eight swatches (the web uses the browser's picker). Kept in the saved session, so the colours are there before the belfry answers. No live preview while picking. |
+| Channel settings: Visibility (Public / Members only), threads from the web with a page at `<domain>/<slug>` (23c9b83, e139d5f) | done, never run live | In the settings sheet (not for pods); the same NIP-78 event as the web (`posts` kept); the address is checked like the web (two letters, not the belfry's own paths, not another channel's). About shows the page's link. |
+| A channel's e-mail address is its plain slug, `bugs@` (9768c93) | done | Shown in About and in the settings; answers still go out as the full id. |
+| Event form: "Hidden" instead of "Link" (7504d77) | done | Was so already. |
+| Channel pull-down: description first, latest photos, members as faces (9768c93) | partial | The line says "N members" and counts the photos; the pull-down starts with the description, has a row of the six latest photos (a tap opens the viewer) and eight faces with "+N", then links (All members, files, To-dos, More). Not here: the second level ("pulled all the way": mosaic, bigger faces with names, e-mail / invite / settings under it): Android has one level and the info screen. Photos and members come after the topics, not before. |
+| Meetings: ＋ → Meeting, people grid, add someone by name or e-mail, hand an account over, check-in (78d7424, 2215f2a, 6029788) | not yet | A feature of its own: a form with a people picker, two belfry calls (`POST /meeting-guests`, `/meeting-guests/transfer`), a closed event chat with the invited put in (9000), attendance labels (`belfry/attendance`). A meeting made on the web shows here as an ordinary Belfry event (its chat, RSVPs, upcoming events), without the word "Meeting", its invited list or the check-in. |
+| Audio recording: ＋ → Audio recording, pause / resume, parts of an hour, saved as it records; audio files play in the feed (59c4b10) | not yet | Needs the microphone permission, a foreground service to keep recording with the screen off, an encoder choice the web can play (it records Opus in WebM / MP4), and a player in the feed: none of it can be tried without a device. Audio files show as a file row that opens in the browser. |
+| Channel info: tabs About, Members, Todos, Files, Log; About without boxes; settings behind a gear; a Log of every event (c6579a0) | not yet | Android's info screen keeps its tabs (About, Members, To-dos, Files) and grouped rows; no Log, no developer mode. The white-screen fix (a failed chunk reloads the page) is a web matter. |
+| Sheets scroll on phones (5ccc71f), full pull-down swipe (1bbbb05) | n/a | Web layout fixes. |
 
 
 | Web feature | Status | Notes |

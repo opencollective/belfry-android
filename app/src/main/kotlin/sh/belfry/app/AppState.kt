@@ -98,8 +98,11 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         _session.value = s
         _phase.value = Phase.SignedIn(s)
         try { onSignedIn?.invoke(s) } catch (e: Exception) { }
-        val invite = try { onboarding.pendingInvite } catch (e: Exception) { null }
-        if (invite != null) _joinOffer.value = invite
+        // (the vault decrypts with the Keystore: not on the main thread)
+        scope.launch {
+            val invite = withContext(Dispatchers.Default) { try { onboarding.pendingInvite } catch (e: Exception) { null } }
+            if (invite != null && _session.value === s) _joinOffer.value = invite
+        }
     }
 
     fun clearMessage() { _message.value = null }

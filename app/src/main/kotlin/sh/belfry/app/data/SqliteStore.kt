@@ -17,6 +17,12 @@ import sh.belfry.core.store.Store
  */
 class SqliteStore(context: Context, name: String? = "belfry.db") : Store {
     private val helper = object : SQLiteOpenHelper(context.applicationContext, name, null, 1) {
+        // Write-ahead log: a batch of events from the relay is one cheap append, and reading (the
+        // screens' small look-ups) is not held up by it.
+        override fun onConfigure(db: SQLiteDatabase) {
+            try { db.enableWriteAheadLogging() } catch (e: Exception) { /* an in-memory or read-only database: the default journal */ }
+        }
+
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE events (id TEXT PRIMARY KEY NOT NULL, kind INTEGER NOT NULL, created_at INTEGER NOT NULL, json TEXT NOT NULL)")
             db.execSQL("CREATE INDEX events_kind ON events (kind, created_at)")

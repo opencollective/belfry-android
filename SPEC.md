@@ -1038,3 +1038,54 @@ belfry. The contract is the module docstring of `services/onboarding/belfry_onbo
 - Android: `core/net/NativeSignIn.kt` (the two calls, the checks), `Onboarding.requestCode /
   resendCode / verifyCode / pendingCode` (vault key `native-signin`), `ui/signin/SignInScreen.kt`
   (`SignInContent`, `CodeContent`, `CodeBoxes`); tests `NativeSignInTest`.
+
+### 19.21 Web changes of 2026-11-11 / 12 as the Android app reads them (chat-source c6579a0)
+
+Short, for the iPhone app to port; the web's code is the reference for each.
+
+- **A to-do being worked on now.** Kind 2101 with `action` = `working` is a heartbeat (agents
+  send one every 2 minutes while busy), `idle` ends it. Per person, the latest heartbeat counts,
+  on the task it names, and only while that person is the task's assignee: `beat` = its time. A
+  to-do `isWorking` when not done and `now - beat < 300`. The stretch began at the first
+  heartbeat of the run (a `working` after `idle` / `done`, or more than 300 s after the task's
+  last heartbeat, starts a new one): the ring fills clockwise with its minutes (6° a minute, a
+  sliver at least), "1h", "2h" inside past an hour; the text says "X is working on it · 14 min"
+  ("1 h 05" past an hour). No to-do mark on the message any more.
+- **Drafts.** Unsent text per composer, on the device only: key `c:<group id>` (a channel),
+  `t:<root id>` (a thread); `{text (≤ 20 000), picked: [[name, pubkey]], chans: [["#Name",
+  "nostr:naddr…"]], at}`; older than 30 days = none; an empty box removes it. Not while editing a
+  message.
+- **A channel's shown e-mail address** = `slugify(name)` (lower case, NFKD without marks, runs of
+  anything but `a-z0-9` → `-`, trimmed, 40) when exactly one channel has that slug or that id
+  without its `-xxxx` tail (`-[0-9a-z]{3,8}$`); else the full id. Answers go out as the full id.
+- **Visibility and the web page**: one NIP-78 event per channel on the groups relay, `d` =
+  `belfry:web:<channel>`, `h`, `t` = `belfry-web`, content `{"on", "slug", "visibility":
+  "public"|"members", "posts"?}`; the latest by a channel admin or by the key that signed the
+  channel's first 39000 counts. A slug must be ≥ 2 characters, not one of the belfry's own paths
+  (the web's `WEB_RESERVED`), not another channel's page.
+- **Branding**: belfry.json `branding` `{logo, cover, primary, secondary}` (https addresses,
+  `#rrggbb`; anything else = not set); `POST <api>/branding` (NIP-98, admins) with any of the
+  four ("" clears) answers the four as saved; errors `not_admin`, `invalid`, `no_key`. Primary =
+  the accent (text on it white or near-black by luminance > 0.4), secondary = count badges, the
+  logo before the community's name, the cover (96 pt high) at the top of the channel list.
+- **Staying connected**: when the app comes to the foreground, ask each relay something tiny
+  (`{"kinds":[39000],"limit":1}`); no EOSE in 6 s = the socket is dead: drop it and reconnect.
+  A live subscription the relay CLOSED (not a refusal, not `auth-required`) is opened again
+  after 2 s. A publish without an answer drops the socket. A stalled outbox retries after 1.5,
+  3, 6, then every 12 s. A signer request without an answer is asked once more on a fresh
+  connection (10 s each). A queued item that was tried says "Sending again…" while the groups
+  relay is connected, "Waiting for connection…" when it is not.
+- **The line and the pull-down**: the line's fallback is "N members"; its counts are events,
+  proposals, pods, photos, then to-dos (done/total). The pull-down starts with the first
+  non-empty line of the description (Markdown marks removed, 200 characters).
+
+### 19.22 Engine rule: a snapshot built on the one before (Android)
+
+`World(events, outbox, ctx, prev)`: when the log is `prev`'s plus only *everyday* events (kind
+9 without `pod` / `proposal` / `a` tags or an event address, 7, 1111, a `seen:` 30078, 2100–2103,
+all in an ordinary channel; 1059 and 4 anywhere), the outbox's unsent items are the same and the
+context is equal, the per-channel views of the channels nothing arrived in, and profiles,
+extras, calendar and proposals, are `prev`'s own objects. Anything else: everything is worked out
+again. `World.feedKey(channel)` is equal across such snapshots for an untouched channel; the
+channel screen draws its rows from the snapshot it has until the key changes. The result must be
+identical with and without `prev` (`WorldCarryTest`: 400 random steps compared view by view).

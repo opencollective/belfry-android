@@ -90,6 +90,11 @@ minSdk 26, JDK 17.
 
 - Package / applicationId `sh.belfry.app`; sign-in redirect `sh.belfry.app://connect` (already
   approved server-side for the iPhone app); client tag `["client","belfry-android"]`.
+- Sign-in is native by default (SPEC 19.20): `name@domain`, a 6-digit code by e-mail, `POST
+  <api>/session` + `/session/verify` signed by this device's session key (`core/net/NativeSignIn`,
+  `Onboarding.requestCode / verifyCode`, vault key `native-signin`). The browser flow (SPEC 2) is
+  the second row and what an older belfry gets. Never call the live endpoints with a real
+  member's name from a test or by hand: each call mails that person a code.
 - Guest links `https://chat.<domain>/join/<token>` open in the app (App Links intent filter;
   `/.well-known/assetlinks.json` is served by chat.belfry.sh and chat.enspiral.eu for the release
   certificate: only the signed release APK verifies, not the debug APK; SERVER-NEEDS.md 1).
@@ -130,13 +135,25 @@ minSdk 26, JDK 17.
 - The toolchain is pinned to late-2024 versions (AGP 8.7.3, Kotlin 2.0.21, Compose BOM
   2024.12.01, target SDK 35) because they were known to work together without a local build.
   Upgrade in one step with CI before any store release (Play requires a recent target SDK).
-- `World` is rebuilt from the whole log on each change (coalesced to one per 100 ms) and some
-  views (`tasks`, `pinned`, `search`, `proposals`) scan the full log. Fine for a community;
-  index per group if logs pass tens of thousands of events.
+- `World` is still made anew on each change (coalesced to one per 100 ms), but built on the
+  snapshot before (SPEC 19.22): the per-channel views of untouched channels, profiles, calendar
+  and proposals are taken over when only everyday events arrived; `tasks`, `pinned` and
+  `webPage` read an index. Still whole-log work per snapshot: the indexes themselves (`byH`,
+  `byKind`, the sort), `groups`, `deleted`, `edits`; `search` scans every message; `proposals`
+  scans its channels when it is worked out. `core/.../model/PerfTest` times a 30 000-event log
+  on every CI run (artifact `perf`; a runner's JVM, not a phone).
+- The channel screen draws its rows from a snapshot held until `World.feedKey` changes
+  (`rememberFeedWorld`): if a row ever shows something stale, the thing it reads is missing from
+  the key (or from `World.isEveryday`). The thread screen and the other lists still redraw on
+  every snapshot.
+- The release APK is not minified. CI builds a `minified` variant (R8 + resource shrinking,
+  `app/proguard-rules.pro`, debug-signed, artifact `belfry-minified-apk`) so the rules are
+  checked on every push; nobody has run it on a phone. Turn minification on for `release` after
+  that.
 - The engine tests poll with time limits and could flake on a slow runner.
 - App Links hosts are fixed in the manifest (`chat.belfry.sh`, `chat.enspiral.eu`): a manifest
   placeholder cannot hold a list. Another community = another `<data>` line, or a per-community
   build.
 - Day and time labels in the channel line are fixed English / 24 h, not the device locale.
-- No minification (R8) rules. Push has never run end to end (no Firebase project yet; SERVER-NEEDS 3).
+- Push has never run end to end (no Firebase project yet; SERVER-NEEDS 3).
 - `Secrets` (Keystore AES-GCM) cannot run under Robolectric; its test skips there.

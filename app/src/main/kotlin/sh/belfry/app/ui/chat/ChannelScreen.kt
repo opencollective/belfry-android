@@ -46,6 +46,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import sh.belfry.core.model.World
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -132,8 +134,12 @@ fun ChannelScreen(
     }
 
     val openRoots = chat.openThreads.keys.filter { !it.startsWith("act:") }.toSet()
-    val rows = remember(world, groupId, chat.topic, openRoots) { world.feedRows(groupId, chat.topic, openRoots) }
-    val threads = world.threadsOf(groupId)
+    // The feed is drawn from the snapshot it was last drawn from until something its rows show
+    // changes (World.feedKey): a message arriving in another channel redraws nothing here.
+    val feedWorld = rememberFeedWorld(world, groupId)
+    val feedNow = now - now % 60
+    val rows = remember(feedWorld, groupId, chat.topic, openRoots) { feedWorld.feedRows(groupId, chat.topic, openRoots) }
+    val threads = feedWorld.threadsOf(groupId)
     val reversed = rows.asReversed()
     val list = rememberLazyListState()
     var highlight by remember { mutableStateOf<String?>(null) }
@@ -215,9 +221,11 @@ fun ChannelScreen(
                     )
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp)) {
-                    items(reversed, key = { it.item.key }) { row ->
-                        FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, now, row.item.key in afterPending, row.item.key in pinnedIds, todos[row.item.key], openThread)
+                CompositionLocalProvider(LocalWorld provides feedWorld) {
+                    LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp)) {
+                        items(reversed, key = { it.item.key }, contentType = { it.item::class }) { row ->
+                            FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, feedNow, row.item.key in afterPending, row.item.key in pinnedIds, todos[row.item.key], openThread)
+                        }
                     }
                 }
             }
@@ -453,3 +461,15 @@ fun NewTodoContent(groupId: String, onDone: () -> Unit) {
 }
 
 private const val K_HIDDEN_PINS = "pins-hidden"
+
+/**
+ * The snapshot the feed is drawn from: the latest one whenever what the channel's rows show has
+ * changed ([World.feedKey]), else the one it already has. The rows read it as `LocalWorld`.
+ */
+@Composable
+private fun rememberFeedWorld(live: World, groupId: String): World {
+    val key = live.feedKey(groupId)
+    val held = remember(groupId) { arrayOf<Any>(live, key) }
+    if (held[1] != key) { held[0] = live; held[1] = key }
+    return held[0] as World
+}

@@ -82,6 +82,16 @@ class PerfTest {
         timed("one more message: next World + the open channel again", lines) {
             World(more, emptyList(), ctx).let { it.groups.size + it.feedRows("general").size + it.channelLine("general", now).counts.size }
         }
+        // the same, built on the snapshot before (as the session does): another channel got the message
+        val open = World(events, emptyList(), ctx).also { it.groups.size; it.feedRows("general"); it.channelLine("general", now); it.feedKey("general") }
+        val elsewhere = events + ev(people[1], now, 9, listOf(listOf("h", "channel-7")), "One more, elsewhere")
+        val next = timed("one more message elsewhere, built on the snapshot before", lines) {
+            World(elsewhere, emptyList(), ctx, open).also { it.groups.size + it.feedRows("general").size + it.channelLine("general", now).counts.size }
+        }
+        assertEquals(open.feedKey("general"), next.feedKey("general"))
+        timed("one more message here, built on the snapshot before", lines) {
+            World(more, emptyList(), ctx, open).let { it.groups.size + it.feedRows("general").size + it.channelLine("general", now).counts.size }
+        }
         // the same views asked again on one snapshot (recompositions): must be cached
         val warm = World(events, emptyList(), ctx).also { it.feedRows("general"); it.channelLine("general", now); it.groups.forEach { g -> it.isPublicChannel(g) } }
         timed("asked again on the same snapshot (40 lines + drawer)", lines) { warm.groups.sumOf { warm.channelLine(it.id, now).counts.size } + warm.groups.count { warm.isPublicChannel(it) } }

@@ -121,3 +121,14 @@ same event.
   read the Blossom URL from the event. Nothing to change; noted because the demo cannot show a
   real cover.
 
+
+## 10. From the 2026-11-12 parity pass (small)
+
+- **Branding**: `POST /branding` answers free text in `message` for `invalid` (which field); the
+  app shows one fixed sentence. A `field` key (`logo` | `cover` | `primary` | `secondary`) would
+  let it mark the field.
+- **Meetings** (`/meeting-guests`, `/meeting-guests/transfer`) and **audio recordings** are not
+  in the app yet (PARITY): nothing needed from the server until they are.
+- **A channel's slug address** (`bugs@` for `bugs-c3e5`): the app shows it when exactly one
+  channel answers to the slug, as the web does; it trusts `mail.channel_by_slug` to resolve it
+  the same way.
