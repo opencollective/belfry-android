@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -29,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -71,7 +72,13 @@ fun TopBar(
 @Composable
 fun BackButton(onBack: () -> Unit) = IconAction(BelfryIcons.Back, "Back", onBack)
 
-/** An instant icon button for bars (navigation, open search…), with an optional count badge. */
+/**
+ * An instant icon button for bars (navigation, open search…), with an optional count badge.
+ *
+ * The badge is a sibling of the button, not its content: Material's IconButton clips what is in
+ * it to its 40 dp circle, which cut the badge's corner (and more of it at a large font size).
+ * It sits inside the button's own 48 dp square, so nothing around can cut it either.
+ */
 @Composable
 fun IconAction(
     icon: ImageVector,
@@ -82,25 +89,48 @@ fun IconAction(
     tint: Color = Belfry.colors.text,
     enabled: Boolean = true,
 ) {
-    val c = Belfry.colors
-    IconButton(onClick = onClick, modifier = modifier, enabled = enabled) {
-        Box {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        IconButton(onClick = onClick, enabled = enabled) {
             Icon(icon, contentDescription = contentDescription, tint = if (enabled) tint else tint.copy(alpha = 0.4f), modifier = Modifier.size(22.dp))
-            if (badge > 0) {
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 8.dp, y = (-6).dp)
-                        .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
-                        .clip(CircleShape)
-                        .background(c.badge)
-                        .padding(horizontal = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(if (badge > 99) "99+" else badge.toString(), fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.SemiBold, color = c.onBadge)
-                }
-            }
         }
+        if (badge > 0) {
+            CountBadge(badge, Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 1.dp).testTag("icon-badge"), small = true, max = "99+")
+        }
+    }
+}
+
+/**
+ * A count in a circle (unread…). It grows with the text: a circle for one digit at any font
+ * size (never narrower than it is tall), a pill for more. Never give it a fixed size.
+ */
+@Composable
+fun CountBadge(
+    count: Int,
+    modifier: Modifier = Modifier,
+    small: Boolean = false,
+    max: String = "99",
+    color: Color = Belfry.colors.badge,
+    onColor: Color = Belfry.colors.onBadge,
+) {
+    val min = if (small) 16.dp else 22.dp
+    Box(
+        modifier
+            .clip(CircleShape)
+            .background(color)
+            .layout { measurable, constraints ->
+                val p = measurable.measure(constraints)
+                val w = maxOf(p.width, p.height)
+                layout(w, p.height) { p.place((w - p.width) / 2, 0) }
+            }
+            .defaultMinSize(minWidth = min, minHeight = min)
+            .padding(horizontal = if (small) 4.dp else 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (count > 99) max else count.toString(),
+            fontSize = if (small) 10.sp else 12.sp, lineHeight = if (small) 12.sp else 14.sp,
+            fontWeight = FontWeight.SemiBold, color = onColor, maxLines = 1, softWrap = false,
+        )
     }
 }
 

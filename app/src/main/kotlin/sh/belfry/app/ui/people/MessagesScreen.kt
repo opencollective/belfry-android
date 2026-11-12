@@ -136,10 +136,7 @@ private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, onC
             Text(ChatFormat.short(world, t.last.at, now), fontSize = 12.sp, color = c.muted, maxLines = 1)
             if (t.unread > 0) {
                 Spacer(Modifier.height(4.dp))
-                Box(
-                    Modifier.defaultMinSize(minWidth = 20.dp, minHeight = 20.dp).clip(CircleShape).background(c.orange).padding(horizontal = 6.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text("${t.unread}", fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, color = c.bg) }
+                sh.belfry.app.ui.kit.CountBadge(t.unread, color = c.orange, onColor = c.bg)
             }
         }
     }

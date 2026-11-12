@@ -234,9 +234,7 @@ private fun DrawerItem(icon: @Composable () -> Unit, title: String, sub: String,
         }
         if (badge > 0) {
             Spacer(Modifier.width(8.dp))
-            Box(Modifier.size(22.dp).clip(CircleShape).background(c.badge), contentAlignment = Alignment.Center) {
-                Text(if (badge > 99) "99" else badge.toString(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.onBadge)
-            }
+            sh.belfry.app.ui.kit.CountBadge(badge)
         }
     }
 }
