@@ -62,7 +62,10 @@ class NativeSignInTest {
         relays.forEach { try { it.server.shutdown() } catch (e: Exception) { } }
     }
 
-    private fun community(): Community = Community.defaults("example.org").copy(apiBase = server.url("/api/v1").toString().trimEnd('/'))
+    /** A belfry that says where the apps sign in (belfry.json `sign_in.sessions.api`). */
+    private fun community(): Community = server.url("/api/v1").toString().trimEnd('/').let { api ->
+        Community.defaults("example.org").copy(apiBase = api, sessionApi = "$api/session")
+    }
     private fun json(status: Int, body: String) = MockResponse().setResponseCode(status).setHeader("Content-Type", "application/json").setBody(body)
 
     private fun auth(req: RecordedRequest, body: String): Event {
@@ -121,6 +124,9 @@ class NativeSignInTest {
         assertEquals(SessionFailure.WRONG_CODE, f(422, """{"error":"wrong_code","tries_left":3}""", true))
         assertEquals(SessionFailure.EXPIRED, f(410, """{"error":"expired"}""", true))
         assertEquals(SessionFailure.OWN_KEY, f(409, """{"error":"own_key"}""", true))
+        assertEquals(SessionFailure.SIGNER_DOWN, f(503, """{"error":"signer","message":"The signer isn't answering: try again in a moment."}""", true))
+        assertEquals("The belfry’s signer isn’t answering. Try again in a moment.", SessionFailure.SIGNER_DOWN.message)
+        assertEquals(SessionFailure.OTHER, f(503, null, true))
         assertEquals(SessionFailure.MISMATCH, f(409, """{"error":"mismatch"}""", true))
         assertEquals(SessionFailure.KEY_TAKEN, f(409, """{"error":"key_taken"}""", true))
         assertEquals(SessionFailure.NOT_APPROVED, f(403, """{"error":"app_not_approved"}""", true))
@@ -343,5 +349,49 @@ class NativeSignInTest {
         on.cancelCode()
         assertNull(on.pendingCode)
         assertNull(vault.get(Onboarding.V_NATIVE))
+    }
+
+    @Test
+    fun theSignerIsDown() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = Onboarding(vault, MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { community() }
+        server.enqueue(json(200, """{"state":"code_sent","to":"m•••@mail.example.org"}"""))
+        on.requestCode("maya@example.org")
+        val key = signedBy(server.takeRequest())
+        // the right code, but the belfry's signer does not answer: the code is spent
+        server.enqueue(json(503, """{"error":"signer","message":"The signer isn't answering: try again in a moment."}"""))
+        val down = assertFailsWith<OnboardingException> { on.verifyCode("123456") }
+        assertEquals("signer_down", down.code)
+        assertEquals("The belfry’s signer isn’t answering. Try again in a moment.", down.message)
+        server.takeRequest()
+        // still on screen 2, and "Send a new code" asks with the same key
+        assertNotNull(on.pendingCode)
+        server.enqueue(json(200, """{"state":"code_sent","to":"m•••@mail.example.org"}"""))
+        on.resendCode()
+        assertEquals(key, signedBy(server.takeRequest()))
+    }
+
+    @Test
+    fun belfryJsonSaysWhereToSignIn() = runBlocking<Unit> {
+        val doc = """{"name":"Example","sign_in":{"sessions":{"api":"https://belfry.example.org/api/v1/session","relays":["wss://bunker.example.org"]}}}"""
+        val c = Community.parse("example.org", doc)
+        assertEquals("https://belfry.example.org/api/v1/session", c.sessionApi)
+        assertEquals(c, Community.fromJsonString(c.toJsonString()))
+        assertNull(Community.parse("example.org", """{"name":"Old","sign_in":{"sessions":{"api":"javascript:alert(1)"}}}""").sessionApi)
+        assertNull(Community.defaults("example.org").sessionApi)
+
+        // a belfry that does not say so: the browser, and nothing is asked of it
+        val old = Community.defaults("example.org").copy(apiBase = server.url("/api/v1").toString().trimEnd('/'))
+        val vault = MemoryVault()
+        val on = Onboarding(vault, MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { old }
+        assertEquals("browser", assertFailsWith<OnboardingException> { on.requestCode("maya@example.org") }.code)
+        assertEquals(0, server.requestCount)
+        assertNull(vault.get(Onboarding.V_NATIVE))
+
+        // the address it gives is the one called, whatever the API's base
+        val moved = old.copy(sessionApi = server.url("/elsewhere/session").toString())
+        server.enqueue(json(200, """{"state":"code_sent"}"""))
+        NativeSignIn(moved, http) { 1_800_000_000 }.request(MemberAddress.parse("maya@example.org")!!, LocalSigner.random().secretHex)
+        assertEquals("/elsewhere/session", server.takeRequest().path)
     }
 }

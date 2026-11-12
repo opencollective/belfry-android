@@ -50,6 +50,8 @@ enum class SessionFailure(val message: String) {
     WRONG_CODE("That code is not right."),
     EXPIRED("That code has expired. Ask for a new one."),
     OWN_KEY("You hold your own key: this app can’t sign you in yet."),
+    /** 503 `signer`: the belfry's signer is down or failing. The code is spent: ask for a new one. */
+    SIGNER_DOWN("The belfry’s signer isn’t answering. Try again in a moment."),
     MISMATCH("This address changed while you were signing in. Start again."),
     KEY_TAKEN("This phone’s sign-in key is linked to another account. Start again: a new one is made."),
     NOT_APPROVED("This app is not approved on this belfry yet. Ask an admin to approve it."),
@@ -80,10 +82,13 @@ data class SessionOpened(val bunkerUrl: String, val pubkey: String)
  * Signing in without a browser (collective-belfry sessions.py): two calls signed (NIP-98) by this
  * device's session key, which is the NIP-46 client key afterwards.
  *
- *     POST <api base>/session         {"nip05","app","client"}  → {"state":"code_sent","to","nip05"}
- *     POST <api base>/session/verify  {"code"}                  → {"state":"open","bunker_url","pubkey",…}
+ *     POST <session>         {"nip05","app","client"}  → {"state":"code_sent","to","nip05"}
+ *     POST <session>/verify  {"code"}                  → {"state":"open","bunker_url","pubkey",…}
+ *
+ * `<session>` is belfry.json's `sign_in.sessions.api` ([Community.sessionApi]), else `<api base>/session`.
  */
 class NativeSignIn(private val community: Community, private val http: OkHttpClient, private val clock: () -> Long = ::unixNow) {
+    private val sessionUrl: String = community.sessionApi ?: "${community.apiBase}/session"
 
     suspend fun request(address: MemberAddress, sessionSecretHex: String): CodeSent {
         val body = buildJsonObject {
@@ -91,7 +96,7 @@ class NativeSignIn(private val community: Community, private val http: OkHttpCli
             put("app", JsonPrimitive(SignIn.REDIRECT_URI))
             put("client", JsonPrimitive(SignIn.CLIENT_ID))
         }
-        val (status, obj) = post("${community.apiBase}/session", body, sessionSecretHex)
+        val (status, obj) = post(sessionUrl, body, sessionSecretHex)
         if (status == 200 && obj?.s("state") == "code_sent") {
             return CodeSent(obj.s("to")?.takeIf(::isMaskedAddress), obj.s("nip05")?.let(MemberAddress::parse)?.toString())
         }
@@ -100,7 +105,7 @@ class NativeSignIn(private val community: Community, private val http: OkHttpCli
 
     suspend fun verify(code: String, sessionSecretHex: String): SessionOpened {
         if (!isCode(code)) throw SessionException(SessionFailure.WRONG_CODE)
-        val (status, obj) = post("${community.apiBase}/session/verify", buildJsonObject { put("code", JsonPrimitive(code)) }, sessionSecretHex)
+        val (status, obj) = post("$sessionUrl/verify", buildJsonObject { put("code", JsonPrimitive(code)) }, sessionSecretHex)
         val bunker = obj?.s("bunker_url")
         val pubkey = obj?.s("pubkey")?.lowercase()
         if (status == 200 && obj?.s("state") == "open" && bunker != null && BunkerUrl.parse(bunker) != null && pubkey != null && Hex.isKey(pubkey)) {
@@ -164,6 +169,7 @@ class NativeSignIn(private val community: Community, private val http: OkHttpCli
             "wrong_code" -> SessionFailure.WRONG_CODE
             "expired" -> SessionFailure.EXPIRED
             "own_key" -> SessionFailure.OWN_KEY
+            "signer" -> SessionFailure.SIGNER_DOWN
             "mismatch" -> SessionFailure.MISMATCH
             "key_taken" -> SessionFailure.KEY_TAKEN
             "app_not_approved" -> SessionFailure.NOT_APPROVED

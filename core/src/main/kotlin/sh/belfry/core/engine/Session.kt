@@ -45,6 +45,7 @@ import sh.belfry.core.model.inviteText
 import sh.belfry.core.model.isGuest
 import sh.belfry.core.model.eventTagsFor
 import sh.belfry.core.model.ComposerDraft
+import sh.belfry.core.model.FormDrafts
 import sh.belfry.core.net.Branding
 import sh.belfry.core.net.Access
 import sh.belfry.core.net.ApiException
@@ -199,7 +200,7 @@ class Session(
     private val dirty = Channel<Unit>(Channel.CONFLATED)
     private val flushWanted = Channel<Unit>(Channel.CONFLATED)
     // (declared before init, which starts its reader)
-    private val draftWrites = Channel<Pair<String, ComposerDraft?>>(Channel.UNLIMITED)
+    private val draftWrites = Channel<Pair<String, String?>>(Channel.UNLIMITED) // store key → what to keep (null: forget)
     private val jobs = ArrayList<Job>()
     @Volatile private var started = false
     @Volatile private var stopped = false
@@ -540,13 +541,25 @@ class Session(
     /** Keeps (blank text: forgets) the draft of KEY. Returns at once; writes happen in order off the caller's thread. */
     fun saveDraft(key: String, text: String, picked: List<Pair<String, String>> = emptyList(), channels: List<Pair<String, String>> = emptyList()) {
         if (stopped) return
-        draftWrites.trySend(key to if (text.isBlank()) null else ComposerDraft(text, picked.filter { text.contains("@" + it.first) }, channels.filter { text.contains(it.first) }, clock()))
+        val d = if (text.isBlank()) null else ComposerDraft(text, picked.filter { text.contains("@" + it.first) }, channels.filter { text.contains(it.first) }, clock())
+        draftWrites.trySend(ComposerDraft.storeKey(key) to d?.toJsonString())
+    }
+
+    /** The fields kept for the form KEY ([FormDrafts]), or null. */
+    suspend fun formDraft(key: String): Map<String, String>? = withContext(Dispatchers.IO) {
+        FormDrafts.parse(store.get(FormDrafts.storeKey(key)), clock())
+    }
+
+    /** Keeps the fields of the form KEY (null: forgets them, once it is sent). Returns at once. */
+    fun saveFormDraft(key: String, fields: Map<String, String>?) {
+        if (stopped) return
+        draftWrites.trySend(FormDrafts.storeKey(key) to fields?.let { FormDrafts.toJsonString(it, clock()) })
     }
 
     private suspend fun writeDrafts() {
         for ((key, d) in draftWrites) {
             try {
-                if (d == null) store.remove(ComposerDraft.storeKey(key)) else store.set(ComposerDraft.storeKey(key), d.toJsonString())
+                if (d == null) store.remove(key) else store.set(key, d)
             } catch (e: Exception) {
                 // a full disk: no draft
             }

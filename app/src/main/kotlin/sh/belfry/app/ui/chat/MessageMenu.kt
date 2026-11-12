@@ -207,7 +207,7 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
         }
         val title = world.todoTitle(m)
         if (title.isNotEmpty() && !world.todosBySource(groupId).containsKey(m.id)) {
-            BusyRow("Turn into a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
+            BusyRow("Turn into a todo", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
         }
         if (m.ev.kind == 9 && world.canPin(groupId)) {
             val pinned = world.isPinned(groupId, m.id)

@@ -161,7 +161,7 @@ private fun CodeScreen(state: AppState, pending: PendingCode) {
     val busy = rememberBusy()
     LaunchedEffect(sends) {
         wait = RESEND_SECONDS
-        while (wait > 0) { delay(1000); wait -= 1 }
+        while (wait > 0) { delay(1000); wait = (wait - 1).coerceAtLeast(0) }
     }
     BackHandler { state.cancelCode() }
     val submit: (String) -> Unit = { code ->
@@ -169,8 +169,10 @@ private fun CodeScreen(state: AppState, pending: PendingCode) {
             val known = e as? OnboardingException
             error = known?.message ?: "Not signed in. Try again."
             // a wrong code: empty boxes; no connection or a slow signer: the same digits can go again
-            canRetry = known != null && known.code != "wrong_code"
+            canRetry = known != null && known.code != "wrong_code" && known.code != "signer_down"
             if (!canRetry) digits = ""
+            // the belfry's signer is not answering: the code is spent, a new one can be asked at once
+            if (known?.code == "signer_down") wait = 0
         }) {
             error = null; note = null
             state.verifyCode(code)

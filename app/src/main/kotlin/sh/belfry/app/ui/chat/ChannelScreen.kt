@@ -21,6 +21,9 @@ import sh.belfry.app.ui.kit.MoreIcons
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
 import sh.belfry.core.model.ComposerDraft
+import sh.belfry.core.model.FormDrafts
+import sh.belfry.app.ui.kit.Keep
+import sh.belfry.app.ui.kit.rememberFormDraft
 import sh.belfry.core.model.pinned
 import sh.belfry.core.model.todosBySource
 import sh.belfry.core.model.agentOwner
@@ -302,6 +305,10 @@ fun ChannelScreen(
                 onSend = { text, files, picked, announce ->
                     if (editing != null) {
                         session.editMessage(groupId, editing, text, picked)
+                        // emptied while the edit is still open: the draft keeper is paused then, so
+                        // the emptied box is not taken for an emptied draft, and the channel's own
+                        // draft comes back once the edit is over
+                        composer.clear()
                         chat.editing = null
                     } else {
                         val topic = chat.topic?.takeIf { it != Topics.ANNOUNCE }
@@ -335,7 +342,7 @@ fun ChannelScreen(
         onEdit = startEdit,
     )
     if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false }, onTodo = { chat.newTodo = true })
-    if (chat.newTodo) BelfrySheet(onDismiss = { chat.newTodo = false }, title = "New to-do") { NewTodoContent(groupId, onDone = { chat.newTodo = false }) }
+    if (chat.newTodo) BelfrySheet(onDismiss = { chat.newTodo = false }, title = "New todo") { NewTodoContent(groupId, onDone = { chat.newTodo = false }) }
     chat.viewer?.let { ImageViewer(it) { chat.viewer = null } }
 }
 
@@ -430,7 +437,7 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
         }
         ActionRow("Event", onClick = { onClose(); go(Routes.createEvent(groupId)) }, icon = BelfryIcons.Calendar)
         if (onTodo != null) {
-            ActionRow("To-do", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
+            ActionRow("Todo", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
         }
         ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = "A text to discuss and vote on")
         ActionRow("Pod", onClick = { onClose(); go(Routes.createPod(groupId)) }, icon = BelfryIcons.Pod, sub = "A working group with its own channel")
@@ -446,12 +453,16 @@ private fun unmarked(text: String): String = Markdown.text(Markdown.inline(text)
 fun NewTodoContent(groupId: String, onDone: () -> Unit) {
     val session = LocalSession.current
     var title by remember { mutableStateOf("") }
+    // kept on this device until it is added (web 2026-11-11)
+    val draft = rememberFormDraft(FormDrafts.todo(groupId)) { kept -> title = kept["title"] ?: title }
+    draft.Keep("title" to title)
     BelfryTextField(title, { title = it.take(300) }, label = "What needs doing?", placeholder = "e.g. Book the room for Friday", modifier = Modifier.fillMaxWidth().testTag("todo-title"))
     Spacer(Modifier.height(12.dp))
     BusyButton(
         "Add to the list",
         onClick = {
             session.send(Actions.addTask(groupId, title.trim()))
+            draft.clear()
             onDone()
         },
         modifier = Modifier.fillMaxWidth(), enabled = title.isNotBlank(),

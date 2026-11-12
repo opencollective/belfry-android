@@ -58,6 +58,11 @@ data class Community(
     /** Its cover image (https only) and its secondary colour (#rrggbb): badges and highlights. */
     val brandCover: String? = null,
     val brandSecondary: String? = null,
+    /**
+     * Where the phone apps sign in without a browser (belfry.json `sign_in.sessions.api`, the full
+     * address of `…/session`; SPEC 19.20). Null: this belfry does not say it has it.
+     */
+    val sessionApi: String? = null,
 ) {
     /** The four branding values as the belfry's `/branding` takes them ("" = none). */
     val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty())
@@ -91,6 +96,7 @@ data class Community(
         put("chatUrl", JsonPrimitive(chatUrl))
         if (belfryPubkey != null) put("belfryPubkey", JsonPrimitive(belfryPubkey))
         if (agents.isNotEmpty()) put("agents", buildJsonObject { agents.forEach { (a, o) -> put(a, JsonPrimitive(o)) } })
+        if (sessionApi != null) put("sessionApi", JsonPrimitive(sessionApi))
         // kept so the colours and the logo are there before the belfry answers (and offline)
         val b = branding
         if (b != Branding()) put("branding", b.toJson())
@@ -148,6 +154,7 @@ data class Community(
             https(connect?.s("token"))?.let { c = c.copy(token = it) }
             https(connect?.s("logout"))?.let { c = c.copy(logout = it) }
             https(connect?.s("revoke"))?.let { c = c.copy(revoke = it) }
+            https(doc["sign_in"].obj()?.get("sessions").obj()?.s("api"))?.let { c = c.copy(sessionApi = it) }
             val admins = LinkedHashSet<String>()
             doc["admins"].arr()?.forEach { a -> a.str()?.takeIf(Hex::isKey)?.let(admins::add) }
             doc["access"].obj()?.get("admins").arr()?.forEach { a -> a.str()?.takeIf(Hex::isKey)?.let(admins::add) }
@@ -185,6 +192,7 @@ data class Community(
                 chatUrl = o.s("chatUrl") ?: d.chatUrl,
                 belfryPubkey = o.s("belfryPubkey")?.takeIf(Hex::isKey),
                 agents = agentsOf(o["agents"].obj()),
+                sessionApi = o.s("sessionApi"),
             ).withBranding(Branding.clean(o["branding"].obj()))
         }
 

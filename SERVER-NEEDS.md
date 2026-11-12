@@ -50,16 +50,18 @@ removed (so the app can ask the person to sign in again instead of retrying).
 
 The app follows sessions.py's docstring (SPEC 19.20). Small things that would help, none blocking:
 
-- **Telling an older belfry apart.** The app treats a 404 / 405 *without an `error` key* as "no
-  such API here" and offers the browser. belfry.json could say so instead (e.g.
-  `sign_in.session: "<api.base>/session"`), and the app would not need to guess from a 404.
+- **Telling an older belfry apart — DONE.** belfry.json's `sign_in.sessions.api` is the full
+  address of `…/session`: the app signs in natively only when it is there (and calls that
+  address), and offers the browser otherwise. A 404 / 405 *without an `error` key* from a
+  belfry that advertises it is still read as "no such API here".
 - **`unknown` means two things** (no such member; the belfry answers for another domain). One
   message covers both ("No member has this address"). Fine as is.
 - **`tries_left: 0`**: the app says "Ask for a new one." and assumes the code is dead; if the
   belfry answers `expired` on the next try that is handled too.
-- **`own_key`** is also what any failure of `create_bunker` returns (the `except Exception`):
-  a signer outage reads "You hold your own key" to the member. A separate key (503
-  `signer_down`) would let the app say "try again".
+- **`own_key` vs a signer outage — DONE** (collective-belfry 60c82bf): a signer that does not
+  answer is 503 `signer`; `own_key` now means the member holds their own key. The app says
+  "The belfry’s signer isn’t answering. Try again in a moment." and offers a new code at once
+  (the code is spent).
 - **Rate limit per session key / IP on `POST /session`** for unknown names is the belfry's to
   decide: the app cannot enumerate members itself, but the endpoint tells `unknown` from
   `code_sent` to anyone with a key.

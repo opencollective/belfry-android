@@ -258,7 +258,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
             PullTitle("To do", f.todosDone, of = f.todosAll)
             // a to-do opens its thread (the message it was made from), like the web
             for (t in f.todos.take(4)) TodoRow(groupId, t, onOpen = { go(t.source?.let { Routes.thread(groupId, it) } ?: Routes.channelInfo(groupId)) })
-            if (f.todos.size > 4) LinkText("All ${f.todos.size} to-dos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.channelInfo(groupId)) }
+            if (f.todos.size > 4) LinkText("All todos", Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { go(Routes.channelInfo(groupId)) }
         }
         if (f.pods.isNotEmpty()) {
             PullTitle("Pods")
@@ -295,7 +295,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             LinkText("All members") { go(Routes.channelInfo(groupId)) }
             if (f.files > 0) LinkText("${f.files} ${if (f.files == 1) "file" else "files"}") { go(Routes.files(groupId)) }
-            if (f.todosAll > 0) LinkText("To-dos") { go(Routes.channelInfo(groupId)) }
+            if (f.todosAll > 0) LinkText("Todos") { go(Routes.channelInfo(groupId)) }
             LinkText("More") { go(Routes.channelInfo(groupId)) }
         }
         Spacer(Modifier.height(6.dp))

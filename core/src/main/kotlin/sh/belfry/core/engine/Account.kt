@@ -190,6 +190,9 @@ class Onboarding(
             // the domain is what the person typed, checked as a hostname by MemberAddress.parse
             throw OnboardingException("no_belfry", "There is no belfry at ${a.domain}. Check the address and your connection.")
         }
+        // belfry.json says where the apps sign in (`sign_in.sessions.api`); a belfry that does not
+        // say so is an older one: the browser. (A 404 from one that says so means the same.)
+        if (community.sessionApi == null) throw OnboardingException("browser", SessionFailure.UNSUPPORTED.message)
         val kept = nativeFlow()?.takeIf { it.address == a && it.bunkerUrl == null }
         val secret = kept?.secret ?: Keys.generateSecretHex()
         // kept before asking, so a retry after a lost answer signs with the same key
@@ -218,7 +221,9 @@ class Onboarding(
      * this device's session key; the app connects, checks the signer's key is the one the belfry
      * named, and returns a ready [Session] (not started). Throws [OnboardingException]:
      * `wrong_code` (message says how many tries are left), `expired` and `key_taken` (start again
-     * from screen 1), `own_key`, `mismatch`, `not_approved`, `too_many`, `network`, `signer`.
+     * from screen 1), `own_key`, `mismatch`, `not_approved`, `too_many`, `network`, `signer`
+     * (the session is open, this phone could not reach the signer: the same digits again),
+     * `signer_down` (the belfry's signer is not answering; the code is spent: a new code).
      */
     suspend fun verifyCode(code: String): Session = withContext(Dispatchers.Default) {
         var flow = nativeFlow() ?: throw OnboardingException("expired", SessionFailure.EXPIRED.message)

@@ -41,7 +41,7 @@ object InfoTab {
     const val TODOS = 1
     const val MEMBERS = 2
     const val FILES = 3
-    val LABELS = listOf("About", "To-dos", "Members", "Files")
+    val LABELS = listOf("About", "Todos", "Members", "Files")
 }
 
 /**

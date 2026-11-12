@@ -238,7 +238,7 @@ fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenP
         LineCount("proposals", f.proposals.size - if (shown == "proposal") 1 else 0, shown == "proposal", "more open proposals"),
         LineCount("pods", f.pods.size, false, "pods"),
         LineCount("photos", f.photos.size, false, "photos"),
-        LineCount("todos", f.todosDone, false, "to-dos done of ${f.todosAll}", of = f.todosAll),
+        LineCount("todos", f.todosDone, false, "todos done of ${f.todosAll}", of = f.todosAll),
     ).filter { it.n > 0 || (it.of ?: 0) > 0 }
     return line.copy(counts = counts)
 }

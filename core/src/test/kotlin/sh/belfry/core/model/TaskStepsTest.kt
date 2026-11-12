@@ -14,7 +14,7 @@ class TaskStepsTest {
         ))
         val g = TaskSteps.groups(listOf(t))
         assertEquals(3, g.size)
-        assertEquals("made a to-do, took it and started working on it", TaskSteps.text(g[0].what))
+        assertEquals("made a todo, took it and started working on it", TaskSteps.text(g[0].what))
         assertEquals("marked it done", TaskSteps.text(g[1].what))
         assertEquals(b, g[2].who)
         assertEquals("reopened it", TaskSteps.text(g[2].what))

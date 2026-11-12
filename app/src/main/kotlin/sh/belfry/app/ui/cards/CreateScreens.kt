@@ -61,6 +61,9 @@ import sh.belfry.core.model.eventByKey
 import sh.belfry.app.ui.chat.Photos
 import sh.belfry.app.ui.kit.ButtonKind
 import sh.belfry.app.ui.kit.rememberBusy
+import sh.belfry.app.ui.kit.Keep
+import sh.belfry.app.ui.kit.rememberFormDraft
+import sh.belfry.core.model.FormDrafts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -97,6 +100,12 @@ fun CreateChannelScreen() {
     var about by remember { mutableStateOf("") }
     var tried by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // kept on this device until the channel is made (web 2026-11-11)
+    val draft = rememberFormDraft(FormDrafts.CHANNEL) { kept ->
+        name = kept["name"] ?: name
+        about = kept["about"] ?: about
+    }
+    draft.Keep("name" to name, "about" to about)
     CardScreen("New channel") {
         PageColumn {
             BelfryTextField(name, { name = it }, Modifier.fillMaxWidth().testTag("create-name"), label = "Name", placeholder = "e.g. Garden", error = if (tried && name.isBlank()) "Give the channel a name" else null, keyboardOptions = words)
@@ -109,6 +118,7 @@ fun CreateChannelScreen() {
                     error = null
                     if (name.isNotBlank()) {
                         val id = session.createChannel(name.trim(), about.trim())
+                        draft.clear()
                         nav.openChannel(id)
                     }
                 },
@@ -192,6 +202,14 @@ fun CreateProposalScreen(parent: String, from: String? = null, fromChannel: Stri
     var error by remember { mutableStateOf<String?>(null) }
     val where = world.group(parent)
     val statuses = listOf(ProposalStatus.DRAFT, ProposalStatus.FEEDBACK, ProposalStatus.VOTING)
+    // kept on this device until it is posted; not one that starts from a request (web 2026-11-11)
+    val draft = rememberFormDraft(if (from != null) null else FormDrafts.proposal(parent)) { kept ->
+        title = kept["title"] ?: title
+        summary = kept["summary"] ?: summary
+        text = kept["text"] ?: text
+        start = statuses.indexOfFirst { it.key == kept["status"] }.takeIf { it >= 0 } ?: start
+    }
+    draft.Keep("title" to title, "summary" to summary, "text" to text, "status" to statuses[start].key)
     CardScreen("New proposal") {
         PageColumn {
             ProposalFields(title, { title = it }, summary, { summary = it }, text, { text = it }, titleError = if (tried && title.isBlank()) "Give the proposal a title" else null)
@@ -210,6 +228,7 @@ fun CreateProposalScreen(parent: String, from: String? = null, fromChannel: Stri
                     error = null
                     if (title.isNotBlank()) {
                         val id = session.createProposal(NewProposal(title.trim(), summary.trim(), text.trim(), statuses[start]), parent)
+                        draft.clear()
                         if (request != null) {
                             session.replyInThread(fromChannel!!, request.ev, "Became a proposal: “${title.trim()}”. Members discuss it and vote on it in #proposals.")
                         }
@@ -329,6 +348,30 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
     var done by remember { mutableStateOf(false) }
     val coverBusy = rememberBusy()
     var picking by remember { mutableStateOf(if (openPicker == "start-date") Picking.StartDate else if (openPicker == "start-time") Picking.StartTime else Picking.None) }
+
+    // a new event's fields are kept on this device until it is made (web 2026-11-11)
+    val draft = rememberFormDraft(if (old != null) null else FormDrafts.event(Visibility.MEMBERS.key)) { kept ->
+        fun date(k: String): LocalDate? = try { kept[k]?.let(LocalDate::parse) } catch (e: Exception) { null }
+        fun time(k: String): LocalTime? = try { kept[k]?.let(LocalTime::parse) } catch (e: Exception) { null }
+        title = kept["title"] ?: title
+        allDay = kept["allDay"]?.let { it == "1" } ?: allDay
+        date("startDate")?.let { startDate = it }
+        time("startTime")?.let { startTime = it }
+        date("endDate")?.let { endDate = it }
+        time("endTime")?.let { endTime = it }
+        location = kept["location"] ?: location
+        online = kept["online"] ?: online
+        description = kept["description"] ?: description
+        cover = kept["cover"]?.takeIf { it.startsWith("https://") } ?: cover
+        visibility = Visibility.entries.firstOrNull { it.key == kept["visibility"] } ?: visibility
+        if (kept["slugEdited"] == "1") { slugEdited = true; slug = EventLinks.cleanSlug(kept["slug"].orEmpty()) }
+    }
+    draft.Keep(
+        "title" to title, "allDay" to (if (allDay) "1" else "0"),
+        "startDate" to startDate.toString(), "startTime" to startTime.toString(), "endDate" to endDate.toString(), "endTime" to endTime.toString(),
+        "location" to location, "online" to online, "description" to description, "cover" to cover.orEmpty(),
+        "visibility" to visibility.key, "slug" to slug, "slugEdited" to (if (slugEdited) "1" else "0"),
+    )
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) coverBusy.run(onError = { coverError = shown(it) }) {
@@ -460,6 +503,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                             nav.back()
                         } else {
                             val made = session.events.create(n)
+                            draft.clear()
                             nav.back()
                             if (where != null) EventHandoff.hand(channel, EventLinks.url(world.ctx.domain, made))
                             else nav.go(Routes.event(made))
@@ -472,7 +516,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
             )
             Muted(
                 if (old != null) "Everyone who RSVPed sees the change."
-                else "It gets its own chat, photos and to-dos." + if (where != null) " Its URL goes in #${where.name}’s message box, ready to send." else " Send its URL in a channel to show it there.",
+                else "It gets its own chat, photos and todos." + if (where != null) " Its URL goes in #${where.name}’s message box, ready to send." else " Send its URL in a channel to show it there.",
             )
         }
     }

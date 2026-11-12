@@ -304,7 +304,7 @@ data class StepGroup(val task: Task, val who: String, val at: Long, val what: Li
 /** The thread's lines for these to-dos (web Chat.tsx stepGroups): steps by the same person within
  *  two minutes merge ("made a to-do and took it"); a second "started working" is dropped. */
 object TaskSteps {
-    private val WORDS = mapOf("created" to "made a to-do", "claim" to "took it", "working" to "started working on it", "done" to "marked it done", "undone" to "reopened it")
+    private val WORDS = mapOf("created" to "made a todo", "claim" to "took it", "working" to "started working on it", "done" to "marked it done", "undone" to "reopened it")
 
     fun groups(tasks: List<Task>): List<StepGroup> {
         val out = ArrayList<StepGroup>()

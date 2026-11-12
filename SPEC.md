@@ -994,12 +994,17 @@ belfry. The contract is the module docstring of `services/onboarding/belfry_onbo
   `[a-z0-9][a-z0-9._-]{0,63}`, domain a hostname (section 1's rule). Fetch
   `https://<domain>/.well-known/belfry.json`; no document → "There is no belfry at <domain>."
   (the domain is the one typed and validated; nothing from an answer is shown).
+- **Does this belfry have it?** belfry.json says so: `sign_in.sessions.api` is the full address
+  of `…/session` (https only; e.g. `https://belfry.belfry.sh/api/v1/session`). Present → call
+  that address (and `<that>/verify`). Absent → an older belfry: nothing is asked of it, the
+  main button becomes the browser sign-in of section 2. A 404 / 405 without an `error` key
+  from a belfry that does advertise it means the same (below).
 - **Session key.** The app makes the NIP-46 client key *before* asking (a fresh 32-byte key)
   and keeps it with the address in secure storage until the sign-in ends: the same key signs
   the resend, the verify, and is the client key of the session afterwards (the belfry binds the
   connection to it when it creates it). Keep the pending request across a process death: the
   person leaves the app to read the e-mail. A new address, or `key_taken`, makes a new key.
-- **Ask for a code.** `POST <api.base>/session`, NIP-98 signed **by the session key**, body
+- **Ask for a code.** `POST <sign_in.sessions.api>` (= `<api.base>/session`), NIP-98 signed **by the session key**, body
   `{"nip05":"name@domain","app":"sh.belfry.app://connect","client":"belfry-android"}` (iOS:
   `belfry-ios`; `client` names the session, `app` is the approved native app address).
   - 200 `{"state":"code_sent","to":"x•••@example.org","nip05":"name@domain"}` → screen 2. Show
@@ -1031,9 +1036,15 @@ belfry. The contract is the module docstring of `services/onboarding/belfry_onbo
   - 422 `wrong_code` with `tries_left` (int): empty the boxes, "That code is not right. N tries
     left." (0 → "Ask for a new one."). 410 `expired` → screen 1 with a fixed note. 409
     `key_taken` → forget the key, screen 1 (the next try makes a new key). 409 `own_key` (the
-    member holds their own key: the app cannot sign them in yet), 409 `mismatch`, 403
-    `app_not_approved` → screen 1 with their messages. 429, no connection → stay on screen 2
-    with the digits and a "Try again" button.
+    member really holds their own key, since collective-belfry 60c82bf: the app cannot sign
+    them in yet), 409 `mismatch`, 403 `app_not_approved` → screen 1 with their messages. 429,
+    no connection → stay on screen 2 with the digits and a "Try again" button.
+  - 503 `signer` (60c82bf): the belfry's signer is not answering. The code is **spent**: stay on
+    screen 2, empty the boxes, say "The belfry’s signer isn’t answering. Try again in a
+    moment.", no "Try again" with the same digits, and unlock "Send a new code" at once (no
+    30 s wait). The request and its key are kept, so the new code is asked with the same key.
+    (Not the same as this phone failing to reach the signer *after* a 200: there the session
+    is open and "Try again" reconnects without a second verify.)
 - The server's `message` field is never shown. Guest links (19.4) are unchanged.
 - Android: `core/net/NativeSignIn.kt` (the two calls, the checks), `Onboarding.requestCode /
   resendCode / verifyCode / pendingCode` (vault key `native-signin`), `ui/signin/SignInScreen.kt`
