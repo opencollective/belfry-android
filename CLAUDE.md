@@ -144,6 +144,15 @@ minSdk 26, JDK 17.
   `GOOGLE_SERVICES_JSON` secret when set); `BuildConfig.PUSH` says which. The permission is asked
   only from Me → Notifications or a channel's bell, never at launch.
 
+- Self-update (#issues 2026-11-13): `core/update/AppUpdate.kt` reads GitHub's releases of this
+  repository (only its `releases/download/` links, versions compared as numbers, drafts skipped,
+  403/429 → wait 6 h); `app/.../update/Updater.kt` checks on every start in the foreground (at
+  most hourly, Me → "Check for updates" turns it off), downloads the APK, checks the release's
+  .sha256 (a broken download, not a security check: Android only installs an update signed with
+  the same key) and commits it through `PackageInstaller` (`UpdateReceiver` opens the system's
+  confirmation). Release builds only (`Updater.enabled`). `UpdateBar` stands at the top of Home,
+  `UpdateRows` in Me. Only the version number is shown, never a release's text.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

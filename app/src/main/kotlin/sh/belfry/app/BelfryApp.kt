@@ -57,7 +57,10 @@ class BelfryApp : Application() {
         state.clearUnread = { id -> AndroidPush.clearUnread(this, id) }
         state.beforeSignOut = { s -> AndroidPush.unregister(this@BelfryApp, s) }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onStart(owner: LifecycleOwner) { AndroidPush.foreground = true; state.wake() }
+            override fun onStart(owner: LifecycleOwner) {
+                AndroidPush.foreground = true; state.wake()
+                scope.launch { try { sh.belfry.app.update.Updater.check(this@BelfryApp) } catch (e: Exception) { } } // a newer version? (at most hourly)
+            }
             override fun onStop(owner: LifecycleOwner) { AndroidPush.foreground = false }
         })
         try {

@@ -20,6 +20,10 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <!-- The app updates itself (Me → Updates, the bar in Home): the system's installer asks the
+         person to confirm, and installs it only when it is signed with the same key. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".BelfryApp"
         android:allowBackup="false"
@@ -77,6 +81,11 @@
         </service>
 
         <!-- Keeps a recording going with the screen off (Pause / Resume / Stop in its notification). -->
+        <!-- The system installer's answers for a self-update (update/Updater.kt). -->
+        <receiver
+            android:name=".update.UpdateReceiver"
+            android:exported="false" />
+
         <service
             android:name=".rec.RecordingService"
             android:exported="false"

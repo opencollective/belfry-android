@@ -47,6 +47,15 @@ fun navColumnStays(): Boolean {
  */
 @Composable
 fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
+    // a newer version of the app: a slim line above everything (update/UpdateUi.kt)
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+        sh.belfry.app.update.UpdateBar()
+        Box(Modifier.weight(1f)) { HomeBody(shell, drawerOpen) }
+    }
+}
+
+@Composable
+private fun HomeBody(shell: ShellState, drawerOpen: Boolean) {
     val c = Belfry.colors
     val nav = LocalNav.current
     val session = LocalSession.current

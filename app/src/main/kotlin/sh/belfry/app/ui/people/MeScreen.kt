@@ -139,6 +139,7 @@ fun MeScreen() {
             ActionRow("Appearance", onClick = null, value = "Follows the system")
             ActionRow("Community", onClick = null, icon = BelfryIcons.Globe, value = domain)
             ActionRow("Version", onClick = null, value = BuildConfig.VERSION_NAME + if (status.localOnly) " · demo" else "")
+            sh.belfry.app.update.UpdateRows()
             ActionRow("Source code", onClick = { openInBrowser(context, SOURCE_URL) }, icon = BelfryIcons.Link, chevron = true)
             if (adminOfSomething) {
                 SwitchRow(
