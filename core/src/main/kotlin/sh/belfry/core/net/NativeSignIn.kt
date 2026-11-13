@@ -151,6 +151,19 @@ class NativeSignIn(private val community: Community, private val http: OkHttpCli
         fun digits(raw: String): String = raw.filter { it in '0'..'9' }.take(6)
 
         /**
+         * What six code boxes hold after a change from OLD to RAW (#issues 2026-11-13: a code pasted
+         * into the boxes fills all six, everywhere). A whole code pasted over boxes that are full
+         * already (a wrong code, the previous one) replaces it instead of being cut off; one more
+         * digit typed into a full row changes nothing.
+         */
+        fun next(old: String, raw: String): String {
+            val d = raw.filter { it in '0'..'9' }
+            if (d.length <= 6) return d
+            val added = if (d.startsWith(old)) d.substring(old.length) else d
+            return (if (added.length >= 6) added else d).take(6)
+        }
+
+        /**
          * Is this the belfry's masked address (`x•••@example.org`: one character, three dots, a
          * hostname)? Only then is it shown; anything else reads "your e-mail address".
          */

@@ -102,6 +102,12 @@ class NativeSignInTest {
         assertEquals("123456", NativeSignIn.digits("123 456"))
         assertEquals("123456", NativeSignIn.digits("Your code: 123456789"))
         assertEquals("12", NativeSignIn.digits("a1b2"))
+        // pasting into the boxes (#issues 2026-11-13): fills all six, replaces a full row
+        assertEquals("123456", NativeSignIn.next("", "Code: 123 456"))
+        assertEquals("654321", NativeSignIn.next("12345", "12345654321"))
+        assertEquals("654321", NativeSignIn.next("123456", "123456654321"))
+        assertEquals("123456", NativeSignIn.next("123456", "1234567"))
+        assertEquals("12345", NativeSignIn.next("123456", "12345"))
         assertTrue(NativeSignIn.isCode("000000"))
         assertFalse(NativeSignIn.isCode("12345"))
         assertFalse(NativeSignIn.isCode("12345a"))

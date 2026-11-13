@@ -251,8 +251,9 @@ private fun CodeStep(
             if (d != digits && !checking.busy) {
                 digits = d; error = null; note = null
                 if (d.length == 6) checking.run(onError = { e ->
-                    digits = ""
                     val f = e as? GuestJoinException
+                    // a wrong or expired code is cleared; a failed connection keeps the digits for Try again
+                    if (f?.code == "wrong_code" || f?.code == "expired") digits = ""
                     if (f?.code == "taken") onTaken(f.moved, f.nip05) else error = e.shown()
                 }) { verify(d) }
             }
@@ -269,6 +270,17 @@ private fun CodeStep(
         error != null -> ErrorLine(error, Modifier.padding(top = 0.dp))
         note != null -> Hint(note ?: "")
         else -> Hint("Not there? Look in your spam folder.")
+    }
+    if (!checking.busy && error != null && digits.length == 6) {
+        Spacer(Modifier.height(12.dp))
+        BusyButton("Try again", onClick = {
+            error = null
+            try { verify(digits) } catch (e: Exception) {
+                val f = e as? GuestJoinException
+                if (f?.code == "wrong_code" || f?.code == "expired") digits = ""
+                if (f?.code == "taken") onTaken(f.moved, f.nip05) else error = e.shown()
+            }
+        }, modifier = Modifier.fillMaxWidth().testTag("join-code-retry"))
     }
     Spacer(Modifier.height(20.dp))
     ActionGroup {

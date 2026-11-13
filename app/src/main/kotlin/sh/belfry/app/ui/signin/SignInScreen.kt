@@ -382,7 +382,7 @@ fun CodeBoxes(digits: String, onDigits: (String) -> Unit, enabled: Boolean, erro
     val shape = RoundedCornerShape(Belfry.buttonRadius)
     BasicTextField(
         value = TextFieldValue(digits, selection = TextRange(digits.length)),
-        onValueChange = { onDigits(it.text) },
+        onValueChange = { onDigits(sh.belfry.core.net.NativeSignIn.next(digits, it.text)) }, // a pasted code fills all six, also over a full row
         enabled = enabled,
         singleLine = true,
         textStyle = TextStyle(fontSize = 24.sp, color = c.text),
