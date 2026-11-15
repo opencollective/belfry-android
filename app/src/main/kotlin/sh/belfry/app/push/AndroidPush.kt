@@ -187,6 +187,28 @@ object AndroidPush {
         _state.value = PushState.NEEDS_PERMISSION
     }
 
+    /**
+     * Read on this or another device (SPEC 19.27): this account's delivered notifications of a
+     * channel whose mark has passed them go, and the direct-message one once no conversation is unread.
+     * (A notification's post time is never before its event's, so post time <= mark means read.)
+     */
+    fun clearRead(context: Context, session: Session, read: sh.belfry.core.read.ReadState, dmsUnread: Int) {
+        try {
+            val nm = context.getSystemService(NotificationManager::class.java) ?: return
+            val prefix = session.slot + "|"
+            val now = session.now()
+            for (n in nm.activeNotifications) {
+                val tag = n.tag ?: continue
+                if (!tag.startsWith(prefix)) continue
+                val collapse = tag.removePrefix(prefix)
+                val done = if (collapse == "dm") dmsUnread == 0 else n.postTime / 1000 <= read.readUpTo('c', collapse, now)
+                if (done) nm.cancel(tag, n.id)
+            }
+        } catch (e: Exception) {
+            // no notification service: nothing to clear
+        }
+    }
+
     private suspend fun fcmToken(): String? = suspendCancellableCoroutine { cont ->
         try {
             FirebaseMessaging.getInstance().token.addOnCompleteListener { t ->

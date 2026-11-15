@@ -1379,3 +1379,80 @@ of 19.4 for people who have no account on that belfry. Joining with an account (
   without `reading` (which carries the name). A guest put in with a name and `unsaved` (a
   meeting's held guests, older links) never carries `reading` and is **not** hidden.
 - Vectors: `vectors/guestmode.json` (events → reading keys, members, join lines per channel).
+
+### 19.27 Read state across devices (kind 30078, `d` = `belfry:read`, 2026-11-15)
+
+(web village-app branch `readstate`: `core/readcore.ts` = the pure rules below, `core/readstate.ts`
+= the I/O.) What a person has read — per channel, per thread and per direct-message / e-mail
+conversation, and how far the @Mentions list was seen — is the same on all their devices. There
+is no NIP for read state (2026-11): like other clients (Jumble, Discordia…) Belfry uses NIP-78
+app data, encrypted to oneself. Nobody else learns what you read. Not to be confused with the
+public presence mark `seen:<channel>` (19.21 / 11, "N active members"), which is unchanged.
+
+- **The event.** One replaceable event per person: kind **30078**, tags `[["d","belfry:read"]]`
+  (+ the client tag), `created_at` = now (at least one more than the newest `belfry:read` event this
+  device has seen), content = **NIP-44 v2** of the JSON below with the conversation key of the
+  person's own secret and own pubkey (through the signer: `nip44_encrypt(own pubkey, json)`;
+  Keycast allows it, the DM self-copies do the same). Published on the **community relay** (the
+  members-only relay, NIP-42) by members and agents. Read with
+  `{"kinds":[30078],"authors":[me],"#d":["belfry:read"]}` — always the exact `d` (other clients'
+  bugs came from filtering by kind and author only). Ignore an event not by me, with another `d`,
+  or that does not decrypt / parse to an object.
+- **The JSON** (`v` 1): `{"v":1,"s":<unix s>,"m":<unix s>,"c":{"<group id>":<unix s>},
+  "t":{"<thread root event id>":<unix s>},"d":{"<conversation key>":<unix s>}}`. Every number =
+  read **up to and including** that second. `c` keys = the channel's group id (`h`), any kind of
+  group (channel, pod, event chat, proposal); `t` keys = the id of the message a NIP-22 thread
+  hangs off (`E`); `d` keys = the conversation key exactly as SPEC's direct messages and
+  `vectors/mail-threads.json` name it (`n:<sorted pubkeys>`, `m:<address>|<subject key>`); `s` =
+  the start (below); `m` = the @Mentions list seen up to. Keys over 200 characters are not stored.
+  Unknown top-level fields are kept as they are (a newer client's), never dropped. Canonical text
+  (so equal states give equal content): unknown fields first (keys sorted), then
+  `v, s, m, c, t, d`, map keys sorted, no spaces (`serialize` in the vectors).
+- **Reading it.** `floor(sec)` = now − 90 days, and for `c`, `t` and `m` also at least `s`
+  (`s` does **not** apply to `d`: direct messages had per-conversation marks before this).
+  `readUpTo(sec, key)` = max(the key's mark, floor). Garbage in a field (negative, not a number,
+  a string, null, an array where a map belongs) is dropped; fractions are floored.
+- **What is unread** (every client counts the same things):
+  - channel `c[h]`: its top-level messages (kind 9 with that `h`, not deleted, the feed's own
+    rules) by someone else with `created_at` > readUpTo. Thread replies do not count here.
+  - thread `t[root]`: its replies (kind 1111, `E` = root, not deleted) by someone else after
+    readUpTo, shown only when I am in it: I wrote the message or a reply, or `t[root]` holds a
+    mark above its floor (I opened it before).
+  - conversation `d[conv]`: its messages and e-mails (kind 14 / 15 / 4 / 1301 items) by someone
+    else with their time (`at`) > readUpTo. **Reactions in direct messages (kind 7 / 5 rumors)
+    never count and never move a mark.**
+  - a mention is new when its `created_at` > max(readUpTo(`m`), readUpTo of its channel for a
+    kind 9 / of its thread for a 1111).
+- **Marking.** Only forward (`mark` never lowers a number). A channel on screen, app in the
+  foreground, scrolled to the newest message: `c[h]` = the `created_at` of its newest kind 9 (mine
+  included); again when a new one arrives while it stays so. A thread on screen: `t[root]` = its
+  newest reply's `created_at` (the root's when there is none). A conversation on screen: `d[conv]`
+  = its newest item's `at`. Opening the @Mentions list: `m` = the newest mention's `created_at`.
+- **Merge.** Every number (`s`, `m`, each mark) is the highest of the two; unknown fields: the
+  relay copy's, then the local one's. Commutative; an older event arriving late changes nothing.
+  Every `belfry:read` event received (any order, any device) is merged into the local state, which
+  the device keeps across restarts.
+- **Publishing.** Never before this device has asked the relay this session (the request above
+  answered with EOSE, whatever it held): a new device must not overwrite what others marked. After
+  that, publish `prune(merge(local, newest remote))` when `covers(newest remote, local)` is false
+  ("newest remote" = the received event with the highest `created_at`; nothing yet = the empty
+  state). Debounced: 3 s after the last change, at most one every 10 s; flushed when the app goes
+  to the background / the page is hidden. Through the outbox (it survives offline); a newer
+  read-state item replaces one still waiting there.
+- **Pruning** (before every publish): drop marks at or under their floor; then, while the
+  entries weigh more than 40 000 (each = UTF-8 bytes of its key + 16), drop the oldest `c` / `t`
+  marks first (ties: `c` before `t`, then key by code points), raising `s` to the newest one
+  dropped (so nothing dropped turns unread), and only then the oldest `d` marks. `s` and `m` stay.
+- **The start `s`, migrating.** First run with no stored state: `s` = now; this device's old
+  marks are seeded in (the web's per-conversation DM marks → `d`, its "@Mentions seen at" → `m`;
+  Android's DM marks → `d`), then merged with whatever the relay holds, then published if the relay
+  lacked any of it. Channels had no marks before, so they start read (no flood of old unread).
+- **Guests** (and guest mode) cannot use the community relay: their read state stays on the
+  device (same rules, never published). The groups relay was not used: an event there needs an
+  `h` (one channel's), is readable by that channel's members and would be lost with that channel.
+- **Notifications.** When a mark arrives (from this or another device), badges and counts follow
+  at once; the apps also remove their delivered notifications of that channel / conversation /
+  thread whose event time is ≤ the new readUpTo. The belfry's push watcher does not read this
+  event (it cannot decrypt it): a push for something already read elsewhere can still arrive.
+- Vectors: `vectors/readstate.json` (merge of two devices both ways, out of order, unknown fields,
+  parse, serialize, readUpTo, mark, prune by age and by weight, covers → publish or not).

@@ -112,9 +112,11 @@ fun ConversationScreen(conv: String) {
     val now = session.now()
 
     LaunchedEffect(conv, list.size) {
-        session.markRead(conv)
         if (list.isNotEmpty()) state.scrollToItem(list.size - 1)
     }
+    // read state (SPEC 19.27): on screen with the app in the foreground → read up to its newest message
+    val started = sh.belfry.app.ui.kit.rememberStarted()
+    LaunchedEffect(conv, list.size, started) { if (started) session.markRead(conv) }
     if (mail) LaunchedEffect(conv) { session.checkReports() }
 
     Column(Modifier.fillMaxSize().background(c.bg).imePadding()) {

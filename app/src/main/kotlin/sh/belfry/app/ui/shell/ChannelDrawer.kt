@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.height
@@ -49,6 +50,7 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.markdown.Markdown
+import sh.belfry.core.read.Unread
 import sh.belfry.core.crypto.Bech32
 import sh.belfry.core.model.Group
 import sh.belfry.core.model.Message
@@ -87,6 +89,8 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
     val world = LocalWorld.current
     val session = LocalSession.current
     val dms = LocalDms.current
+    // what I have read on all my devices (SPEC 19.27)
+    val read by session.readState.collectAsState()
     val (rows, _) = tree(world)
     val mine = world.yourEvents(session.now())
     val name = world.ctx.communityName.ifEmpty { session.community.name }
@@ -129,7 +133,8 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
                 )
             }
             item(key = "<mentions>") {
-                DrawerItem(icon = { ChannelIcon(ChannelGlyph.Mention) }, title = "@Mentions", sub = "Where people named you, in every channel", onClick = { go(Routes.MENTIONS) })
+                val fresh = world.mentionsOfMe(99).count { Unread.mentionIsNew(read, it, session.now()) }
+                DrawerItem(icon = { ChannelIcon(ChannelGlyph.Mention) }, title = "@Mentions", sub = "Where people named you, in every channel", badge = fresh, onClick = { go(Routes.MENTIONS) })
             }
             item(key = "<messages>") {
                 DrawerItem(
@@ -146,7 +151,7 @@ fun ChannelDrawer(current: String, onPick: (String) -> Unit, go: (String) -> Uni
                 if (part.isEmpty()) continue
                 item(key = "<$title>") { Section(title, part.sumOf { it.size }) }
                 for (r in part.flatten()) {
-                    item(key = r.g.id) { ChannelItem(world, r.g, r.depth, r.g.id == current) { onPick(r.g.id) } }
+                    item(key = r.g.id) { ChannelItem(world, r.g, r.depth, r.g.id == current, Unread.channel(world, read, r.g.id, session.now())) { onPick(r.g.id) } }
                 }
             }
             if (rows.isEmpty()) {
@@ -211,10 +216,11 @@ private fun Section(title: String, count: Int) {
 }
 
 @Composable
-private fun ChannelItem(world: World, g: Group, depth: Int, on: Boolean, onClick: () -> Unit) {
+private fun ChannelItem(world: World, g: Group, depth: Int, on: Boolean, unread: Int, onClick: () -> Unit) {
     val last = world.messages(g.id).lastOrNull()
     val sub = if (last != null) "${if (last.hasProfile()) world.displayName(last.pubkey) else world.authorName(g.id, last)}: ${preview(world, last)}" else g.about
-    DrawerItem(icon = { if (g.isPod) PodIcon(g.members.size) else ChannelIcon(g.glyph(LocalWorld.current)) }, title = g.name, sub = sub, on = on, depth = depth, onClick = onClick)
+    // unread (SPEC 19.27): the name stands out and a quiet count follows, like Discord's
+    DrawerItem(icon = { if (g.isPod) PodIcon(g.members.size) else ChannelIcon(g.glyph(LocalWorld.current)) }, title = g.name, sub = sub, on = on, depth = depth, onClick = onClick, quiet = unread)
 }
 
 /** A message as one line without Markdown marks; mentions as @Name. */
@@ -231,7 +237,7 @@ private fun preview(world: World, m: Message): String {
 }
 
 @Composable
-private fun DrawerItem(icon: @Composable () -> Unit, title: String, sub: String, onClick: () -> Unit, on: Boolean = false, depth: Int = 0, badge: Int = 0) {
+private fun DrawerItem(icon: @Composable () -> Unit, title: String, sub: String, onClick: () -> Unit, on: Boolean = false, depth: Int = 0, badge: Int = 0, quiet: Int = 0) {
     val c = Belfry.colors
     Row(
         Modifier.fillMaxWidth().background(if (on) c.surface else c.bg).clickable(role = Role.Button, onClick = onClick)
@@ -241,12 +247,15 @@ private fun DrawerItem(icon: @Composable () -> Unit, title: String, sub: String,
         icon()
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, fontSize = 15.sp, fontWeight = if (on || quiet > 0) FontWeight.SemiBold else FontWeight.Medium, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (sub.isNotEmpty()) Text(sub, fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (badge > 0) {
             Spacer(Modifier.width(8.dp))
             sh.belfry.app.ui.kit.CountBadge(badge)
+        } else if (quiet > 0) {
+            Spacer(Modifier.width(8.dp))
+            sh.belfry.app.ui.kit.CountBadge(quiet, color = c.surface2, onColor = c.muted)
         }
     }
 }

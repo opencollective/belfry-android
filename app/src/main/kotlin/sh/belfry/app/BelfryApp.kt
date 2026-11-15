@@ -28,6 +28,7 @@ class BelfryApp : Application() {
 
     @Volatile private var built = false
     @Volatile private var othersRegistered = false
+    @Volatile private var readWatch: kotlinx.coroutines.Job? = null
 
     /** A notification came for an account that is not open: the switcher shows its dot. */
     fun accountsChanged() { if (built) state.refreshAccounts() }
@@ -45,6 +46,13 @@ class BelfryApp : Application() {
         built = true
         // push: register on every start once allowed; remove this phone before signing out
         state.onSignedIn = { s ->
+            // read elsewhere (SPEC 19.27): the delivered notifications of what is read go
+            readWatch?.cancel()
+            readWatch = scope.launch(Dispatchers.Default) {
+                kotlinx.coroutines.flow.combine(s.readState, s.dms) { r, d -> r to d.unreadTotal }.collect { (r, n) ->
+                    AndroidPush.clearRead(this@BelfryApp, s, r, n)
+                }
+            }
             scope.launch(Dispatchers.Default) {
                 try { AndroidPush.register(this@BelfryApp, s) } catch (e: Exception) { }
                 if (!othersRegistered) {
@@ -61,7 +69,10 @@ class BelfryApp : Application() {
                 AndroidPush.foreground = true; state.wake()
                 scope.launch { try { sh.belfry.app.update.Updater.check(this@BelfryApp) } catch (e: Exception) { } } // a newer version? (at most hourly)
             }
-            override fun onStop(owner: LifecycleOwner) { AndroidPush.foreground = false }
+            override fun onStop(owner: LifecycleOwner) {
+                AndroidPush.foreground = false
+                try { state.session.value?.flushRead() } catch (e: Exception) { } // what I read goes to my other devices now
+            }
         })
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

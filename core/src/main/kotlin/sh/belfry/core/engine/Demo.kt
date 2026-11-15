@@ -367,5 +367,14 @@ object Demo {
             put("n:" + me.pubkey, JsonPrimitive(now))
             put(MailThreads.mailThreadOf("ana@example.org", "Visiting next week"), JsonPrimitive(now))
         }.toString())
+        // the read state (SPEC 19.27): what came in the last two hours is unread, so the drawer shows it
+        store.set(ReadSync.K_STATE, sh.belfry.core.read.ReadState(
+            s = now - 2 * h,
+            d = mapOf(
+                MailThreads.nostrConv(tomas.pubkey, listOf(lena.pubkey, me.pubkey), me.pubkey) to now,
+                "n:" + me.pubkey to now,
+                MailThreads.mailThreadOf("ana@example.org", "Visiting next week") to now,
+            ),
+        ).serialize())
     }
 }

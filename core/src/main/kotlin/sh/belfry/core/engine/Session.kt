@@ -82,6 +82,8 @@ import sh.belfry.core.outbox.OutboxStatus
 import sh.belfry.core.outbox.SendOutcome
 import sh.belfry.core.outbox.Target
 import sh.belfry.core.store.Store
+import sh.belfry.core.read.ReadState
+import sh.belfry.core.read.Unread
 import java.io.IOException
 import java.time.ZoneId
 
@@ -228,6 +230,10 @@ class Session(
     /** Direct messages and e-mail. */
     val dms: StateFlow<DmSnapshot> get() = dm.snapshot
 
+    private val readSync: ReadSync
+    /** What I have read, on all my devices (SPEC 19.27): unread counts derive from it (`sh.belfry.core.read.Unread`). */
+    val readState: StateFlow<ReadState> get() = readSync.state
+
     private val groupsRelay: Relay? = if (localOnly) null else Relay(community.groupsRelay, http, scope)
     private val mainRelay: Relay? = if (localOnly) null else Relay(community.mainRelay, http, scope)
     private fun relay(t: Target): Relay? = if (t == Target.GROUPS) groupsRelay else mainRelay
@@ -273,6 +279,10 @@ class Session(
         dm = DirectMessages(store, Host())
         dm.myAddressProvider = { _world.value.myAddress }
         dm.offer(all)
+        readSync = ReadSync(store, me, clock, scope, ReadHost(), seedD = { dm.legacyMarks() })
+        dm.setReadState(readSync.state.value)
+        readSync.onChange = { dm.setReadState(it) }
+        dm.onRead = { conv, at -> readSync.mark('d', conv, at) }
         countOutbox()
         jobs += scope.launch(Dispatchers.Default) { for (u in dirty) { rebuild(); delay(REBUILD_MS) } }
         jobs += scope.launch(Dispatchers.Default) { intake() }
@@ -368,6 +378,7 @@ class Session(
         if (fresh.isEmpty()) return
         synchronized(logLock) { log.addAll(fresh) }
         dm.offer(fresh)
+        readSync.offer(fresh)
         markDirty()
         if (fresh.any { it.kind == 1059 || it.kind == 4 }) launchSafely { dm.process() }
     }
@@ -385,6 +396,7 @@ class Session(
             while (batch.size < 1000) batch.add(incoming.tryReceive().getOrNull() ?: break)
             addToLog(batch.filterIsInstance<Incoming.Ev>().map { it.e })
             if (batch.any { it is Incoming.Eose && it.target == Target.GROUPS }) onGroupsEose()
+            if (batch.any { it is Incoming.Eose && it.target == Target.MAIN }) readSync.relayAnswered()
         }
     }
 
@@ -537,6 +549,8 @@ class Session(
         return listOf(
             Filters.of(kinds = KINDS_MAIN, since = since, limit = 2000),
             Filters.of(kinds = listOf(30078), since = extras, limit = 2000, tags = mapOf("d" to listOf(World.PROFILE_D))),
+            // my read state (SPEC 19.27): one replaceable event, always the exact d
+            Filters.of(kinds = listOf(ReadState.KIND), authors = listOf(me), limit = 5, tags = mapOf("d" to listOf(ReadState.READ_D))),
             Filters.of(kinds = listOf(1059), since = wraps, limit = 1000, tags = mapOf("p" to listOf(me))),
             Filters.of(kinds = listOf(4), since = old, limit = 500, tags = mapOf("p" to listOf(me))),
             Filters.of(kinds = listOf(4), authors = listOf(me), since = old, limit = 500),
@@ -958,6 +972,43 @@ class Session(
     suspend fun retryDm(rid: String) { lastDmSentMs = System.currentTimeMillis(); dmCall { dm.retry(rid) } }
 
     fun markRead(conv: String) = dm.markRead(conv)
+
+    // ---- read state (SPEC 19.27) ---------------------------------------------------------------------
+
+    /** The channel is on screen, scrolled to the newest message, app in the foreground: read up to its newest message. */
+    fun markChannelRead(groupId: String) {
+        Unread.channelMark(_world.value, groupId)?.let { readSync.mark('c', groupId, it) }
+    }
+
+    /** A thread is on screen: read up to its newest reply (the message itself when there is none). */
+    fun markThreadRead(groupId: String, rootId: String) {
+        Unread.threadMark(_world.value, groupId, rootId)?.let { readSync.mark('t', rootId, it) }
+    }
+
+    /** The @Mentions list was opened: seen up to its newest mention. */
+    fun markMentionsSeen(at: Long) = readSync.mark('m', "", at)
+
+    /** The app goes to the background: what waits is published now. */
+    fun flushRead() = readSync.flush()
+
+    private inner class ReadHost : ReadSync.Host {
+        override fun shared(): Boolean = !localOnly && !reading && !stopped && !(_guest.value != null && _world.value.amGuest)
+        override suspend fun encryptToSelf(text: String): String = signer.nip44Encrypt(me, text)
+        override suspend fun decryptFromSelf(payload: String): String = signer.nip44Decrypt(me, payload)
+        override suspend fun publish(content: String, minCreatedAt: Long) = withContext(Dispatchers.Default) {
+            enqueueLock.withLock {
+                // a newer read state replaces one still waiting (only one counts on the relay anyway)
+                for (o in store.outbox()) if (o.kind == ReadState.KIND && o.status == OutboxStatus.QUEUED && o.tags.any { it.size >= 2 && it[0] == "d" && it[1] == ReadState.READ_D }) store.dropOutbox(o.localId)
+                lastCreatedAt = Outbox.nextCreatedAt(maxOf(lastCreatedAt, minCreatedAt - 1), clock())
+                store.putOutbox(OutboxItem(
+                    localId = newLocalId(), target = Target.MAIN, kind = ReadState.KIND, content = content,
+                    tags = listOf(listOf("d", ReadState.READ_D), Actions.CLIENT_TAG), createdAt = lastCreatedAt,
+                ))
+            }
+            countOutbox()
+            requestFlush()
+        }
+    }
 
     /** Where a new conversation with INPUT goes (a name, name@domain, key, npub or e-mail address); null = not understood. */
     suspend fun convFor(input: String): String? {

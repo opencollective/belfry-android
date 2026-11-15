@@ -22,6 +22,7 @@ in the real world.
 | Relay (NIP-42, backoff, re-subscribe), remote signer (NIP-46), discovery, PKCE sign-in, HTTP API (NIP-98) | done | Tested against fakes (MockWebServer, a fake signer) only. |
 | Sync engine: subscriptions, access verdict, outbox that survives restarts and flaky relays, attachments upload | done | Engine tests against a fake relay. Not covered by a test: `CLOSED restricted` on a subscription, the 15 s watchdog, online/offline flapping. |
 | DMs (NIP-17), old DMs (kind 4, read), e-mail (Nostr Mail), delivery reports, large mails | done | Round trips with local signers. Large mails (AES-GCM from Blossom), kind 4 and `sendAsChannel` have no test. |
+| Read state across devices (SPEC 19.27, kind 30078 `belfry:read`, NIP-44 to self) | done, never run live | Every case of `readstate.json`; `ReadSyncTest` (two devices through a fake relay, guest never publishes). Unread in the drawer (channels: bold + quiet count; @Mentions count), "N new" on a thread line I am in, DM unread from it; delivered notifications of a read channel / of DMs once none is unread are removed. Not yet: the web's own unread UI to compare with (web branch `readstate`). |
 
 ## Sign-in and joining
 

@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -255,7 +256,13 @@ private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, ch
 private fun ThreadLine(groupId: String, rootId: String, thread: ThreadInfo, open: Boolean, onToggle: () -> Unit) {
     val c = Belfry.colors
     val world = LocalWorld.current
+    val session = sh.belfry.app.ui.nav.LocalSession.current
     val last = if (open) null else world.threadReplies(groupId, rootId).lastOrNull()
+    // read state (SPEC 19.27): replies I have not read, in a thread I am in; unfolded = read
+    val read by session.readState.collectAsState()
+    val fresh = if (open) 0 else sh.belfry.core.read.Unread.thread(world, read, groupId, rootId, session.now())
+    val started = sh.belfry.app.ui.kit.rememberStarted()
+    androidx.compose.runtime.LaunchedEffect(open, thread.last, started) { if (open && started) session.markThreadRead(groupId, rootId) }
     val said = last?.let { replyPreview(it.text).ifEmpty { if (it.media.isNotEmpty()) "a photo" else "" } }.orEmpty()
     Row(
         Modifier.padding(top = 4.dp, bottom = 2.dp).fillMaxWidth().clip(RoundedCornerShape(6.dp))
@@ -265,7 +272,7 @@ private fun ThreadLine(groupId: String, rootId: String, thread: ThreadInfo, open
         AvatarStack(thread.who.take(3).map { world.face(it) }, size = 18.dp)
         Spacer(Modifier.width(6.dp))
         Text(
-            if (open) "Hide replies" else "${thread.count} ${if (thread.count == 1) "reply" else "replies"}",
+            if (open) "Hide replies" else "${thread.count} ${if (thread.count == 1) "reply" else "replies"}" + if (fresh > 0) " · $fresh new" else "",
             fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (c.isDark) Color(0xFF60A5FA) else Color(0xFF2563EB), maxLines = 1,
         )
         if (!open) {

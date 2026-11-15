@@ -144,6 +144,14 @@ minSdk 26, JDK 17.
   `GOOGLE_SERVICES_JSON` secret when set); `BuildConfig.PUSH` says which. The permission is asked
   only from Me → Notifications or a channel's bell, never at launch.
 
+- Read state (SPEC 19.27, vectors/readstate.json): the pure rules are `core/read/ReadState.kt`
+  (a port of the web's `core/readcore.ts`; change both together), unread counts `core/read/Unread.kt`,
+  the sync `core/engine/ReadSync.kt` (store keys `read-state`, `read-state-remote`; publishes only
+  after the community relay's EOSE, 3 s debounce / 10 s gap, `Session.flushRead()` on background;
+  guests, guest mode and the demo keep it local). `Session.readState`, `markChannelRead`,
+  `markThreadRead`, `markMentionsSeen`; `markRead(conv)` goes through it. DM reactions never count
+  or move a mark. Screens mark only while started (`ui/kit/Started.kt`).
+
 - Self-update (#issues 2026-11-13): `core/update/AppUpdate.kt` reads GitHub's releases of this
   repository (only its `releases/download/` links, versions compared as numbers, drafts skipped,
   403/429 → wait 6 h); `app/.../update/Updater.kt` checks on every start in the foreground (at

@@ -67,6 +67,10 @@ fun ThreadScreen(
     val replies = world.threadReplies(groupId, rootId)
     val list = rememberLazyListState()
     LaunchedEffect(replies.size) { if (replies.isNotEmpty()) list.scrollToItem(replies.size + 1) }
+    // read state (SPEC 19.27): a thread on screen is read up to its newest reply
+    val started = sh.belfry.app.ui.kit.rememberStarted()
+    val newest = replies.lastOrNull()?.ev?.createdAt ?: root?.ev?.createdAt
+    LaunchedEffect(rootId, started, newest) { if (started && newest != null) session.markThreadRead(groupId, rootId) }
 
     Column(Modifier.fillMaxSize().background(c.bg).imePadding()) {
         if (onClose != null) {

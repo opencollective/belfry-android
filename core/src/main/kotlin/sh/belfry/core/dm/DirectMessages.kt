@@ -11,6 +11,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import sh.belfry.core.crypto.B64
 import sh.belfry.core.crypto.Hex
+import sh.belfry.core.read.ReadState
 import sh.belfry.core.mail.KnownMail
 import sh.belfry.core.mail.MailPart
 import sh.belfry.core.mail.MailThreads
@@ -157,15 +158,19 @@ data class DmThread(val conv: String, val last: Dm, val unread: Int, val count: 
 class DmSnapshot(
     val items: List<Dm>,
     val reports: Map<String, Report>,
-    val read: Map<String, Long>,
+    /** What I read, on every device (SPEC 19.27): a conversation is read up to `readUpTo('d', conv)`. */
+    val read: ReadState,
     val me: String,
+    /** When this snapshot was made (Unix seconds): the 90-day floor of the read state. */
+    val now: Long = 0,
 ) {
     private val byConv: Map<String, List<Dm>> by lazy { items.groupBy { it.conv }.mapValues { (_, l) -> l.sortedBy { it.at } } }
 
     /** Conversations, the most recent first. */
     val threads: List<DmThread> by lazy {
         byConv.map { (conv, list) ->
-            DmThread(conv, list.last(), list.count { !it.mine && it.at > (read[conv] ?: 0) }, list.size)
+            val upTo = read.readUpTo('d', conv, now)
+            DmThread(conv, list.last(), list.count { !it.mine && it.at > upTo }, list.size)
         }.sortedByDescending { it.last.at }
     }
 
@@ -219,7 +224,7 @@ class DmSnapshot(
     }
 
     companion object {
-        fun empty(me: String = ""): DmSnapshot = DmSnapshot(emptyList(), emptyMap(), emptyMap(), me)
+        fun empty(me: String = ""): DmSnapshot = DmSnapshot(emptyList(), emptyMap(), ReadState.EMPTY, me)
     }
 }
 
@@ -329,7 +334,12 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private val items = LinkedHashMap<String, Dm>() // by rid
     private val seen = HashSet<String>() // event ids already read (gift wraps, kind 4)
     private val reports = HashMap<String, Report>() // by email-id
-    private val read = HashMap<String, Long>()
+    /** The per-conversation marks kept here before SPEC 19.27: only read to seed the shared read state. */
+    private val legacyRead = HashMap<String, Long>()
+    /** The shared read state (Session's [sh.belfry.core.engine.ReadSync]); set with [setReadState]. */
+    @Volatile private var readState: ReadState = ReadState.EMPTY
+    /** Told when a conversation is read up to a time (Session moves the shared read state). */
+    @Volatile var onRead: ((conv: String, at: Long) -> Unit)? = null
     private val channelSends = HashSet<String>() // email-ids sent as a shared inbox, still without a report
     private val backlog = ArrayList<Event>()
     private val busy = Mutex()
@@ -348,7 +358,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         parseJsonOrNull(store.get(K_REPORTS) ?: "").obj()?.forEach { (k, v) ->
             v.obj()?.let { reports[k] = Report(it.s("status") ?: Report.QUEUED, it.s("details") ?: "") }
         }
-        parseJsonOrNull(store.get(K_READ) ?: "").obj()?.forEach { (k, v) -> v.long()?.let { read[k] = it } }
+        parseJsonOrNull(store.get(K_READ) ?: "").obj()?.forEach { (k, v) -> v.long()?.let { legacyRead[k] = it } }
         // a message marked pending whose wraps are gone from the outbox is out
         val waiting = host.outbox().mapNotNull { it.dm }.toSet()
         for ((rid, d) in items.toList()) if (d.pending && rid !in waiting) items[rid] = d.copy(pending = false)
@@ -362,9 +372,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 store.set(K_REPORTS, buildJsonObject {
                     for ((k, r) in reports) put(k, buildJsonObject { put("status", JsonPrimitive(r.status)); put("details", JsonPrimitive(r.details)) })
                 }.toString())
-                store.set(K_READ, buildJsonObject { for ((k, v) in read) put(k, JsonPrimitive(v)) }.toString())
             }
-            DmSnapshot(items.values.toList(), HashMap(reports), HashMap(read), host.me)
+            DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now())
         }
         _snapshot.value = snap
     }
@@ -422,17 +431,25 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
      * read before the mail it answers. Once a batch is in, every mail that came in is placed
      * again, oldest first, so a thread never depends on the order of arrival.
      */
-    private fun rethread() = synchronized(lock) {
+    private fun rethread() {
+        val moved = synchronized(lock) { rethreadLocked() }
+        for ((conv, at) in moved) onRead?.invoke(conv, at)
+    }
+
+    private fun rethreadLocked(): List<Pair<String, Long>> {
+        val moved = ArrayList<Pair<String, Long>>()
         val known = ArrayList<KnownMail>()
         for (d in items.values.filter { it.isMail && MailThreads.isMail(it.conv) }.sortedBy { it.at }) {
             val conv = if (d.mine) d.conv else MailThreads.place(MailThreads.mailAddress(d.conv), d.subject, d.inReplyTo, d.references, known)
             if (conv != d.conv) {
-                val readOld = read[d.conv]
-                if (readOld != null && (read[conv] ?: 0) < readOld) read[conv] = readOld
+                // the old conversation's mark follows the mail to its thread
+                val readOld = readState.d[d.conv] ?: legacyRead[d.conv]
+                if (readOld != null) moved.add(conv to readOld)
                 items[d.rid] = d.copy(conv = conv)
             }
             known.add(KnownMail(d.messageId, conv))
         }
+        return moved
     }
 
     private suspend fun readWrap(wrap: Event): Dm? {
@@ -462,13 +479,21 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         return Mime.parseMail(raw).attachments
     }
 
+    /** The conversation is on screen: read up to its newest message or e-mail (reactions are not items: they never move it). */
     fun markRead(conv: String) {
-        synchronized(lock) {
-            val last = items.values.filter { it.conv == conv }.maxOfOrNull { it.at } ?: 0
-            if ((read[conv] ?: 0) >= last) return
-            read[conv] = last
-        }
-        publish()
+        val last = synchronized(lock) { items.values.filter { it.conv == conv }.maxOfOrNull { it.at } ?: 0 }
+        if (last <= 0 || readState.readUpTo('d', conv, host.now()) >= last) return
+        onRead?.invoke(conv, last)
+    }
+
+    /** The marks of the old per-device store (SPEC 19.27's migration seeds `d` with them). */
+    fun legacyMarks(): Map<String, Long> = synchronized(lock) { HashMap(legacyRead) }
+
+    /** The shared read state changed (here or on another device): unread counts follow. */
+    fun setReadState(r: ReadState) {
+        if (r === readState) return
+        readState = r
+        publish(save = false)
     }
 
     // ---- sending ---------------------------------------------------------------------------------

@@ -173,6 +173,12 @@ fun ChannelScreen(
         if (last is FeedItem.Msg && last.m.pubkey == world.me && world.isPending(last.m.id) && focus == null) list.scrollToItem(0)
     }
 
+    // Read state (SPEC 19.27): on screen, app in the foreground, at the newest message → read up to it.
+    val started = sh.belfry.app.ui.kit.rememberStarted()
+    val atNewest by remember(list) { androidx.compose.runtime.derivedStateOf { list.firstVisibleItemIndex == 0 } }
+    val newest = sh.belfry.core.read.Unread.channelMark(world, groupId)
+    LaunchedEffect(groupId, started, atNewest, newest) { if (started && atNewest && newest != null) session.markChannelRead(groupId) }
+
     // "Got it, hide" on a pinned message is remembered on the device.
     LaunchedEffect(groupId) {
         val saved = withContext(Dispatchers.IO) { session.store.get(K_HIDDEN_PINS) }.orEmpty().split(',').filter { it.isNotEmpty() }

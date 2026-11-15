@@ -57,6 +57,9 @@ fun MentionsScreen() {
     val session = LocalSession.current
     val nav = LocalNav.current
     val list = world.mentionsOfMe()
+    // opening the list marks them seen, on every device (SPEC 19.27)
+    val newest = list.firstOrNull()?.createdAt
+    androidx.compose.runtime.LaunchedEffect(newest) { if (newest != null) session.markMentionsSeen(newest) }
     Column(Modifier.fillMaxSize().background(c.bg)) {
         TopBar("@Mentions", subtitle = "Where people named you", navigation = { BackButton { nav.back() } })
         Hairline()
