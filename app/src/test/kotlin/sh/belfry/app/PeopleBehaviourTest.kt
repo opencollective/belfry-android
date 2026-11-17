@@ -11,6 +11,8 @@ import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
+import sh.belfry.core.model.isGuest
+import sh.belfry.core.model.isAgent
 import androidx.compose.ui.test.onAllNodesWithTag
 import sh.belfry.core.push.PushOpen
 import sh.belfry.core.push.PushLevel
@@ -52,7 +54,7 @@ class PeopleBehaviourTest : DemoShots() {
     /** A steward makes a member a Steward from the Role section, after a confirmation (SPEC 19.31). */
     @Test
     fun aStewardChangesAMembersRoleAfterAConfirmation() {
-        val maya = Demo.maya.pubkey
+        val maya = (world.group(Demo.GENERAL)?.members ?: emptySet()).first { it != session.me && !world.isBelfryAdmin(it) && world.realName(it).isNotEmpty() && !world.isGuest(it) && !world.isAgent(it) }
         assertFalse(world.isBelfryAdmin(maya))
         compose.setContent { BelfryTheme { InDemo { ProfileScreen(maya) } } }
         compose.onNodeWithTag("role-row").performScrollTo().performClick()

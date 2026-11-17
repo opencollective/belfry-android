@@ -80,9 +80,10 @@ class InfoBehaviourTest : DemoShots() {
         compose.onNode(hasSetTextAction()).performTextInput("tom")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-send").fetchSemanticsNodes().isNotEmpty() }
         // an open channel: every member can open it already, the link is sent as a message
-        compose.onNodeWithText("Can already open it", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Send the link").assertIsDisplayed()
+        compose.onNodeWithText("Can already open it", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Send the link").performScrollTo().assertIsDisplayed()
         val send = compose.onAllNodesWithTag("invite-send").onFirst()
+        send.performScrollTo()
         send.performClick()
         send.performClick()
         compose.waitForIdle()
@@ -101,6 +102,7 @@ class InfoBehaviourTest : DemoShots() {
         compose.onNode(hasSetTextAction()).performTextInput("tomás")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-send").fetchSemanticsNodes().isNotEmpty() }
         val send = compose.onAllNodesWithTag("invite-send").onFirst()
+        send.performScrollTo()
         send.performClick()
         // a second tap: the button is locked, or already replaced by "Link sent"
         runCatching { send.performClick() }
@@ -128,12 +130,12 @@ class InfoBehaviourTest : DemoShots() {
             }
         }
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-own-agent").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("invite-own-agent").performClick()
+        compose.onNodeWithTag("invite-own-agent").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText(agentUrl).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(listOf(Triple(1, 1, true)), asked)
-        compose.onNodeWithText("It works once", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("It works once", substring = true).performScrollTo().assertIsDisplayed()
         // choosing a guest link instead asks for a plain guest link
-        compose.onNodeWithTag("invite-guest").performClick()
+        compose.onNodeWithTag("invite-guest").performScrollTo().performClick()
         compose.waitUntil(5_000) { asked.size == 2 }
         assertEquals(Triple(1, 1, false), asked[1])
     }

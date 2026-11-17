@@ -1,6 +1,8 @@
 package sh.belfry.app
 
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performClick
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -29,13 +31,13 @@ class PlacesShotsTest : DemoShots() {
     @Test fun calendar() = demoShot("places-calendar") { HomeScreen(shell(ShellState.Place.CALENDAR)) }
     @Test fun calendarDiscover() {
         demoShot("places-calendar-discover") { CalendarPlace() }
-        compose.onNodeWithTag("calendar-tab-2").performClick()
+        compose.onNodeWithTag("calendar-tab-2").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
     }
     @Test fun groups() = demoShot("places-groups") { HomeScreen(shell(ShellState.Place.GROUPS)) }
     @Test fun groupsAll() {
         demoShot("places-groups-all") { GroupsPlace() }
-        compose.onNodeWithTag("groups-all").performClick()
+        compose.onNodeWithTag("groups-all").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
     }
     @Test fun create() = demoScreenShot("places-create") { CreateSheet(shell(ShellState.Place.TOWN), onDismiss = {}) }
@@ -63,19 +65,19 @@ class PlacesShotsTest : DemoShots() {
     @Test fun theBarAndTheDrawer() {
         val s = shell()
         compose.setContent { BelfryTheme { InDemo { HomeScreen(s) } } }
-        compose.onNodeWithTag("place-calendar").performClick()
+        compose.onNodeWithTag("place-calendar").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
         assertEquals(ShellState.Place.CALENDAR, s.place)
-        compose.onNodeWithTag("place-town").performClick()
+        compose.onNodeWithTag("place-town").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
         assertEquals(ShellState.Place.TOWN, s.place)
-        compose.onNodeWithTag("place-create").performClick()
+        compose.onNodeWithTag("place-create").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
         assertEquals(true, s.creating)
         val went = ArrayList<String>()
         compose.setContent { BelfryTheme { InDemo { ChannelDrawer(s, DrawerActions({ s.open(it) }, { s.place = ShellState.Place.HOME }, {}, { went.add(it) })) } } }
-        compose.onNodeWithTag("drawer-members").performClick()
-        compose.onNodeWithTag("drawer-today").performClick()
+        compose.onNodeWithTag("drawer-members").performSemanticsAction(SemanticsActions.OnClick)
+        compose.onNodeWithTag("drawer-today").performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
         assertEquals(listOf(Routes.MEMBERS), went)
         assertEquals(ShellState.Place.HOME, s.place)

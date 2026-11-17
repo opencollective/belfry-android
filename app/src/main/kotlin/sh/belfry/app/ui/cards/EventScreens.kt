@@ -274,7 +274,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
     val url = world.eventUrl(e)
 
     // SPEC 19.29: one screen per event; the header at three levels (opens at half), Chat · Photos · People under it
-    var level by rememberSaveable(e.coord) { mutableStateOf(EventLevel.HALF) }
+    // a Belfry event opens at half over its chat; a meeting or an older calendar event opens whole
+    // (their people and answers are the page itself)
+    var level by rememberSaveable(e.coord) { mutableStateOf(if (e.isNew && !e.meeting) EventLevel.HALF else EventLevel.FULL) }
     val full = level == EventLevel.FULL
     val viewer = rememberViewer(e)
     val mayCheck = viewer?.mayCheckIn ?: world.mayCheckIn(e)
