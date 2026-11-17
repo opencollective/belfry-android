@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -146,7 +146,8 @@ private fun PlacesHost(shell: ShellState, drawerOpen: Boolean) {
                 ) { ChannelDrawer(shell, actions) }
             },
         ) {
-            val keyboard = WindowInsets.isImeVisible
+            // the keyboard is up when it takes room at the bottom (isImeVisible says true under Robolectric)
+            val keyboard = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
             Column(Modifier.fillMaxSize().background(c.bg)) {
                 Box(Modifier.weight(1f).then(if (!keyboard) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier)) {
                     PlaceBody(shell, onMenu = { scope.launch { drawer.open() } }, counts = counts, wide = false)
