@@ -197,7 +197,7 @@ private fun guestHome(scope: androidx.compose.foundation.lazy.LazyListScope, now
             PlaceCard {
                 mine.forEachIndexed { i, g ->
                     if (i > 0) RowDivider()
-                    NavRow(g.glyph(world).icon(), g.name, g.about.takeIf { it.isNotEmpty() }, { nav.openChannel(g.id) })
+                    NavRow(g.glyph(world).icon(), g.name, g.about.replace(Regex("[*_`#>]"), "").takeIf { it.isNotBlank() }, { nav.openChannel(g.id) })
                 }
             }
         }
