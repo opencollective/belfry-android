@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.people
 
+import sh.belfry.app.ui.kit.LinkText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -250,7 +251,7 @@ private fun RequestCard(pubkey: String?, name: String, line: String, text: Strin
                 if (line.isNotEmpty()) Text(line, fontSize = 13.sp, color = c.muted)
             }
         }
-        if (text.isNotEmpty()) Text(text, fontSize = 15.sp, color = c.text, modifier = Modifier.padding(top = 4.dp))
+        if (text.isNotEmpty()) LinkText(text, fontSize = 15.sp, color = c.text, modifier = Modifier.padding(top = 4.dp))
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { buttons() }
     }

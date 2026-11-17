@@ -179,6 +179,7 @@ fun MessageRow(
                 SpecialCard(groupId, m)
             }
             EventCards(m)
+            MessageButtons(groupId, m)
             if (!first && m.edited != null) Text("edited", fontSize = 12.sp, color = c.faint)
             val extra = world.extraTopics(m, chat.topic)
             if (extra.isNotEmpty()) {

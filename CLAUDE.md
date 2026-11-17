@@ -183,6 +183,14 @@ minSdk 26, JDK 17.
   `openChannel` always switches to Town (Android's choice; iOS pushes a chat outside Town);
   `Routes.chat(id)` pushes a channel with a back arrow (archived groups, links).
 
+- Round 5 (2026-11-17, SPEC 19.36 / 19.37): buttons on messages are `core/model/Buttons.kt` +
+  `World.buttons / buttonState` + `Session.pressButton` (published at once, never queued) +
+  `ui/chat/MessageButtons.kt` (in `MessageRow`). Links: `core/model/Links.kt` (finder, in-app
+  chat links, Markdown masking); `ui/kit/LinkText.kt` (`LinkText` for plain text,
+  `rememberOpenLink` — every link tap goes through it). Outbox items with `Target.API` are queued
+  HTTP calls (`path` + `body`, `Session.queueApi`); `World.failedSettings` drives the header's
+  error mark (`SettingsFailedMark`). The pull-down's rows hide by `ChannelCounts.showsRow`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.
@@ -226,7 +234,7 @@ minSdk 26, JDK 17.
   checked on every push; nobody has run it on a phone. Turn minification on for `release` after
   that.
 - The engine tests poll with time limits and could flake on a slow runner.
-- App Links hosts are fixed in the manifest (`chat.belfry.sh`, `chat.enspiral.eu`): a manifest
+- App Links hosts are fixed in the manifest (`chat.belfry.sh`, `chat.enspiral.eu`, `chat.opensourcevillage.org`): a manifest
   placeholder cannot hold a list. Another community = another `<data>` line, or a per-community
   build.
 - Day and time labels in the channel line are fixed English / 24 h, not the device locale.

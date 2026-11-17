@@ -63,6 +63,8 @@ data class Community(
      * address of `…/session`; SPEC 19.20). Null: this belfry does not say it has it.
      */
     val sessionApi: String? = null,
+    /** The belfry's groups key (belfry.json `groups_key.pubkey`): signs answers to `belfry:` buttons, e-mail cards, guest joins. */
+    val groupsKey: String? = null,
 ) {
     /** The four branding values as the belfry's `/branding` takes them ("" = none). */
     val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty())
@@ -97,6 +99,7 @@ data class Community(
         if (belfryPubkey != null) put("belfryPubkey", JsonPrimitive(belfryPubkey))
         if (agents.isNotEmpty()) put("agents", buildJsonObject { agents.forEach { (a, o) -> put(a, JsonPrimitive(o)) } })
         if (sessionApi != null) put("sessionApi", JsonPrimitive(sessionApi))
+        if (groupsKey != null) put("groupsKey", JsonPrimitive(groupsKey))
         // kept so the colours and the logo are there before the belfry answers (and offline)
         val b = branding
         if (b != Branding()) put("branding", b.toJson())
@@ -163,6 +166,7 @@ data class Community(
             if (chat != null && chat.startsWith("https://")) c = c.copy(chatUrl = if (chat.endsWith("/")) chat else "$chat/")
             doc["nostr"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(belfryPubkey = it) }
             c = c.copy(agents = agentsOf(doc["agents"].obj()))
+            doc["groups_key"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(groupsKey = it) }
             return c
         }
 
@@ -193,6 +197,7 @@ data class Community(
                 belfryPubkey = o.s("belfryPubkey")?.takeIf(Hex::isKey),
                 agents = agentsOf(o["agents"].obj()),
                 sessionApi = o.s("sessionApi"),
+                groupsKey = o.s("groupsKey")?.takeIf(Hex::isKey),
             ).withBranding(Branding.clean(o["branding"].obj()))
         }
 

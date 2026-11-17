@@ -304,6 +304,29 @@ object Demo {
         post(aroha, now - 2 * day + 61, Actions.addTask(KITCHEN, "Borrow the big pot from the school"))
         say(kofi, WEBSITE, now - 4 * day, "The new homepage is up as a preview. Opening hours are still wrong, I know.")
         say(maya, WEBSITE, now - 4 * day + 900, "Looks good. Can the dinner sign-up be on the first page?")
+        // buttons on messages (SPEC 19.36): versions of the website to approve, one published (closed
+        // for everyone), one whose publishing failed for me, one still open
+        val kofiSite = "35128:${kofi.pubkey}:website"
+        val preview = "https://preview.$DOMAIN/p/${Bech32.npub(kofi.pubkey)}@website"
+        fun version(at: Long, text: String): Event = raw(kofi, at, 9, listOf(
+            listOf("h", WEBSITE), listOf("a", kofiSite),
+            listOf("button", "publish", "Approve and publish", "primary", "belfry:website-publish"),
+        ), text)
+        fun answer(at: Long, msg: Event, press: Event, ok: Boolean, text: String, code: String? = null) = raw(groups, at, 1985, listOfNotNull(
+            listOf("L", "belfry/action-result"), listOf("l", if (ok) "ok" else "error", "belfry/action-result"), listOf("e", msg.id),
+            listOf("press", press.id), listOf("p", press.pubkey), listOf("h", WEBSITE),
+            code?.let { listOf("code", it) }, if (ok) listOf("closed", "1") else null,
+        ), text)
+        fun pressOf(p: LocalSigner, at: Long, msg: Event) = post(p, at, sh.belfry.core.model.Buttons.press(msg.id, msg.pubkey, WEBSITE, "publish"))
+        val v2 = version(now - 3 * day, "**Website updated**: version 2, with the dinner sign-up on the first page. Preview: $preview\nAn admin can approve it here.")
+        answer(now - 3 * day + 400, v2, pressOf(maya, now - 3 * day + 300, v2), true, "Published by Maya Okafor.")
+        val v3 = version(now - day - 2 * h, "Version 3: the opening hours are fixed. Preview: $preview")
+        answer(now - day - 2 * h + 70, v3, pressOf(me, now - day - 2 * h + 60, v3), false, "Couldn't publish: the site has no index.html.", "failed")
+        raw(kofi, now - 2 * h, 9, listOf(
+            listOf("h", WEBSITE), listOf("a", kofiSite),
+            listOf("button", "publish", "Approve and publish", "primary", "belfry:website-publish"),
+            listOf("button", "later", "Not now"),
+        ), "Version 4 has the new photos of the garden (https://preview.$DOMAIN/p/${Bech32.npub(kofi.pubkey)}@website). Approve it below, or tell me what to change.")
         say(sam, RANDOM, now - 6 * day, "Found a blue bike helmet by the gate. It's on the shelf in the hall.")
         say(tomas, RANDOM, now - 26 * h, "Does anyone want a box of *very* ripe pears?")
         say(ines, POD_OPEN, now - 8 * h, "Chapter 1 to 4 for next time. Tea is on me.")
@@ -342,6 +365,12 @@ object Demo {
         store.putOutbox(OutboxItem("local-demo-refused", Target.GROUPS, 9, "Sent from the train, twice by accident.", listOf(listOf("h", GENERAL), Actions.CLIENT_TAG), now - 20 * 60,
             status = OutboxStatus.FAILED, error = "blocked: you are posting too fast", tries = 1))
         store.putOutbox(OutboxItem("local-demo-waiting", Target.GROUPS, 9, "On my way, see you at the gate.", listOf(listOf("h", GENERAL), listOf("demo", "hold"), Actions.CLIENT_TAG), now - 5 * 60, tries = 1))
+
+        // a change to #random's settings the belfry refused (SPEC 19.37): the header shows the mark
+        store.putOutbox(OutboxItem("local-demo-settings", Target.API, 9002, "",
+            listOf(listOf("h", RANDOM), listOf("name", "random"), listOf("about", "Anything else: lost and found, spare pears."), listOf("open")), now - 30 * 60,
+            status = OutboxStatus.FAILED, error = "invalid: http 403 not_allowed", tries = 1,
+            path = "/group-meta", body = "{\"channel\":\"$RANDOM\",\"about\":\"Anything else: lost and found, spare pears.\"}"))
 
         // ---- direct messages and e-mail (gift wraps to me) ---------------------------------------
         val wraps = ArrayList<Event>()

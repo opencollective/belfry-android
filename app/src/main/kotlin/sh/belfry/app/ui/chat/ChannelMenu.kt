@@ -47,6 +47,7 @@ import sh.belfry.core.model.channelCounts
 import sh.belfry.core.model.isLocked
 import sh.belfry.core.model.lineDay
 import sh.belfry.core.model.pinned
+import sh.belfry.core.model.showsRow
 
 /**
  * The channel's pull-down (iOS 2026-11-17, web ChannelLine.tsx at r3): from the top, under the
@@ -88,14 +89,15 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
             }
         }
         Hairline(Modifier.padding(top = 4.dp))
-        MenuRow(Icons.Outlined.PushPin, "Pinned", n.pins, "pd-pinned") { place(ChannelPlaceKey.PINNED) }
-        if (!g.isEvent) MenuRow(BelfryIcons.Calendar, "Events", n.events, "pd-events") { go(Routes.events(groupId)) }
-        if (!g.isEvent && !g.isProposal) MenuRow(BelfryIcons.Proposal, "To decide", n.proposals, "pd-decide") { place(ChannelPlaceKey.DECIDE) }
-        MenuRow(MoreIcons.Todo, "To-dos", n.todos - n.todosDone, "pd-todos") { place(ChannelPlaceKey.TODOS) }
-        MenuRow(Icons.Outlined.Image, "Photos", n.photos, "pd-photos") { place(ChannelPlaceKey.PHOTOS) }
-        MenuRow(Icons.Outlined.AttachFile, "Files", n.files, "pd-files") { go(Routes.files(groupId)) }
-        if (!g.isEvent && !g.isProposal) MenuRow(null, "Groups", n.groups, "pd-groups", pod = true) { place(ChannelPlaceKey.GROUPS) }
-        MenuRow(BelfryIcons.Hash, "Topics", n.topics, "pd-topics") { go(Routes.topics(groupId)) }
+        // rows with nothing in them are left out (like the iPhone); Members, Notifications, Log and Settings stay
+        if (n.showsRow("pinned")) MenuRow(Icons.Outlined.PushPin, "Pinned", n.pins, "pd-pinned") { place(ChannelPlaceKey.PINNED) }
+        if (!g.isEvent && n.showsRow("events")) MenuRow(BelfryIcons.Calendar, "Events", n.events, "pd-events") { go(Routes.events(groupId)) }
+        if (!g.isEvent && !g.isProposal && n.showsRow("decide")) MenuRow(BelfryIcons.Proposal, "To decide", n.proposals, "pd-decide") { place(ChannelPlaceKey.DECIDE) }
+        if (n.showsRow("todos")) MenuRow(MoreIcons.Todo, "To-dos", n.todos - n.todosDone, "pd-todos") { place(ChannelPlaceKey.TODOS) }
+        if (n.showsRow("photos")) MenuRow(Icons.Outlined.Image, "Photos", n.photos, "pd-photos") { place(ChannelPlaceKey.PHOTOS) }
+        if (n.showsRow("files")) MenuRow(Icons.Outlined.AttachFile, "Files", n.files, "pd-files") { go(Routes.files(groupId)) }
+        if (!g.isEvent && !g.isProposal && n.showsRow("groups")) MenuRow(null, "Groups", n.groups, "pd-groups", pod = true) { place(ChannelPlaceKey.GROUPS) }
+        if (n.showsRow("topics")) MenuRow(BelfryIcons.Hash, "Topics", n.topics, "pd-topics") { go(Routes.topics(groupId)) }
         MenuRow(BelfryIcons.Users, "Members", n.members, "pd-members") { place(ChannelPlaceKey.MEMBERS) }
         if (!world.isLocked(groupId)) MenuRow(Icons.Outlined.NotificationsNone, "Notifications", 0, "pd-notifications") { go(Routes.follow(groupId)) }
         MenuRow(Icons.Outlined.History, "Log", 0, "pd-log") { place(ChannelPlaceKey.LOG) }

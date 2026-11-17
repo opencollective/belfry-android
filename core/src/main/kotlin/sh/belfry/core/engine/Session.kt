@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -30,6 +31,8 @@ import sh.belfry.core.dm.DmHost
 import sh.belfry.core.dm.DmSnapshot
 import sh.belfry.core.mail.MailPart
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.Buttons
+import sh.belfry.core.model.MessageButton
 import sh.belfry.core.model.CalEvent
 import sh.belfry.core.model.Draft
 import sh.belfry.core.model.Mentions
@@ -83,9 +86,11 @@ import sh.belfry.core.nostr.arr
 import sh.belfry.core.nostr.long
 import sh.belfry.core.nostr.obj
 import sh.belfry.core.nostr.parseJsonOrNull
+import sh.belfry.core.nostr.s
 import sh.belfry.core.nostr.str
 import sh.belfry.core.nostr.unixNow
 import sh.belfry.core.outbox.Attachment
+import sh.belfry.core.outbox.ErrorClass
 import sh.belfry.core.outbox.Outbox
 import sh.belfry.core.outbox.OutboxItem
 import sh.belfry.core.outbox.OutboxStatus
@@ -310,9 +315,9 @@ class Session(
 
     private fun ctx(): WorldContext = WorldContext(
         me = me, domain = community.domain, communityName = community.name,
-        communityAdmins = community.admins.toSet() + extraAdmins, groupsKey = groupsKey, bridgeKey = bridge, zone = zone,
+        communityAdmins = community.admins.toSet() + extraAdmins, groupsKey = community.groupsKey ?: groupsKey, bridgeKey = bridge, zone = zone,
         groupsRelay = community.groupsRelay, agents = community.agents, kinds = HashMap(kinds),
-        groupsAbsent = groupsAbsent, placeNames = placeNames,
+        groupsAbsent = groupsAbsent, placeNames = placeNames, belfryKey = community.belfryPubkey,
     )
 
     /** The next snapshot; what PREV worked out for the channels nothing arrived in is taken over (see [World]). */
@@ -626,7 +631,8 @@ class Session(
         }
         try {
             Discovery.bridgeKey(community.domain, http)?.let { bridge = it; store.set(K_BRIDGE, it) }
-            Discovery.groupsKey(community.domain, http)?.let { groupsKey = it; store.set(K_GROUPS_KEY, it) }
+            // belfry.json names it now (`groups_key`); nostr.json `_groups` for a belfry not yet updated
+            if (community.groupsKey == null) Discovery.groupsKey(community.domain, http)?.let { groupsKey = it; store.set(K_GROUPS_KEY, it) }
         } catch (e: IOException) {
             // offline: the stored ones
         }
@@ -814,6 +820,7 @@ class Session(
     }
 
     private suspend fun sendOne(item: OutboxItem, signedNow: MutableMap<String, Event>): SendOutcome {
+        if (item.target == Target.API) return sendApi(item)
         item.signed?.let { ev ->
             if (localOnly) return SendOutcome.Ok(ev)
             return publish(item.target, ev)
@@ -850,6 +857,50 @@ class Session(
         signedNow[item.localId] = ev
         if (localOnly) return SendOutcome.Ok(ev)
         return publish(item.target, ev)
+    }
+
+    /** A queued API call (SPEC 19.37): NIP-98 signed now, POSTed; the answer's status decides. */
+    private suspend fun sendApi(item: OutboxItem): SendOutcome {
+        // the demo plays the belfry: it publishes what the call asked for (a 9002 as its groups key)
+        if (localOnly) return SendOutcome.Ok(Demo.groups.signNow(EventTemplate(item.kind, item.content, item.tags, clock())))
+        val path = item.path ?: return SendOutcome.Error("invalid: no path")
+        val body = parseJsonOrNull(item.body ?: "{}") as? JsonObject ?: return SendOutcome.Error("invalid: body")
+        return try {
+            val (status, answer) = api().signedFetch(signer, community.apiBase + path, "POST", body)
+            Outbox.httpOutcome(status, answer?.s("error"))
+        } catch (e: ApiException) {
+            SendOutcome.Error("timeout: the signer did not answer")
+        } catch (e: IOException) {
+            SendOutcome.Error("timeout: no connection")
+        }
+    }
+
+    /**
+     * Queues a call to the belfry's API (`POST <api base><path>` with BODY) in the outbox: kept
+     * through restarts and offline, sent in order, signed when it goes. KIND + TAGS are how it
+     * shows meanwhile (a 9002 shows its new name and description at once, SPEC 19.37).
+     */
+    internal suspend fun queueApi(path: String, body: JsonObject, kind: Int, tags: List<Tag>): String = withContext(Dispatchers.Default) {
+        guard()
+        val id = enqueueLock.withLock {
+            lastCreatedAt = Outbox.nextCreatedAt(lastCreatedAt, clock())
+            val item = OutboxItem(newLocalId(), Target.API, kind, "", tags, lastCreatedAt, path = path, body = body.toString())
+            store.putOutbox(item)
+            item.localId
+        }
+        rebuild()
+        requestFlush()
+        id
+    }
+
+    /** Try again every refused change to GROUP_ID's settings ([World.failedSettings]). */
+    suspend fun retrySettings(groupId: String) {
+        for (item in _world.value.failedSettings(groupId)) retry(item.localId)
+    }
+
+    /** Gives up on them: what the relay has shows again. */
+    suspend fun discardSettings(groupId: String) {
+        for (item in _world.value.failedSettings(groupId)) discard(item.localId)
     }
 
     private suspend fun publish(target: Target, ev: Event): SendOutcome {
@@ -894,6 +945,43 @@ class Session(
         // an event's URL in the text: its `a` tag too, so every client shows the card
         val a = _world.value.eventTagsFor(d.content, community.mainRelay) { events.knownCoord(it) }
         return send(d.copy(tags = d.tags + a), files)
+    }
+
+    /**
+     * Presses BUTTON on message M in GROUP_ID (SPEC 19.36): signed and published on the groups
+     * relay at once, never through the outbox; kept in the log so the state survives a restart.
+     * Throws [ActionException] `not_sent` when it can't be sent (the button unlocks), and the
+     * guest-mode refusal (the Join sheet opens). The demo answers a `belfry:` action itself.
+     */
+    suspend fun pressButton(groupId: String, m: Message, button: MessageButton): Event = withContext(Dispatchers.Default) {
+        guard()
+        val d = Buttons.press(m.id, m.pubkey, groupId, button.id)
+        val at = enqueueLock.withLock { Outbox.nextCreatedAt(lastCreatedAt, clock()).also { lastCreatedAt = it } }
+        val ev = try {
+            withTimeout(PUBLISH_TIMEOUT_MS) { signer.sign(EventTemplate(d.kind, d.content, d.tags + listOf(Actions.CLIENT_TAG), at)) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (e is kotlinx.coroutines.TimeoutCancellationException) throw ActionException("not_sent", Buttons.NOT_SENT) else throw e
+        } catch (e: Exception) {
+            throw ActionException("not_sent", Buttons.NOT_SENT)
+        }
+        if (!localOnly) {
+            val out = publish(Target.GROUPS, ev)
+            if (out is SendOutcome.Error && Outbox.classify(out.message) != ErrorClass.DUPLICATE) throw ActionException("not_sent", Buttons.NOT_SENT)
+        }
+        addToLog(listOf(ev))
+        if (localOnly && button.action == Buttons.WEBSITE_PUBLISH) {
+            val key = Demo.groups
+            val name = _world.value.realName(me).ifEmpty { "you" }
+            scope.launch(Dispatchers.Default) {
+                delay(DEMO_ANSWER_MS)
+                if (stopped) return@launch
+                addToLog(listOf(key.signNow(EventTemplate(1985, "Published by $name.", listOf(
+                    listOf("L", Buttons.RESULT_NS), listOf("l", "ok", Buttons.RESULT_NS), listOf("e", m.id), listOf("press", ev.id),
+                    listOf("p", me), listOf("h", groupId), listOf("closed", "1"),
+                ), clock()))))
+            }
+        }
+        ev
     }
 
     /** A reply in the thread under ROOT (a channel message). */
@@ -1431,5 +1519,7 @@ class Session(
         private const val WATCHDOG_MS = 15_000L
         /** Tests shorten it. */
         @Volatile var PUBLISH_TIMEOUT_MS = 15_000L
+        /** How long the demo's belfry takes to answer a button. */
+        @Volatile var DEMO_ANSWER_MS = 900L
     }
 }

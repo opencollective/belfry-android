@@ -331,10 +331,23 @@ class MembersService internal constructor(private val s: Session) {
         s.checkPresence(force = true)
     }
 
-    /** A group's name / description / access, kept with every other setting. */
+    /**
+     * A group's name / description / access, kept with every other setting. Returns at once
+     * (SPEC 19.37): those the relay lets edit queue the 9002; an admin by role queues
+     * `POST /group-meta` in the outbox. Both show the change at once; a final refusal shows in
+     * the channel's header ([World.failedSettings]).
+     */
     suspend fun saveGroupMeta(g: Group, name: String? = null, about: String? = null, closed: Boolean? = null, prompt: String? = null, vouches: Int? = null) {
-        if (world.mayModerate(g) || demo) s.send(Actions.groupMeta(g, name = name, about = about, closed = closed, prompt = prompt, vouches = vouches))
-        else events { it.groupMeta(g.id, name, about, closed, prompt) }
+        val d = Actions.groupMeta(g, name = name, about = about, closed = closed, prompt = prompt, vouches = vouches)
+        if (world.mayModerate(g) || demo) { s.send(d); return }
+        val body = kotlinx.serialization.json.buildJsonObject {
+            put("channel", kotlinx.serialization.json.JsonPrimitive(g.id))
+            if (name != null) put("name", kotlinx.serialization.json.JsonPrimitive(name))
+            if (about != null) put("about", kotlinx.serialization.json.JsonPrimitive(about))
+            if (closed != null) put("closed", kotlinx.serialization.json.JsonPrimitive(closed))
+            if (prompt != null) put("prompt", kotlinx.serialization.json.JsonPrimitive(prompt))
+        }
+        s.queueApi("/group-meta", body, d.kind, d.tags)
     }
 
     /** PUBKEY's role in a channel, group or event (`POST /group-roles`); the demo writes what the belfry would. */

@@ -52,6 +52,8 @@ fun TopBar(
     onTitleClick: (() -> Unit)? = null,
     navigation: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    /** Right after the title (a channel's "settings not saved" mark). */
+    titleMark: (@Composable () -> Unit)? = null,
 ) {
     val c = Belfry.colors
     Column(modifier.fillMaxWidth().background(c.bg).windowInsetsPadding(WindowInsets.statusBars)) {
@@ -60,7 +62,14 @@ fun TopBar(
             if (navigation != null) navigation() else Spacer(Modifier.width(12.dp))
             val click = if (onTitleClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onTitleClick) else Modifier
             Column(Modifier.weight(1f).then(click).padding(horizontal = 4.dp, vertical = 4.dp)) {
-                Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (titleMark == null) {
+                    Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        titleMark()
+                    }
+                }
                 if (!subtitle.isNullOrEmpty()) {
                     Text(subtitle, fontSize = 12.sp, lineHeight = 15.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

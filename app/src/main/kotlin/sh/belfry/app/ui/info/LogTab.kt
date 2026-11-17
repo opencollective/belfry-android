@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.info
 
+import sh.belfry.app.ui.kit.LinkText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -161,7 +162,7 @@ fun LogTab(g: Group, modifier: Modifier = Modifier, onTab: (Int) -> Unit = {}, d
                         if (isOpen) {
                             Column(Modifier.fillMaxWidth().padding(start = 50.dp, end = 16.dp, bottom = 12.dp)) {
                                 val detail = line.detail
-                                if (!detail.isNullOrEmpty()) Text(detail, fontSize = 14.sp, lineHeight = 20.sp, color = c.text, modifier = Modifier.padding(bottom = 8.dp))
+                                if (!detail.isNullOrEmpty()) LinkText(detail, fontSize = 14.sp, lineHeight = 20.sp, color = c.text, modifier = Modifier.padding(bottom = 8.dp))
                                 Text(FULL.format(Instant.ofEpochSecond(line.ev.createdAt).atZone(world.ctx.zone)), fontSize = 13.sp, color = c.muted, modifier = Modifier.padding(bottom = 8.dp))
                                 val go = line.go
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

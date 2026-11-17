@@ -36,6 +36,19 @@ object Outbox {
         return m.find() && m.group(1) !in UPLOAD_MAY_PASS
     }
 
+    private val HTTP_MAY_PASS = setOf(401, 408, 429)
+
+    /**
+     * How a queued API call went (SPEC 19.37): 2xx sent; a 4xx other than 401 / 408 / 429 is
+     * refused for good (`invalid: http <status> <code>`, fails that item); anything else is
+     * tried again later.
+     */
+    fun httpOutcome(status: Int, code: String?): SendOutcome = when {
+        status in 200..299 -> SendOutcome.Ok(null)
+        status in 400..499 && status !in HTTP_MAY_PASS -> SendOutcome.Error("invalid: http $status" + (code?.takeIf { it.isNotEmpty() }?.let { " $it" } ?: ""))
+        else -> SendOutcome.Error("http $status")
+    }
+
     /** created_at strictly increasing per client: `max(last + 1, now)`. */
     fun nextCreatedAt(last: Long, now: Long = System.currentTimeMillis() / 1000): Long = maxOf(last + 1, now)
 

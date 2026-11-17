@@ -786,6 +786,38 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     fun dropUrl(token: String): String = "https://${ctx.domain}/drop/$token"
 
+    // ---- channel settings waiting or refused (SPEC 19.37) --------------------------------------
+
+    /**
+     * My changes to GROUP_ID's settings the relay or the belfry refused for good: its 9002 (name,
+     * description, access), `POST /group-meta`, the shared-inbox switch, its web page setting.
+     * They still show; the header carries an error mark until they are tried again or discarded.
+     */
+    fun failedSettings(groupId: String): List<OutboxItem> = outboxItems.filter { o ->
+        o.status == sh.belfry.core.outbox.OutboxStatus.FAILED && o.signed == null &&
+            o.tags.any { it.size >= 2 && it[0] == "h" && it[1] == groupId } &&
+            (o.kind == 9002 || (o.kind == 30078 && o.tags.any { it.size >= 2 && it[0] == "d" && (it[1] == INBOX_D || it[1].startsWith(WEB_D)) }))
+    }
+
+    // ---- buttons on messages (SPEC 19.36, Buttons.kt) ------------------------------------------
+
+    /** Presses and answers (kind 1985 `belfry/action`, `belfry/action-result`) by the message they are about. */
+    private val actionLabels: Map<String, List<Event>> by lazy {
+        val out = HashMap<String, ArrayList<Event>>()
+        for (e in ofKind(1985)) if (Buttons.isLabel(e)) e.t("e")?.let { out.getOrPut(it) { ArrayList() }.add(e) }
+        out
+    }
+
+    /** The buttons under a channel message or thread reply (kinds 9 and 1111); an edit never changes them. */
+    fun buttons(m: Message): List<MessageButton> = if (m.ev.kind == 9 || m.ev.kind == 1111) Buttons.parse(m.ev.tags) else emptyList()
+
+    /** What M's buttons show for me: closed for everyone, my latest press and its answer. */
+    fun buttonState(m: Message): ButtonState {
+        val list = buttons(m)
+        if (list.isEmpty()) return ButtonState.NONE
+        return Buttons.state(m.id, m.pubkey, list, me, actionLabels[m.id].orEmpty(), ctx.belfryKey, ctx.groupsKey)
+    }
+
     // ---- shared inbox --------------------------------------------------------------------------
 
     /** Is the channel's shared inbox on: the latest `belfry:inbox` setting by one of its admins. */

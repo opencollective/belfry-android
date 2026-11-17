@@ -229,6 +229,7 @@ fun ChannelScreen(
             },
             // the header's right side is search only; the bell is the pull-down's Notifications row
             actions = { IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) }) },
+            titleMark = if (g != null && world.failedSettings(groupId).isNotEmpty()) ({ SettingsFailedMark(groupId) }) else null,
         )
         if (!embedded && g != null && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
             SummaryLine(groupId, chat, now, attentionOnly = true)

@@ -189,9 +189,16 @@ private fun SettingsPlace(g: sh.belfry.core.model.Group) {
     var confirm by remember { mutableStateOf(false) }
     if (!g.archived) ChannelSettingsForm(g, onClose = { nav.back() })
     if (world.mayArchive(g) && !g.archived) {
-        Spacer(Modifier.height(20.dp))
-        ActionGroup {
-            ActionRow(if (g.isPod) "Archive the group" else "Archive the channel", onClick = { confirm = true }, icon = Icons.Outlined.Archive, sub = "Out of the lists, read only; it can be unarchived", modifier = Modifier.testTag("settings-archive"))
+        // under Save, quiet and centred (owner's feedback 2026-11-17): a text button and its one line
+        Spacer(Modifier.height(16.dp))
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            androidx.compose.material3.TextButton(onClick = { confirm = true }, modifier = Modifier.testTag("settings-archive")) {
+                Text(if (g.isPod) "Archive this group" else "Archive this channel", fontSize = 15.sp, color = Belfry.colors.danger)
+            }
+            Text(
+                "It leaves the lists and becomes read only. You can unarchive it.",
+                fontSize = 13.sp, color = Belfry.colors.muted, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
         }
     }
     if (g.archived) Text("Archived: unarchive it from the bar under its name to change its settings.", fontSize = 15.sp, color = Belfry.colors.muted)

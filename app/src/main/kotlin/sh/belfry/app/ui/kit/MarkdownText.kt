@@ -19,7 +19,6 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -86,13 +85,13 @@ fun MarkdownText(
     val c = Belfry.colors
     val world = LocalWorldOrNull.current
     val nav = LocalNav.current
-    val uri = LocalUriHandler.current
+    val openLink = rememberOpenLink()
     val blocks = remember(text, rich) { Markdown.parse(text, if (rich) Markdown.rich else Markdown.asIs) }
     val ctx = MdContext(
         c, world,
         onMention = onMention ?: { pk -> nav.go(Routes.profile(pk)) },
         onTopic = onTopic,
-        onLink = { href -> if (isSafeLink(href)) try { uri.openUri(href) } catch (e: Exception) { } },
+        onLink = openLink,
         onChannel = { id -> nav.openChannel(id) },
     )
     val line = (fontSize.value * 1.4f).sp

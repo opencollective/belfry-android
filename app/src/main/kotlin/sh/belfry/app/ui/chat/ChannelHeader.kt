@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -109,4 +110,32 @@ fun ArchiveConfirm(g: Group, onDone: () -> Unit, onDismiss: () -> Unit) {
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = Belfry.colors.text) } },
         containerColor = Belfry.colors.bg,
     )
+}
+
+/**
+ * The mark next to a channel's name when a change to its settings was refused for good (SPEC
+ * 19.37): a tap says so in one sentence, with Try again and Discard (back to what the relay has).
+ */
+@Composable
+fun SettingsFailedMark(groupId: String) {
+    val c = Belfry.colors
+    val session = LocalSession.current
+    var open by remember { mutableStateOf(false) }
+    androidx.compose.material3.IconButton(onClick = { open = true }, modifier = Modifier.size(32.dp).testTag("settings-failed")) {
+        Icon(Icons.Outlined.ErrorOutline, contentDescription = "Settings not saved", tint = c.danger, modifier = Modifier.size(20.dp))
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Not saved") },
+            text = { Text("Your change to this channel’s settings was refused, so others don’t see it.") },
+            confirmButton = {
+                BusyButton("Try again", onClick = { session.retrySettings(groupId); open = false }, small = true, modifier = Modifier.testTag("settings-retry"))
+            },
+            dismissButton = {
+                BusyButton("Discard", onClick = { session.discardSettings(groupId); open = false }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("settings-discard"))
+            },
+            containerColor = c.bg,
+        )
+    }
 }

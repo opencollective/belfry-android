@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.info
 
+import sh.belfry.app.ui.kit.LinkText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -101,7 +102,7 @@ private fun TaskRow(groupId: String, t: Task, open: Boolean, toggle: () -> Unit)
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).clickable(onClick = toggle)) {
-                Text(
+                LinkText(
                     t.title, fontSize = 16.sp, lineHeight = 21.sp,
                     color = if (t.done) c.muted else c.text, textDecoration = if (t.done) TextDecoration.LineThrough else null,
                 )
@@ -114,7 +115,7 @@ private fun TaskRow(groupId: String, t: Task, open: Boolean, toggle: () -> Unit)
                 t.comments.forEach { cm ->
                     Row(Modifier.padding(vertical = 3.dp)) {
                         Text(world.displayName(cm.author) + "  ", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text(cm.text, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
+                        LinkText(cm.text, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
                     }
                 }
                 Spacer(Modifier.height(6.dp))

@@ -11,6 +11,17 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
+## Round 5 (Android branch `r5`, 2026-11-17)
+
+| Area (SPEC) | Status | Notes |
+|---|---|---|
+| Buttons on messages (19.36) | done | `vectors/message-actions.json` (= collective-belfry `docs/actions-vectors.json`) passes (`R5Test`); press published at once (not queued); answers trusted from the author or the belfry / groups key (`groups_key` in belfry.json, nostr.json `_groups` as fallback); closed for everyone, my answer, 20 s "No answer yet.", unknown `belfry:` action disabled; confirmation in the app's words. Demo: three versions in #website (`R5ShotsTest`). Never pressed against a real belfry. |
+| Links in text (19.36) | done | One finder (`Links`), Markdown emphasis no longer cuts addresses with `_`; to-do titles and comments, requests, log details now link; this belfry's chat links open in the app. |
+| Website keeps its name (19.35) | done | Only general → Townsquare; test in `R5Test`. |
+| Pull-down without empty rows | done | Like the iPhone. |
+| Channel settings through the outbox (19.37) | done | Save applies at once; `POST /group-meta` queued as an outbox item; error mark + Try again / Discard in the header. |
+| App Links for chat.opensourcevillage.org | done | Needs the belfry to serve assetlinks.json there. |
+
 ## Parity with the iPhone app (iOS `08a3fc9`, web `a2323df`; Android branch `parity`, 2026-11-17)
 
 The milestones that bring Android level with the iPhone app. Same status words. Nothing in this

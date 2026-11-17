@@ -1824,3 +1824,68 @@ or "Archive the channel" otherwise, each behind a confirmation; delete = `POST /
 {"channel"}` (NIP-98, a group admin or belfry admin; 409 `not_empty`, 409 `always_open`, 422 for
 ev- / ws- / prop- ids; the belfry publishes the 9008). (Android) The names live in one table,
 `core/model/Charter.kt` `PlaceNames`.
+
+### 19.36 Buttons on messages, links in text, the pull-down's rows (2026-11-17; collective-belfry `docs/actions.md`, `vectors/message-actions.json`)
+
+**Buttons.** A kind 9 or 1111 in a group may carry up to four `["button", id, label, style?,
+action?]` tags: `id` = `[a-z0-9-]{1,32}` unique in the message, `label` 1–40 characters after
+trimming (shown as is, never as Markdown), `style` `primary` | `danger` | anything else = plain,
+`action` empty = the message's author handles it, `belfry:<name>` = the belfry does. A tag that
+breaks a rule, a fifth button and a repeated id are ignored; an edit (1010) never changes them.
+Buttons show under the text, in tag order (feed and threads).
+
+- **Press** (published at once on the groups relay, never through the outbox; kept in the log so
+  the state survives a restart): kind 1985, content "", tags `["L","belfry/action"]`,
+  `["l",<button id>,"belfry/action"]`, `["e",<message id>]`, `["p",<message author>]`,
+  `["h",<group>]` (+ the client tag). When it can't be sent: "Couldn't send. Check your connection
+  and try again." and the buttons unlock. A reading guest gets the Join sheet instead.
+- **Answer**: kind 1985 `["L","belfry/action-result"]`, `["l","ok"|"error","belfry/action-result"]`,
+  `e`, `["press",<press id>]`, `p` (who pressed), `h`, `["code",…]` on errors, `["closed","1"]`
+  optional on ok; content = one sentence. It counts only from the handler of the button its press
+  named: the author (no action) or the belfry key (belfry.json `nostr.pubkey`) / its groups key
+  (belfry.json `groups_key.pubkey`; nostr.json `_groups` for a belfry not yet updated). A press
+  this device hasn't seen: the handler of any of the message's buttons.
+- **State** (`Buttons.state`): the latest trusted ok + closed answer to anyone's press closes the
+  buttons **for everyone**, replaced by its content. Otherwise, for my latest press: no answer and
+  younger than 20 s → every button locked, a spinner on the one pressed; the latest trusted answer
+  to it → ok: its text under the buttons (none when empty); error: its text, else the fixed
+  sentence for its code (unknown code "That didn't work."), in error colours, buttons unlocked; no
+  answer after 20 s: "No answer yet." (an answer arriving later still shows).
+- **Asking first**: a `belfry:` action asks with the app's own text (`belfry:website-publish`:
+  "Publish this version as the website? Everyone will see it at https://<domain>." · Publish /
+  Cancel); a danger button handled by its author asks "<label>?". A `belfry:` action this app
+  doesn't know: disabled, "Update the app to use this.".
+- (Android) Material `Button` for primary, `OutlinedButton` for plain and danger (error colours),
+  `AlertDialog` for the question. `core/model/Buttons.kt`, `World.buttons / buttonState`,
+  `Session.pressButton`, `ui/chat/MessageButtons.kt`.
+
+**Links.** Everywhere people's text is printed (messages, thread replies, DMs, e-mail frames,
+descriptions, to-do titles and comments, event descriptions, profiles, requests, the log's
+details) an address is `https?://` then anything up to white space, `<`, `>`, `(` or `)`, not
+ending on `. , ; : ! ? ' "` (`core/model/Links.kt`; the same rule is the URL branch of the
+Markdown pattern). A bare host is not a link. Markdown emphasis never starts or ends inside an
+address (the marks `_ * ~` and backtick inside one are masked before the inline pattern runs:
+"my_file https://a.org/b_c_d" keeps the whole address; the web's markdown.tsx still splits it).
+This belfry's chat links open in the app: `https://chat.<domain>/#/c/<id>[/m/<event>]` (also
+`https://<domain>/chat/#/c/…`) opens the channel, its `/events/<link>` and `/join/<token>` go
+where an opened link goes; anything else opens in the browser. Long addresses wrap.
+
+**Pull-down rows.** Pinned, Events (coming up), To decide, To-dos, Photos, Files, Groups and
+Topics show only when they have something (`ChannelCounts.showsRow`); Members, Notifications, Log
+and Settings (channel admins) always show.
+
+### 19.37 Channel settings save at once, through the outbox (Android, 2026-11-17)
+
+Saving a channel's settings applies at once and goes back to the channel: the change is queued
+in the outbox (kept through restarts and offline, sent in order). Those the relay lets edit queue
+the 9002 (every other setting kept); an admin by role queues the call `POST <api>/group-meta` as
+an outbox item with target `api` (`path`, JSON `body`; NIP-98 signed when it is sent; it shows
+meanwhile as the 9002 it asks for). The e-mail switch (30078 `belfry:inbox`) and the web page
+setting (`belfry:web:<id>`) are events in the same queue. An API answer: 2xx sent; a 4xx other
+than 401 / 408 / 429 is refused for good (`invalid: http <status> <code>`); anything else is
+tried again. A change refused for good (relay or API) keeps showing, and an error mark stands
+next to the channel's name; a tap says "Your change to this channel's settings was refused, so
+others don't see it." with Try again (back in the queue) and Discard (what the relay has shows
+again). `World.failedSettings`, `Session.retrySettings / discardSettings`. The Settings screen:
+Save is the filled button; "Archive this channel" is a centred text button under it with its one
+line.

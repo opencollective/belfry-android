@@ -32,6 +32,8 @@ data class WorldContext(
     val groupsAbsent: Map<String, Long> = emptyMap(),
     /** Show general / events / proposals / website by their on-brand names (SPEC 19.31). True in the app, false in the vectors. */
     val placeNames: Boolean = false,
+    /** The belfry's own key (belfry.json `nostr.pubkey`): answers `belfry:` buttons with the groups key (SPEC 19.36). */
+    val belfryKey: String? = null,
 )
 
 data class Profile(val name: String? = null, val picture: String? = null, val nip05: String? = null, val about: String = "", val at: Long = 0)

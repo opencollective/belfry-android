@@ -13,12 +13,16 @@ import sh.belfry.core.nostr.long
 import sh.belfry.core.nostr.obj
 import sh.belfry.core.nostr.s
 
-/** Which relay an event goes to: the NIP-29 groups relay or the community ("main") relay. */
+/**
+ * Which relay an event goes to: the NIP-29 groups relay or the community ("main") relay; or
+ * [API]: a signed call to the belfry's HTTP API queued like an event (`OutboxItem.path` +
+ * `body`, NIP-98 signed when it is sent; SPEC 19.37).
+ */
 enum class Target(val key: String) {
-    GROUPS("groups"), MAIN("main");
+    GROUPS("groups"), MAIN("main"), API("api");
 
     companion object {
-        fun of(key: String): Target = if (key == "main") MAIN else GROUPS
+        fun of(key: String): Target = when (key) { "main" -> MAIN; "api" -> API; else -> GROUPS }
     }
 }
 
@@ -73,6 +77,9 @@ data class OutboxItem(
     val signed: Event? = null,
     /** The direct message or e-mail it carries, told when it is out. */
     val dm: String? = null,
+    /** [Target.API]: the call's path under the API base (`/group-meta`), POSTed with [body] (JSON). */
+    val path: String? = null,
+    val body: String? = null,
 ) {
     /** The item as it shows in the log before it is signed: id = localId, no signature. */
     fun asEvent(me: String): Event = signed ?: Event(localId, me, createdAt, kind, tags, content, "")
@@ -90,6 +97,8 @@ data class OutboxItem(
         put("tries", JsonPrimitive(tries))
         if (signed != null) put("signed", signed.toJson())
         if (dm != null) put("dm", JsonPrimitive(dm))
+        if (path != null) put("path", JsonPrimitive(path))
+        if (body != null) put("body", JsonPrimitive(body))
     }
 
     companion object {
@@ -106,6 +115,8 @@ data class OutboxItem(
             tries = o["tries"].int() ?: 0,
             signed = o["signed"]?.let { Event.fromJson(it) },
             dm = o.s("dm"),
+            path = o.s("path"),
+            body = o.s("body"),
         )
     }
 }

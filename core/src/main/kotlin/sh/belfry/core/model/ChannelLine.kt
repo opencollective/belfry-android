@@ -324,3 +324,20 @@ fun World.channelCounts(groupId: String, now: Long): ChannelCounts {
         isPublic = isPublicChannel(group(groupId)),
     )
 }
+
+/**
+ * Does the channel's pull-down show ROW (like the iPhone, 2026-11-17)? Rows with nothing in them
+ * are left out: `pinned`, `events` (coming up), `decide`, `todos`, `photos`, `files`, `groups`,
+ * `topics`. Members, Notifications, Log and Settings always show (any other key: true).
+ */
+fun ChannelCounts.showsRow(row: String): Boolean = when (row) {
+    "pinned" -> pins > 0
+    "events" -> events > 0
+    "decide" -> proposals > 0
+    "todos" -> todos > 0
+    "photos" -> photos > 0
+    "files" -> files > 0
+    "groups" -> groups > 0
+    "topics" -> topics > 0
+    else -> true
+}

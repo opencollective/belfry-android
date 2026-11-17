@@ -128,23 +128,26 @@ object Markdown {
 
     fun inline(text: String, plain: Plain = asIs): List<Inline> {
         val out = ArrayList<Inline>()
-        val m = INLINE.matcher(text)
+        // matched on a copy whose addresses carry no emphasis marks (SPEC 19.36: "my_file
+        // https://a.org/b_c" keeps the whole address); every group is read from TEXT itself
+        val m = INLINE.matcher(sh.belfry.core.model.Links.masked(text))
+        fun g(i: Int): String? = if (m.start(i) < 0) null else text.substring(m.start(i), m.end(i))
         var last = 0
         while (m.find()) {
             if (m.start() > last) out.addAll(plain.split(text.substring(last, m.start())))
-            val bold = m.group(2) ?: m.group(3)
-            val code = m.group(4)
-            val strike = m.group(5)
-            val label = m.group(6)
-            val href = m.group(7)
-            val italic = m.group(8) ?: m.group(9)
-            val url = m.group(10)
+            val bold = g(2) ?: g(3)
+            val code = g(4)
+            val strike = g(5)
+            val label = g(6)
+            val href = g(7)
+            val italic = g(8) ?: g(9)
+            val url = g(10)
             when {
                 bold != null -> out.add(Inline.Bold(inline(bold, plain)))
                 code != null -> out.add(Inline.Code(code))
                 strike != null -> out.add(Inline.Strike(inline(strike, plain)))
                 label != null && href != null ->
-                    out.add(if (SAFE_URL.matcher(href).find()) Inline.Link(href, inline(label, asIs)) else Inline.Text(m.group()))
+                    out.add(if (SAFE_URL.matcher(href).find()) Inline.Link(href, inline(label, asIs)) else Inline.Text(text.substring(m.start(), m.end())))
                 italic != null -> out.add(Inline.Italic(inline(italic, plain)))
                 url != null -> out.add(Inline.Link(url, listOf(Inline.Text(url))))
             }
