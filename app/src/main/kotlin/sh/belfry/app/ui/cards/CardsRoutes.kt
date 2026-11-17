@@ -9,7 +9,7 @@ import sh.belfry.app.ui.nav.optArg
 /** Pods, events, proposals and the create screens. The route strings live in Routes.kt. */
 fun NavGraphBuilder.cardsRoutes() {
     composable(Routes.EVENTS, arguments = listOf(Routes.optional("channel"))) { entry -> EventsScreen(entry.optArg("channel")) }
-    composable(Routes.EVENT) { entry -> EventScreen(entry.arg("coord")) }
+    composable(Routes.EVENT, listOf(Routes.optional("t"))) { entry -> EventScreen(entry.arg("coord"), entry.optArg("t")) }
     composable(Routes.CHECK_IN) { entry -> CheckInScreen(entry.arg("coord")) }
     composable(Routes.POD) { entry -> PodScreen(entry.arg("id")) }
     composable(Routes.PROPOSAL) { entry -> ProposalScreen(entry.arg("id")) }

@@ -333,3 +333,36 @@ private fun demoAttendees(world: sh.belfry.core.model.World, e: CalEvent): List<
     return (hosts + going).distinct().map { pk -> Attendee(pk, world.displayName(pk), "", if (pk in hosts) "Host" else "Ticket", "accepted", checked[pk]?.takeIf { it.first }?.second, "member") }
 }
 
+
+/**
+ * The card a ticket link opens for those who may check people in (SPEC 19.29): who it is and
+ * whether they are in (asked with `peek`: nothing is recorded by opening a link), then "Check in"
+ * → "Checked in at …" with Undo. An older belfry without peek: the card shows "Check in" only.
+ */
+@Composable
+fun TicketLinkCard(e: CalEvent, code: String) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val session = LocalSession.current
+    var person by remember(code) { mutableStateOf<Attendee?>(null) }
+    var error by remember(code) { mutableStateOf<String?>(null) }
+    LaunchedEffect(code) {
+        if (session.localOnly) return@LaunchedEffect
+        try { person = session.members.checkIn(e.d, code = code, peek = true).person } catch (x: ActionException) { if (x.code == "no_ticket") error = "Not a ticket for this event" }
+    }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface).padding(14.dp).testTag("ticket-link-card")) {
+        val p = person
+        Text(p?.let { it.name.ifEmpty { world.displayName(it.pubkey) } } ?: "A ticket", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+        if (p != null) Text(listOfNotNull(p.ticketTitle.ifEmpty { null }, p.checkedIn?.let { "Checked in at " + ChatFormat.time(world, it) }).joinToString(" · "), fontSize = 15.sp, color = c.muted)
+        error?.let { Text("✕ $it", fontSize = 15.sp, color = c.danger) }
+        if (error == null) {
+            Spacer(Modifier.height(8.dp))
+            if (p?.checkedIn == null) BusyButton("Check in", onClick = {
+                try { person = session.members.checkIn(e.d, code = code).person } catch (x: ActionException) { error = x.message }
+            }, small = true, modifier = Modifier.testTag("ticket-checkin"))
+            else BusyButton("Undo", onClick = {
+                try { person = session.members.checkIn(e.d, pubkey = p.pubkey, undo = true).person } catch (x: ActionException) { error = x.message }
+            }, kind = ButtonKind.Ghost, small = true)
+        }
+    }
+}

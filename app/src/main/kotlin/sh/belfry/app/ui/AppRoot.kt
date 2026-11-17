@@ -198,7 +198,7 @@ private fun EventLinkOpener(state: AppState) {
     if (link.domain == session.community.domain) {
         LaunchedEffect(link) {
             state.forgetEventLink()
-            nav.go(Routes.event(link.link))
+            nav.go(Routes.event(link.link, link.code))
         }
         return
     }

@@ -218,17 +218,17 @@ internal fun EventCover(url: String, modifier: Modifier = Modifier) {
  * relay gave it to us, else the belfry's answer (a guest can't read the community relay).
  */
 @Composable
-fun EventScreen(key: String) {
+fun EventScreen(key: String, ticket: String? = null) {
     val world = LocalWorld.current
     val session = LocalSession.current
     val local = world.eventByKey(key)
-    if (local != null) return EventView(local, null)
+    if (local != null) return EventView(local, null, ticket)
     val remote by session.events.remote.collectAsState()
     val isLink = !key.contains(':')
     LaunchedEffect(key) { if (isLink) session.events.fetch(key) }
     val got = remote[key]
     val api = got?.api
-    if (api != null) return EventView(api.toCalEvent(world.ctx.zone, world.me), api)
+    if (api != null) return EventView(api.toCalEvent(world.ctx.zone, world.me), api, ticket)
     val title = when {
         !isLink -> "This event is not here (yet)"
         got == null -> "Opening the event…"
@@ -243,7 +243,7 @@ internal enum class EventSheet { None, Menu, Take, Tickets, Guests, Qr, CoHost, 
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EventView(e: CalEvent, api: ApiEvent?) {
+private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
     val world = LocalWorld.current
     val session = LocalSession.current
     val nav = LocalNav.current
@@ -294,6 +294,8 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(if (full) 16f / 9f else 3f).clip(RoundedCornerShape(12.dp))) }
+            // a ticket link opened by someone who may check people in: who it is, then Check in
+            if (ticket != null && mayCheck) TicketLinkCard(e, ticket)
             EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
             // my ticket and, on the event's days, checking people in (SPEC 19.29)
             val code = viewer?.ticketUrl

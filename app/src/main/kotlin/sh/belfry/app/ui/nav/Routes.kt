@@ -94,9 +94,9 @@ object Routes {
     const val EVENTS = "events?channel={channel}"
     /** A channel's events, or every channel's (null). */
     fun events(channel: String? = null) = if (channel == null) "events" else "events?channel=${enc(channel)}"
-    const val EVENT = "event/{coord}"
+    const val EVENT = "event/{coord}?t={t}"
     /** An event by its coordinate, or by the last part of its URL (`https://<domain>/events/<link>`). */
-    fun event(coord: String) = "event/${enc(coord)}"
+    fun event(coord: String, ticket: String? = null) = "event/${enc(coord)}" + if (ticket != null) "?t=${enc(ticket)}" else ""
     /** Checking people in at an event (hosts, co-hosts, Door). */
     const val CHECK_IN = "check-in/{coord}"
     fun checkIn(coord: String) = "check-in/${enc(coord)}"

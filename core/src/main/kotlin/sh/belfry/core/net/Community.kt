@@ -235,15 +235,15 @@ data class Branding(val logo: String = "", val cover: String = "", val primary: 
  * redirects it to the web chat's `#/events/<link>`; the app opens the event page). Only the
  * domain and the link are read; nothing of the address is ever displayed.
  */
-data class EventLink(val domain: String, val link: String) {
+data class EventLink(val domain: String, val link: String, /** A ticket's code (`/t/<code>`, SPEC 19.29): only the code is read. */ val code: String? = null) {
     companion object {
-        private val LINK = Regex("^https://chat\\.([a-z0-9.-]+)/events/([A-Za-z0-9_-]{1,80})/?$")
+        private val LINK = Regex("^https://chat\\.([a-z0-9.-]+)/(?:#/)?events/([A-Za-z0-9_-]{1,80})(?:/t/([a-z2-7]{16}))?/?$")
 
         fun parse(url: String): EventLink? {
             val m = LINK.matchEntire(url.trim()) ?: return null
             val domain = m.groupValues[1]
             if (!Community.isDomain(domain)) return null
-            return EventLink(domain, m.groupValues[2])
+            return EventLink(domain, m.groupValues[2], m.groupValues[3].ifEmpty { null })
         }
     }
 }
