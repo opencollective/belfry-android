@@ -11,6 +11,7 @@ import sh.belfry.core.dm.GiftWrap
 import sh.belfry.core.mail.MailThreads
 import sh.belfry.core.mail.Mime
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.Charter
 import sh.belfry.core.model.pinMessage
 import sh.belfry.core.model.Draft
 import sh.belfry.core.model.EventActions
@@ -319,6 +320,20 @@ object Demo {
         say(lena, HELLO, now - 25 * h, "I can show them the compost. Kids love the worms.")
         card(now - 2 * h, "delivery@gardenshop.example", "The Garden Shop", "Your order is on its way", "Your order of 6 bags of potting soil will be delivered on Friday between 8 and 12. Someone needs to be there to sign.", "<order-7781@gardenshop.example>", false)
 
+        // the charter (SPEC 19.32): three agreements by me (a steward), two ticked by me, one changed since
+        run {
+            val t0 = now - 6 * day
+            for (d in Charter.create()) post(me, t0, d)
+            val a1 = post(me, t0 + 10, Charter.add("We look after each other", "Kind words, good faith.", 1))
+            val a2 = post(me, t0 + 20, Charter.add("Shared things come back clean", "", 2))
+            val a3 = post(me, t0 + 30, Charter.add("Quiet hours after 22:00", "In the hall and the garden.", 3))
+            post(me, t0 + 100, Charter.agree(a1.id, true))
+            post(me, t0 + 110, Charter.agree(a3.id, true))
+            post(maya, t0 + 120, Charter.agree(a1.id, true))
+            post(maya, t0 + 130, Charter.agree(a2.id, true))
+            // a steward reworded the third: my tick is stale, it asks me again
+            post(me, now - 2 * day, Charter.edit(a3.id, "Quiet hours after 22:00, every day", "In the hall, the garden and the street.", 3))
+        }
         store.addEvents(events)
         store.set(Session.K_GROUPS_KEY, groups.pubkey)
         store.set(Session.K_BRIDGE, bridge.pubkey)
