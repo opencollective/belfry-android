@@ -51,6 +51,7 @@ import sh.belfry.core.model.GroupLock
 import sh.belfry.core.model.GroupPresence
 import sh.belfry.core.model.lockedGroups
 import sh.belfry.core.model.presenceAfter
+import sh.belfry.core.model.presenceAskable
 import sh.belfry.core.model.presenceCandidates
 import sh.belfry.core.model.inviteText
 import sh.belfry.core.model.isGuest
@@ -217,6 +218,8 @@ class Session(
     /** Deleted by absence (SPEC 19.30): what the groups relay said it has no metadata for. Stored. */
     @Volatile private var groupsAbsent: Map<String, Long> = emptyMap()
     @Volatile private var lastPresence = 0L
+    /** Groups made on this device → when (never asked about in their first two minutes). */
+    private val createdHere = HashMap<String, Long>()
     private var lastCreatedAt = 0L
 
     private val _world: MutableStateFlow<World>
@@ -445,14 +448,23 @@ class Session(
         val now = System.currentTimeMillis()
         if (!force && now - lastPresence < 60_000) return
         lastPresence = now
-        val ids = (_world.value.presenceCandidates() + extra).distinct()
+        val w0 = _world.value
+        val made = synchronized(createdHere) { HashMap(createdHere) }
+        val ids = (w0.presenceCandidates() + extra).distinct().filter { w0.presenceAskable(it, clock(), made) }
         var absent = groupsAbsent
         var changed = false
         for (q in GroupPresence.questions(ids)) {
-            val answer = r.queryOnce(buildJsonObject {
-                put("kinds", JsonArray(listOf(JsonPrimitive(39000))))
-                put("#d", JsonArray(q.map { JsonPrimitive(it) }))
-            })
+            // its metadata and its own 9007 / 9002 / 9008; only an answer that ends with EOSE counts
+            val answer = r.queryUntilEose(listOf(
+                buildJsonObject {
+                    put("kinds", JsonArray(listOf(JsonPrimitive(39000))))
+                    put("#d", JsonArray(q.map { JsonPrimitive(it) }))
+                },
+                buildJsonObject {
+                    put("kinds", JsonArray(listOf(JsonPrimitive(9007), JsonPrimitive(9002), JsonPrimitive(9008))))
+                    put("#h", JsonArray(q.filter { it != "general" }.map { JsonPrimitive(it) }))
+                },
+            )) ?: continue
             val next = _world.value.presenceAfter(q, answer, absent) ?: continue
             addToLog(answer)
             if (next != absent) { absent = next; changed = true }
@@ -1021,6 +1033,7 @@ class Session(
     /** A new channel; returns its id. */
     suspend fun createChannel(name: String, about: String): String {
         val id = Actions.newChannelId(name)
+        synchronized(createdHere) { createdHere[id] = clock() }
         send(Actions.createChannel(id, name.trim(), about.trim()))
         return id
     }
@@ -1028,6 +1041,7 @@ class Session(
     /** A new pod under PARENT (a channel or a pod); returns its id. */
     suspend fun createPod(name: String, about: String, parent: String, access: PodAccess = PodAccess()): String {
         val id = Actions.newPodId(name)
+        synchronized(createdHere) { createdHere[id] = clock() }
         send(Actions.createPod(id, name.trim(), about.trim(), parent, access))
         return id
     }

@@ -273,13 +273,14 @@ class ParityTest {
         val after = w(events, absent = absent!!)
         assertEquals(GroupState.DELETED, after.groupState(pod))
         assertEquals(GroupState.UNKNOWN, after.groupState("pod-other-0000"))
-        // a stale copy, then something newer
+        // a group known from its own metadata is live: never asked about, a stored mark is ignored (web groupstate.ts)
         val ev2 = listOf(meta("general", "general"), meta("garden", "garden", 100), ev(ANA, 9007, 90, listOf(listOf("h", "garden"))))
-        val a2 = w(ev2).presenceAfter(listOf("garden"), listOf(meta("general", "general")))!!
-        assertEquals(mapOf("garden" to 100L), a2)
-        assertEquals(GroupState.DELETED, w(ev2, absent = a2).groupState("garden"))
-        assertEquals(GroupState.OPEN, w(ev2 + meta("garden", "garden", 500), absent = a2).groupState("garden"))
+        assertFalse("garden" in w(ev2).presenceCandidates())
+        assertEquals(emptyMap<String, Long>(), w(ev2).presenceAfter(listOf("garden"), listOf(meta("general", "general")))!!)
+        assertEquals(GroupState.OPEN, w(ev2, absent = mapOf("garden" to 100L)).groupState("garden"))
         assertEquals(GroupState.OPEN, w(ev2, absent = mapOf("general" to 999L)).groupState("general"))
+        // the card-only group: its metadata arriving later clears the mark
+        assertEquals(GroupState.OPEN, w(events + meta(pod, "Canal", 50), absent = absent).groupState(pod))
     }
 
     @Test

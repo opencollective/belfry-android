@@ -61,23 +61,41 @@ fun World.mayArchive(g: Group?): Boolean {
 fun World.presenceCandidates(): List<String> {
     val out = ArrayList<String>()
     val seen = hashSetOf("general")
-    for (g in groupIndex.all) {
-        if ((g.type == ChannelType.CHANNEL || g.type == ChannelType.POD) && !g.pending && seen.add(g.id)) out.add(g.id)
-    }
-    val creating = groupIndex.all.filter { it.pending }.map { it.id }.toSet()
-    for (id in ctx.groupsAbsent.keys.sorted()) {
-        if (id in seen || id in creating) continue
-        val t = World.typeOfId(id)
-        if (t != ChannelType.CHANNEL && t != ChannelType.POD) continue
-        seen.add(id); out.add(id)
-    }
+    for (id in ctx.groupsAbsent.keys.sorted()) if (presenceAskable(id) && seen.add(id)) out.add(id)
     for (e in all) {
         if (e.kind != 9) continue
         val p = World.podOf(e) ?: continue
-        if (p in seen || isPending(e.id)) continue
+        if (p in seen || isPending(e.id) || !presenceAskable(p)) continue
         seen.add(p); out.add(p)
     }
     return out
+}
+
+/**
+ * May the groups relay be asked whether ID is still there (web groupstate.ts)? Only channels and
+ * groups (never events `ev-` / `ws-` or proposals `prop-`), only when this device holds none of
+ * its metadata (39000 / 9007 / 9002, mine queued or sent included: such a group is live), and
+ * never while the outbox holds anything for it. NOW_S (with CREATED_HERE: when this device made
+ * it) keeps a group made here in the last [Presence.FRESH_S] seconds out too.
+ */
+fun World.presenceAskable(id: String, nowS: Long = 0, createdHere: Map<String, Long> = emptyMap()): Boolean {
+    if (id == "general" || !Presence.mayBeAbsent(id)) return false
+    if (id in groupIndex.newestMeta) return false
+    if (outboxItems.any { o -> o.tags.any { it.size >= 2 && (it[0] == "h" || it[0] == "pod") && it[1] == id } }) return false
+    val made = createdHere[id]
+    if (made != null && nowS - made < Presence.FRESH_S) return false
+    return true
+}
+
+object Presence {
+    /** A group made on this device is never asked about for this long (seconds). */
+    const val FRESH_S = 120L
+
+    /** Only channels and groups can be deleted by absence; events and proposals only by a 9008. */
+    fun mayBeAbsent(id: String): Boolean {
+        val t = World.typeOfId(id)
+        return t == ChannelType.CHANNEL || t == ChannelType.POD
+    }
 }
 
 /**
@@ -86,12 +104,14 @@ fun World.presenceCandidates(): List<String> {
  * always asked along and always there.
  */
 fun World.presenceAfter(asked: List<String>, answer: List<Event>, was: Map<String, Long>? = null): Map<String, Long>? {
-    val there = answer.filter { it.kind == 39000 }.mapNotNull { it.tag("d") }.toSet()
-    if ("general" !in there) return null
+    val meta = answer.filter { it.kind == 39000 }.mapNotNull { it.tag("d") }.toSet()
+    if ("general" !in meta) return null
+    // its 39000, or any 9007 / 9002 for it: there (a 9008 alone is not, and deletes it by itself)
+    val there = meta + answer.filter { it.kind == 9007 || it.kind == 9002 }.mapNotNull { it.tag("h") }
     val out = HashMap(was ?: ctx.groupsAbsent)
     for (id in asked) {
         if (id == "general") continue
-        if (id in there) out.remove(id) else out[id] = groupIndex.newestMeta[id] ?: 0L
+        if (id in there || !presenceAskable(id)) out.remove(id) else out[id] = 0L
     }
     return out
 }

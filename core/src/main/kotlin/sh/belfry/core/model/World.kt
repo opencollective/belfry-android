@@ -232,12 +232,16 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val gone = HashSet<String>()
         val newestMeta = HashMap<String, Long>()
         val byRole = LinkedHashMap<Pair<String, String>, Boolean>()
+        val created = HashMap<String, Long>()
+        val removed = HashMap<String, Long>()
         for (e in sorted) {
             val id = (if (e.kind in 39000..39003) e.t("d") else e.t("h")) ?: continue
             if (id.isEmpty()) continue
             val g = map.getOrPut(id) { G(id, e.createdAt) }
-            if (e.kind == 9008) gone.add(id)
+            // deleted by a 9008 only when it is newer than every 9007 (a group made again lives)
+            if (e.kind == 9008) removed[id] = maxOf(removed[id] ?: 0, e.createdAt)
             if (e.kind == 9007) {
+                created[id] = maxOf(created[id] ?: 0, e.createdAt)
                 g.createdAt = minOf(g.createdAt, e.createdAt)
                 if (isPending(e.id)) g.pending = true
                 if (g.creator == null) g.creator = e.pubkey
@@ -324,7 +328,11 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         }
         // deleted (SPEC 19.30): a 9008, or the relay said it has no such group and nothing newer
         // about it arrived since (never one I am still creating, never #general)
-        for ((id, at) in ctx.groupsAbsent) if (id != "general" && (newestMeta[id] ?: 0) <= at && map[id]?.pending != true) gone.add(id)
+        for ((id, at) in removed) if (at > (created[id] ?: -1)) gone.add(id)
+        // absence counts only for channels and groups this device holds no metadata of at all
+        // (events and proposals never; a group known from its own 39000 / 9007 / 9002 is live, and
+        // its events arriving later clear the mark: web groupstate.ts)
+        for (id in ctx.groupsAbsent.keys) if (Presence.mayBeAbsent(id) && id !in newestMeta && map[id]?.pending != true) gone.add(id)
         val all = map.values.filter { it.id !in gone }
             .sortedWith(compareBy<G> { if (it.id == "general") 0 else 1 }.thenByDescending { it.lastActivity })
             .map {

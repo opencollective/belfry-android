@@ -299,3 +299,70 @@ class R5Test {
         assertFalse(some.showsRow("files"))
     }
 }
+
+/** "This group has been deleted" for a group just made (iPhone bug, 2026-11-17): the rules of the web's groupstate.ts. */
+class PresenceTest {
+    private val me = "a".repeat(64)
+    private val ana = "b".repeat(64)
+    private val relay = "d".repeat(64)
+    private fun ev(pk: String, kind: Int, at: Long, tags: List<List<String>>, c: String = "") =
+        Event(sh.belfry.core.crypto.sha256Hex("$pk$kind$at$tags$c"), pk, at, kind, tags, c)
+    private fun meta(id: String, at: Long = 100) = ev(relay, 39000, at, listOf(listOf("d", id), listOf("name", id)))
+    private fun w(events: List<Event>, outbox: List<OutboxItem> = emptyList(), absent: Map<String, Long> = emptyMap()) =
+        World(events, outbox, WorldContext(me = me, groupsAbsent = absent))
+    private val general = meta("general")
+
+    @Test
+    fun aJustCreatedProposalIsNeverDeletedByAbsence() {
+        val prop = "prop-new-roof-1a2b"
+        val made = listOf(
+            general,
+            ev(me, 9007, 1000, listOf(listOf("h", prop))),
+            ev(me, 9002, 1001, listOf(listOf("h", prop), listOf("name", "New roof"))),
+            ev(me, 9, 1002, listOf(listOf("h", "general"), listOf("proposal", prop)), "New proposal: New roof"),
+        )
+        // even with a stale "absent" mark, and before its 39000 came back
+        val world = w(made, absent = mapOf(prop to 0L))
+        assertEquals(GroupState.OPEN, world.groupState(prop))
+        assertFalse(prop in world.presenceCandidates())
+        assertFalse(world.presenceAskable(prop))
+        // an answer without it changes nothing for a proposal
+        assertEquals(emptyMap<String, Long>(), world.presenceAfter(listOf(prop), listOf(general), emptyMap()))
+        // only a 9008 newer than every 9007 deletes it
+        assertEquals(GroupState.DELETED, w(made + ev(ana, 9008, 1100, listOf(listOf("h", prop)))).groupState(prop))
+        assertEquals(GroupState.OPEN, w(made + ev(ana, 9008, 900, listOf(listOf("h", prop)))).groupState(prop))
+    }
+
+    @Test
+    fun aJustCreatedGroupIsLiveWhileQueuedSentAndAnswered() {
+        val pod = "pod-canal-41ec"
+        val queued = Actions.createPod(pod, "Canal", "Along the water", "general", PodAccess()).mapIndexed { i, d ->
+            OutboxItem("local-$i", d.target, d.kind, d.content, d.tags, 1000L + i)
+        }
+        // in the outbox: live, never asked, a stored mark ignored
+        val q = w(listOf(general), queued, absent = mapOf(pod to 0L))
+        assertEquals(GroupState.OPEN, q.groupState(pod))
+        assertFalse(pod in q.presenceCandidates())
+        assertFalse(q.presenceAskable(pod))
+        // sent, its 39000 not back yet: still live, still not asked
+        val sent = queued.map { ev(me, it.kind, it.createdAt, it.tags, it.content) }
+        val s = w(listOf(general) + sent, absent = mapOf(pod to 0L))
+        assertEquals(GroupState.OPEN, s.groupState(pod))
+        assertFalse(s.presenceAskable(pod))
+        // a card for a group this device knows nothing of: askable, but not in its first two minutes when made here
+        val card = ev(ana, 9, 2000, listOf(listOf("h", "general"), listOf("pod", "pod-other-0000")), "New group: Other")
+        val c = w(listOf(general, card))
+        assertTrue(c.presenceAskable("pod-other-0000"))
+        assertFalse(c.presenceAskable("pod-other-0000", nowS = 2050, createdHere = mapOf("pod-other-0000" to 2000L)))
+        assertTrue(c.presenceAskable("pod-other-0000", nowS = 2200, createdHere = mapOf("pod-other-0000" to 2000L)))
+        // the relay's answer with only its 9007 (no 39000 yet) means it is there
+        assertEquals(emptyMap<String, Long>(), c.presenceAfter(listOf("pod-other-0000"), listOf(general, ev(ana, 9007, 1990, listOf(listOf("h", "pod-other-0000"))))))
+        // EOSE with nothing: deleted; its events arriving later clear that
+        val gone = c.presenceAfter(listOf("pod-other-0000"), listOf(general))!!
+        assertEquals(GroupState.DELETED, w(listOf(general, card), absent = gone).groupState("pod-other-0000"))
+        assertEquals(GroupState.OPEN, w(listOf(general, card, meta("pod-other-0000", 50)), absent = gone).groupState("pod-other-0000"))
+        // events never by absence
+        assertFalse(c.presenceAskable("ev-20261117-abcd"))
+        assertFalse(c.presenceAskable("ws-e1a2b3c4"))
+    }
+}

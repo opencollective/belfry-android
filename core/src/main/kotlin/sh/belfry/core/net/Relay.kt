@@ -382,9 +382,19 @@ class Relay(
     }
 
     /** One-off query: the events up to EOSE (or what came before the timeout). Empty when offline. */
-    suspend fun query(filters: List<JsonObject>, timeoutMs: Long = 8_000): List<Event> {
+    suspend fun query(filters: List<JsonObject>, timeoutMs: Long = 8_000): List<Event> = ask(filters, timeoutMs)?.first ?: emptyList()
+
+    /**
+     * The events the relay has for FILTERS, or null when it didn't finish (no EOSE within
+     * TIMEOUT_MS, no connection): "no answer" is not "nothing there".
+     */
+    suspend fun queryUntilEose(filters: List<JsonObject>, timeoutMs: Long = 8_000): List<Event>? =
+        ask(filters, timeoutMs)?.takeIf { it.second }?.first
+
+    /** What arrived, and whether EOSE came; null without a connection. */
+    private suspend fun ask(filters: List<JsonObject>, timeoutMs: Long): Pair<List<Event>, Boolean>? {
         if (openSocket() == null) {
-            try { connect(timeoutMs) } catch (e: RelayException) { return emptyList() }
+            try { connect(timeoutMs) } catch (e: RelayException) { return null }
         }
         val id = "q" + Random.hex(4)
         val box = QueryBox()
@@ -392,12 +402,12 @@ class Relay(
             val s = if (isOpen) socket else null
             if (s != null) queries[id] = box
             s
-        } ?: return emptyList()
+        } ?: return null
         ws.send(req(id, filters))
-        withTimeoutOrNull(timeoutMs) { box.done.await() }
+        val finished = withTimeoutOrNull(timeoutMs) { box.done.await() } != null
         val still = synchronized(lock) { queries.remove(id) != null }
         if (still) ws.send(closeMsg(id))
-        return box.events()
+        return box.events() to finished
     }
 
     suspend fun queryOnce(filter: JsonObject, timeoutMs: Long = 8_000): List<Event> = query(listOf(filter), timeoutMs)

@@ -1889,3 +1889,18 @@ others don't see it." with Try again (back in the queue) and Discard (what the r
 again). `World.failedSettings`, `Session.retrySettings / discardSettings`. The Settings screen:
 Save is the filled button; "Archive this channel" is a centred text button under it with its one
 line.
+
+### 19.38 Deleted by absence: when a client may say so (2026-11-17; web `src/core/groupstate.ts`)
+
+An iPhone build showed a proposal made a minute before as "This group has been deleted". The
+rules every client follows: events (`ev-`, `ws-`) and proposals (`prop-`) are never deleted by
+absence, only by a 9008 newer than every 9007 (the same rule for channels and groups: a group
+made again lives). A group this device holds any metadata of (39000, 9007, 9002; my own queued
+or just-sent creation included) is live: it is never asked about and a stored "absent" mark for
+it is ignored, so its own events arriving later clear the mark. Only channels and groups known
+from a card alone are asked about, never while the outbox holds anything for them, never in the
+first two minutes after this device made them. The question is `{"kinds":[39000],"#d":[…]}` +
+`{"kinds":[9007,9002,9008],"#h":[…]}` with #general alongside; only an answer that ends in EOSE
+and names #general counts (no answer = unknown = the normal screen); a 39000, 9007 or 9002 for
+the id means it is there. (Android) `core/model/Archive.kt` `presenceAskable`, `presenceAfter`;
+`Relay.queryUntilEose`.
