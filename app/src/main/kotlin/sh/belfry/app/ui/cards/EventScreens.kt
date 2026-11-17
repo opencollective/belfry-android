@@ -1,5 +1,18 @@
 package sh.belfry.app.ui.cards
 
+import sh.belfry.core.model.mayCheckIn
+import sh.belfry.core.model.onEventDays
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import sh.belfry.app.ui.kit.Hairline
+import sh.belfry.app.ui.kit.TopBar
+import sh.belfry.app.ui.kit.BackButton
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -260,14 +273,34 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
     }
     val url = world.eventUrl(e)
 
-    CardScreen(
-        e.title,
-        subtitle = if (e.meeting) "Meeting · members only" else if (e.isNew) "Event · " + world.ctx.communityName.ifEmpty { session.community.name } else CardFormat.dayAndWhen(world, e, now),
-        actions = { IconAction(BelfryIcons.More, "More", { sheet = EventSheet.Menu }, Modifier.testTag("event-more")) },
-    ) {
-        PageColumn {
-            e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp))) }
+    // SPEC 19.29: one screen per event; the header at three levels (opens at half), Chat · Photos · People under it
+    var level by rememberSaveable(e.coord) { mutableStateOf(EventLevel.HALF) }
+    val full = level == EventLevel.FULL
+    val viewer = rememberViewer(e)
+    val mayCheck = viewer?.mayCheckIn ?: world.mayCheckIn(e)
+    var ticketOpen by remember(e.coord) { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().background(c.bg).testTag("event-screen-${level.name.lowercase()}")) {
+        TopBar(
+            e.title,
+            subtitle = if (e.meeting) "Meeting · members only" else ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e),
+            navigation = { BackButton { nav.back() } },
+            actions = { IconAction(BelfryIcons.More, "More", { sheet = EventSheet.Menu }, Modifier.testTag("event-more")) },
+        )
+        if (level != EventLevel.UP) Column(
+            (if (full) Modifier.weight(1f) else Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.5f).dp))
+                .fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(if (full) 16f / 9f else 3f).clip(RoundedCornerShape(12.dp))) }
             EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
+            // my ticket and, on the event's days, checking people in (SPEC 19.29)
+            val code = viewer?.ticketUrl
+            if (code != null || (mayCheck && world.onEventDays(e, now))) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, small = true, modifier = Modifier.testTag("event-ticket"))
+                    if (mayCheck && world.onEventDays(e, now)) BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Check, small = true, modifier = Modifier.testTag("event-checkin"))
+                }
+            }
 
             Panel(Modifier.testTag("event-details")) {
                 Text(ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + endDay(world, e, now), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
@@ -285,7 +318,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
                 }
                 if (e.links.isEmpty() && api?.online == true) { Gap(6); Muted("Online: the link shows once you have a place.") }
             }
-
+            if (full) {
             // a meeting: who is invited, what they answered, who was there (hosts check people in)
             if (e.meeting && !e.remote) MeetingPeople(e, host)
 
@@ -368,8 +401,31 @@ private fun EventView(e: CalEvent, api: ApiEvent?) {
             if (!e.isNew && e.author == world.me) {
                 ActionGroup { ActionRow("Delete event", onClick = { sheet = EventSheet.Delete }, modifier = Modifier.testTag("event-delete"), icon = BelfryIcons.Trash, danger = true) }
             }
+            }
+        }
+        // the handle: a tap moves a level (half → full → up → half), a drag up / down too
+        Box(
+            Modifier.fillMaxWidth().height(24.dp)
+                .pointerInput(Unit) {
+                    var moved = 0f
+                    detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = {
+                        if (moved < -16f) level = level.up() else if (moved > 16f) level = level.down()
+                    }) { _, dy -> moved += dy }
+                }
+                .clickable(role = Role.Button, onClickLabel = "Show more or less of the event") { level = level.next() }
+                .testTag("event-handle"),
+            contentAlignment = Alignment.Center,
+        ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
+        Hairline()
+        if (!full) {
+            if (inside && g != null) EventTabs(e, Modifier.weight(1f))
+            else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
+                if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
+                else Muted("Get a place to see the event's chat, photos and people.")
+            }
         }
     }
+    if (ticketOpen) viewer?.ticketUrl?.let { TicketSheet(e, it, viewer.checkedIn) { ticketOpen = false } }
 
     val close = { sheet = EventSheet.None; ticketFor = null }
     when (sheet) {

@@ -117,6 +117,8 @@ fun ChannelScreen(
     menuBadge: Int? = null,
     /** Pushed over a place (a card, a link): a back arrow instead of ☰. */
     onBack: (() -> Unit)? = null,
+    /** Inside another screen (an event's Chat tab): no header of its own. */
+    embedded: Boolean = false,
     focusMessage: String? = null,
     onFocusDone: () -> Unit = {},
     chat: ChatState = rememberChatState(groupId),
@@ -216,7 +218,7 @@ fun ChannelScreen(
     }
 
     Column(modifier.fillMaxSize().background(c.bg).imePadding()) {
-        TopBar(
+        if (!embedded) TopBar(
             title = g?.name ?: groupId,
             subtitle = if (g != null) channelSubtitle(world, groupId, now) else null,
             onTitleClick = { chat.toggleLine() },
@@ -228,7 +230,7 @@ fun ChannelScreen(
             // the header's right side is search only; the bell is the pull-down's Notifications row
             actions = { IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) }) },
         )
-        if (g != null && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
+        if (!embedded && g != null && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
             SummaryLine(groupId, chat, now, attentionOnly = true)
             Hairline()
         }

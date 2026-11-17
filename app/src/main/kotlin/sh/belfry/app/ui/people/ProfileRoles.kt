@@ -48,7 +48,6 @@ import sh.belfry.core.model.ChannelType
 import sh.belfry.core.model.EventRole
 import sh.belfry.core.model.GroupRole
 import sh.belfry.core.model.PlaceNames
-import sh.belfry.core.model.calEventFor
 import sh.belfry.core.model.eventRole
 import sh.belfry.core.model.groupRole
 import sh.belfry.core.model.isAgent

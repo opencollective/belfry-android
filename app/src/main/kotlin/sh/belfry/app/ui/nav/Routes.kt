@@ -97,6 +97,9 @@ object Routes {
     const val EVENT = "event/{coord}"
     /** An event by its coordinate, or by the last part of its URL (`https://<domain>/events/<link>`). */
     fun event(coord: String) = "event/${enc(coord)}"
+    /** Checking people in at an event (hosts, co-hosts, Door). */
+    const val CHECK_IN = "check-in/{coord}"
+    fun checkIn(coord: String) = "check-in/${enc(coord)}"
     const val EDIT_EVENT = "edit-event/{coord}"
     fun editEvent(coord: String) = "edit-event/${enc(coord)}"
     /** [createEvent] from All events: no channel (from a channel's ＋, the event's URL goes into its composer). */

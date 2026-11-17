@@ -78,7 +78,7 @@ enum class ScanUi(val title: String, val text: String) {
 
 fun hasCamera(context: Context): Boolean = context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
 
-private fun cameraGranted(context: Context): Boolean =
+internal fun cameraGranted(context: Context): Boolean =
     ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
 /**
@@ -218,7 +218,7 @@ fun ScanContent(
  * lifecycle: the camera is released when the scanner leaves or the app goes to the background.
  */
 @Composable
-private fun CameraPreview(onText: (String) -> Unit, onFailed: () -> Unit) {
+internal fun CameraPreview(onText: (String) -> Unit, onFailed: () -> Unit) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val text by rememberUpdatedState(onText)
