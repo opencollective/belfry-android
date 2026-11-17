@@ -67,6 +67,8 @@ internal class PendingReply(
     val text: String,
     val inReplyTo: String?,
     val cardId: String,
+    /** The thread's Message-IDs (SPEC 19.33: References = the last 10 then In-Reply-To). */
+    val references: List<String> = emptyList(),
 )
 
 /**
@@ -109,7 +111,7 @@ internal object ReplyQueue {
         if (pending === p) pending = null
         scope.launch {
             try {
-                val id = session.sendAsChannel(p.channel, p.to, p.subject, p.text, p.inReplyTo, p.cardId)
+                val id = session.sendAsChannel(p.channel, p.to, p.subject, p.text, p.inReplyTo, p.cardId, p.references)
                 drafts.remove(p.cardId)
                 sent = id to p.first
             } catch (e: kotlinx.coroutines.CancellationException) {

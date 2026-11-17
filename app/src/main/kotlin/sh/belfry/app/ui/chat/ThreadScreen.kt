@@ -60,6 +60,11 @@ fun ThreadScreen(
 ) {
     val c = Belfry.colors
     val world = LocalWorld.current
+    // an e-mail thread of a shared inbox has its own view (SPEC 19.33)
+    world.mailThread(groupId, rootId)?.let { t ->
+        sh.belfry.app.ui.cards.MailThreadScreen(groupId, t, onClose)
+        return
+    }
     val session = LocalSession.current
     val nav = LocalNav.current
     val g = world.group(groupId)

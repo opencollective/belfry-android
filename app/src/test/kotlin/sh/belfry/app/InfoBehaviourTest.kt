@@ -43,7 +43,7 @@ class InfoBehaviourTest : DemoShots() {
         compose.setContent {
             BelfryTheme {
                 InDemo {
-                    InviteScreen(Demo.GARDEN, makeLink = { n, d, _ ->
+                    InviteScreen(Demo.GARDEN, makeLink = { _, n, d ->
                         calls++
                         gate.await()
                         GuestLink(url, null, 30, n, d, null)
@@ -119,7 +119,8 @@ class InfoBehaviourTest : DemoShots() {
         compose.setContent {
             BelfryTheme {
                 InDemo {
-                    InviteScreen(Demo.GARDEN, makeLink = { n, d, agent ->
+                    InviteScreen(Demo.GARDEN, makeLink = { who, n, d ->
+                        val agent = who is sh.belfry.core.net.JoinsAs.Agent
                         asked.add(Triple(n, d, agent))
                         GuestLink("https://chat.belfry.example/join/tok-agent", agentUrl, 0, 1, d, null, agent)
                     })
@@ -131,7 +132,7 @@ class InfoBehaviourTest : DemoShots() {
         compose.waitUntil(5_000) { compose.onAllNodesWithText(agentUrl).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(listOf(Triple(1, 1, true)), asked)
         compose.onNodeWithText("It works once", substring = true).assertIsDisplayed()
-        // switching to a guest link turns the agent one off and asks for a plain guest link
+        // choosing a guest link instead asks for a plain guest link
         compose.onNodeWithTag("invite-guest").performClick()
         compose.waitUntil(5_000) { asked.size == 2 }
         assertEquals(Triple(1, 1, false), asked[1])
