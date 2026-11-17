@@ -35,13 +35,14 @@ import sh.belfry.core.crypto.Bech32
 import sh.belfry.core.markdown.Markdown
 import sh.belfry.core.nostr.Event
 import sh.belfry.core.model.World
+import sh.belfry.core.model.isDeletedGroup
 import sh.belfry.core.model.refLabel
 
 /** The messages and thread replies that name me (p tag or my npub), newest first (web Mentions.tsx). */
 fun World.mentionsOfMe(limit: Int = 100): List<Event> {
     val npub = "nostr:" + runCatching { Bech32.npub(me) }.getOrDefault("-")
     return all.asSequence()
-        .filter { (it.kind == 9 || it.kind == 1111) && it.pubkey != me && it.tag("h") != null }
+        .filter { (it.kind == 9 || it.kind == 1111) && it.pubkey != me && it.tag("h") != null && !isDeletedGroup(it.tag("h")!!) }
         .filter { e -> e.tags.any { it.size > 1 && it[0] == "p" && it[1] == me } || e.content.contains(npub) }
         .distinctBy { it.id }
         .sortedByDescending { it.createdAt }

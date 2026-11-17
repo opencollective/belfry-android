@@ -37,7 +37,6 @@ import sh.belfry.app.ui.cards.TakeSheet
 import sh.belfry.app.ui.cards.TicketsSheet
 import sh.belfry.app.ui.chat.ChannelScreen
 import sh.belfry.app.ui.nav.Routes
-import sh.belfry.app.ui.shell.ChannelDrawer
 import sh.belfry.app.ui.theme.BelfryTheme
 import sh.belfry.core.engine.Demo
 import sh.belfry.core.model.CalEvent
@@ -119,9 +118,6 @@ class EventsTest : DemoShots() {
             EventCardView(repair, null)
         }
     }
-
-    @Test
-    fun drawerYourEvents() = demoShot("drawer-your-events") { ChannelDrawer(Demo.GENERAL, onPick = {}, go = {}) }
 
     @Test
     fun newEventForm() = demoShot("event-form-new") { CreateEventScreen(Routes.NO_CHANNEL) }

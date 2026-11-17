@@ -20,7 +20,7 @@ class TabletShotsTest : DemoShots() {
 
     @Config(qualifiers = "w1280dp-h800dp-land-240dpi")
     @Test fun tenInchLandscapeWithThread() {
-        val shell = ShellState(general).apply { thread = busiest() }
+        val shell = ShellState(general).apply { thread = busiest(); place = ShellState.Place.TOWN }
         demoShot("tablet-10-landscape-thread") { AppNav(rememberNavController(), shell) }
     }
 
@@ -32,7 +32,7 @@ class TabletShotsTest : DemoShots() {
 
     @Config(qualifiers = "w960dp-h600dp-land-240dpi")
     @Test fun sevenInchLandscape() {
-        val shell = ShellState(general)
+        val shell = ShellState(general).apply { place = ShellState.Place.TOWN }
         demoShot("tablet-7-landscape") { AppNav(rememberNavController(), shell) }
     }
 

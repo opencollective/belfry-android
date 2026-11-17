@@ -23,6 +23,27 @@ object Routes {
     const val THREAD = "thread/{id}/{root}"
     fun thread(channel: String, rootId: String) = "thread/${enc(channel)}/${enc(rootId)}"
     const val KIT = "kit"
+    /** A channel pushed over a place (from a card, a link, search): with a back arrow. */
+    const val CHAT = "chat/{id}?m={m}"
+    fun chat(channel: String, messageId: String? = null) = "chat/${enc(channel)}" + if (messageId != null) "?m=${enc(messageId)}" else ""
+
+    // ---- places (SPEC 19.31) ----
+    /** To-dos on me and open ones, across the channels I'm in (Home's To-dos tile). */
+    const val MY_TODOS = "my-todos"
+    /** The charter: the agreements each person ticks (SPEC 19.32). */
+    const val CHARTER = "charter"
+    /** Who agreed to one agreement (stewards). */
+    const val CHARTER_WHO = "charter-who/{id}"
+    fun charterWho(id: String) = "charter-who/${enc(id)}"
+    /** The archived channels and groups I can open (SPEC 19.30). */
+    const val ARCHIVED = "archived"
+    /** Belfry settings (stewards): branding, roles, membership, channels. */
+    const val BELFRY_SETTINGS = "belfry-settings"
+    const val SETTINGS_CHANNELS = "settings/channels"
+    const val SETTINGS_ROLES = "settings/roles"
+    const val SETTINGS_MEMBERSHIP = "settings/membership"
+    /** A guest asks to become a member (guestapply.py). */
+    const val APPLY = "apply"
     const val MENTIONS = "mentions"
 
     // ---- info (U1) ----
@@ -79,7 +100,9 @@ object Routes {
     const val PROPOSAL = "proposal/{id}"
     /** [groupId] is the proposal's own group (`prop-…`). */
     fun proposal(groupId: String) = "proposal/${enc(groupId)}"
-    const val CREATE_CHANNEL = "create-channel"
+    const val CREATE_CHANNEL = "create-channel?category={category}"
+    /** A new channel; CATEGORY (a belfry admin's ＋ on a category of the drawer): it goes at its end (SPEC 19.34). */
+    fun createChannel(category: String? = null) = "create-channel" + if (category != null) "?category=${enc(category)}" else ""
     const val CREATE_POD = "create-pod/{parent}"
     fun createPod(parent: String) = "create-pod/${enc(parent)}"
     const val CREATE_EVENT = "create-event/{channel}"

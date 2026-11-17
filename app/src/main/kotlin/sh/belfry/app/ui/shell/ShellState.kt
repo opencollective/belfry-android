@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 
 /** What the home screen shows: the open channel and, once, a message to scroll to. Lives above the navigation graph. */
 @Stable
@@ -13,12 +14,17 @@ class ShellState(initialChannel: String = "general") {
     var focusMessage by mutableStateOf<String?>(null)
     /** A large screen: the thread open in the third column (root message id), in [channel]. */
     var thread by mutableStateOf<String?>(null)
+    /** Which of the five places is on screen (SPEC 19.31): Home, Calendar, Groups or Town (Create is a sheet). */
+    var place by mutableStateOf(Place.HOME)
+    /** The Create menu is open. */
+    var creating by mutableStateOf(false)
     /** The person picked a channel themselves (the saved "last open" no longer applies). */
     var touched = false
         private set
 
     fun open(id: String, messageId: String? = null) {
         touched = true
+        place = Place.TOWN
         if (id != channel) thread = null
         channel = id
         focusMessage = messageId
@@ -29,7 +35,13 @@ class ShellState(initialChannel: String = "general") {
         if (!touched) channel = id
     }
 
+    /** The bottom bar's places (Create is not one: it opens a menu over the place on screen). */
+    enum class Place { HOME, CALENDAR, GROUPS, TOWN }
+
     companion object {
         const val K_LAST_CHANNEL = "ui:last-channel"
     }
 }
+
+/** The places' state for screens drawn inside them (Home's "Calendar" link…); null in tests that show a screen alone. */
+val LocalShell = staticCompositionLocalOf<ShellState?> { null }

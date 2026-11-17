@@ -53,6 +53,7 @@ import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.engine.ActionException
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.channelCategories
 import sh.belfry.core.model.EventForm
 import sh.belfry.core.model.EventLinks
 import sh.belfry.core.model.SlugCheck
@@ -93,8 +94,9 @@ internal fun shown(e: Throwable): String = (e as? ActionException)?.message ?: "
 internal val words = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
 
 @Composable
-fun CreateChannelScreen() {
+fun CreateChannelScreen(category: String? = null) {
     val session = LocalSession.current
+    val world = sh.belfry.app.ui.nav.LocalWorld.current
     val nav = LocalNav.current
     var name by remember { mutableStateOf("") }
     var about by remember { mutableStateOf("") }
@@ -118,6 +120,10 @@ fun CreateChannelScreen() {
                     error = null
                     if (name.isNotBlank()) {
                         val id = session.createChannel(name.trim(), about.trim())
+                        // a steward's ＋ on a category: the order event puts it at that category's end (SPEC 19.34)
+                        if (category != null && world.isCommunityAdmin) {
+                            try { session.members.setChannelLayout(sh.belfry.core.model.Categories.put(id, category, world.channelCategories())) } catch (e: Exception) { }
+                        }
                         draft.clear()
                         nav.openChannel(id)
                     }

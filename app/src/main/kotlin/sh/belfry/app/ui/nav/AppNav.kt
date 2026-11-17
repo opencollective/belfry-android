@@ -35,11 +35,20 @@ class AppNavigator(private val controller: NavHostController, private val shell:
         shell.open(id, messageId)
         controller.popBackStack(Routes.HOME, inclusive = false)
     }
+
+    override fun openChannelRoot() {
+        controller.popBackStack(Routes.HOME, inclusive = false)
+    }
 }
 
 /** The navigation graph: one registration function per owner (see Routes.kt). */
 @Composable
 fun AppNav(controller: NavHostController, shell: ShellState) {
+    androidx.compose.runtime.CompositionLocalProvider(sh.belfry.app.ui.shell.LocalShell provides shell) { AppNavBody(controller, shell) }
+}
+
+@Composable
+private fun AppNavBody(controller: NavHostController, shell: ShellState) {
     val graph: @Composable (Modifier) -> Unit = { m ->
         NavHost(controller, startDestination = Routes.HOME, modifier = m.background(Belfry.colors.bg)) {
             shellRoutes(shell)
@@ -54,7 +63,16 @@ fun AppNav(controller: NavHostController, shell: ShellState) {
         val narrow = LocalConfiguration.current.screenWidthDp < 840
         Row(Modifier.fillMaxSize()) {
             Box(Modifier.width(if (narrow) 280.dp else 320.dp).fillMaxHeight()) {
-                ChannelDrawer(shell.channel, onPick = { nav.openChannel(it) }, go = nav::go)
+                ChannelDrawer(
+                    shell,
+                    sh.belfry.app.ui.shell.DrawerActions(
+                        channel = { nav.openChannel(it) },
+                        today = { shell.place = ShellState.Place.HOME; nav.openChannelRoot() },
+                        place = { p -> shell.place = p; nav.openChannelRoot() },
+                        go = nav::go,
+                    ),
+                    wide = true,
+                )
             }
             Box(Modifier.width(1.dp).fillMaxHeight().background(Belfry.colors.line))
             graph(Modifier.weight(1f).fillMaxHeight())

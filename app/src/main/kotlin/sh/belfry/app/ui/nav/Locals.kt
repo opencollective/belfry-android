@@ -20,6 +20,8 @@ interface Nav {
     fun back()
     /** Show a channel in the home screen (pops everything above it); optionally scroll to a message. */
     fun openChannel(id: String, messageId: String? = null)
+    /** Back to the places (pops everything above them), e.g. after picking another place in a wide window's drawer. */
+    fun openChannelRoot() {}
 }
 
 /** For previews and tests: goes nowhere, remembers what was asked. */

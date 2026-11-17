@@ -71,6 +71,7 @@ import sh.belfry.app.ui.kit.ActionGroup
 import sh.belfry.app.ui.kit.ActionRow
 import sh.belfry.app.ui.kit.Banner
 import sh.belfry.app.ui.kit.BannerKind
+import sh.belfry.app.ui.kit.BackButton
 import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BelfrySheet
 import sh.belfry.app.ui.kit.BusyButton
@@ -109,6 +110,10 @@ fun ChannelScreen(
     groupId: String,
     modifier: Modifier = Modifier,
     onMenu: (() -> Unit)? = null,
+    /** ☰'s count (Town: the town's unread channels). */
+    menuBadge: Int? = null,
+    /** Pushed over a place (a card, a link): a back arrow instead of ☰. */
+    onBack: (() -> Unit)? = null,
     focusMessage: String? = null,
     onFocusDone: () -> Unit = {},
     chat: ChatState = rememberChatState(groupId),
@@ -207,9 +212,11 @@ fun ChannelScreen(
         TopBar(
             title = (if (world.isPublicChannel(g)) "🌐 " else "") + (g?.name ?: groupId),
             onTitleClick = { chat.toggleLine() },
-            navigation = if (onMenu != null) {
-                { IconAction(BelfryIcons.Menu, "Channels", onMenu, badge = dms.unreadTotal) }
-            } else null,
+            navigation = when {
+                onBack != null -> ({ BackButton(onBack) })
+                onMenu != null -> ({ IconAction(BelfryIcons.Menu, "Channels", onMenu, badge = menuBadge ?: dms.unreadTotal) })
+                else -> null
+            },
             actions = {
                 IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) })
                 IconAction(BelfryIcons.Bell, "Follow this channel", { nav.go(Routes.follow(groupId)) })

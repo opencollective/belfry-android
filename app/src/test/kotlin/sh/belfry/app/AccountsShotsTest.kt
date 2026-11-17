@@ -17,6 +17,8 @@ import sh.belfry.app.ui.nav.LocalAccounts
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.shell.AccountsList
 import sh.belfry.app.ui.shell.ChannelDrawer
+import sh.belfry.app.ui.shell.DrawerActions
+import sh.belfry.app.ui.shell.ShellState
 import sh.belfry.app.ui.signin.SignInContent
 import sh.belfry.app.ui.theme.BelfryTheme
 import sh.belfry.core.engine.AccountList
@@ -52,14 +54,14 @@ class AccountsShotsTest : DemoShots() {
 
     /** The drawer's bottom shows a dot when another account has something new. */
     @Test fun drawerWithAnotherAccountUnread() = demoShot("drawer-accounts-dot") {
-        CompositionLocalProvider(LocalAccounts provides ui()) { ChannelDrawer(Demo.GENERAL, onPick = {}, go = {}) }
+        CompositionLocalProvider(LocalAccounts provides ui()) { ChannelDrawer(ShellState(Demo.GENERAL), DrawerActions({}, {}, {}, {})) }
     }
 
     @Test fun addAccount() = shot("signin-add-account") {
         SignInContent("", {}, null, false, false, {}, {}, {}, onScan = {}, onBack = {})
     }
 
-    /** "You" opens the list; a row switches (every row locks meanwhile); Add and Me do what they say. */
+    /** ⇅ opens the list; a row switches (every row locks meanwhile); Add and Me do what they say. */
     @Test fun theListSwitchesAddsAndOpensMe() {
         val asked = ArrayList<String>()
         val gate = CompletableDeferred<Unit>()
@@ -69,12 +71,12 @@ class AccountsShotsTest : DemoShots() {
             BelfryTheme {
                 InDemo {
                     CompositionLocalProvider(LocalAccounts provides ui(switchTo = { asked.add(it); gate.await() }, add = { added++ })) {
-                        ChannelDrawer(Demo.GENERAL, onPick = {}, go = { went.add(it) })
+                        ChannelDrawer(ShellState(Demo.GENERAL), DrawerActions({}, {}, {}, { went.add(it) }))
                     }
                 }
             }
         }
-        compose.onNodeWithTag("drawer-me").performClick()
+        compose.onNodeWithTag("drawer-switch").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Accounts").assertIsDisplayed()
         assertEquals(2, compose.onAllNodesWithTag("account-other").fetchSemanticsNodes().size)
@@ -92,7 +94,7 @@ class AccountsShotsTest : DemoShots() {
         compose.waitForIdle()
         assertEquals(1, added)
         // the sheet closed; open it again for Me
-        compose.onNodeWithTag("drawer-me").performClick()
+        compose.onNodeWithTag("drawer-switch").performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("account-me").performClick()
         compose.waitForIdle()

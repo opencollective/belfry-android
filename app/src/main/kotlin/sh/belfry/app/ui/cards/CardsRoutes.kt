@@ -12,7 +12,7 @@ fun NavGraphBuilder.cardsRoutes() {
     composable(Routes.EVENT) { entry -> EventScreen(entry.arg("coord")) }
     composable(Routes.POD) { entry -> PodScreen(entry.arg("id")) }
     composable(Routes.PROPOSAL) { entry -> ProposalScreen(entry.arg("id")) }
-    composable(Routes.CREATE_CHANNEL) { CreateChannelScreen() }
+    composable(Routes.CREATE_CHANNEL, listOf(Routes.optional("category"))) { e -> CreateChannelScreen(e.optArg("category")) }
     composable(Routes.CREATE_POD) { entry -> CreatePodScreen(entry.arg("parent")) }
     composable(Routes.CREATE_EVENT) { entry -> CreateEventScreen(entry.arg("channel")) }
     composable(Routes.CREATE_MEETING) { entry -> CreateMeetingScreen(entry.arg("channel")) }
