@@ -74,6 +74,10 @@ class PlacesShotsTest : DemoShots() {
         compose.onNodeWithTag("place-create").performClick()
         compose.waitForIdle()
         assertEquals(true, s.creating)
+    }
+
+    @Test fun theDrawersRowsOpenScreens() {
+        val s = shell(ShellState.Place.TOWN)
         val went = ArrayList<String>()
         compose.setContent { BelfryTheme { InDemo { ChannelDrawer(s, DrawerActions({ s.open(it) }, { s.place = ShellState.Place.HOME }, {}, { went.add(it) })) } } }
         compose.onNodeWithTag("drawer-members").performClick()
