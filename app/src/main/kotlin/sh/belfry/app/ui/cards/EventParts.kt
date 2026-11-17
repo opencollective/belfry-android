@@ -260,7 +260,7 @@ fun CheckInScreen(key: String) {
     var camera by remember { mutableStateOf(false) }
     LaunchedEffect(key) {
         if (e == null) return@LaunchedEffect
-        if (session.localOnly) list = demoAttendees(world, e) else try { list = session.members.attendees(e.d) } catch (x: ActionException) { error = x.message }
+        if (session.localOnly) list = demoAttendees(world, e) else try { list = session.members.attendees(e.d).people } catch (x: ActionException) { error = x.message }
     }
     LaunchedEffect(result) { if (result != null) { delay(2000); result = null } }
     fun check(code: String?, pubkey: String?, undo: Boolean = false) {
