@@ -161,6 +161,28 @@ minSdk 26, JDK 17.
   confirmation). Release builds only (`Updater.enabled`). `UpdateBar` stands at the top of Home,
   `UpdateRows` in Me. Only the version number is shown, never a release's text.
 
+- Parity with the iPhone app (2026-11-17, branch `parity`; SPEC 19.28–19.35, PARITY.md's first
+  table). Core: `model/Archive.kt` (deleted / archived, `GroupLock`, presence questions),
+  `Charter.kt` (**`PlaceNames`: every display name of the town in one table** — only
+  general → "Townsquare" now; never write them back), `Categories.kt` (SPEC 19.34),
+  `MailInbox.kt` + `World.mailThreads` (SPEC 19.33; `FeedItem.MailThread`), `GroupRoles.kt`
+  (19.29), `Membership.kt` (vouches), `Places.kt` (Home / Calendar / Groups), `net/Members.kt`
+  (roles, membership, requests, directory, member links `JoinsAs`, guest apply, public charter /
+  events, group delete), `engine/Members.kt` (`Session.members`: those calls with stored copies,
+  the charter's actions, categories, archiving, group roles, check-in; demo answers). Admins of a
+  group = latest 39001 ∪ creator ∪ admins by role (`Group.relayAdmins` = who may moderate on the
+  relay). `Session` takes `placeNames` (the app sets `Onboarding.placeNames = true`; tests keep ids).
+- App structure: `ui/shell/HomeScreen.kt` = the five places (`ShellState.place`, `LocalShell`),
+  `ChannelDrawer.kt` = the Town drawer (`DrawerActions`; `wide` = the tablet column), `PlaceCounts`;
+  `ui/places/` (Home, Calendar, Groups, Create sheet, My to-dos, Archived); `ui/chat/ChannelMenu.kt`
+  (the pull-down as rows) + `ChannelHeader.kt` (subtitle, archived bar, deleted screen);
+  `ui/info/ChannelPlaceScreen.kt` (`Routes.channelPlace(id, ChannelPlaceKey.…)`: the screens the
+  pull-down pushes; `Routes.channelInfo` maps onto them); `ui/cards/MailThreadScreen.kt`,
+  `EventParts.kt` (event levels, viewer, ticket, tabs, check-in); `ui/people/ProfileRoles.kt`
+  (Role, In <group>, Add an agent); `ui/belfry/` (Belfry settings, charter, apply, welcome).
+  `openChannel` always switches to Town (Android's choice; iOS pushes a chat outside Town);
+  `Routes.chat(id)` pushes a channel with a back arrow (archived groups, links).
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.
