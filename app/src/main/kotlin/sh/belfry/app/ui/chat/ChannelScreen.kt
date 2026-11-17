@@ -96,6 +96,9 @@ import sh.belfry.core.model.FeedRow
 import sh.belfry.core.model.Mentions
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.Topics
+import sh.belfry.core.model.attentionLine
+import sh.belfry.core.model.isDeletedGroup
+import sh.belfry.core.model.isLocked
 import androidx.compose.ui.text.style.TextOverflow
 import sh.belfry.app.ui.kit.Avatar
 
@@ -131,6 +134,10 @@ fun ChannelScreen(
     val g = world.group(groupId)
     val admin = world.canAdmin(g)
     val now = session.now()
+    if (world.isDeletedGroup(groupId)) {
+        GroupGone(onBack, onMenu)
+        return
+    }
     // guest mode (SPEC 19.26): reading only; the composer's place says so, with Join
     val guestInfo by session.guest.collectAsState()
     val guestReading = guestInfo?.reading == true
@@ -210,22 +217,22 @@ fun ChannelScreen(
 
     Column(modifier.fillMaxSize().background(c.bg).imePadding()) {
         TopBar(
-            title = (if (world.isPublicChannel(g)) "🌐 " else "") + (g?.name ?: groupId),
+            title = g?.name ?: groupId,
+            subtitle = if (g != null) channelSubtitle(world, groupId, now) else null,
             onTitleClick = { chat.toggleLine() },
             navigation = when {
                 onBack != null -> ({ BackButton(onBack) })
-                onMenu != null -> ({ IconAction(BelfryIcons.Menu, "Channels", onMenu, badge = menuBadge ?: dms.unreadTotal) })
+                onMenu != null -> ({ IconAction(BelfryIcons.Menu, "The town", onMenu, badge = menuBadge ?: dms.unreadTotal) })
                 else -> null
             },
-            actions = {
-                IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) })
-                IconAction(BelfryIcons.Bell, "Follow this channel", { nav.go(Routes.follow(groupId)) })
-            },
+            // the header's right side is search only; the bell is the pull-down's Notifications row
+            actions = { IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) }) },
         )
-        if (g != null) {
-            SummaryLine(groupId, chat, now)
+        if (g != null && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
+            SummaryLine(groupId, chat, now, attentionOnly = true)
             Hairline()
         }
+        if (g != null && g.archived) ArchivedBar(g)
         status.banner?.let { Banner(it, kind = BannerKind.Warning) }
         ChannelBars(groupId)
 
@@ -262,19 +269,16 @@ fun ChannelScreen(
                 )
             }
             androidx.compose.animation.AnimatedVisibility(visible = chat.lineOpen && g != null, enter = expandVertically(), exit = shrinkVertically()) {
-                Column((if (chat.lineFull) Modifier.fillMaxSize() else Modifier.fillMaxWidth()).background(c.bg).testTag(if (chat.lineFull) "pull-full" else "pull-open")) {
-                    PullDown(groupId, chat, now, onShowMessage = { chat.focus = it }, modifier = Modifier.weight(1f, fill = chat.lineFull), full = chat.lineFull)
-                    // the handle: a tap goes one level on (then closes), a drag down or up moves a level
+                Column(Modifier.fillMaxWidth().background(c.bg).testTag("pull-open")) {
+                    ChannelMenu(groupId, chat, now, onShowMessage = { chat.focus = it }, modifier = Modifier.weight(1f, fill = false))
+                    // the handle: a tap or a drag up closes
                     Box(
-                        Modifier.fillMaxWidth().height(22.dp)
+                        Modifier.fillMaxWidth().height(24.dp)
                             .pointerInput(Unit) {
                                 var moved = 0f
-                                detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = { if (moved < -16f) chat.pushLine() else if (moved > 16f) chat.pullLine() }) { _, dy -> moved += dy }
+                                detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = { if (moved < -16f) chat.closeLine() }) { _, dy -> moved += dy }
                             }
-                            .clickable(
-                                role = Role.Button,
-                                onClickLabel = if (chat.lineFull) "Close the channel details" else "Show everything about the channel",
-                            ) { chat.cycleLine() }
+                            .clickable(role = Role.Button, onClickLabel = "Close the channel menu") { chat.closeLine() }
                             .testTag("pull-handle"),
                         contentAlignment = Alignment.Center,
                     ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
@@ -287,7 +291,7 @@ fun ChannelScreen(
         RecordingBar(groupId)
         SaveAccountBar(session)
         if (guestReading) GuestBar(groupId)
-        val readOnly = guestReading || (g != null && g.isPod && g.closed && world.me !in g.members)
+        val readOnly = guestReading || (g != null && g.isPod && g.closed && world.me !in g.members) || world.isLocked(groupId)
         val editing = chat.editing
         // #proposals, #events, #bookings (web 2026-11-11): one type of post, no free text at the top
         val page = world.webPage(g)

@@ -53,6 +53,9 @@ object Routes {
     const val CHANNEL_INFO = "info/{id}?tab={tab}"
     /** A channel's page; TAB opens it on Members, Todos, Files or its Log (`InfoTab.KEY_…`). */
     fun channelInfo(channel: String, tab: String? = null) = "info/${enc(channel)}" + if (tab != null) "?tab=${enc(tab)}" else ""
+    /** One of a channel's screens from its pull-down (SPEC: the pull-down is a menu of rows that each push a screen). */
+    const val CHANNEL_PLACE = "place/{id}/{key}"
+    fun channelPlace(channel: String, key: String) = "place/${enc(channel)}/${enc(key)}"
     const val INVITE = "invite/{id}"
     fun invite(channel: String) = "invite/${enc(channel)}"
     const val TOPICS = "topics/{id}"
@@ -128,3 +131,15 @@ fun NavBackStackEntry.arg(name: String): String = arguments?.getString(name) ?: 
 
 /** An optional query argument, decoded; null when absent. */
 fun NavBackStackEntry.optArg(name: String): String? = arguments?.getString(name)?.takeIf { it.isNotEmpty() }
+
+/** The screens a channel's pull-down pushes (Routes.channelPlace). */
+object ChannelPlaceKey {
+    const val PINNED = "pinned"
+    const val DECIDE = "decide"
+    const val TODOS = "todos"
+    const val PHOTOS = "photos"
+    const val GROUPS = "groups"
+    const val MEMBERS = "members"
+    const val LOG = "log"
+    const val SETTINGS = "settings"
+}

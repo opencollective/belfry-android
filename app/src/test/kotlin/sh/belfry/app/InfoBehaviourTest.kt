@@ -191,22 +191,18 @@ class InfoBehaviourTest : DemoShots() {
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("log-raw").fetchSemanticsNodes().isNotEmpty() }
     }
 
-    /** The pull-down's second level: "More" pulls it all the way, where a todo can be added. */
+    /** A row of the pull-down pushes its screen; the handle closes it. */
     @Test
-    fun thePullDownGoesAllTheWay() {
-        started()
+    fun thePullDownIsAMenuOfScreens() {
         val chat = ChatState(Demo.GARDEN).apply { lineOpen = true }
         compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.GARDEN, chat = chat) } } }
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("pull-open").fetchSemanticsNodes().isNotEmpty() }
-        assertTrue(compose.onAllNodesWithTag("pull-todo-field").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("pd-members").performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue(nav.went.toString(), sh.belfry.app.ui.nav.Routes.channelPlace(Demo.GARDEN, "members") in nav.went)
+        chat.lineOpen = true
+        compose.waitForIdle()
         compose.onNodeWithTag("pull-handle").performClick()
-        compose.waitUntil(5_000) { chat.lineFull && compose.onAllNodesWithTag("pull-todo-field").fetchSemanticsNodes().isNotEmpty() }
-        val before = world.tasks(Demo.GARDEN).size
-        compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("pull-todo-field"))).performScrollTo().performTextInput("Oil the shears")
-        compose.onNodeWithTag("pull-todo-add").performScrollTo().performClick()
-        compose.waitUntil(10_000) { world.tasks(Demo.GARDEN).size == before + 1 }
-        // the handle once more closes it
-        compose.onNodeWithTag("pull-handle").performClick()
-        compose.waitUntil(5_000) { !chat.lineOpen && !chat.lineFull }
+        compose.waitUntil(5_000) { !chat.lineOpen }
     }
 }

@@ -60,6 +60,7 @@ import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
+import sh.belfry.app.ui.nav.ChannelPlaceKey
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.EventStatus
 import sh.belfry.core.model.stateLabel
@@ -94,11 +95,13 @@ import androidx.compose.runtime.setValue
  * dragging it down opens [PullDown] with the same things in full.
  */
 @Composable
-fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier = Modifier) {
+fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier = Modifier, attentionOnly: Boolean = false) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current
-    val line = world.channelLine(groupId, now, chat.topic, chat.hiddenPins)
+    // since 2026-11-17 the line shows only while something asks for attention (iOS / web r3)
+    val line = if (attentionOnly) world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) ?: return
+    else world.channelLine(groupId, now, chat.topic, chat.hiddenPins)
     val toggle = { chat.toggleLine() }
     Row(
         modifier
@@ -134,10 +137,10 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
                 when (act) {
                     LineAction.ShowAll -> { chat.topic = null }
                     LineAction.Open -> nav.go(Routes.proposal(groupId))
-                    LineAction.Review -> nav.go(Routes.channelInfo(groupId, InfoTab.KEY_MEMBERS))
+                    LineAction.Review -> nav.go(Routes.channelPlace(groupId, ChannelPlaceKey.MEMBERS))
                     is LineAction.OpenProposal -> nav.go(Routes.proposal(act.groupId))
                     is LineAction.OpenEvent -> nav.go(Routes.event(act.coord))
-                    LineAction.Todos -> nav.go(Routes.channelInfo(groupId, InfoTab.KEY_TODOS))
+                    LineAction.Todos -> nav.go(Routes.channelPlace(groupId, ChannelPlaceKey.TODOS))
                 }
             }))
         }

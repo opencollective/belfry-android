@@ -57,11 +57,8 @@ class LineShotsTest : DemoShots() {
         demoShot("pulldown-garden") { ChannelScreen(Demo.GARDEN, onMenu = {}, chat = chat) }
     }
 
-    /** Pulled all the way: every todo with a field to add one, bigger faces with names, the rest about the channel. */
-    @Test fun pullDownFull() {
-        val chat = ChatState(Demo.GARDEN).apply { lineOpen = true; lineFull = true }
-        demoShot("pulldown-full") { ChannelScreen(Demo.GARDEN, onMenu = {}, chat = chat) }
-    }
+    /** A row of the pull-down pushes its screen: the channel's to-dos (with who is working on one now). */
+    @Test fun todosScreen() = demoShot("channel-todos") { sh.belfry.app.ui.info.ChannelPlaceScreen(Demo.GARDEN, sh.belfry.app.ui.nav.ChannelPlaceKey.TODOS) }
 
     @Test fun menuWithPinAndTodo() {
         val m = world.messages(Demo.KITCHEN).last { it.pubkey != session.me && it.text.isNotEmpty() }
@@ -108,15 +105,17 @@ class LineShotsTest : DemoShots() {
         compose.waitUntil(10_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().size >= 2 }
     }
 
-    /** No to-do mark on the message any more (web 2026-11-12); the pull-down shows who is working on it now. */
+    /** The pull-down is a menu: each row pushes one of the channel's screens; the handle closes it. */
     @Test
-    fun aToDoBeingWorkedOnShowsInThePullDown() {
+    fun thePullDownRowsPushScreens() {
         val task = world.tasks(Demo.GARDEN).first { it.title.startsWith("Mend") }
         assertTrue(task.isWorking(NOW))
         assertEquals(NOW - 14 * 60, task.since)
         val chat = ChatState(Demo.GARDEN).apply { lineOpen = true }
         compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.GARDEN, chat = chat) } } }
-        compose.waitUntil(10_000) { compose.onAllNodes(hasContentDescription("Working on it for 14 min")).fetchSemanticsNodes().isNotEmpty() }
-        assertTrue(compose.onAllNodes(hasContentDescription("To-do, ", substring = true)).fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("pd-todos").performClick()
+        compose.waitForIdle()
+        assertTrue(nav.went.toString(), sh.belfry.app.ui.nav.Routes.channelPlace(Demo.GARDEN, "todos") in nav.went)
+        assertTrue(!chat.lineOpen)
     }
 }

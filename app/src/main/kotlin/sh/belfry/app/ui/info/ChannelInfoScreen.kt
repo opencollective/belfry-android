@@ -303,7 +303,9 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
     val world = LocalWorld.current
     val session = LocalSession.current
     val wasInbox = remember(g.id) { world.isInbox(g) }
-    var name by remember(g.id) { mutableStateOf(g.name) }
+    // its own name, never the on-brand one shown for a default place (SPEC 19.31: display only)
+    val raw = g.rawName.ifEmpty { g.name }
+    var name by remember(g.id) { mutableStateOf(raw) }
     var about by remember(g.id) { mutableStateOf(g.about) }
     var closed by remember(g.id) { mutableStateOf(g.closed) }
     var prompt by remember(g.id) { mutableStateOf(g.prompt ?: "") }
@@ -312,7 +314,7 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
     val wasPage = remember(g.id) { world.webPage(g) }
     var public by remember(g.id) { mutableStateOf(wasPage?.visibility != "members") }
     var webOn by remember(g.id) { mutableStateOf(wasPage?.on == true) }
-    var slug by remember(g.id) { mutableStateOf(wasPage?.slug?.ifEmpty { null } ?: World.slugify(g.name)) }
+    var slug by remember(g.id) { mutableStateOf(wasPage?.slug?.ifEmpty { null } ?: World.slugify(g.rawName.ifEmpty { g.name })) }
     var slugError by remember(g.id) { mutableStateOf<String?>(null) }
     val domain = session.community.domain
     val busy = rememberBusy()
@@ -383,8 +385,9 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
                 val changed = webOn != (wasPage?.on == true) || keptSlug != wasPage?.slug.orEmpty() || visibility != (wasPage?.visibility ?: "public")
                 if (changed) session.send(Actions.setWebPage(g.id, webOn, keptSlug, visibility, wasPage?.posts))
             }
-            if (n != g.name || a != g.about || g.isPod) {
-                session.send(if (g.isPod) Actions.editPod(g.id, n, a, PodAccess(closed, prompt)) else Actions.editChannel(g.id, n, a))
+            if (n != raw || a != g.about || (g.isPod && (closed != g.closed || prompt != (g.prompt ?: "")))) {
+                // one 9002 keeping every other setting (picture, vouches, archived: SPEC 19.30)
+                session.members.saveGroupMeta(g, name = n, about = a, closed = if (g.isPod) closed else null, prompt = if (g.isPod) prompt else null)
             }
             if (openMail != wasInbox) session.send(Actions.setInbox(g.id, openMail))
             onClose()
