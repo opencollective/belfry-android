@@ -115,7 +115,7 @@ class ModelTest {
         val podGroup = ev(bob, t0 + 615, 9007, "", t("h", "pod-garden-0000"))
         val w = world(listOf(create, podGroup, m1, m2, m3, m4, pod, ann, notAnn, nextDay, card, sent, mail, drop))
         val rows = w.feedRows("general")
-        fun row(e: Event) = rows.first { (it.item as FeedItem.Msg).m.id == e.id }
+        fun row(e: Event) = rows.first { (it.item as? FeedItem.Msg)?.m?.id == e.id }
         assertTrue(row(m1).newDay && row(m1).first)
         assertFalse(row(m2).first)
         assertTrue(row(m3).first) // more than 300 s
@@ -126,11 +126,14 @@ class ModelTest {
         assertFalse(row(notAnn).announcement)
         assertTrue(row(nextDay).newDay)
         assertEquals(2, rows.count { it.newDay })
-        val c = (row(card).item as FeedItem.Msg).m
+        // a shared inbox's e-mails are one thread row in the feed (SPEC 19.33); the messages are still read
+        val mailRow = rows.single { it.item is FeedItem.MailThread }.item as FeedItem.MailThread
+        assertEquals(listOf(card.id, sent.id), mailRow.t.ids)
+        val c = w.message("general", card.id)!!
         assertTrue(c.special is Special.InboxCard)
         assertEquals("A question", c.body)
         assertTrue((c.special as Special.InboxCard).verified)
-        assertTrue((row(sent).item as FeedItem.Msg).m.special is Special.SentAsChannel)
+        assertTrue(w.message("general", sent.id)!!.special is Special.SentAsChannel)
         assertEquals(CardStatus.WAITING, w.inboxStates("general")[card.id]?.status)
         assertEquals(1, w.inboxStates("general")[card.id]?.answered)
         val mm = (row(mail).item as FeedItem.Msg).m
