@@ -41,7 +41,7 @@ class R5ShotsTest : DemoShots() {
     @Test fun publishAsksThenCloses() {
         val v4 = open
         compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.WEBSITE, onMenu = {}) } } }
-        compose.onNode(hasTestTag("button-publish") and hasAnyAncestor(hasTestTag("buttons-" + v4.id))).performClick()
+        compose.onNode(hasTestTag("button-publish") and hasAnyAncestor(hasTestTag("buttons-" + v4.id)), useUnmergedTree = true).performClick()
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("Publish this version as the website? Everyone will see it at https://${Demo.DOMAIN}.").fetchSemanticsNodes().isNotEmpty()
         }
