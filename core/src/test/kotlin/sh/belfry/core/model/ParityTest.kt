@@ -188,7 +188,7 @@ class ParityTest {
                 assertEquals(e["channels"].strs(), g["channels"].strs(), name)
             }
             val back = ChannelLayout.parse(got.toString())
-            assertEquals(wc.map { it["id"].s() }, back.categories?.map { it.id }, name)
+            assertEquals<List<String?>?>(wc.map { it["id"].s() }, back.categories?.map { it.id }, name)
         }
     }
 

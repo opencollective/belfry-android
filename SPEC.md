@@ -1456,3 +1456,371 @@ public presence mark `seen:<channel>` (19.21 / 11, "N active members"), which is
   event (it cannot decrypt it): a push for something already read elsewhere can still arrive.
 - Vectors: `vectors/readstate.json` (merge of two devices both ways, out of order, unknown fields,
   parse, serialize, readUpTo, mark, prune by age and by weight, covers → publish or not).
+
+
+### 19.28 The iPhone app's look and the web's latest (iOS, 2026-11-15)
+
+Not protocol; how the iPhone app follows the web chat's phone layout, for anyone comparing.
+
+- **Drawer.** ☰ (count: unread DMs + new @mentions + requests) or a swipe from the left edge
+  (at the root of the screen's stack) slides the page right and shows the channel list under it:
+  the belfry's name (its admins: opens Belfry settings), its logo and cover (`branding`), search
+  over all channels, Requests (when something waits or I decide things), Upcoming events,
+  @Mentions, Direct messages, Public channels and Members only in the admins' order
+  (`belfry:channel-order`), groups nested under the channel they were made in, Your events, and
+  me at the bottom (Me). The page dims; a tap on it or a drag to the left closes.
+- **Pull-down.** The channel's one line pulls down from the top (short level, full level; the
+  handle follows a finger and snaps; up past the short level or a tap outside closes). The
+  description comes first, then the visibility line.
+- **Composer.** iMessage's shape: a ＋ circle the height of the field on its centre line, the
+  field a capsule growing to six lines with Send inside it. ＋ is the system menu with icons.
+- **Message menu.** Holding a message opens the system's context menu: four quick reactions and
+  More in a row, then the web's message menu; Delete opens the confirmation showing the message.
+- **Look.** Neutral (ink on white, near-white on black) unless `branding.primary` is set: then
+  that colour tints buttons and links, with white or near-black text on it (luminance > 0.4).
+- **Group page, Requests, Roles, Membership, Branding** follow collective-belfry
+  `docs/membership.md`, `docs/roles.md`; vouches in groups are kind 1985 `belfry/vouch`
+  (core-tested).
+
+
+### 19.29 The event screen, tickets, check-in and roles in a group (2026-11-15)
+
+The belfry's contract of 2026-11-15 (collective-belfry `services/onboarding`, events.py; built
+on the server in parallel), Xavier's request: one screen per event with its chat, photos and
+people; tickets with a QR; checking people in at the door; roles per channel, group and event.
+
+- **Roles in a group.** `admin` = NIP-29 admin (39001; in an event the creator is "Host", other
+  admins "Co-host"). `steward` (events only: checks people in, nothing else) = kind 1985
+  `["L","belfry/group-role"]`, `["l","steward"|"none","belfry/group-role"]`, `["p",<key>]`,
+  `["h",<group>]`, `["by",<who asked>]` **signed by the groups key** (`_groups@domain`); the
+  latest per `p` wins, labels by any other key are ignored, an admin is never a steward.
+  `member` = everyone else ("Attendee" in an event). Changing one: `POST <api>/group-roles
+  {"channel","pubkey","role":"admin"|"steward"|"member"}` by an admin of that group or a belfry
+  admin → `{"role"}`; errors `not_allowed` (403), `not_in_group`, `last_admin`,
+  `guest_not_saved`, `agent`, `events_only`, `always_admin` (409: the creator and the belfry's
+  admins stay admins), `invalid` (422), `relay` (503). `"role":"removed"` takes them out of the
+  group (an older belfry: 404 → the client's own 9001). Clients read roles from the relay.
+- **A group's admins** (the server's change 3; web branch `checkin` model.ts): the relay's latest
+  39001 (zooid lists only its own keys, the belfry's admins and the group's creator, never a
+  co-host) ∪ the creator (first 9007) ∪ admins by role: per person the latest 9000 / 9001 for
+  them in the group; a 9000 whose `p` tag has `admin` third → admin, a later 9000 tagged
+  `["role","member"]` or a 9001 → not (a ticket's 9000, without `role`, changes nothing).
+  "Co-host" / "Admin" in lists = such an admin who is not one of the keys that administer every
+  group (the belfry's admins, the relay's key = the 39000's author, the groups key). May check
+  people in: host, co-host, steward, any admin of the group, a belfry admin.
+- **Free events**: on an event without ticket types a member's own going RSVP holds `<d>:free`
+  (a code, in the check-in list).
+- **Tickets.** Everyone holding a ticket (9000 with `ticket` in `ev-<d>`) has a code: 16
+  lowercase base32 characters, the same every time. `GET /events/<link>` has in its viewer
+  block (`viewer`, else `me` of events v1; both are read, `viewer` wins): `ticket_code`,
+  `ticket_url` = `https://chat.<domain>/events/<link>/t/<code>` (what the QR holds; used only
+  when it is https and ends with `/t/<code>`), `checked_in` (unix time or null), `roles`
+  (subset of host, cohost, steward), `may_check_in`. Kept on the phone per event (offline:
+  the QR shows without a connection). An older belfry sends none of these: no ticket button.
+- **Check-in.** `POST /events/<d>/attendees {}` → `{"people":[{"pubkey","name","ticket",
+  "ticket_title","rsvp","checked_in","role"}],"going","checked_in"}` (hosts, co-hosts,
+  stewards); `POST /events/<d>/checkin {"code"}` or `{"pubkey"}`, optional `"undo":true` →
+  `{"person":{…},"already"}`; `no_ticket` (404, also another event's code), `not_allowed`
+  (403). The belfry records it as kind 1985 `["L","belfry/ticket"]`,
+  `["l","checked-in"|"not-checked-in","belfry/ticket"]`, `p`, `h`, `by`, signed by the groups
+  key; the latest per `p` wins. The list is drawn from the last answer with newer labels laid
+  over it (every checker's phone updates live), else from the ticket holders on the relay.
+  A 404 without one of these codes (or a 405) means the belfry is older: "This belfry needs an
+  update."
+- **A scanned text** counts only when it is an http(s) URL whose path (or fragment) ends
+  `/t/<16 base32>`; only the code is sent, nothing of the text is shown. The same text is
+  ignored for 3 s. Results: green "<Name> · <ticket> · checked in", amber "Already checked in at
+  14:02", red "Not a ticket for this event" (2 s, with the success / warning / error haptic).
+- **The link** `https://chat.<domain>/events/<link>/t/<code>` (also after `#`): the event
+  screen; for those who may check in, a card on top: who it is, the ticket and whether they are
+  in, asked with `"peek": true` on `/checkin` (nothing recorded by opening a link), then "Check
+  in" → "Checked in at …" with Undo ("Already checked in at …" when they were). An older belfry
+  without peek: the card shows "Check in" only. The scanner checks in at once.
+- **"Check people in"** shows on the header from 00:00 of the event's first day to the end of its
+  last day (the device's zone), for host, co-host and steward (the API's `may_check_in`, else
+  the relay's roles); always in the screen's menu and the People tab for them.
+- **The event screen** (iOS): pushed from Events, a card, a universal link and Your events. The
+  header has three levels with the channel pull-down's handle: half (opens there: cover, title,
+  when, where, my status as the main control, who is going), up (the bar names the event and
+  its date, the content takes the screen; typing in the chat goes up), full (hosted by, asking,
+  going, maybe, the description, the address with Share, the hosts' tools). Under it Chat ·
+  Photos · People: the group's feed and composer; its photos newest first with "Add photos" (one
+  message through the outbox); hosts / going / maybe with a message button. Someone not in the
+  group (no ticket yet; a guest reading through the API) sees the header and the description only.
+- **A group's metadata** (name, description, picture, access): a client publishes its own 9002
+  only when the relay lets it (in the latest 39001, the creator, a belfry admin), and then carries
+  every other tag of the current metadata (the relay replaces it all: a 9002 with only a name
+  dropped closed / prompt / vouches / picture); otherwise `POST /group-meta {channel, name?,
+  about?, picture?, closed?, prompt?, vouches?}`. Accept / Decline of a closed group's 9021 only
+  for those the relay lets moderate (an admin by role vouches); an event's applications go
+  through `POST /events/<d>/decide` for co-hosts by role.
+- **People lists** (channel Members, a group's page, an event's People): face, name, the role
+  there as secondary text when it isn't the default; no label editor. A tap pushes the profile,
+  which shows "In <group>" with the role there: a picker (Member / Admin; Attendee / Co-host /
+  Steward) for that group's admins and belfry admins, saved with `/group-roles`, and "Remove
+  from <group>" (9001). The Host is never changed there.
+- Core-tested in `GroupRolesTests` (stewards, the groups key only, latest wins, admins replace,
+  check-ins, event days, scans, the viewer block, the three calls against a stub belfry).
+
+### 19.30 Deleted and archived groups (the belfry's contract of 2026-11-16)
+
+Xavier's request, after a card in #demo on belfry.sh ("⬡ New pod: Canal", group
+`pod-canal-41ec`, about which the groups relay returns nothing at all) opened "This group isn't
+here yet. It shows once the relay sends it.": a deleted group says so and can't be tapped; a
+link to it says so; and a group can be **archived** as a softer way to delete. "Group" here is
+anything with a NIP-29 group id that people open from the channel list or a card: channels and
+groups (ids `pod-…`). Events and proposals keep their own cancel / status mechanisms.
+
+- **Deleted.** A group is deleted when (a) a kind 9008 for it is known, or (b) the groups relay
+  was asked for its metadata and answered that it has none. Until the relay answered, a group
+  nothing is known about is **unknown**: its card shows as an open one's (the name from the
+  card), never "deleted" on a guess, and the sentence "It shows once the relay sends it" is gone.
+  - (iOS) How (b) is decided: after each EOSE of the groups relay's live subscription (at most
+    once a minute), and when a card or a link names a group this device knows nothing about, the
+    app asks `{"kinds":[39000],"#d":[general, <up to 100 ids>]}` for the channels and groups it
+    knows (not events, not proposals, not one it is still creating) and the groups its cards
+    name. An answer counts only when it names `general` (always asked along, always there: a
+    timeout, a refused or an empty answer proves nothing). Each asked id the answer does not
+    name is marked absent with the newest 9007 / 9002 / 39000 this device held for it (0: none);
+    one it names loses the mark. A marked group is deleted until something newer about it
+    arrives. The marks are stored (`groups-absent`), so the state holds offline. This also
+    catches a group deleted while this device was away and whose 9008 the relay did not keep
+    (the device still holds its old metadata). Never asked as a guest (the relay shows a guest
+    only their own channels: absence proves nothing) and never in guest mode. `general` is never
+    deleted by absence.
+  - The card in the parent: the group's name if still known (from the card's text "⬡ New pod:
+    <name> · …" / "⬡ New group: …", else "A group"), "This group has been deleted", greyed, not a
+    button (no chevron). The card is never removed with the group.
+  - A route to a deleted group (the channel, its page, a link, a notification, a search result,
+    a `#` reference): a plain screen "This group has been deleted" with the way back. No
+    composer, no pull-down, no settings.
+  - A deleted group is in no list (channel list, pickers, `#` references, @Mentions, search).
+- **Archived.** `["archived","1"]` on the group's kind 9002, read like `prompt` / `vouches`: the
+  latest 9002 that says anything about it wins; `["archived","0"]` unarchives. Every 9002 keeps
+  the group's other settings (name, about, picture, closed, prompt, vouches) and, while it is
+  archived, `["archived","1"]`. `general` is never archived (a tag on its 9002 is ignored; the
+  belfry answers `always_open`).
+  - Who: whoever may edit the group (its admins, admins by role, the belfry's admins). Those the
+    relay lets edit (its 39001, the creator, a belfry admin) publish the 9002 themselves; an
+    admin by role sends `POST <api>/group-meta {"channel","archived":true|false}`. While
+    archived the belfry refuses every other change with 409 `archived` (`/group-meta`,
+    `/group-roles`, `/channel-invites`, `/channel-guests`). A belfry from before archiving
+    answers ok and changes nothing: (iOS) the app looks for the change for 5 s (or trusts an
+    `archived` in the answer), then says "This belfry can't archive yet: it needs an update."
+  - An archived group is in no list (channel list, pickers, `#` references, groups of a
+    channel, requests, the drawer's counts) but still opens from its card, a link and search:
+    everything is readable. Under the header: "Archived · read only" with Unarchive for those
+    who may. No composer, reactions, replies, edits, to-dos, pins, invite, follow, roles or
+    settings. Its card in the parent: name, "Archived", greyed, still a button (it opens the
+    group read only).
+  - Archive sits in the group's settings with a confirmation: "Archive <name>? It leaves the
+    channel list and nobody can post in it. You can unarchive it later."
+  - A row "Archived" at the very bottom of the channel list, only while there is at least one I
+    can open (one I am in or run; for a member every archived channel), opens a screen listing
+    them; a tap opens the group read only.
+  - The relay enforces none of this: an older client can still post in an archived group, and
+    those messages show. (iOS) The app itself queues nothing for an archived or deleted group
+    (`GroupLock`: the last check in the outbox; only the unarchiving 9002 passes), whatever a
+    screen forgot to hide.
+- (iOS) A group's page (its card, a request) is a screen pushed on the main stack, never a
+  sheet; an archived group's card pushes the group itself, read only.
+- Core-tested in `ArchiveTests` (deleted by 9008; unknown until the relay answered, then
+  deleted; a stale copy; coming back; one being created; archived by the latest 9002, unarchive,
+  `general`; the 9002 keeps every setting; the outbox lock; the card's name; the questions).
+
+### 19.31 Five places, on-brand names, three roles (iOS, 2026-11-16; the owner's canvas "One belfry, five places")
+
+Layout first (each client draws it its own way), then the parts other clients must agree on.
+
+- **The places.** A bottom bar: Home · Calendar · Create (＋) · Groups · Town. Home = what needs
+  me today on the open belfry (requests for stewards and vouching members, a new agreement of
+  the charter, to-dos on me, new mentions, unread direct messages, events of the next 7 days I'm
+  part of or invited to, unread channels and groups); Calendar = My calendar (hosting, going,
+  maybe, applied) · Invited (a meeting's `invited` with no answer) · Discover (the rest); Groups =
+  My groups (pods I'm a member or admin of) · Active (mine with a message in the last 30 days) ·
+  All (every listed pod; not mine: Join when open, "by application" when closed); Town = the
+  Square and a drawer with only the town's places; Create = Message, Event, Meeting, To-do, Group,
+  Proposal into a chosen channel (default: the one on screen, else the Square). Rows never carry
+  action buttons for events: the state in words ("you host · check-in today", "going",
+  "invited · not answered yet"). Chats, events and profiles push over the places; the bar shows
+  only at a place's root. Guests: Home · Calendar · Town.
+- **The drawer's sections** (by group id): The town = `general`, Members (the members and their
+  requests; called "the Gates" until 2026-11-17), the Charter (19.32: shown when the `charter`
+  group exists, or to stewards); then the categories of 19.34 (without them: Building together =
+  `proposals` and `website`; Community life = every other channel). The stewards' order
+  (`belfry:channel-order`) holds inside each section. Pods are not in the drawer (their own
+  place); the `charter` group is never listed as a channel. (iOS, 2026-11-17) Above The town a
+  row **Today** opens Home; Home has the same ☰ and drawer. The drawer's header has a gear for
+  Belfry settings (stewards); each category's header a ＋ for a new channel in it.
+- **On-brand names** (display only; ids, mail addresses, links and wire values never change):
+  `general` → "Square", `events` → "Fairground", `proposals` → "Assembly", `website` →
+  "Scriptorium", only while the group's own name is still its default (empty, its id, or `#` +
+  id, any case: a renamed channel keeps its name). The members' directory with its requests is
+  called "Members" (it was "Gates" until 2026-11-17). (iOS) `WorldContext.placeNames` = true in the app, false in the shared vectors;
+  `PlaceNames` in `Model/Charter.swift`.
+- **Three roles** as people read them: Steward (the built-in `admin` role, the stewards group) ·
+  Member · Guest. A belfry's `GET /roles` label "Admin" for the `admin` role is shown as
+  "Steward"; a custom label stays. The per-event / per-group check-in role (wire value `steward`
+  in the `belfry/group-role` label and `POST /group-roles`, 19.29) is shown as **Door**.
+- **Add an agent** (19.16): on my own profile, members only (not guests, not agents): a short
+  explanation and "Add an agent", which makes a one-agent link (`POST /api/v1/channel-invites`
+  `{"channel": "general", "agent": true}`) and shows one line to paste to the agent:
+  `Join <belfry name> as my agent: read <agent_url> and follow it.` (`agent_url` from the
+  answer, https only, never built from typed text). With my agent there (one per member by
+  default: `POST /agents {}` → `limit`), the section shows it with "Remove this agent…" instead;
+  stewards (unlimited) see "Add another agent".
+
+### 19.32 The charter (iOS, 2026-11-16; `vectors/charter.json`)
+
+A short list of agreements that every person ticks for themselves. It reuses the to-do list
+(19.8, 19.11) of one NIP-29 group so no new kind is needed.
+
+- **Where.** The group `charter` on the groups relay (a fixed id), made by the steward who writes
+  the first agreement: 9007 `["h","charter"]`, then 9002 `["h","charter"],["name","Charter"],
+  ["about",…],["open"]`. Clients never list it as a channel or group.
+- **An agreement** = kind 2100 in that group: content = its title (trimmed, ≤ 300 UTF-16
+  units), tags = the to-do list's `["t", <list id of "charter">]` (sha256hex("osv-village:charter")
+  [:16] = `d93ecde52eff27c7`), `["h","charter"]`, plus `["each","1"]` (a to-do each person does
+  for themselves), `["order","<int>"]` and an optional `["about","<one line ≤ 200>"]`. Only a
+  2100 by a **belfry admin** (belfry.json `admins`) with `each` = 1 counts.
+- **A change** = kind 2101 `["e",<agreement>],["action","edit"]` + the same `t`, `h`, `each`,
+  with content = the full title and the full `about` / `order` tags (latest wins; a missing
+  `about` empties it; a missing `order` keeps the place). Only a belfry admin's edit counts. If
+  the title or the explanation changed, that edit's `created_at` becomes the agreement's
+  **text time**. A reorder alone changes nothing else. **Removal** = 2101 `action` `delete` by a
+  belfry admin (not only the author, unlike ordinary to-dos).
+- **A person's agreement** = their own 2101 `action` `done` (and `undone` to take it back),
+  same tags. Counted **per author**, latest tick wins (an ordinary to-do's `done` is once for
+  everyone; here it never is). A person **has agreed** when their latest tick is `done` and its
+  `created_at` ≥ the text time; a `done` older than the text time is **stale**: that person is
+  asked again, for that rule only (the owner's decision).
+- **Order**: `order` ascending (none = last), then `created_at` of the 2100, then id.
+- **What members see.** The charter page: "You agreed · <date>" (the newest of my current ticks,
+  once all are ticked), else how many wait; each rule with my tick and "N of M members" (people
+  in `general` who are not guests or agents). Stewards also: New agreement, edit (changing the
+  words says it asks everyone again), reorder or remove, and a count opens Agreed / Not yet. A
+  rule I haven't agreed to is highlighted ("NEW", or "CHANGED" when my tick went stale) and Home
+  shows "1 new agreement to read" until I tick it. A new or changed rule never stops anyone from
+  posting (the owner's decision): a reminder only. No agreement yet: stewards see "No agreements
+  yet · Write the first agreement"; everyone else sees no Charter row, and joining skips the step.
+- **Older clients** see the `charter` group as a channel named "Charter" with to-dos marked done
+  by whoever ticked first. Clients that know this section hide it.
+- **People who can't read the group** (guests, applicants): `GET https://belfry.<domain>/api/v1/charter`
+  (no auth) → `{"agreements": [{"id", "title", "about", "order" (null = none), "added", "text_at"}]}`;
+  belfry.json `charter: true|false`. A guest's request carries the ids ticked (`agreed`); once a
+  member, the belfry signs those ticks for them (collective-belfry docs/charter.md), so a
+  just-accepted member is not asked again.
+- **A new member's first minutes** (web `welcomeDue`): shown once on a device that saw the
+  account's guest become a member, when a charter exists and the person never ticked an agreement
+  (any 2101 of theirs in the list), not to a member's agent or a steward: Welcome (mark, name,
+  description, who let them in) → each agreement ticked ("4 of 6 agreed" until all) → name and
+  photo, with Skip.
+- Core-tested in `CharterTests` (the vector: admins only, `each` only, reorder without asking
+  again, a text change making a tick stale, outsiders' edits and removals ignored, removal by
+  another steward; the actions' tags; the names; the charter group out of the channel list).
+
+### 19.33 E-mail threads in a channel (iOS, 2026-11-16; web mailthreads.ts at mail-chat 338d296; collective-belfry docs/mail.md; `vectors/mailthreads.json`)
+
+Nothing new on the wire; each client joins a shared inbox's e-mails into threads.
+
+- **An e-mail from outside** = a kind 9 in the group **by the groups key** with `client belfry-mail`
+  and `mail-from` (plus `mail-name`, `subject`, `message-id`, `in-reply-to`, `references` (at most
+  10 ids), `belfry-auth` = `pass` when DKIM or SPF aligned, `mail-original` url / key / nonce).
+  **What went out** = a kind 9 by the groups key with `client belfry-mail-out`, `mail-to`,
+  `subject`, `message-id`, `sent-by` and `e` = the e-mail it answers. Anyone else's kind 9 with
+  `client belfry-mail` is **a member's own mail**: an ordinary message with a small "via e-mail"
+  beside its time and "Full e-mail" in its menu (the original on Blossom, AES-GCM).
+- **Joining**, oldest first: an e-mail whose References + In-Reply-To (taken newest first) name the
+  `message-id` of one already in a thread joins it; else the same sender (address, lower case) with
+  the same base subject (Re:, Fwd:, AW:, SV:, TR:, WG:, Antw:, Rif:, R: and `[n]` aside; spaces
+  folded; lower case) joins theirs; else it starts a thread and is its **root** (the thread's id:
+  route, labels, replies). What went out joins the thread of its `e`. Subject of a thread = the
+  root's base subject; its name = the first `mail-name` given; `lastIn` = the latest e-mail received;
+  `refs` = every Message-ID in it, oldest first.
+- **The team's talk** = NIP-22 replies (kind 1111) under any e-mail of the thread (older clients
+  hung them under a later e-mail): counted, and shown in the thread with the e-mails.
+- **State**: walk the thread's e-mails and its `belfry/inbox` labels (kind 1985, `e` = any of its
+  e-mails) by time (then id): `l open` / `l closed` set it; `l assigned` + `p` sets who has it (no
+  `p` = nobody); an outgoing e-mail counts an answer and turns Open into **Answered** (`waiting`);
+  an incoming one other than the root turns it back to Open (they wrote back).
+- **The feed** shows one row per thread at its latest activity (the latest e-mail either way or
+  team reply): sender, subject, a line of the latest e-mail, state, who has it, counts. Its e-mails
+  are not shown as messages, and its replies don't resurface as thread activity.
+- **The thread**: the e-mails in frames (received light, sent solid, "unverified sender" when
+  `belfry-auth` isn't `pass`, "Full e-mail"), the team's replies, the state with Take / Close for
+  the channel's admins, "Team only: <sender> sees only what is sent by e-mail." ONE composer with
+  a line above it: "Message will be sent in this thread" (a NIP-22 reply under the root) and, for the
+  channel's admins while the inbox is on, "Reply by e-mail instead"; then "This will be sent to
+  <name> by e-mail", "From <address> · Re: <subject>", "Only send in this thread instead", the
+  composer in the e-mail colour. Sending by e-mail waits 8 seconds for Undo (leaving the thread
+  sends at once), then goes back to thread mode.
+- **Answering by e-mail**: a kind 1301 (Nostr Mail) to the bridge: `mail-from` = the channel's
+  address, `rcpt-to` = `lastIn`'s address, `subject` = "Re: " + `lastIn`'s base subject, `e` =
+  `lastIn`'s event id; the MIME From = "<my name> for <channel name>" <address>, In-Reply-To =
+  `lastIn`'s Message-ID, References = the thread's other Message-IDs (the last 10) then In-Reply-To.
+- **The channel's address** (web model.ts `mailLocal`, server `mail.channel_by_slug`): its plain
+  alias `slug(raw name)` (else the id without a `-xxxx` suffix of 3–8 [0-9a-z]) when a belfry admin
+  (or the relay's own key) made it (its first 9007; none known: yes) and exactly one group answers
+  to that alias (by its suffix-less id or its slugged raw name); else its id. slug = lower case,
+  accents folded, runs of anything else → "-", trimmed, 40 at most. The raw name is the
+  metadata's, before the on-brand names of 19.31.
+- (iOS) `Model/MailInbox.swift` (`mailThreads`, `mailLocal`), `MailUI.swift`, core-tested in
+  `MailInboxTests` (the vector: joining by references, by subject, the answer, the team reply,
+  labels on a later e-mail, the feed; the address rules).
+
+### 19.34 Channel categories (iOS, 2026-11-17; `vectors/categories.json`, reference `tools/vectors/categories.py`)
+
+The stewards sort the town's channels into categories. Same event as the channel order: kind
+30078, `d` = `belfry:channel-order`, on the community relay, by a belfry admin; the latest by a
+belfry admin wins (anyone else's is ignored). Its content gains `categories`:
+
+    {"order": ["general", "garden-3f2a", "kitchen-7d10", "repair-cafe-91bc", "proposals"],
+     "categories": [{"id": "life", "channels": ["garden-3f2a", "kitchen-7d10"]},
+                    {"id": "making-4b1c", "name": "Making & mending", "channels": ["repair-cafe-91bc"]},
+                    {"id": "building", "channels": ["proposals"]}]}
+
+- **Built-in ids**: `life` ("Community life", the default) and `building` ("Building together",
+  default members `proposals`, `website`). The town (`general`, Members, the Charter) is never a
+  category; an entry with id `town` is ignored. A custom id is a short slug of its name and 4
+  random characters ("making-4b1c"). A missing or empty `name` on a built-in means its default
+  title; on a custom one, its id.
+- **Reading** (the town's listed channels, `general` left out, in their natural order sorted by
+  `order`): without `categories` exactly as before (life = everything but proposals and website,
+  then building = those two). With it: each entry in its order; its channels are the ids it
+  names that are listed now, a channel named twice counting in the first, unknown ids ignored;
+  entries that aren't objects, have no string id, or repeat an id are skipped (100 entries,
+  1000 ids each at most). A built-in left out still exists: `building` (appended last) with its
+  default members not named elsewhere, `life` (inserted first). Every channel no category names
+  goes to the end of `life`, in `order`'s order.
+- **Showing**: `building` only when it has channels; every other category to belfry admins
+  always (empty, with its ＋), to everyone else only with a channel.
+- **Writing** (a belfry admin): `order` = `general` then every category's channels, flattened (so
+  older clients, which read only `order`, keep the same order); each category with `id`, `name`
+  (left out on a built-in whose name is its default) and `channels`; an empty `building` is left
+  out (it hides anyway; its default members are named in `life` when they were moved there, so
+  they don't fall back). Ids the writer can't see (an archived channel) stay at the end of their
+  category from the previous event.
+- **Editing**: moving a channel = a drag in the flat list of headers and channels (a channel
+  belongs to the header above it; above the first header: the first category); deleting a
+  custom category moves its channels to the end of `life` (built-ins can't be deleted); a
+  channel made with a category's ＋ by a belfry admin is followed by the order event putting it
+  at the end of that category (a member's new channel lands in `life` by the reading rule).
+- (iOS) `Model/Categories.swift` (`ChannelLayout.parse`, `Categories.arrange / shown / encode /
+  rebuild / put / remove / newId`, `Derive.channelCategories`, `Actions.channelLayout`), core-tested
+  in `CategoriesTests`. The drawer's channel rows are one `List` section with the headers as
+  rows (`onMove` only for belfry admins); Belfry settings → Channels edits the categories.
+
+### 19.35 Place names after the web's change of 2026-11-17 (Android note)
+
+The web shipped a single on-brand name: `general` shows as **Townsquare** (same rule as 19.31:
+only while its own name is the default — empty, its id or `#` + id, any case; the id and the mail
+alias stay `general`; never written back). `events`, `proposals` and `website` show their own
+names (Square, Fairground, Assembly and Scriptorium are gone). The town's fixed rows read
+Townsquare, Members, Charter. New belfries get `#general` alone: no client may assume `events`,
+`proposals` or `website` exist; Community life shows (empty, with its ＋) to any non-guest so a
+member can make the first channel. Belfry settings → Channels: a channel's menu ends with "Delete
+the channel" when it holds no content (kinds 9 10 11 12 20 1063 1068 1111 9802 30023 31922 31923)
+or "Archive the channel" otherwise, each behind a confirmation; delete = `POST /api/v1/group-delete
+{"channel"}` (NIP-98, a group admin or belfry admin; 409 `not_empty`, 409 `always_open`, 422 for
+ev- / ws- / prop- ids; the belfry publishes the 9008). (Android) The names live in one table,
+`core/model/Charter.kt` `PlaceNames`.

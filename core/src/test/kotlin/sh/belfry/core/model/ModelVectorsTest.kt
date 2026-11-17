@@ -161,6 +161,7 @@ class ModelVectorsTest {
                             assertEquals(x["pubkey"].sOrNull(), item.j.pubkey, name)
                             assertEquals(x["by"].sOrNull(), item.j.by, name)
                         }
+                        is FeedItem.MailThread -> assertEquals("mail", x["t"].sOrNull(), name)
                         is FeedItem.Activity -> {
                             assertEquals("act", x["t"].sOrNull(), name)
                             assertEquals(x["root"].sOrNull(), item.root.id, name)
