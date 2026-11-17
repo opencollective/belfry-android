@@ -35,7 +35,7 @@ the screen renders in demo mode (Roborazzi, `ParityShotsTest`, `PlacesShotsTest`
 | Charter (19.32) | done | Ticks, NEW / CHANGED, "N of M members", stewards: new, edit (warns that new words ask everyone again), move up / down, remove, who agreed. Guests read the public copy. A demo charter is seeded. |
 | A guest's request, first minutes | done | Apply (answer + agreements ticked, state from `/applications {"apply": "status"}`); Welcome → charter → name and photo, once, on a device that saw the guest. |
 | Event screen (19.29) | done | Header at three levels (opens at half; the handle taps / drags), Chat · Photos · People; Show my ticket (QR, full brightness); Check people in on the event's days (CameraX + ZXing, or the list, green / amber / red with words). |
-| Ticket links opened from outside (`chat.<domain>/events/<link>/t/<code>`) | not yet | Only scanned in the check-in screen; App Links for `/events/` are not in the manifest yet. |
+| Ticket links (`chat.<domain>/events/<link>/t/<code>`) | done | The App Link opens the event; for those who may check people in, a card asks the belfry who it is (`peek`) then Check in / Undo. Scanned codes check in at once. |
 | Group page's Join / Apply with vouches | partial | The page and requests work; the vouch rule is not editable from the group's settings yet (`/group-meta` keeps it). |
 | "Steward" for a channel's or group's admin (web cbc57a3) | done | People lists and the profile's "In <group>" picker; events keep Host / Co-host / Door. |
 | Laptop list (web cbc57a3) | done | No search field in the wide column; Create is a plain ＋ in its top bar. |

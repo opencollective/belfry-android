@@ -186,10 +186,6 @@ Built against docs/guests.md. Status of the asks:
 
 ## Since the parity work (2026-11-17)
 
-- **App Links for event and ticket links** (`https://chat.<domain>/events/<link>[/t/<code>]`): the
-  belfry already serves assetlinks.json for the chat hosts; the app's manifest does not declare
-  `/events/` yet (client side, not a server need), so a ticket link opened outside the app goes to
-  the browser.
 - Nothing new is asked of the belfry: every call used (`/roles`, `/member-roles`, `/membership`,
   `/applications`, `/agent-requests`, `/whois {"directory"}`, `/channel-invites` with `as`,
   `/group-roles`, `/group-meta`, `/group-delete`, `/events/<d>/attendees`, `/events/<d>/checkin`,
