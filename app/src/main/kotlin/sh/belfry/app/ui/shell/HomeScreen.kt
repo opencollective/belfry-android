@@ -164,7 +164,7 @@ private fun PlaceBody(shell: ShellState, onMenu: (() -> Unit)?, counts: PlaceCou
     val c = Belfry.colors
     val three = LocalConfiguration.current.screenWidthDp >= 1200
     when (shell.place) {
-        ShellState.Place.HOME -> HomePlace(onMenu = onMenu, menuBadge = counts.town, onCreate = if (wide) ({ shell.creating = true }) else null)
+        ShellState.Place.HOME -> HomePlace(onMenu = onMenu, menuBadge = counts.town)
         ShellState.Place.CALENDAR -> CalendarPlace()
         ShellState.Place.GROUPS -> GroupsPlace()
         ShellState.Place.TOWN -> {

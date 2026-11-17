@@ -131,13 +131,13 @@ fun InGroupSection(pubkey: String, groupId: String) {
     val may = (world.canAdmin(g)) && !world.isLocked(groupId)
     val role = world.groupRole(groupId, pubkey)
     val host = event != null && event.creator == pubkey
-    val word = if (event != null) world.eventRole(event, pubkey).label else if (role == GroupRole.ADMIN) "Admin" else PlaceNames.MEMBER
+    val word = if (event != null) world.eventRole(event, pubkey).label else if (role == GroupRole.ADMIN) PlaceNames.STEWARD else PlaceNames.MEMBER
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var open by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val choices: List<Pair<String, GroupRole>> = if (event != null) EventRole.entries.filter { it != EventRole.HOST }.map { it.label to it.groupRole }
-    else listOf(PlaceNames.MEMBER to GroupRole.MEMBER, "Admin" to GroupRole.ADMIN)
+    else listOf(PlaceNames.MEMBER to GroupRole.MEMBER, PlaceNames.STEWARD to GroupRole.ADMIN)
     SectionTitle("In ${g.name}")
     ActionGroup {
         Box {

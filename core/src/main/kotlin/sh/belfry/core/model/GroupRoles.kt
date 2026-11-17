@@ -69,9 +69,12 @@ fun World.everywhere(groupId: String): Set<String> {
     return out
 }
 
-/** "Admin" for a channel's or group's own admin (null for everyone else and for the keys that administer every group). */
+/**
+ * "Steward" for a channel's or group's own admin (the web's word since chat-source cbc57a3; events
+ * keep Host / Co-host / Door); null for everyone else and for the keys that administer every group.
+ */
 fun World.adminWord(groupId: String, pubkey: String): String? =
-    if (group(groupId)?.admins?.contains(pubkey) == true && pubkey !in everywhere(groupId)) "Admin" else null
+    if (group(groupId)?.admins?.contains(pubkey) == true && pubkey !in everywhere(groupId)) PlaceNames.STEWARD else null
 
 /** May I moderate GROUP on the relay myself (9000 / 9001 / 9002)? Its 39001 or creator, or a belfry admin. An admin by role goes through the belfry instead. */
 fun World.mayModerate(g: Group?): Boolean = g != null && (me in g.relayAdmins || isCommunityAdmin)

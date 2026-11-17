@@ -11,6 +11,38 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
+## Parity with the iPhone app (iOS `08a3fc9`, web `a2323df`; Android branch `parity`, 2026-11-17)
+
+The milestones that bring Android level with the iPhone app. Same status words. Nothing in this
+table ran on a phone or against a real belfry: "done" = compiled in CI, the shared vectors pass,
+the screen renders in demo mode (Roborazzi, `ParityShotsTest`, `PlacesShotsTest`).
+
+| Area (SPEC) | Status | Notes |
+|---|---|---|
+| Vectors `charter.json`, `mailthreads.json`, `categories.json` | done | Copied from belfry-ios-r3; every case passes (`ParityTest`). |
+| Deleted and archived groups (19.30) | done | `core/model/Archive.kt`: 9008, absence after the groups relay's answer (stored `groups-absent`, asked after each EOSE, at most once a minute, never as a guest), `GroupLock` in `Session.send`; archived 9002 tag; cards say "deleted" / "Archived"; "Archived · read only" bar with Unarchive; the Archived row and screen; archive with confirmation in a channel's Settings. An admin by role archives through `/group-meta`, then waits 5 s. |
+| Roles in a group, tickets, check-in (19.29) | done | `GroupRoles.kt`; admins = latest 39001 ∪ creator ∪ admins by role (was: every 39001 and every 9007 author); viewer block read from `me` + `viewer`, kept per event on the device; `/attendees`, `/checkin`, `/group-roles`, `/group-meta` in `EventsApi`. "In <group>" on a profile opened from a people list. |
+| Five places (19.31) | done | Material `NavigationBar` Home · Calendar · Create · Groups · Town (Create = the centre item, a filled circle that opens a bottom sheet); guests: Home · Calendar · Town. The bar hides with the keyboard. Tablets (the permanent column): no bar, Today / Calendar / Groups are drawer rows (as the iPad's sidebar). |
+| Place names | done | One table, `PlaceNames` in `core/model/Charter.kt`: only `general` → "Townsquare" (the web's change of 2026-11-17, SPEC 19.35). Display only; the settings form writes the raw name. |
+| Town drawer | done | Search, Today, The town (Townsquare, Members with requests, Charter), categories with ＋ (stewards on all, members on Community life, shown empty to members), long-press drag for stewards (publishes the order event), Archived, me + ⇅ accounts. Guests: Apply, their channels, open to everyone. |
+| Home, Calendar, Groups, Create | done | Home: the date, ☰, To-dos / Mentions / Messages tiles ("Nothing new"), requests, new agreements, coming up (7 days), unread. Calendar: My calendar · Invited · Discover (guests: public events from `/events?visibility=public`). Groups: My groups · Active · All. Create: Message, Meeting, Event, To-do, Group, Proposal into a chosen channel. |
+| Channel header, attention line, pull-down as a menu (iOS 2026-11-17) | done | Subtitle in words ("Members only · 6 active · 12 photos · 1 group"); the line only from `attentionLine`; the pull-down from the top: description, address, pinned message with Hide, then rows that push screens (Pinned, Events, To decide, To-dos, Photos, Files, Groups, Topics, Members with Invite, Notifications, Log, Settings). The tabbed Channel info is gone (old links open the matching screen). Search only on the right. |
+| Invite option C | done | Joins as: guest for a day / week / month, my own agent, a member with a role × month / year / permanent (stewards; members where the belfry lets them); link people 1 / 50, link works 1 / 7 / 30 days. |
+| E-mail threads in a channel (19.33) | done | One row per thread in the feed, the thread with framed e-mails and the team's replies, Take / Close, one composer with the "who receives this" line, 8 s Undo, from the plain alias with References. |
+| Members directory, requests, vouching | done | My card, agents / people / my groups' requests, vouch or accept; the belfry's directory (`whois {"directory"}`) with roles and own agents; search. |
+| Roles on a profile, Belfry settings | done | Role section (Steward · Member · custom · Guest) instead of the admin switch; Belfry settings → Branding, Roles, Membership, Channels (categories: new, rename, delete; a channel moves, is archived or — when it holds no content — deleted with `/group-delete`). |
+| Add an agent | done | On my own profile: a modal with the line to paste, Copy / Share (the one exception to "no sheets from rows", as on iOS). |
+| Charter (19.32) | done | Ticks, NEW / CHANGED, "N of M members", stewards: new, edit (warns that new words ask everyone again), move up / down, remove, who agreed. Guests read the public copy. A demo charter is seeded. |
+| A guest's request, first minutes | done | Apply (answer + agreements ticked, state from `/applications {"apply": "status"}`); Welcome → charter → name and photo, once, on a device that saw the guest. |
+| Event screen (19.29) | done | Header at three levels (opens at half; the handle taps / drags), Chat · Photos · People; Show my ticket (QR, full brightness); Check people in on the event's days (CameraX + ZXing, or the list, green / amber / red with words). |
+| Ticket links opened from outside (`chat.<domain>/events/<link>/t/<code>`) | not yet | Only scanned in the check-in screen; App Links for `/events/` are not in the manifest yet. |
+| Group page's Join / Apply with vouches | partial | The page and requests work; the vouch rule is not editable from the group's settings yet (`/group-meta` keeps it). |
+| "Steward" for a channel's or group's admin (web cbc57a3) | done | People lists and the profile's "In <group>" picker; events keep Host / Co-host / Door. |
+| Laptop list (web cbc57a3) | done | No search field in the wide column; Create is a plain ＋ in its top bar. |
+| Mail-forward setting in a channel's settings (web cbc57a3) | not yet | Skipped on Android for now (coordinator's call). |
+| Closed channels (a third visibility: NIP-29 closed + prompt, "Apply to join", requests on the channel's Members screen; new groups closed by default) | not yet | Announced for the web; to be built once it is on chat-source. |
+| Icons | partial | The app keeps its own line icons (the web's set) where it had them; new screens use Material outlined icons. |
+
 ## Protocol core (`core/`, JVM tests)
 
 | Area | Status | Notes |

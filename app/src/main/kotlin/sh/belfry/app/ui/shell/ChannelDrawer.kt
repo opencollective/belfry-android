@@ -123,7 +123,7 @@ fun ChannelDrawer(shell: ShellState, actions: DrawerActions, modifier: Modifier 
     val onHome = shell.place == ShellState.Place.HOME
     val current = if (shell.place == ShellState.Place.TOWN) shell.channel else ""
     Column(modifier.fillMaxSize().background(c.bg)) {
-        DrawerHeader(world, guest, actions)
+        DrawerHeader(world, guest, actions, onCreate = if (wide && !guest) ({ shell.creating = true }) else null)
         Hairline()
         val brand = session.branding
         val pictures = androidx.compose.ui.platform.LocalInspectionMode.current.not() && sh.belfry.app.ui.kit.LocalNetworkImages.current
@@ -134,7 +134,8 @@ fun ChannelDrawer(shell: ShellState, actions: DrawerActions, modifier: Modifier 
                     modifier = Modifier.fillMaxWidth().height(96.dp),
                 )
             }
-            item(key = "<search>") {
+            // a laptop / tablet list has no search field (web cbc57a3): search is in each channel's header
+            if (!wide) item(key = "<search>") {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).clip(RoundedCornerShape(24.dp)).background(c.surface)
                         .clickable(role = Role.Button) { actions.go(Routes.search(null)) }.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -167,7 +168,7 @@ fun ChannelDrawer(shell: ShellState, actions: DrawerActions, modifier: Modifier 
 }
 
 @Composable
-private fun DrawerHeader(world: World, guest: Boolean, actions: DrawerActions) {
+private fun DrawerHeader(world: World, guest: Boolean, actions: DrawerActions, onCreate: (() -> Unit)? = null) {
     val c = Belfry.colors
     val session = LocalSession.current
     val name = world.ctx.communityName.ifEmpty { session.community.name }
@@ -192,6 +193,8 @@ private fun DrawerHeader(world: World, guest: Boolean, actions: DrawerActions) {
             val line = if (guest) listOfNotNull(PlaceNames.GUEST, world.guestDaysLeft(session.now())).joinToString(" · ") else "$n ${if (n == 1) "member" else "members"}"
             Text(line, fontSize = 13.sp, color = c.muted, maxLines = 1)
         }
+        // a wide window has no bottom bar: Create is a plain ＋ here
+        if (onCreate != null) IconAction(BelfryIcons.Plus, "Create", onCreate, modifier = Modifier.testTag("drawer-create"))
         if (!guest && world.isCommunityAdmin) {
             IconAction(Icons.Outlined.Settings, "Belfry settings", { actions.go(Routes.BELFRY_SETTINGS) }, modifier = Modifier.testTag("drawer-settings"))
         }
