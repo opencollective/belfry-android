@@ -74,6 +74,7 @@ import sh.belfry.app.ui.kit.WorkRing
 import sh.belfry.core.model.Topics
 import sh.belfry.core.model.channelFacts
 import sh.belfry.core.model.channelLine
+import sh.belfry.core.model.attentionLine
 import sh.belfry.core.model.lineDay
 import sh.belfry.core.model.lineWhen
 import sh.belfry.core.model.needsMyVote

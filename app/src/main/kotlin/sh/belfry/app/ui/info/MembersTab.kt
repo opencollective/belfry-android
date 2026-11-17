@@ -23,6 +23,8 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.adminWord
+import sh.belfry.core.model.stewards
 import sh.belfry.core.model.Application
 import sh.belfry.core.model.Group
 import sh.belfry.core.model.MemberRow
@@ -89,7 +91,7 @@ fun MembersTab(g: Group) {
         ActionGroup {
             rows.forEach { r ->
                 Row(
-                    Modifier.fillMaxWidth().background(c.surface).clickable { nav.go(Routes.profile(r.pubkey)) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().background(c.surface).clickable { nav.go(Routes.profile(r.pubkey, g.id)) }.padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Avatar(world.face(r.pubkey), size = 36.dp)
@@ -97,11 +99,10 @@ fun MembersTab(g: Group) {
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(r.name, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                            if (r.isAdmin) {
-                                Spacer(Modifier.width(8.dp))
-                                Chip("admin", icon = BelfryIcons.Shield)
-                            }
                         }
+                        // the role there as secondary text when it isn't the default (SPEC 19.29), no label editor
+                        val role = world.adminWord(g.id, r.pubkey) ?: if (r.pubkey in world.stewards(g.id)) sh.belfry.core.model.PlaceNames.DOOR else null
+                        if (role != null) Hint(role)
                         if (r.place != null) Hint(People.placeLabel(r.place))
                         val guest = r.guest
                         if (guest != null) {
@@ -113,13 +114,6 @@ fun MembersTab(g: Group) {
                                 val by = guest.by
                                 if (by != null) Text("invited by " + world.displayName(by), fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                        }
-                        FlowRow(
-                            Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).clickable { labelling = r },
-                            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            r.labels.forEach { Chip(it, selected = true) }
-                            if (r.labels.isEmpty()) Text("Add a label", fontSize = 13.sp, color = c.faint)
                         }
                     }
                 }

@@ -60,7 +60,7 @@ import sh.belfry.core.model.isGuest
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
+fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? = null) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -115,7 +115,7 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
                 if (admin || chip != null || owner != null) {
                     Spacer(Modifier.height(6.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (admin) Chip("admin", icon = BelfryIcons.Shield)
+                        if (admin) Chip(sh.belfry.core.model.PlaceNames.STEWARD, icon = BelfryIcons.Shield)
                         if (owner != null) Chip("agent")
                         if (chip != null) Chip(chip)
                     }
@@ -192,29 +192,11 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false) {
             }
             ErrorLine(agentError)
         }
-        if (world.isCommunityAdmin && !mine && owner == null) {
-            SectionTitle("Belfry")
-            ActionGroup {
-                SwitchRow(
-                    "Admin of the belfry",
-                    checked = admin,
-                    onCheckedChange = { error = null; confirming = true },
-                    modifier = Modifier.testTag("admin-switch"),
-                    icon = BelfryIcons.Shield,
-                    sub = if (noAdmin != null) {
-                        null
-                    } else if (guest != null) {
-                        "A guest now: this makes them a member too. Manages members, every channel and the belfry's settings."
-                    } else {
-                        "Manages members, every channel and the belfry's settings."
-                    },
-                    enabled = noAdmin == null || admin,
-                )
-            }
-            // Outside the dimmed row, so the reason stays readable.
-            if (noAdmin != null) Hint(noAdmin, Modifier.padding(top = 8.dp))
-            ErrorLine(error)
-        }
+        // opened from a channel's, group's or event's people: the role there (SPEC 19.29)
+        if (group != null) InGroupSection(pubkey, group)
+        // the belfry's role (Steward · Member · Guest and its own roles) instead of the admin switch
+        if (owner == null) RoleSection(pubkey)
+        if (mine) MyAgentSection()
     }
     if (dropping) {
         val who = world.displayName(pubkey)

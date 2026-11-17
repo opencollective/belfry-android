@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -48,14 +49,19 @@ class PeopleBehaviourTest : DemoShots() {
         assertEquals("the message was sent more than once", 1, session.dms.value.thread(conv).count { it.text == text })
     }
 
+    /** A steward makes a member a Steward from the Role section, after a confirmation (SPEC 19.31). */
     @Test
-    fun anUnsavedGuestCannotBeMadeAdminAndTheScreenSaysWhy() {
-        compose.setContent { BelfryTheme { InDemo { ProfileScreen(Demo.marcel.pubkey) } } }
-        compose.onNodeWithTag("admin-switch").assertIsNotEnabled()
-        compose.onNodeWithText("This guest has no e-mail yet", substring = true).assertIsDisplayed()
-        compose.onNodeWithTag("admin-switch").performClick()
+    fun aStewardChangesAMembersRoleAfterAConfirmation() {
+        val maya = Demo.maya.pubkey
+        assertFalse(world.isBelfryAdmin(maya))
+        compose.setContent { BelfryTheme { InDemo { ProfileScreen(maya) } } }
+        compose.onNodeWithTag("role-row").performScrollTo().performClick()
         compose.waitForIdle()
-        assertFalse(world.isBelfryAdmin(Demo.marcel.pubkey))
+        compose.onNodeWithTag("role-pick-admin").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Make Steward").fetchSemanticsNodes().isNotEmpty() }
+        assertFalse(world.isBelfryAdmin(maya))
+        compose.onNodeWithText("Make Steward").performClick()
+        compose.waitUntil(5_000) { world.isBelfryAdmin(maya) }
     }
 
     @Test

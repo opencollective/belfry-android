@@ -63,6 +63,7 @@ import sh.belfry.app.ui.places.GroupsPlace
 import sh.belfry.app.ui.places.HomePlace
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.PlaceNames
+import sh.belfry.core.model.welcomeDue
 
 /**
  * Whether the channel list stays as a left column (on every screen, AppNav): 840 dp and wider,
@@ -109,6 +110,17 @@ private fun PlacesHost(shell: ShellState, drawerOpen: Boolean) {
     // Remember the open channel for next time.
     LaunchedEffect(shell.channel) {
         if (shell.touched) withContext(Dispatchers.IO) { session.store.set(ShellState.K_LAST_CHANNEL, shell.channel) }
+    }
+    // a new member's first minutes (SPEC 19.32 / web welcomeDue): once, on a device that saw them as a guest
+    LaunchedEffect(world.amGuest, world.charterTicked) {
+        withContext(Dispatchers.IO) {
+            if (world.amGuest) session.store.set(K_SAW_GUEST, "1")
+            val saw = session.store.get(K_SAW_GUEST) == "1"
+            if (session.store.get(K_WELCOMED) == null && world.welcomeDue(saw)) {
+                session.store.set(K_WELCOMED, "1")
+                withContext(Dispatchers.Main) { nav.go(sh.belfry.app.ui.nav.Routes.WELCOME) }
+            }
+        }
     }
     // a guest has no Groups place
     LaunchedEffect(guest) { if (guest && shell.place == ShellState.Place.GROUPS) shell.place = ShellState.Place.HOME }
@@ -183,6 +195,9 @@ private fun PlaceBody(shell: ShellState, onMenu: (() -> Unit)?, counts: PlaceCou
         }
     }
 }
+
+private const val K_SAW_GUEST = "ui:saw-guest"
+private const val K_WELCOMED = "ui:welcomed"
 
 /** Material's bottom navigation bar; Create is the centre item, a filled circle that opens the Create menu. */
 @Composable

@@ -25,9 +25,14 @@ fun NavGraphBuilder.shellRoutes(shell: ShellState) {
     }
     composable(Routes.MY_TODOS) { sh.belfry.app.ui.places.MyTodosScreen() }
     composable(Routes.ARCHIVED) { sh.belfry.app.ui.places.ArchivedScreen() }
-    composable(Routes.CHARTER) { sh.belfry.app.ui.nav.NotBuiltYet("Charter") }
-    composable(Routes.APPLY) { sh.belfry.app.ui.nav.NotBuiltYet("Apply") }
-    composable(Routes.BELFRY_SETTINGS) { sh.belfry.app.ui.nav.NotBuiltYet("Belfry settings") }
+    composable(Routes.CHARTER) { sh.belfry.app.ui.belfry.CharterScreen() }
+    composable(Routes.CHARTER_WHO) { entry -> sh.belfry.app.ui.belfry.CharterWhoScreen(entry.arg("id")) }
+    composable(Routes.APPLY) { sh.belfry.app.ui.belfry.ApplyScreen() }
+    composable(Routes.WELCOME) { sh.belfry.app.ui.belfry.WelcomeScreen() }
+    composable(Routes.BELFRY_SETTINGS) { sh.belfry.app.ui.belfry.BelfrySettingsScreen() }
+    composable(Routes.SETTINGS_ROLES) { sh.belfry.app.ui.belfry.RolesSettingsScreen() }
+    composable(Routes.SETTINGS_MEMBERSHIP) { sh.belfry.app.ui.belfry.MembershipSettingsScreen() }
+    composable(Routes.SETTINGS_CHANNELS) { sh.belfry.app.ui.belfry.ChannelsSettingsScreen() }
     composable(Routes.KIT) {
         Column(Modifier.fillMaxSize().background(Belfry.colors.bg)) { KitGallery.Page() }
     }

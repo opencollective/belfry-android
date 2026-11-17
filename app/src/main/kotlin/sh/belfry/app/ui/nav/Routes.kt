@@ -44,6 +44,8 @@ object Routes {
     const val SETTINGS_MEMBERSHIP = "settings/membership"
     /** A guest asks to become a member (guestapply.py). */
     const val APPLY = "apply"
+    /** A new member's first minutes: welcome, the charter, name and photo (SPEC 19.32). */
+    const val WELCOME = "welcome"
     const val MENTIONS = "mentions"
 
     // ---- info (U1) ----
@@ -70,8 +72,9 @@ object Routes {
     fun follow(channel: String) = "follow/${enc(channel)}"
 
     // ---- people (U2) ----
-    const val PROFILE = "profile/{pubkey}"
-    fun profile(pubkey: String) = "profile/${enc(pubkey)}"
+    const val PROFILE = "profile/{pubkey}?group={group}"
+    /** A person; GROUP: opened from that channel's, group's or event's people (their role there shows). */
+    fun profile(pubkey: String, group: String? = null) = "profile/${enc(pubkey)}" + if (group != null) "?group=${enc(group)}" else ""
     const val ME = "me"
     const val SESSIONS = "sessions"
     /** Me → Notifications (push). */
