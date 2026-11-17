@@ -236,7 +236,7 @@ fun ChannelScreen(
         }
         if (g != null && g.archived) ArchivedBar(g)
         status.banner?.let { Banner(it, kind = BannerKind.Warning) }
-        ChannelBars(groupId)
+        if (!embedded) ChannelBars(groupId)
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (rows.isEmpty()) {
