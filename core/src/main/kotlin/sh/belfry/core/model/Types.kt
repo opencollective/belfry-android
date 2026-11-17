@@ -133,10 +133,10 @@ data class Message(
         return if (subject.isNotEmpty() && text.startsWith(head)) text.substring(head.length).trimStart() else text
     }
 
-    /** "an event" / "a pod" / "a proposal" for the line "Created …" above a card; null otherwise. */
+    /** "an event" / "a group" / "a proposal" for the line "Created …" above a card; null otherwise. */
     val created: String? get() = when (special) {
         is Special.EventCard -> "an event"
-        is Special.PodCard -> "a pod"
+        is Special.PodCard -> "a group"
         is Special.ProposalCard -> "a proposal"
         else -> null
     }

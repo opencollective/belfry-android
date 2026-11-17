@@ -478,7 +478,7 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
             ActionRow("Todo", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
         }
         ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = "A text to discuss and vote on")
-        ActionRow("Pod", onClick = { onClose(); go(Routes.createPod(groupId)) }, icon = BelfryIcons.Pod, sub = "A working group with its own channel")
+        ActionRow("Group", onClick = { onClose(); go(Routes.createPod(groupId)) }, icon = BelfryIcons.Pod, sub = "A working group with its own channel")
         ActionRow("Drop box link", onClick = { onClose(); go(Routes.drop(groupId)) }, icon = BelfryIcons.Upload, sub = "Let anyone send photos and files here")
     }
 }

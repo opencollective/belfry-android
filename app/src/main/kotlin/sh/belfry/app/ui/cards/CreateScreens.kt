@@ -164,14 +164,14 @@ fun CreatePodScreen(parent: String) {
     var tried by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val where = world.group(parent)
-    CardScreen("New pod") {
+    CardScreen("New group") {
         PageColumn {
-            BelfryTextField(name, { name = it }, Modifier.fillMaxWidth().testTag("create-name"), label = "Name", placeholder = "e.g. Garden crew", error = if (tried && name.isBlank()) "Give the pod a name" else null, keyboardOptions = words)
+            BelfryTextField(name, { name = it }, Modifier.fillMaxWidth().testTag("create-name"), label = "Name", placeholder = "e.g. Garden crew", error = if (tried && name.isBlank()) "Give the group a name" else null, keyboardOptions = words)
             BelfryTextField(about, { about = it }, Modifier.fillMaxWidth(), label = "What is it working on?", singleLine = false, minLines = 3, maxLines = 6, keyboardOptions = words)
             AccessFields(closed, prompt, { closed = it }, { prompt = it })
             error?.let { ErrorLine(it) }
             BusyButton(
-                "Create pod",
+                "Create group",
                 onClick = {
                     tried = true
                     error = null
@@ -183,7 +183,7 @@ fun CreatePodScreen(parent: String) {
                 modifier = Modifier.fillMaxWidth().testTag("create-submit"),
                 onError = { error = shown(it) },
             )
-            Muted("A working group inside ${where?.name ?: parent}, with its own members, chat, events, photos and pods.")
+            Muted("A working group inside ${where?.name ?: parent}, with its own members, chat, events, photos and groups.")
         }
     }
 }

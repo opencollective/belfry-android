@@ -568,7 +568,7 @@ class EngineTest {
         assertTrue(msgs.any { it.edited != null }, "an edited message")
         assertTrue(msgs.any { it.media.isNotEmpty() }, "a photo")
         assertTrue(msgs.any { w.isAnnouncement(it, w.group(Demo.GENERAL)) }, "an announcement")
-        assertTrue(msgs.any { it.created == "an event" } && msgs.any { it.created == "a pod" } && msgs.any { it.created == "a proposal" }, "cards")
+        assertTrue(msgs.any { it.created == "an event" } && msgs.any { it.created == "a group" } && msgs.any { it.created == "a proposal" }, "cards")
         assertTrue(msgs.any { it.text.contains("nostr:npub1") }, "a mention")
         assertEquals(OutboxStatus.QUEUED, w.pending("local-demo-waiting")?.status)
         assertEquals(OutboxStatus.FAILED, w.pending("local-demo-refused")?.status)

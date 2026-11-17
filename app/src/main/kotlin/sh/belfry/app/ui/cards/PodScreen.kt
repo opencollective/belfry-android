@@ -41,6 +41,7 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.isDeletedGroup
 import sh.belfry.core.model.Application
 
 /** A pod: what it works on, who can join, who is in, and for its admins the requests to join. */
@@ -52,7 +53,9 @@ fun PodScreen(id: String) {
     val c = Belfry.colors
     val g = world.group(id)
     if (g == null) {
-        CardScreen("Pod") { EmptyState("This pod is not here (yet)", text = "It may still be syncing.", icon = BelfryIcons.Pod) }
+        // SPEC 19.30: deleted, or nothing known yet (never "deleted" on a guess)
+        if (world.isDeletedGroup(id)) CardScreen("Group") { EmptyState("This group has been deleted", icon = BelfryIcons.Pod) }
+        else CardScreen("Group") { EmptyState("This group isn’t on this device yet", icon = BelfryIcons.Pod) }
         return
     }
     val inIt = world.me in g.members
@@ -63,7 +66,7 @@ fun PodScreen(id: String) {
     var declining by remember(id) { mutableStateOf<Application?>(null) }
     val parent = g.parent?.let { world.group(it) }
 
-    CardScreen(g.name, subtitle = (if (g.closed) "Closed pod" else "Pod") + " · " + CardFormat.members(g.members.size)) {
+    CardScreen(g.name, subtitle = (if (g.closed) "Closed group" else "Group") + " · " + CardFormat.members(g.members.size)) {
         PageColumn {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ChannelIcon(ChannelGlyph.Pod, size = 44.dp)
@@ -88,12 +91,12 @@ fun PodScreen(id: String) {
             }
 
             ActionGroup {
-                ActionRow("Open the pod's chat", onClick = { nav.openChannel(id) }, modifier = Modifier.testTag("pod-chat"), icon = BelfryIcons.Thread, chevron = true)
+                ActionRow("Open the group's chat", onClick = { nav.openChannel(id) }, modifier = Modifier.testTag("pod-chat"), icon = BelfryIcons.Thread, chevron = true)
                 when {
                     inIt -> Unit
-                    !g.closed -> BusyRow("Join pod", onClick = { session.send(Actions.join(id)) }, modifier = Modifier.testTag("pod-join"), icon = BelfryIcons.Plus)
-                    applied -> ActionRow("Request sent", onClick = null, icon = BelfryIcons.Clock, sub = "The pod’s admins will answer.", enabled = false)
-                    else -> ActionRow("Apply to join", onClick = { asking = true }, modifier = Modifier.testTag("pod-apply"), icon = BelfryIcons.Plus, sub = "Answer the pod's question")
+                    !g.closed -> BusyRow("Join group", onClick = { session.send(Actions.join(id)) }, modifier = Modifier.testTag("pod-join"), icon = BelfryIcons.Plus)
+                    applied -> ActionRow("Request sent", onClick = null, icon = BelfryIcons.Clock, sub = "The group’s admins will answer.", enabled = false)
+                    else -> ActionRow("Apply to join", onClick = { asking = true }, modifier = Modifier.testTag("pod-apply"), icon = BelfryIcons.Plus, sub = "Answer the group's question")
                 }
             }
 
@@ -143,7 +146,7 @@ fun PodScreen(id: String) {
 
             if (inIt) {
                 ActionGroup {
-                    ActionRow("Leave pod", onClick = { leaving = true }, modifier = Modifier.testTag("pod-leave"), icon = BelfryIcons.Logout, danger = true)
+                    ActionRow("Leave group", onClick = { leaving = true }, modifier = Modifier.testTag("pod-leave"), icon = BelfryIcons.Logout, danger = true)
                 }
             }
         }
@@ -153,7 +156,7 @@ fun PodScreen(id: String) {
     if (leaving) {
         ConfirmSheet(
             title = "Leave ${g.name}?",
-            confirmLabel = "Leave pod",
+            confirmLabel = "Leave group",
             onConfirm = {
                 session.send(Actions.leave(id))
                 leaving = false

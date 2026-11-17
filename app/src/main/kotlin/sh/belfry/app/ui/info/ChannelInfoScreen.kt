@@ -82,7 +82,7 @@ fun ChannelInfoScreen(id: String, initialTab: Int = InfoTab.ABOUT, settingsOpen:
             navigation = { BackButton { nav.back() } },
             actions = {
                 if (g != null && world.canAdmin(g)) {
-                    IconAction(BelfryIcons.Settings, if (g.isPod) "Pod settings" else "Channel settings", { settings = true }, modifier = Modifier.testTag("info-settings"))
+                    IconAction(BelfryIcons.Settings, if (g.isPod) "Group settings" else "Channel settings", { settings = true }, modifier = Modifier.testTag("info-settings"))
                 }
             },
         )
@@ -203,7 +203,7 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
         val parent = g.parent?.let { world.group(it) }
         if (!compact && parent != null) {
             FlowRow(gap.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Pod in", fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
+                Text("Group in", fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
                 LinkWord(channelLabel(parent, parent.id)) { nav.openChannel(parent.id) }
                 Dot()
                 Text(if (g.closed) "closed: apply, admins admit" else "open: any member joins", fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
@@ -212,8 +212,8 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
         if (!compact && g.closed) Text("Question: " + (g.prompt?.ifBlank { null } ?: "—"), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = gap)
         Row(gap) {
             when {
-                member -> BusyButton("Leave pod", onClick = { leaving = true }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("about-leave"))
-                !g.closed -> BusyButton("Join pod", onClick = { session.send(Actions.join(g.id)) }, small = true)
+                member -> BusyButton("Leave group", onClick = { leaving = true }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("about-leave"))
+                !g.closed -> BusyButton("Join group", onClick = { session.send(Actions.join(g.id)) }, small = true)
                 g.applications.any { it.pubkey == world.me } -> Text("You asked to join: its admins will answer.", fontSize = 15.sp, color = c.muted)
                 else -> BusyButton("Ask to join", onClick = { applying = true }, small = true)
             }
@@ -251,7 +251,7 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
     }
 
     Row(gap, verticalAlignment = Alignment.CenterVertically) {
-        Text((if (g.isPod) "Pod" else "Channel") + " id ", fontSize = 13.sp, color = c.muted)
+        Text((if (g.isPod) "Group" else "Channel") + " id ", fontSize = 13.sp, color = c.muted)
         Text(g.id, fontSize = 13.sp, color = c.muted, fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 
@@ -272,7 +272,7 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
             "Leave ${g.name}?", "Leave",
             onConfirm = { session.send(Actions.leave(g.id)); leaving = false; onLeave() },
             onDismiss = { leaving = false },
-            message = "You stop being a member of this pod. You can join again later.",
+            message = "You stop being a member of this group. You can join again later.",
         )
     }
     if (applying) {
@@ -293,7 +293,7 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
 /** Name, description, a pod's access, and the shared-inbox switch (admins). */
 @Composable
 fun ChannelSettingsSheet(g: Group, onClose: () -> Unit) {
-    BelfrySheet(onClose, title = if (g.isPod) "Pod settings" else "Channel settings") {
+    BelfrySheet(onClose, title = if (g.isPod) "Group settings" else "Channel settings") {
         ChannelSettingsForm(g, onClose)
     }
 }

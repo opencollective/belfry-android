@@ -213,7 +213,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
         val parent = g.parent?.let { world.group(it) }
         if ((g.isPod || g.isProposal) && parent != null) {
             Text(
-                "${if (g.isProposal) "Proposal" else "Pod"} in ${if (parent.isPod) "" else "# "}${parent.name}", fontSize = 13.sp, color = c.muted,
+                "${if (g.isProposal) "Proposal" else "Group"} in ${if (parent.isPod) "" else "# "}${parent.name}", fontSize = 13.sp, color = c.muted,
                 modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { close(); nav.openChannel(parent.id) }.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
@@ -286,7 +286,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
             if (full) NewTodoRow(groupId)
         }
         if (f.pods.isNotEmpty()) {
-            PullTitle("Pods")
+            PullTitle("Groups")
             for (p in f.pods) {
                 Row(
                     Modifier.fillMaxWidth().clickable(role = Role.Button) { close(); nav.openChannel(p.id) }.padding(horizontal = 16.dp, vertical = 8.dp),

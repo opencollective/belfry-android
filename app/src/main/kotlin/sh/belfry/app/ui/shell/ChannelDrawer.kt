@@ -125,9 +125,9 @@ fun ChannelDrawer(shell: ShellState, actions: DrawerActions, modifier: Modifier 
     Column(modifier.fillMaxSize().background(c.bg)) {
         DrawerHeader(world, guest, actions)
         Hairline()
+        val brand = session.branding
+        val pictures = androidx.compose.ui.platform.LocalInspectionMode.current.not() && sh.belfry.app.ui.kit.LocalNetworkImages.current
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("town-drawer"), state = rememberLazyListState()) {
-            val brand = session.branding
-            val pictures = androidx.compose.ui.platform.LocalInspectionMode.current.not() && sh.belfry.app.ui.kit.LocalNetworkImages.current
             if (brand.cover.isNotEmpty() && pictures) item(key = "<cover>") {
                 coil.compose.AsyncImage(
                     model = brand.cover, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,

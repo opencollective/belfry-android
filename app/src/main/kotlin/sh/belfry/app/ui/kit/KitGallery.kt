@@ -102,7 +102,7 @@ object KitGallery {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf(
                     ChannelGlyph.Channel to "general", ChannelGlyph.Event to "Harvest dinner",
-                    ChannelGlyph.Pod to "Garden pod", ChannelGlyph.Proposal to "Shared tool library",
+                    ChannelGlyph.Pod to "Garden group", ChannelGlyph.Proposal to "Shared tool library",
                 ).forEach { (g, n) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ChannelIcon(g)

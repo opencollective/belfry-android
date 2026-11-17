@@ -31,7 +31,7 @@ class ChannelLogTest {
     fun everyKindHasItsWords() {
         fun words(kind: Int, tags: List<List<String>>, content: String = "") = line(ev(member, now, kind, tags, content))!!.let { it.icon + " " + it.text }
         assertEquals("💬 posted a message", words(9, h(), "Hello   there"))
-        assertEquals("⬡ created a pod", words(9, h(listOf("pod", "pod-x")), "⬡ New pod"))
+        assertEquals("⬡ created a group", words(9, h(listOf("pod", "pod-x")), "⬡ New pod"))
         assertEquals("📄 made a proposal", words(9, h(listOf("proposal", "prop-x"))))
         assertEquals("🖼 posted a photo", words(9, h(listOf("imeta", "url https://x/a.jpg", "m image/jpeg"))))
         assertEquals("🖼 posted 2 photos", words(9, h(listOf("imeta", "url https://x/a.jpg", "m image/jpeg"), listOf("imeta", "url https://x/b.jpg", "m image/png"))))

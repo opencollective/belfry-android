@@ -39,7 +39,7 @@ fun ChannelBars(groupId: String) {
     }
 }
 
-/** Not in this pod: join it (open), or apply by answering its question (closed). */
+/** Not in this group: join it (open), or apply by answering its question (closed). */
 @Composable
 internal fun JoinBar(g: Group) {
     val world = LocalWorld.current
@@ -48,8 +48,8 @@ internal fun JoinBar(g: Group) {
     var asking by remember(g.id) { mutableStateOf(false) }
     BarRow(Modifier.testTag("join-bar")) {
         val text = when {
-            !g.closed -> "You're not in this pod yet."
-            applied -> "Request sent. The pod’s admins will answer."
+            !g.closed -> "You're not in this group yet."
+            applied -> "Request sent. The group’s admins will answer."
             else -> "This pod is closed: apply to join."
         }
         Text(text, Modifier.weight(1f), fontSize = 14.sp, lineHeight = 19.sp, color = Belfry.colors.text)
@@ -85,7 +85,7 @@ internal fun ApplySheet(g: Group, onDismiss: () -> Unit) {
                 enabled = answer.isNotBlank(),
             )
             Gap(10)
-            Muted("The pod’s admins see your answer and admit you, or not.")
+            Muted("The group’s admins see your answer and admit you, or not.")
         }
     }
 }

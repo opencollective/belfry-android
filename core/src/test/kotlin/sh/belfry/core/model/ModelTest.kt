@@ -120,7 +120,7 @@ class ModelTest {
         assertFalse(row(m2).first)
         assertTrue(row(m3).first) // more than 300 s
         assertTrue(row(m4).first) // another author
-        assertEquals("a pod", (row(pod).item as FeedItem.Msg).m.created)
+        assertEquals("a group", (row(pod).item as FeedItem.Msg).m.created)
         assertTrue(row(pod).first)
         assertTrue(row(ann).announcement)
         assertFalse(row(notAnn).announcement)

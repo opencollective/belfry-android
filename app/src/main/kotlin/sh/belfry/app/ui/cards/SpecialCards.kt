@@ -43,6 +43,9 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Actions
+import sh.belfry.core.model.GroupLock
+import sh.belfry.core.model.GroupState
+import sh.belfry.core.model.groupState
 import sh.belfry.core.model.CardState
 import sh.belfry.core.model.CardStatus
 import sh.belfry.core.model.MailOriginal
@@ -52,7 +55,7 @@ import sh.belfry.core.model.Special
 
 /**
  * What a special post shows in the feed, below the author line (the feed already wrote
- * "Created a pod / an event / a proposal" above it): an event, pod or proposal card, a member's
+ * "Created a group / an event / a proposal" above it): an event, pod or proposal card, a member's
  * e-mail, a shared-inbox card, an answer sent as the channel. It renders the message's whole
  * content (the feed draws no text of its own for these), but not its reactions or thread chip.
  */
@@ -91,6 +94,12 @@ internal fun PodCard(podId: String, fallback: String, modifier: Modifier = Modif
     val world = LocalWorld.current
     val session = LocalSession.current
     val nav = LocalNav.current
+    // SPEC 19.30: a deleted group's card says so and is not a button; an archived one opens read only
+    when (world.groupState(podId)) {
+        GroupState.DELETED -> return GoneCard(GroupLock.cardName(fallback) ?: "A group", "This group has been deleted", null, modifier)
+        GroupState.ARCHIVED -> return GoneCard(world.group(podId)?.name ?: GroupLock.cardName(fallback) ?: "A group", "Archived", { nav.go(Routes.chat(podId)) }, modifier)
+        else -> {}
+    }
     val g = world.group(podId) ?: return Fallback(fallback, modifier)
     val inIt = world.me in g.members
     val applied = g.applications.any { it.pubkey == world.me }
@@ -100,7 +109,7 @@ internal fun PodCard(podId: String, fallback: String, modifier: Modifier = Modif
         Column(Modifier.weight(1f)) {
             CardTitle(g.name)
             if (g.about.isNotEmpty()) Muted(g.about, maxLines = 2)
-            Muted((if (g.closed) "Closed pod" else "Pod") + " · " + CardFormat.members(g.members.size) + (if (inIt) " · you’re in" else ""), maxLines = 1)
+            Muted((if (g.closed) "Closed group" else "Group") + " · " + CardFormat.members(g.members.size) + (if (inIt) " · you’re in" else ""), maxLines = 1)
         }
         if (!inIt) {
             GapW(8)
@@ -110,6 +119,26 @@ internal fun PodCard(podId: String, fallback: String, modifier: Modifier = Modif
                 else -> Badge("Closed")
             }
         }
+    }
+}
+
+/** The card of a group that is gone or archived: greyed, its name and state; a button only when it opens. */
+@Composable
+private fun GoneCard(name: String, state: String, onClick: (() -> Unit)?, modifier: Modifier) {
+    val c = Belfry.colors
+    val click = if (onClick != null) Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick) else Modifier
+    Row(
+        modifier.fillMaxWidth().padding(vertical = 4.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .border(1.dp, c.line, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).then(click).padding(12.dp).testTag("group-gone-card"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(BelfryIcons.Pod, contentDescription = null, tint = c.faint, modifier = Modifier.size(22.dp))
+        GapW(12)
+        Column(Modifier.weight(1f)) {
+            Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(state, fontSize = 14.sp, color = c.muted)
+        }
+        if (onClick != null) Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp))
     }
 }
 

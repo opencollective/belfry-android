@@ -47,7 +47,7 @@ object ChannelLog {
                 val here = LogGo.Message(e.id)
                 val media = e.tags.filter { it.isNotEmpty() && it[0] == "imeta" }.map { x -> x.firstOrNull { it.startsWith("m ") }?.substring(2) ?: "" }
                 when {
-                    t("pod") != null -> LogItem(e, "⬡", "created a pod", short(e.content, 200), here)
+                    t("pod") != null -> LogItem(e, "⬡", "created a group", short(e.content, 200), here)
                     t("proposal") != null -> LogItem(e, "📄", "made a proposal", short(e.content, 200), here)
                     media.any { it.startsWith("audio/") } -> LogItem(e, "🎙", "posted a recording", short(e.content, 200), here)
                     media.any { it.startsWith("image/") } -> LogItem(e, "🖼", if (media.size > 1) "posted ${media.size} photos" else "posted a photo", short(e.content, 200), here)

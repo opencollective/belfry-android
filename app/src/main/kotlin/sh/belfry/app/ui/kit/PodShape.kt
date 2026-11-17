@@ -53,7 +53,7 @@ fun PodShape(members: Int, modifier: Modifier = Modifier, size: Dp = 20.dp, colo
     }
 }
 
-/** The pod's shape in the same framed box as [ChannelIcon] (drawer rows, lists). */
+/** The group's shape in the same framed box as [ChannelIcon] (drawer rows, lists). */
 @Composable
 fun PodIcon(members: Int, modifier: Modifier = Modifier, size: Dp = 32.dp) {
     Box(modifier.size(size), contentAlignment = Alignment.Center) { PodShape(members, size = size * 0.72f) }
