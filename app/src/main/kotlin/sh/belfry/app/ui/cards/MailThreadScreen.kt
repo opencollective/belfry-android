@@ -196,7 +196,9 @@ private fun MailFrame(world: sh.belfry.core.model.World, m: MailItem, onFull: ()
             if (m.incoming && !m.verified) Text("Unverified sender", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.danger, modifier = Modifier.padding(top = 2.dp))
             if (m.subject.isNotEmpty()) Text(m.subject, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = fg, modifier = Modifier.padding(top = 6.dp))
             Spacer(Modifier.size(4.dp))
-            MarkdownText(m.m.text.ifEmpty { "(no text)" }, fontSize = 16.sp, color = fg)
+            // the bridge's text may start with the subject in bold: it is shown once, above
+            val text = m.m.text.removePrefix("**${m.subject}**").trimStart()
+            MarkdownText(text.ifEmpty { "(no text)" }, fontSize = 16.sp, color = fg)
             if (m.original != null) {
                 Text("Full e-mail", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = fg,
                     modifier = Modifier.padding(top = 6.dp).clickable(role = Role.Button, onClick = onFull).padding(vertical = 4.dp).testTag("mail-full"))
