@@ -123,6 +123,9 @@ class Onboarding(
         discovery: suspend (String) -> Community = { Discovery.fetch(it, http) },
     ) : this(vault, MemoryStores(store), http, scope, clock, zone, discovery)
 
+    /** Sessions show the town's default places by their on-brand names (SPEC 19.31): the app sets it. */
+    @Volatile var placeNames: Boolean = false
+
     /** Is there a saved session ([resume] will open it)? */
     val hasSession: Boolean get() = accounts.current != null
 
@@ -342,7 +345,7 @@ class Onboarding(
     }
 
     private fun session(rec: AccountRecord, community: Community, signer: sh.belfry.core.nostr.Signer, guest: GuestInfo?, localOnly: Boolean): Session {
-        val s = Session(community, stores.open(rec.slot), signer, http, scope, localOnly, clock, guest, zone)
+        val s = Session(community, stores.open(rec.slot), signer, http, scope, localOnly, clock, guest, zone, placeNames)
         s.accountId = rec.id
         s.slot = rec.slot
         s.onRecordChanged = { c, g -> saved(rec.slot)?.let { save(rec.slot, it.copy(community = c, guest = g)) } }

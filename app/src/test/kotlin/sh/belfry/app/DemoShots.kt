@@ -38,6 +38,7 @@ abstract class DemoShots : Shots() {
         runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val onboarding = Onboarding(MemoryVault(), MemoryStore(), OkHttpClient(), scope, clock = { NOW }, zone = ZoneOffset.UTC)
+            onboarding.placeNames = true // the app shows the town's on-brand names (SPEC 19.31)
             onboarding.demo().also { it.settle() }
         }
     }

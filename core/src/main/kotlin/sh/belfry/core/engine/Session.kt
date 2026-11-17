@@ -13,7 +13,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import sh.belfry.core.crypto.Hex
@@ -41,6 +44,11 @@ import sh.belfry.core.model.Rsvp
 import sh.belfry.core.model.Share
 import sh.belfry.core.model.World
 import sh.belfry.core.model.WorldContext
+import sh.belfry.core.model.GroupLock
+import sh.belfry.core.model.GroupPresence
+import sh.belfry.core.model.lockedGroups
+import sh.belfry.core.model.presenceAfter
+import sh.belfry.core.model.presenceCandidates
 import sh.belfry.core.model.inviteText
 import sh.belfry.core.model.isGuest
 import sh.belfry.core.model.eventTagsFor
@@ -72,6 +80,8 @@ import sh.belfry.core.nostr.Signer
 import sh.belfry.core.nostr.SignerTimeout
 import sh.belfry.core.nostr.Tag
 import sh.belfry.core.nostr.arr
+import sh.belfry.core.nostr.long
+import sh.belfry.core.nostr.obj
 import sh.belfry.core.nostr.parseJsonOrNull
 import sh.belfry.core.nostr.str
 import sh.belfry.core.nostr.unixNow
@@ -177,6 +187,8 @@ class Session(
     private val clock: () -> Long = ::unixNow,
     guest: GuestInfo? = null,
     private val zone: ZoneId = ZoneId.systemDefault(),
+    /** Show the town's default places by their on-brand names (SPEC 19.31): the app's choice; tests and vectors keep the ids. */
+    private val placeNames: Boolean = false,
 ) {
     @Volatile var community: Community = community
         private set
@@ -197,6 +209,9 @@ class Session(
     @Volatile private var extraAdmins: Set<String> = emptySet()
     @Volatile private var bridge: String? = null
     @Volatile private var groupsKey: String? = null
+    /** Deleted by absence (SPEC 19.30): what the groups relay said it has no metadata for. Stored. */
+    @Volatile private var groupsAbsent: Map<String, Long> = emptyMap()
+    @Volatile private var lastPresence = 0L
     private var lastCreatedAt = 0L
 
     private val _world: MutableStateFlow<World>
@@ -271,6 +286,7 @@ class Session(
         extraAdmins = parseJsonOrNull(store.get(K_ADMINS) ?: "").arr()?.mapNotNull { it.str() }?.filter(Hex::isKey)?.toSet() ?: emptySet()
         bridge = store.get(K_BRIDGE)?.takeIf(Hex::isKey)
         groupsKey = store.get(K_GROUPS_KEY)?.takeIf(Hex::isKey)
+        groupsAbsent = parseJsonOrNull(store.get(K_ABSENT) ?: "").obj()?.mapNotNull { (k, v) -> v.long()?.let { k to it } }?.toMap() ?: emptyMap()
         lastCreatedAt = maxOf(
             all.filter { it.pubkey == me }.maxOfOrNull { it.createdAt } ?: 0,
             store.outbox().filter { it.signed == null }.maxOfOrNull { it.createdAt } ?: 0,
@@ -296,6 +312,7 @@ class Session(
         me = me, domain = community.domain, communityName = community.name,
         communityAdmins = community.admins.toSet() + extraAdmins, groupsKey = groupsKey, bridgeKey = bridge, zone = zone,
         groupsRelay = community.groupsRelay, agents = community.agents, kinds = HashMap(kinds),
+        groupsAbsent = groupsAbsent, placeNames = placeNames,
     )
 
     /** The next snapshot; what PREV worked out for the channels nothing arrived in is taken over (see [World]). */
@@ -402,6 +419,7 @@ class Session(
 
     private suspend fun onGroupsEose() {
         setStatus { it.copy(access = AccessState.IN) }
+        launchSafely { checkPresence() }
         // A new belfry's groups relay has no channel yet: the first member in opens #general. Once.
         // (Not a guest in guest mode: reading leaves no trace.)
         if (firstChannelTried || reading) return
@@ -409,6 +427,35 @@ class Session(
         if (any) return
         firstChannelTried = true
         send(Actions.createGeneral(community.name))
+    }
+
+    /**
+     * SPEC 19.30: asks the groups relay whether it still has the channels and groups this device
+     * knows (at most once a minute; never as a guest or in guest mode: the relay shows a guest only
+     * their own channels). An answer counts only when it names #general.
+     */
+    suspend fun checkPresence(force: Boolean = false, extra: List<String> = emptyList()) {
+        val r = groupsRelay ?: return
+        if (reading || _world.value.amGuest) return
+        val now = System.currentTimeMillis()
+        if (!force && now - lastPresence < 60_000) return
+        lastPresence = now
+        val ids = (_world.value.presenceCandidates() + extra).distinct()
+        var absent = groupsAbsent
+        var changed = false
+        for (q in GroupPresence.questions(ids)) {
+            val answer = r.queryOnce(buildJsonObject {
+                put("kinds", JsonArray(listOf(JsonPrimitive(39000))))
+                put("#d", JsonArray(q.map { JsonPrimitive(it) }))
+            })
+            val next = _world.value.presenceAfter(q, answer, absent) ?: continue
+            addToLog(answer)
+            if (next != absent) { absent = next; changed = true }
+        }
+        if (!changed) return
+        groupsAbsent = absent
+        store.set(K_ABSENT, JsonObject(absent.mapValues { JsonPrimitive(it.value) }).toString())
+        rebuild()
     }
 
     /** Waits until everything that arrived is decrypted and [world] is rebuilt (tests, screenshots, the demo). */
@@ -647,6 +694,9 @@ class Session(
      */
     suspend fun send(drafts: List<Draft>, attachments: List<NewAttachment> = emptyList()): List<String> = withContext(Dispatchers.Default) {
         guard()
+        // nothing is queued for an archived or deleted group, whatever a screen forgot to hide (SPEC 19.30)
+        val locked = _world.value.lockedGroups
+        if (drafts.any { GroupLock.refuses(it, locked) }) throw ActionException("archived", ARCHIVED_TEXT)
         val ids = ArrayList<String>()
         enqueueLock.withLock {
             drafts.forEachIndexed { i, d ->
@@ -1017,9 +1067,13 @@ class Session(
     }
 
     /** Answers an e-mail card as the shared inbox channel (its admins only). Returns the email-id for `dms.value.report(id)`. */
-    suspend fun sendAsChannel(channel: String, to: String, subject: String, text: String, inReplyTo: String?, cardId: String): String = dmCall {
-        val name = _world.value.group(channel)?.name ?: channel
-        val id = dm.sendAsChannel(channel, name, to, subject, text, inReplyTo, cardId)
+    suspend fun sendAsChannel(channel: String, to: String, subject: String, text: String, inReplyTo: String?, cardId: String, references: List<String> = emptyList()): String = dmCall {
+        guard()
+        val w = _world.value
+        val name = w.group(channel)?.name ?: channel
+        // SPEC 19.33: from the channel's plain alias; References = the thread's other ids (last 10) then In-Reply-To
+        val refs = (references.filter { it != inReplyTo }.takeLast(10) + listOfNotNull(inReplyTo)).joinToString(" ").ifEmpty { null }
+        val id = dm.sendAsChannel(channel, name, to, subject, text, inReplyTo, cardId, w.mailLocal(channel), refs)
         if (localOnly) {
             // the demo plays the bridge: the answer shows in the channel
             val key = groupsKey
@@ -1078,6 +1132,21 @@ class Session(
 
     /** Belfry events: tickets, applications, the belfry's API (engine/Events.kt). */
     val events: EventsService by lazy { EventsService(this) }
+
+    /** Membership: roles, requests, the directory, the charter, a guest's request (engine/Members.kt). */
+    val members: MembersService by lazy { MembersService(this) }
+
+    /** For the services: refuses a write in guest mode (opens the Join sheet). */
+    internal fun checkWrite() = guard()
+
+    /** For the services: belfry.json again after a change it reflects (admins, agents); best effort. */
+    internal suspend fun refreshCommunityQuietly() { try { refreshCommunity() } catch (e: Exception) { } }
+
+    /** For the services: build the world again now (after a local change that is not an event). */
+    internal fun rebuildNow() = rebuild()
+
+    /** For the services: the demo's own events, as if a relay had sent them. */
+    internal fun addLocalEvents(events: List<Event>) = addToLog(events)
 
     /** WRITE: it changes something at the belfry (refused in guest mode). */
     internal suspend fun <T> apiCall(write: Boolean, block: suspend (BelfryApi) -> T): T { if (write) guard(); return call(block) }
@@ -1352,6 +1421,8 @@ class Session(
         const val K_BRIDGE = "bridge-key"
         const val K_GROUPS_KEY = "groups-key"
         const val K_ADMINS = "extra-admins"
+        const val K_ABSENT = "groups-absent"
+        const val ARCHIVED_TEXT = "This group is archived or deleted: nothing can be posted in it."
         const val K_DISCOVERY_ETAG = "belfry-json-etag"
         private const val RECHECK_MS = 30_000L
         private const val K_SEEN_SENT = "seen-sent:"

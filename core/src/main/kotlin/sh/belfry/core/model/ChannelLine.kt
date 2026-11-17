@@ -126,7 +126,7 @@ fun World.channelFacts(groupId: String, now: Long): ChannelFacts {
     )
 }
 
-enum class LineIcon { PEOPLE, TOPIC, PROPOSAL, POD, EVENT, PIN }
+enum class LineIcon { PEOPLE, TOPIC, PROPOSAL, POD, EVENT, PIN, TODO }
 
 /** What tapping the line's pill does. */
 sealed interface LineAction {
@@ -137,6 +137,8 @@ sealed interface LineAction {
     data object Review : LineAction
     data class OpenProposal(val groupId: String) : LineAction
     data class OpenEvent(val coord: String) : LineAction
+    /** The channel's to-dos. */
+    data object Todos : LineAction
 }
 
 /** [of]: a fraction (the to-dos: done of all, like the web's "13/17"). */
@@ -244,4 +246,81 @@ fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenP
         LineCount("todos", f.todosDone, false, "todos done of ${f.todosAll}", of = f.todosAll),
     ).filter { it.n > 0 || (it.of ?: 0) > 0 }
     return line.copy(counts = counts)
+}
+
+/**
+ * The line under the channel's header only while something asks for attention (iOS 2026-11-17,
+ * web ChannelLine.tsx at r3): a topic filter, a proposal's own vote, people asking to join a group
+ * I run, a vote I haven't cast, an event I haven't answered within 7 days, a pinned message I
+ * haven't hidden, then open to-dos on me, then open to-dos nobody took. Anything else: null (no
+ * line; the counts are in the header's subtitle). No counts on it.
+ */
+fun World.attentionLine(groupId: String, now: Long, topic: String? = null, hiddenPins: Set<String> = emptySet()): ChannelLine? {
+    val f = channelFacts(groupId, now)
+    val g = f.group
+    if (topic != null) {
+        return ChannelLine(LineIcon.TOPIC, "Showing ", (if (topic == Topics.ANNOUNCE) "announcements" else "#$topic") + " only", "Show all", true, LineAction.ShowAll)
+    }
+    val own = f.own
+    if (g?.isProposal == true && own != null && own.votingNow && own.poll?.votes?.get(me) == null) {
+        return ChannelLine(LineIcon.PROPOSAL, "Voting", " · ${own.tally["yes"] ?: 0} yes · ${own.tally["no"] ?: 0} no", "Vote", true, LineAction.Open)
+    }
+    if (g != null && g.isPod && canAdmin(g) && g.applications.isNotEmpty()) {
+        val k = g.applications.size
+        return ChannelLine(LineIcon.POD, "$k ${if (k == 1) "person asks" else "people ask"} to join", " · " + membersWord(g.members.size), "Review", true, LineAction.Review, podMembers = g.members.size)
+    }
+    f.proposals.firstOrNull { needsMyVote(it) }?.let { p ->
+        return ChannelLine(LineIcon.PROPOSAL, p.title, "", "Vote", true, LineAction.OpenProposal(p.groupId))
+    }
+    val e = f.events.firstOrNull { stateLabel(it) == null && it.status != EventStatus.CANCELLED }
+    if (e != null && e.start - now < 7 * 86400) {
+        return ChannelLine(LineIcon.EVENT, dayAt(e, now), " · " + e.title, "RSVP", true, LineAction.OpenEvent(e.coord))
+    }
+    f.pins.firstOrNull { it.id !in hiddenPins }?.let { pin -> return ChannelLine(LineIcon.PIN, "", pinLine(pin)) }
+    val mine = f.todos.filter { it.assignee == me }
+    mine.firstOrNull()?.let { t ->
+        return ChannelLine(LineIcon.TODO, if (mine.size == 1) "On you" else "${mine.size} on you", " · " + t.title, action = LineAction.Todos)
+    }
+    val free = f.todos.filter { it.assignee == null }
+    free.firstOrNull()?.let { t ->
+        return ChannelLine(LineIcon.TODO, if (free.size == 1) "1 to-do" else "${free.size} to-dos", " nobody took · " + t.title, action = LineAction.Todos)
+    }
+    return null
+}
+
+/** The counts of a channel's header subtitle and its pull-down rows (iOS ChannelCounts). */
+data class ChannelCounts(
+    val active: Int,
+    val photos: Int,
+    val groups: Int,
+    val pins: Int,
+    val events: Int,
+    val proposals: Int,
+    val todos: Int,
+    val todosDone: Int,
+    val files: Int,
+    val topics: Int,
+    val members: Int,
+    val isPublic: Boolean,
+)
+
+fun World.channelCounts(groupId: String, now: Long): ChannelCounts {
+    val all = files(groupId)
+    val t = tasks(groupId)
+    val pinnedT = pinnedTopics(groupId).filter { it != Topics.ANNOUNCE }
+    val used = messages(groupId).flatMap { it.topics }.filter { it != Topics.ANNOUNCE }
+    return ChannelCounts(
+        active = recentlyActive(groupId, now).size,
+        photos = all.count { it.isImage },
+        groups = pods(groupId).size,
+        pins = pinned(groupId).size,
+        events = upcoming(groupId, now).size,
+        proposals = proposalsIn(groupId).count { it.status in OPEN_STATUS },
+        todos = t.size,
+        todosDone = t.count { it.done },
+        files = all.count { !it.isImage } + dropLinks(groupId, now).size,
+        topics = (pinnedT + used).toSet().size + (if (hasAnnouncements(groupId)) 1 else 0),
+        members = group(groupId)?.members?.size ?: 0,
+        isPublic = isPublicChannel(group(groupId)),
+    )
 }

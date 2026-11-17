@@ -24,7 +24,9 @@ class BelfryApp : Application() {
     val state: AppState by lazy { AppState(onboarding, scope).also { wire(it) } }
 
     /** Each account has its own database and its own names in the vault (SPEC 19.24). */
-    private val onboarding: Onboarding by lazy { Onboarding(SecretsVault(Secrets(this)), SqliteStores(this), Relay.defaultClient(), scope) }
+    private val onboarding: Onboarding by lazy {
+        Onboarding(SecretsVault(Secrets(this)), SqliteStores(this), Relay.defaultClient(), scope).also { it.placeNames = true }
+    }
 
     @Volatile private var built = false
     @Volatile private var othersRegistered = false

@@ -1,0 +1,556 @@
+{
+ "about": "SPEC 19.34 channel categories: 30078 d=belfry:channel-order by a belfry admin, content {order, categories}. read: arrange(content, channels in natural order) -> categories with their visible channels; shown_member / shown_admin = the categories the drawer shows. write: encode(categories, previous content, channels the writer sees). flat: a drag in the flat list of headers (h:) and channels (c:) -> categories.",
+ "generated_by": "belfry-ios tools/vectors/categories.py (2026-11-17)",
+ "default_names": {
+  "life": "Community life",
+  "building": "Building together"
+ },
+ "building_default": [
+  "proposals",
+  "website"
+ ],
+ "read": [
+  {
+   "name": "absent: as before (life, then building with proposals and website)",
+   "content": "{\"order\": [\"kitchen\", \"general\", \"website\", \"garden\"]}",
+   "channels": [
+    "general",
+    "garden",
+    "kitchen",
+    "repair",
+    "proposals",
+    "website",
+    "hello"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "kitchen",
+      "garden",
+      "repair",
+      "hello"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "website",
+      "proposals"
+     ]
+    }
+   ],
+   "shown_member": [
+    "life",
+    "building"
+   ],
+   "shown_admin": [
+    "life",
+    "building"
+   ]
+  },
+  {
+   "name": "no event at all",
+   "content": null,
+   "channels": [
+    "general",
+    "garden",
+    "kitchen",
+    "repair",
+    "proposals",
+    "website",
+    "hello"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "garden",
+      "kitchen",
+      "repair",
+      "hello"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "proposals",
+      "website"
+     ]
+    }
+   ],
+   "shown_member": [
+    "life",
+    "building"
+   ],
+   "shown_admin": [
+    "life",
+    "building"
+   ]
+  },
+  {
+   "name": "not JSON",
+   "content": "{oops",
+   "channels": [
+    "general",
+    "garden",
+    "kitchen",
+    "repair",
+    "proposals",
+    "website",
+    "hello"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "garden",
+      "kitchen",
+      "repair",
+      "hello"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "proposals",
+      "website"
+     ]
+    }
+   ],
+   "shown_member": [
+    "life",
+    "building"
+   ],
+   "shown_admin": [
+    "life",
+    "building"
+   ]
+  },
+  {
+   "name": "categories: a custom one first, life renamed, building left out (keeps its defaults)",
+   "content": "{\"order\": [], \"categories\": [{\"id\": \"making-4b1c\", \"name\": \"Making & mending\", \"channels\": [\"repair\", \"kitchen\"]}, {\"id\": \"life\", \"name\": \"Everyday\", \"channels\": [\"hello\"]}]}",
+   "channels": [
+    "general",
+    "garden",
+    "kitchen",
+    "repair",
+    "proposals",
+    "website",
+    "hello"
+   ],
+   "expected": [
+    {
+     "id": "making-4b1c",
+     "name": "Making & mending",
+     "channels": [
+      "repair",
+      "kitchen"
+     ]
+    },
+    {
+     "id": "life",
+     "name": "Everyday",
+     "channels": [
+      "hello",
+      "garden"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "proposals",
+      "website"
+     ]
+    }
+   ],
+   "shown_member": [
+    "making-4b1c",
+    "life",
+    "building"
+   ],
+   "shown_admin": [
+    "making-4b1c",
+    "life",
+    "building"
+   ]
+  },
+  {
+   "name": "life left out (first, gets the rest); building named with no name (default title)",
+   "content": "{\"order\": [\"hello\", \"garden\"], \"categories\": [{\"id\": \"building\", \"channels\": [\"website\"]}, {\"id\": \"making-4b1c\", \"name\": \"Making\", \"channels\": [\"repair\"]}]}",
+   "channels": [
+    "general",
+    "garden",
+    "kitchen",
+    "repair",
+    "proposals",
+    "website",
+    "hello"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "hello",
+      "garden",
+      "kitchen",
+      "proposals"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "website"
+     ]
+    },
+    {
+     "id": "making-4b1c",
+     "name": "Making",
+     "channels": [
+      "repair"
+     ]
+    }
+   ],
+   "shown_member": [
+    "life",
+    "building",
+    "making-4b1c"
+   ],
+   "shown_admin": [
+    "life",
+    "building",
+    "making-4b1c"
+   ]
+  },
+  {
+   "name": "a channel in two categories counts in the first; unknown ids and general ignored; duplicate and bad entries skipped",
+   "content": "{\"order\": [], \"categories\": [{\"id\": \"a-1111\", \"name\": \"A\", \"channels\": [\"garden\", \"nope\", \"general\"]}, {\"id\": \"b-2222\", \"name\": \"B\", \"channels\": [\"garden\", \"kitchen\"]}, {\"id\": \"a-1111\", \"name\": \"A again\", \"channels\": [\"hello\"]}, {\"name\": \"no id\"}, \"text\", {\"id\": \"town\", \"name\": \"Town\", \"channels\": [\"website\"]}, {\"id\": \"empty-3333\", \"name\": \"Empty\", \"channels\": []}]}",
+   "channels": [
+    "general",
+    "garden",
+    "kitchen",
+    "repair",
+    "proposals",
+    "website",
+    "hello"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "repair",
+      "hello"
+     ]
+    },
+    {
+     "id": "a-1111",
+     "name": "A",
+     "channels": [
+      "garden"
+     ]
+    },
+    {
+     "id": "b-2222",
+     "name": "B",
+     "channels": [
+      "kitchen"
+     ]
+    },
+    {
+     "id": "empty-3333",
+     "name": "Empty",
+     "channels": []
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "proposals",
+      "website"
+     ]
+    }
+   ],
+   "shown_member": [
+    "life",
+    "a-1111",
+    "b-2222",
+    "building"
+   ],
+   "shown_admin": [
+    "life",
+    "a-1111",
+    "b-2222",
+    "empty-3333",
+    "building"
+   ]
+  },
+  {
+   "name": "building named explicitly but empty: proposals and website go to life; building hidden",
+   "content": "{\"order\": [\"proposals\"], \"categories\": [{\"id\": \"life\", \"channels\": [\"garden\"]}, {\"id\": \"building\", \"channels\": []}]}",
+   "channels": [
+    "general",
+    "garden",
+    "kitchen",
+    "repair",
+    "proposals",
+    "website",
+    "hello"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "garden",
+      "proposals",
+      "kitchen",
+      "repair",
+      "website",
+      "hello"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": []
+    }
+   ],
+   "shown_member": [
+    "life"
+   ],
+   "shown_admin": [
+    "life"
+   ]
+  }
+ ],
+ "write": [
+  {
+   "name": "built-in names left out, empty building left out, general first in order",
+   "categories": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "garden",
+      "kitchen",
+      "proposals"
+     ]
+    },
+    {
+     "id": "making-4b1c",
+     "name": "Making",
+     "channels": [
+      "repair"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": []
+    }
+   ],
+   "previous": null,
+   "known": [
+    "garden",
+    "kitchen",
+    "proposals",
+    "repair"
+   ],
+   "expected": {
+    "order": [
+     "general",
+     "garden",
+     "kitchen",
+     "proposals",
+     "repair"
+    ],
+    "categories": [
+     {
+      "id": "life",
+      "channels": [
+       "garden",
+       "kitchen",
+       "proposals"
+      ]
+     },
+     {
+      "id": "making-4b1c",
+      "name": "Making",
+      "channels": [
+       "repair"
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "renamed built-in keeps its name; ids the writer can't see (archived) stay in their category",
+   "categories": [
+    {
+     "id": "life",
+     "name": "Everyday",
+     "channels": [
+      "garden"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "website"
+     ]
+    }
+   ],
+   "previous": "{\"order\": [], \"categories\": [{\"id\": \"life\", \"channels\": [\"old-archived\", \"garden\", \"kitchen\"]}, {\"id\": \"gone-9999\", \"name\": \"Gone\", \"channels\": [\"lost\"]}]}",
+   "known": [
+    "garden",
+    "website",
+    "kitchen"
+   ],
+   "expected": {
+    "order": [
+     "general",
+     "garden",
+     "old-archived",
+     "website"
+    ],
+    "categories": [
+     {
+      "id": "life",
+      "name": "Everyday",
+      "channels": [
+       "garden",
+       "old-archived"
+      ]
+     },
+     {
+      "id": "building",
+      "channels": [
+       "website"
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "flat": [
+  {
+   "name": "garden dragged into Making, under repair",
+   "categories": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "garden",
+      "kitchen"
+     ]
+    },
+    {
+     "id": "making-4b1c",
+     "name": "Making",
+     "channels": [
+      "repair"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": []
+    }
+   ],
+   "flat": [
+    "h:life",
+    "c:kitchen",
+    "h:making-4b1c",
+    "c:repair",
+    "c:garden"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "kitchen"
+     ]
+    },
+    {
+     "id": "making-4b1c",
+     "name": "Making",
+     "channels": [
+      "repair",
+      "garden"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": []
+    }
+   ]
+  },
+  {
+   "name": "dragged above the first header: into the first category; building not in the list keeps its channels",
+   "categories": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "garden"
+     ]
+    },
+    {
+     "id": "making-4b1c",
+     "name": "Making",
+     "channels": [
+      "repair"
+     ]
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "website"
+     ]
+    }
+   ],
+   "flat": [
+    "c:repair",
+    "h:life",
+    "c:garden",
+    "h:making-4b1c"
+   ],
+   "expected": [
+    {
+     "id": "life",
+     "name": "Community life",
+     "channels": [
+      "repair",
+      "garden"
+     ]
+    },
+    {
+     "id": "making-4b1c",
+     "name": "Making",
+     "channels": []
+    },
+    {
+     "id": "building",
+     "name": "Building together",
+     "channels": [
+      "website"
+     ]
+    }
+   ]
+  }
+ ]
+}

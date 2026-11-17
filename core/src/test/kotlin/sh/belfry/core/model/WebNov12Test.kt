@@ -97,8 +97,8 @@ class WebNov12Test {
         // two channels answer to "garden": each keeps its full id
         assertEquals("garden-ab12", w.mailLocal(w.group("garden-ab12")!!))
         assertEquals("garden-zz99", w.mailLocal(w.group("garden-zz99")!!))
-        // answers still go out as the full id
-        assertEquals("bugs-c3e5@example.org", w.mailAddress("bugs-c3e5"))
+        // answers go out from the plain alias too (SPEC 19.33)
+        assertEquals("bugs@example.org", w.mailAddress("bugs-c3e5"))
     }
 
     @Test

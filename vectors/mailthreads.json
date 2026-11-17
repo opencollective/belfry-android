@@ -1,0 +1,432 @@
+{
+ "about": "E-mail threads in a channel (SPEC 19.33, web src/core/mailthreads.ts): e-mails from outside = kind 9 by the groups key with client belfry-mail + mail-from; what went out = kind 9 by the groups key with client belfry-mail-out and e = the e-mail answered. An e-mail joins the thread its References / In-Reply-To (newest first) name, else the thread of the same sender + base subject, else starts one (its root = the thread id). State: open \u2192 waiting (Answered) after an out \u2192 open when they write back; labels belfry/inbox on any of its e-mails (open | closed | assigned + p), latest wins. Team replies = NIP-22 under any of its e-mails. The feed shows one row per thread at its latest activity (id 'mail:' + root); a member's own mail (not by the groups key) stays a message.",
+ "generated_by": "belfry-ios (hand-written from mailthreads.ts, 2026-11-16)",
+ "group": "inbox-7f2a",
+ "groups_key": "9999999999999999999999999999999999999999999999999999999999999999",
+ "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+ "events": [
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c351",
+   "pubkey": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+   "created_at": 50,
+   "kind": 9,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "client",
+     "belfry-mail"
+    ],
+    [
+     "subject",
+     "Minutes"
+    ],
+    [
+     "message-id",
+     "<m@member>"
+    ]
+   ],
+   "content": "A member's mail"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c352",
+   "pubkey": "9999999999999999999999999999999999999999999999999999999999999999",
+   "created_at": 100,
+   "kind": 9,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "client",
+     "belfry-mail"
+    ],
+    [
+     "mail-from",
+     "A@x.org"
+    ],
+    [
+     "mail-name",
+     "Ana X"
+    ],
+    [
+     "subject",
+     "Hello"
+    ],
+    [
+     "message-id",
+     "<1@x>"
+    ],
+    [
+     "belfry-auth",
+     "pass"
+    ]
+   ],
+   "content": "hi"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c353",
+   "pubkey": "9999999999999999999999999999999999999999999999999999999999999999",
+   "created_at": 150,
+   "kind": 9,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "client",
+     "belfry-mail"
+    ],
+    [
+     "mail-from",
+     "b@y.org"
+    ],
+    [
+     "mail-name",
+     ""
+    ],
+    [
+     "subject",
+     "Hello"
+    ],
+    [
+     "message-id",
+     "<4@y>"
+    ],
+    [
+     "belfry-auth",
+     "pass"
+    ]
+   ],
+   "content": "hi"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c354",
+   "pubkey": "9999999999999999999999999999999999999999999999999999999999999999",
+   "created_at": 200,
+   "kind": 9,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "client",
+     "belfry-mail-out"
+    ],
+    [
+     "mail-to",
+     "a@x.org"
+    ],
+    [
+     "subject",
+     "Re: Hello"
+    ],
+    [
+     "message-id",
+     "<2@b>"
+    ],
+    [
+     "sent-by",
+     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    [
+     "e",
+     "000000000000000000000000000000000000000000000000000000000000c352",
+     "",
+     "reply"
+    ]
+   ],
+   "content": "answer"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c355",
+   "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "created_at": 250,
+   "kind": 1985,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "L",
+     "belfry/inbox"
+    ],
+    [
+     "l",
+     "assigned",
+     "belfry/inbox"
+    ],
+    [
+     "e",
+     "000000000000000000000000000000000000000000000000000000000000c352"
+    ],
+    [
+     "p",
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+   ],
+   "content": ""
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c356",
+   "pubkey": "9999999999999999999999999999999999999999999999999999999999999999",
+   "created_at": 300,
+   "kind": 9,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "client",
+     "belfry-mail"
+    ],
+    [
+     "mail-from",
+     "a@x.org"
+    ],
+    [
+     "mail-name",
+     "Ana X"
+    ],
+    [
+     "subject",
+     "Re: Hello"
+    ],
+    [
+     "message-id",
+     "<3@x>"
+    ],
+    [
+     "belfry-auth",
+     "pass"
+    ],
+    [
+     "in-reply-to",
+     "<2@b>"
+    ],
+    [
+     "references",
+     "<1@x> <2@b>"
+    ]
+   ],
+   "content": "hi"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c357",
+   "pubkey": "9999999999999999999999999999999999999999999999999999999999999999",
+   "created_at": 400,
+   "kind": 9,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "client",
+     "belfry-mail"
+    ],
+    [
+     "mail-from",
+     "a@x.org"
+    ],
+    [
+     "mail-name",
+     "Ana X"
+    ],
+    [
+     "subject",
+     "Other"
+    ],
+    [
+     "message-id",
+     "<5@x>"
+    ],
+    [
+     "belfry-auth",
+     "pass"
+    ],
+    [
+     "references",
+     "<9@none>"
+    ]
+   ],
+   "content": "hi"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c358",
+   "pubkey": "9999999999999999999999999999999999999999999999999999999999999999",
+   "created_at": 500,
+   "kind": 9,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "client",
+     "belfry-mail"
+    ],
+    [
+     "mail-from",
+     "a@x.org"
+    ],
+    [
+     "mail-name",
+     "Ana X"
+    ],
+    [
+     "subject",
+     "Fwd: other"
+    ],
+    [
+     "message-id",
+     "<6@x>"
+    ],
+    [
+     "belfry-auth",
+     "pass"
+    ]
+   ],
+   "content": "hi"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c359",
+   "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "created_at": 600,
+   "kind": 1985,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "L",
+     "belfry/inbox"
+    ],
+    [
+     "l",
+     "closed",
+     "belfry/inbox"
+    ],
+    [
+     "e",
+     "000000000000000000000000000000000000000000000000000000000000c358"
+    ]
+   ],
+   "content": ""
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c35a",
+   "pubkey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "created_at": 700,
+   "kind": 1111,
+   "tags": [
+    [
+     "h",
+     "inbox-7f2a"
+    ],
+    [
+     "E",
+     "000000000000000000000000000000000000000000000000000000000000c356",
+     "",
+     "9999999999999999999999999999999999999999999999999999999999999999"
+    ],
+    [
+     "K",
+     "9"
+    ],
+    [
+     "e",
+     "000000000000000000000000000000000000000000000000000000000000c356",
+     "",
+     "9999999999999999999999999999999999999999999999999999999999999999"
+    ],
+    [
+     "k",
+     "9"
+    ]
+   ],
+   "content": "team talk"
+  }
+ ],
+ "threads": [
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c352",
+   "ids": [
+    "000000000000000000000000000000000000000000000000000000000000c352",
+    "000000000000000000000000000000000000000000000000000000000000c354",
+    "000000000000000000000000000000000000000000000000000000000000c356"
+   ],
+   "address": "a@x.org",
+   "name": "Ana X",
+   "subject": "Hello",
+   "status": "open",
+   "answered": 1,
+   "assignee": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+   "replies": 1,
+   "who": [
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+   ],
+   "last": 700,
+   "refs": [
+    "<1@x>",
+    "<2@b>",
+    "<3@x>"
+   ],
+   "lastIn": "000000000000000000000000000000000000000000000000000000000000c356"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c353",
+   "ids": [
+    "000000000000000000000000000000000000000000000000000000000000c353"
+   ],
+   "address": "b@y.org",
+   "name": "",
+   "subject": "Hello",
+   "status": "open",
+   "answered": 0,
+   "assignee": null,
+   "replies": 0,
+   "who": [],
+   "last": 150,
+   "refs": [
+    "<4@y>"
+   ],
+   "lastIn": "000000000000000000000000000000000000000000000000000000000000c353"
+  },
+  {
+   "id": "000000000000000000000000000000000000000000000000000000000000c357",
+   "ids": [
+    "000000000000000000000000000000000000000000000000000000000000c357",
+    "000000000000000000000000000000000000000000000000000000000000c358"
+   ],
+   "address": "a@x.org",
+   "name": "Ana X",
+   "subject": "Other",
+   "status": "closed",
+   "answered": 0,
+   "assignee": null,
+   "replies": 0,
+   "who": [],
+   "last": 500,
+   "refs": [
+    "<5@x>",
+    "<6@x>"
+   ],
+   "lastIn": "000000000000000000000000000000000000000000000000000000000000c358"
+  }
+ ],
+ "feed": [
+  "000000000000000000000000000000000000000000000000000000000000c351",
+  "mail:000000000000000000000000000000000000000000000000000000000000c353",
+  "mail:000000000000000000000000000000000000000000000000000000000000c357",
+  "mail:000000000000000000000000000000000000000000000000000000000000c352"
+ ]
+}

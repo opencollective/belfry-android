@@ -580,14 +580,17 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
      * Answers an e-mail card as the shared inbox CHANNEL (only its admins can: the bridge checks).
      * Returns the email-id; `snapshot.report(id)` then follows its delivery.
      */
-    suspend fun sendAsChannel(channel: String, channelName: String, to: String, subject: String, text: String, inReplyTo: String?, cardId: String): String {
+    suspend fun sendAsChannel(
+        channel: String, channelName: String, to: String, subject: String, text: String, inReplyTo: String?, cardId: String,
+        fromLocal: String = channel, references: String? = null,
+    ): String {
         val bridge = host.bridgeKey() ?: throw DmException("This belfry does not send e-mail yet.")
         val me = host.me
-        val from = "$channel@${host.domain}"
+        val from = "$fromLocal@${host.domain}"
         val name = host.realName(me)
         val built = Mime.buildMail(
             fromName = if (name.isNotEmpty()) "$name for $channelName" else channelName, from = from, to = to, subject = subject, text = text,
-            domain = host.domain, inReplyTo = inReplyTo, now = host.now(),
+            domain = host.domain, inReplyTo = inReplyTo, references = references, now = host.now(),
         )
         val emailId = UUID.randomUUID().toString()
         val rumor = GiftWrap.rumor(1301, me, listOf(listOf("email-id", emailId), listOf("mail-from", from), listOf("rcpt-to", to), listOf("subject", subject), listOf("e", cardId)), built.raw, host.now())

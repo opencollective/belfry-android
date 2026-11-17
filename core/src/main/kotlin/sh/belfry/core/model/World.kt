@@ -6,6 +6,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import sh.belfry.core.crypto.Bech32
 import sh.belfry.core.crypto.sha256Hex
+import sh.belfry.core.mail.MailThreads
 import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.arr
 import sh.belfry.core.nostr.obj
@@ -187,6 +188,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     private class G(val id: String, at: Long) {
         var name = id
+        var rawName = ""
         var about = ""
         var picture: String? = null
         var createdAt = at
@@ -194,21 +196,42 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         var members = LinkedHashSet<String>()
         /** Guest mode (SPEC 19.26): keys that opened a guest link and have not joined. */
         val reading = LinkedHashSet<String>()
-        val admins = LinkedHashSet<String>()
+        var admins = LinkedHashSet<String>()
+        var relayAdmins: Set<String> = emptySet()
         var parent: String? = null
         var closed = false
         var prompt: String? = null
+        var vouches = 0
+        var archived = false
         val applications = ArrayList<Application>()
         var pending = false
+        var creator: String? = null
+        var listedAdmins: Set<String>? = null
         val metaAt = HashMap<String, Long>()
     }
 
-    /** `general` first, then by latest activity. */
-    val groups: List<Group> by lazy {
+    /**
+     * Every group that is there (archived ones too: SPEC 19.30), `general` first then by latest
+     * activity; the deleted ones (a 9008, or the relay said it has none: [WorldContext.groupsAbsent]);
+     * per id its newest 9007 / 9002 / 39000.
+     */
+    class GroupIndex(val all: List<Group>, val deleted: Set<String>, val newestMeta: Map<String, Long>)
+
+    val groupIndex: GroupIndex by lazy { readGroups() }
+
+    /** The groups in lists: `general` first, then by latest activity. Not deleted, not archived (SPEC 19.30). */
+    val groups: List<Group> by lazy { groupIndex.all.filter { !it.archived } }
+
+    /** Every group that is there, archived ones too (a card, a link, search). */
+    val allGroups: List<Group> get() = groupIndex.all
+
+    private fun readGroups(): GroupIndex {
         val map = LinkedHashMap<String, G>()
         val applied = LinkedHashMap<Pair<String, String>, Event>()
         val decided = HashMap<Pair<String, String>, Long>()
         val gone = HashSet<String>()
+        val newestMeta = HashMap<String, Long>()
+        val byRole = LinkedHashMap<Pair<String, String>, Boolean>()
         for (e in sorted) {
             val id = (if (e.kind in 39000..39003) e.t("d") else e.t("h")) ?: continue
             if (id.isEmpty()) continue
@@ -217,21 +240,35 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (e.kind == 9007) {
                 g.createdAt = minOf(g.createdAt, e.createdAt)
                 if (isPending(e.id)) g.pending = true
+                if (g.creator == null) g.creator = e.pubkey
+            }
+            // archived: the latest 9002 that says anything about it (never #general)
+            if (e.kind == 9002 && id != "general") {
+                val a = e.t("archived")
+                if (a != null && (g.metaAt["archived"] ?: 0) <= e.createdAt) { g.archived = a == "1"; g.metaAt["archived"] = e.createdAt }
             }
             if (e.kind == 9007 || e.kind == 9002 || e.kind == 39000) {
+                newestMeta[id] = maxOf(newestMeta[id] ?: 0, e.createdAt)
                 for (k in META) {
                     val v = e.t(k) ?: continue
                     if ((g.metaAt[k] ?: 0) > e.createdAt) continue
-                    when (k) { "name" -> g.name = v; "about" -> g.about = v; else -> g.picture = v }
+                    when (k) { "name" -> { g.name = v; g.rawName = v }; "about" -> g.about = v; else -> g.picture = v }
                     g.metaAt[k] = e.createdAt
                 }
                 val access = if (e.tags.any { it.firstOrNull() == "closed" }) true else if (e.tags.any { it.firstOrNull() == "open" }) false else null
                 if (access != null && (g.metaAt["closed"] ?: 0) <= e.createdAt) { g.closed = access; g.metaAt["closed"] = e.createdAt }
                 val prompt = e.t("prompt")
                 if (prompt != null && (g.metaAt["prompt"] ?: 0) <= e.createdAt) { g.prompt = prompt; g.metaAt["prompt"] = e.createdAt }
+                // the vouches rule goes with the access tags: open / closed without it = admins accept
+                val v = e.t("vouches")
+                if ((access != null || v != null) && (g.metaAt["vouches"] ?: 0) <= e.createdAt) {
+                    g.vouches = if (access == false) 0 else (v?.toIntOrNull() ?: 0).coerceIn(0, 5)
+                    g.metaAt["vouches"] = e.createdAt
+                }
             }
-            if (e.kind == 9007) g.admins.add(e.pubkey)
-            if (e.kind == 39001) for (t in e.tags) if (t.size >= 2 && t[0] == "p") g.admins.add(t[1])
+            // admins (SPEC 19.29): the relay's latest 39001 (zooid lists only its own keys, the
+            // belfry's admins and the creator), the creator, and admins by role
+            if (e.kind == 39001) g.listedAdmins = e.tags.filter { it.size >= 2 && it[0] == "p" }.mapTo(LinkedHashSet()) { it[1] }
             if (e.kind == 39002) g.members = e.tags.filter { it.size >= 2 && it[0] == "p" }.mapTo(LinkedHashSet()) { it[1] }
             if (e.kind == 9000 || e.kind == 9001) {
                 val p = e.t("p")
@@ -241,8 +278,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                     // guest mode: a 9000 tagged `reading` is someone who opened a guest link and has
                     // not joined; a later 9000 without it (they joined), a 9001 or a label ends it
                     if (e.kind == 9000 && e.t(GuestMode.TAG) == "1") g.reading.add(p) else g.reading.remove(p)
-                    // a co-host (events): put in with the admin role; the relay's 39001 says the same
-                    if (e.kind == 9000 && e.tags.any { it.size >= 3 && it[0] == "p" && it[1] == p && it[2] == "admin" }) g.admins.add(p)
+                    // an admin by role (co-hosts, POST /group-roles): put in with ["p", k, "admin"]; a
+                    // later 9000 tagged ["role", "member"] or a 9001 ends it (a ticket's 9000 does not)
+                    if (e.kind == 9000 && e.tags.any { it.size >= 3 && it[0] == "p" && it[1] == p && it[2] == "admin" }) byRole[id to p] = true
+                    else if (e.kind == 9001 || e.t("role") == "member") byRole[id to p] = false
                 }
             }
             if (e.kind == 9) {
@@ -258,6 +297,14 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 e.t("p")?.let(g.reading::remove)
             }
         }
+        for (g in map.values) {
+            val a = LinkedHashSet<String>()
+            g.listedAdmins?.let(a::addAll)
+            g.creator?.let(a::add)
+            g.relayAdmins = LinkedHashSet(a)
+            g.admins = a
+        }
+        for ((k, on) in byRole) if (on) map[k.first]?.admins?.add(k.second)
         // … and until then they are in no member list or count (the relay's 39002 has their key)
         for (g in map.values) for (p in g.reading) if (p != me) g.members.remove(p)
         // a pod or proposal lives where it was announced: the first post carrying its tag
@@ -269,24 +316,51 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (!h.isNullOrEmpty() && h != sub && g.parent == null) g.parent = h
         }
         for (g in map.values) if ((isPodId(g.id) || isProposalId(g.id)) && g.parent == null) g.parent = "general"
+        if (ctx.placeNames) for (g in map.values) PlaceNames.display(g.id, g.name)?.let { g.name = it }
         for ((k, e) in applied) {
             val g = map[k.first] ?: continue
             if (e.pubkey in g.members || (decided[k] ?: 0) >= e.createdAt) continue
             g.applications.add(Application(e.pubkey, e.content, e.createdAt, e))
         }
-        map.values.filter { it.id !in gone }
+        // deleted (SPEC 19.30): a 9008, or the relay said it has no such group and nothing newer
+        // about it arrived since (never one I am still creating, never #general)
+        for ((id, at) in ctx.groupsAbsent) if (id != "general" && (newestMeta[id] ?: 0) <= at && map[id]?.pending != true) gone.add(id)
+        val all = map.values.filter { it.id !in gone }
             .sortedWith(compareBy<G> { if (it.id == "general") 0 else 1 }.thenByDescending { it.lastActivity })
             .map {
                 Group(
                     id = it.id, name = it.name, about = it.about, picture = it.picture, createdAt = it.createdAt,
                     lastActivity = it.lastActivity, members = it.members, admins = it.admins, type = typeOfId(it.id),
                     parent = it.parent, closed = it.closed, prompt = it.prompt, applications = it.applications, pending = it.pending,
-                    reading = it.reading,
+                    reading = it.reading, archived = it.archived, vouches = it.vouches, rawName = it.rawName,
+                    relayAdmins = it.relayAdmins, creator = it.creator,
                 )
             }
+        return GroupIndex(all, gone, newestMeta)
     }
 
-    private val groupById: Map<String, Group> by lazy { groups.associateBy { it.id } }
+    /** The belfry admins' latest `belfry:channel-order` (SPEC 19.34, Categories.kt); anyone else's is ignored. */
+    val channelLayoutRead: ChannelLayout by lazy {
+        val own = ofKind(30078).filter { it.t("d") == ORDER_D && it.pubkey in ctx.communityAdmins }.maxWithOrNull(BY_TIME)
+        ChannelLayout.parse(own?.content)
+    }
+
+    /** Vouches (Membership.kt): per 9021 id, each author's latest `belfry/vouch` label and its time. */
+    val vouchIndex: Map<String, Map<String, Pair<String, Long>>> by lazy {
+        val out = HashMap<String, HashMap<String, Pair<String, Long>>>()
+        for (e in ofKind(1985)) {
+            if (e.t("L") != Vouches.NS) continue
+            val req = e.t("e") ?: continue
+            val v = e.t("l") ?: continue
+            val m = out.getOrPut(req) { HashMap() }
+            val was = m[e.pubkey]
+            if (was != null && was.second > e.createdAt) continue
+            m[e.pubkey] = v to e.createdAt
+        }
+        out
+    }
+
+    private val groupById: Map<String, Group> by lazy { groupIndex.all.associateBy { it.id } }
 
     /** Who signed each channel's metadata (kind 39000, the relay's key), by group id: the author of a channel reference. */
     val metaAuthors: Map<String, String> by lazy {
@@ -471,12 +545,16 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun feed(groupId: String, topic: String? = null): List<FeedItem> {
         val g = group(groupId)
         val list = messages(groupId).filter { m -> topic == null || (if (topic == Topics.ANNOUNCE) isAnnouncement(m, g) else topic in m.topics) }
+        // a shared inbox's e-mails: one row per thread, where its latest activity is (SPEC 19.33)
+        val mt = mailThreads(groupId)
         val items = ArrayList<FeedItem>(list.size + 8)
-        for (m in list) items.add(FeedItem.Msg(m))
+        for (m in list) if (m.id !in mt.of) items.add(FeedItem.Msg(m))
         if (topic == null) {
+            for (t in mt.list) items.add(FeedItem.MailThread(t))
             for (j in guestJoins(groupId)) items.add(FeedItem.Join(j))
             val byId = list.associateBy { it.id }
             for ((rootId, info) in threadsOf(groupId)) {
+                if (rootId in mt.of) continue
                 val root = byId[rootId] ?: continue
                 if (list.none { it.at > root.at && it.at < info.last }) continue
                 val last = threadReplies(groupId, rootId).lastOrNull() ?: continue
@@ -757,19 +835,30 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** A public channel: its page on the web is on and anyone may read it (a globe, not a hash). */
     fun isPublicChannel(g: Group?): Boolean = webPage(g)?.let { it.on && it.visibility == "public" } == true
 
-    /** The channel's e-mail address (what its answers go out as: always the full id). */
-    fun mailAddress(groupId: String): String = "$groupId@${ctx.domain}"
+    /** The channel's e-mail address: what its answers go out from (SPEC 19.33: the plain alias, [mailLocal]). */
+    fun mailAddress(groupId: String): String = "${mailLocal(groupId)}@${ctx.domain}"
 
     /**
-     * The left part of the address a channel shows (web model.ts mailLocal, 2026-11-12): its plain
-     * slug, bugs@ rather than bugs-c3e5@, when no other channel answers to it; the belfry resolves
-     * it the same way (mail.channel_by_slug) and keeps taking the full id.
+     * The left part of a channel's e-mail address (SPEC 19.33, web model.ts mailLocal, server
+     * mail.channel_by_slug): its plain alias (`hello` for `hello-79f0`, from its own raw name) when
+     * a belfry admin or the relay's key made it (its first 9007; none known: yes) and exactly one
+     * group answers to that alias; else its id.
      */
     fun mailLocal(g: Group): String {
         fun bare(id: String) = id.replace(ID_TAIL, "")
-        val want = slugify(g.name).ifEmpty { bare(g.id) }
+        val raw = g.rawName
+        val want = slugify(raw).ifEmpty { bare(g.id) }
         if (want.isEmpty() || want == g.id) return g.id
-        return if (groups.count { bare(it.id) == want || slugify(it.name) == want } == 1) want else g.id
+        if (!madeByAdmin(g)) return g.id
+        return if (allGroups.count { bare(it.id) == want || slugify(it.rawName) == want } == 1) want else g.id
+    }
+
+    fun mailLocal(groupId: String): String = group(groupId)?.let { mailLocal(it) } ?: groupId
+
+    /** Did a belfry admin (or the relay's own key) make G? Not known (no 9007 here): yes. */
+    private fun madeByAdmin(g: Group): Boolean {
+        val make = inGroupSorted(g.id).firstOrNull { it.kind == 9007 } ?: return true
+        return make.pubkey == firstMetaAuthor[g.id] || make.pubkey in ctx.communityAdmins
     }
 
     /** The address to give people for this channel. */
@@ -805,6 +894,100 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         }
         return out
     }
+
+    // ---- e-mail threads in a channel (SPEC 19.33, MailInbox.kt) --------------------------------
+
+    /** An e-mail from outside: posted by the groups key with `client belfry-mail` and `mail-from`. */
+    fun mailIn(m: Message): MailItem? {
+        val e = m.ev
+        val key = ctx.groupsKey ?: return null
+        val from = e.t("mail-from")
+        if (e.pubkey != key || from.isNullOrEmpty() || !e.hasTag("client", "belfry-mail")) return null
+        val o = e.tags.firstOrNull { it.size >= 4 && it[0] == "mail-original" && it[1].startsWith("https://") && it[2].isNotEmpty() && it[3].isNotEmpty() }
+        return MailItem(m, true, from.lowercase(), e.t("mail-name") ?: "", e.t("subject") ?: "", e.t("message-id")?.takeIf { it.isNotEmpty() },
+            e.t("belfry-auth") == "pass", null, o?.let { MailOriginal(it[1], it[2], it[3]) })
+    }
+
+    /** What went out as the channel (only the bridge posts these, with the groups key). */
+    fun mailOut(m: Message): MailItem? {
+        val e = m.ev
+        val key = ctx.groupsKey ?: return null
+        if (e.pubkey != key || !e.hasTag("client", "belfry-mail-out")) return null
+        return MailItem(m, false, e.t("mail-to") ?: "", "", e.t("subject") ?: "", e.t("message-id")?.takeIf { it.isNotEmpty() },
+            true, e.t("sent-by")?.takeIf { it.isNotEmpty() }, null)
+    }
+
+    private val mailCache: ConcurrentHashMap<String, MailThreadIndex> = seeded(prev) { it.mailCache }
+
+    /** GROUP's e-mail threads, oldest first, and which thread each e-mail is in. */
+    fun mailThreads(groupId: String): MailThreadIndex = mailCache.getOrPut(groupId) { readMailThreads(groupId) }
+
+    private fun readMailThreads(groupId: String): MailThreadIndex {
+        if (ctx.groupsKey == null) return MailThreadIndex.EMPTY
+        class T(val id: String, var address: String, var name: String, val subject: String) {
+            val mails = ArrayList<MailItem>(); val ids = ArrayList<String>(); val refs = ArrayList<String>()
+            var lastIn: MailItem? = null; var last = 0L; var replies = 0; val who = ArrayList<String>()
+        }
+        val list = ArrayList<T>()
+        val of = HashMap<String, Int>()
+        val byMsgId = HashMap<String, Int>()
+        val bySubject = HashMap<String, Int>()
+        for (m in messages(groupId)) { // oldest first
+            val item = mailIn(m) ?: mailOut(m) ?: continue
+            var found: Int? = null
+            if (item.incoming) {
+                val refs = MailThreads.messageIds(m.ev.t("references")) + MailThreads.messageIds(m.ev.t("in-reply-to"))
+                for (r in refs.reversed()) { val x = byMsgId[r]; if (x != null) { found = x; break } }
+                if (found == null) found = bySubject[MailInbox.subjectKey(item.address, item.subject)]
+            } else {
+                val answered = m.ev.t("e")
+                if (answered != null) found = of[answered]
+            }
+            val i = found ?: run {
+                val base = MailThreads.baseSubject(item.subject)
+                list.add(T(m.id, item.address, item.name, base.ifEmpty { item.subject }))
+                list.size - 1
+            }
+            val th = list[i]
+            th.mails.add(item); th.ids.add(m.id); of[m.id] = i
+            val mid = item.messageId
+            if (mid != null) { byMsgId[mid] = i; if (mid !in th.refs) th.refs.add(mid) }
+            if (item.incoming) {
+                th.lastIn = item
+                bySubject[MailInbox.subjectKey(item.address, item.subject)] = i
+                if (th.name.isEmpty() && item.name.isNotEmpty()) th.name = item.name
+            }
+            th.last = maxOf(th.last, m.at)
+        }
+        if (list.isEmpty()) return MailThreadIndex.EMPTY
+        // the team's replies, under any of the thread's e-mails
+        val threads = threadsOf(groupId)
+        for (th in list) for (id in th.ids) {
+            val r = threads[id] ?: continue
+            th.replies += r.count
+            th.last = maxOf(th.last, r.last)
+            for (w in r.who) if (w !in th.who) th.who.add(w)
+        }
+        // state: Open → Answered once something went out → Open again when they write back; Closed
+        // and who has it are NIP-32 labels (belfry/inbox) on any of its e-mails, latest wins
+        val labels = inGroupSorted(groupId).filter { e -> e.kind == 1985 && e.id !in deleted && e.tags.any { it.size >= 2 && it[0] == "L" && it[1] == INBOX_NS } }
+        val out = list.map { th ->
+            val ids = th.ids.toSet()
+            InboxThread(
+                id = th.id, mails = th.mails, ids = th.ids, address = th.address, name = th.name, subject = th.subject,
+                lastIn = th.lastIn, last = th.last, replies = th.replies, who = th.who, refs = th.refs,
+                state = MailInbox.state(th.id, th.mails, labels.filter { (it.t("e") ?: "") in ids }),
+            )
+        }
+        return MailThreadIndex(out, of)
+    }
+
+    /** The e-mail thread an event belongs to (an e-mail's id or the root's). */
+    fun mailThread(groupId: String, id: String): InboxThread? = mailThreads(groupId).threadOf(id)
+
+    /** The team's replies in a thread (NIP-22 under any of its e-mails), oldest first. */
+    fun mailThreadReplies(groupId: String, t: InboxThread): List<Message> =
+        t.ids.flatMap { threadReplies(groupId, it) }.sortedWith(compareBy<Message> { it.at }.thenBy { it.id })
 
     // ---- member labels and the Members tab -----------------------------------------------------
 
@@ -845,6 +1028,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     private val tasksCache: ConcurrentHashMap<String, List<Task>> = seeded(prev, drop = delta?.tasks == true) { it.tasksCache }
 
     fun tasks(groupId: String): List<Task> = tasksCache.getOrPut(groupId) { readTasks(groupId) }
+
+    /** The charter's agreements (SPEC 19.32, Charter.kt): only the belfry's admins' count. */
+    val charterList: List<Agreement> by lazy { Charter.parse(taskEvents[Charter.LIST_ID] ?: emptyList(), ctx.communityAdmins) { isPending(it) } }
+
+    /** I ticked (or un-ticked) an agreement once: a new member's first minutes are over (web welcomeDue). */
+    val charterTicked: Boolean by lazy { (taskEvents[Charter.LIST_ID] ?: emptyList()).any { it.kind == 2101 && it.pubkey == me && it.t("h") == Charter.ID } }
 
     private fun readTasks(groupId: String): List<Task> {
         val listId = listIdFor(groupId)
@@ -1130,7 +1319,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun search(query: String, channel: String? = null, limit: Int = 200): List<SearchHit> {
         val words = fold(query).split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return emptyList()
-        val scope = if (channel == null) groups.map { it.id } else listOf(channel)
+        val scope = if (channel == null) allGroups.map { it.id } else listOf(channel)
         val out = ArrayList<SearchHit>()
         for (gid in scope) for (m in messages(gid)) {
             val hay = fold("${m.text} ${displayName(m.pubkey)} ${m.media.joinToString(" ") { it.name ?: "" }}")
@@ -1146,6 +1335,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         const val ACTIVE_DAYS = 30
         const val INBOX_D = "belfry:inbox"
         const val WEB_D = "belfry:web:"
+        const val ORDER_D = "belfry:channel-order"
         const val INBOX_NS = "belfry/inbox"
         const val PROPOSAL_NS = "belfry/proposal-status"
         const val GUEST_NS = "belfry/guest"

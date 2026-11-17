@@ -109,7 +109,38 @@ data class ApiTicket(
     fun ticket(): Ticket = Ticket(d, id, title, summary, quantity, closed, prompt, members, position, implicit, null, left)
 }
 
-data class ApiMe(val host: Boolean, val ticket: String?, val applied: Boolean, val waitlist: Boolean, val declined: Boolean, val rsvp: Rsvp?, val member: Boolean)
+data class ApiMe(
+    val host: Boolean,
+    val ticket: String?,
+    val applied: Boolean,
+    val waitlist: Boolean,
+    val declined: Boolean,
+    val rsvp: Rsvp?,
+    val member: Boolean,
+    /** The `viewer` fields of the check-in contract (SPEC 19.29); an older belfry sends none. */
+    val ticketCode: String? = null,
+    /** What my ticket's QR holds: https://chat.<domain>/events/<link>/t/<code> (never shown as text). */
+    val ticketUrl: String? = null,
+    val checkedIn: Long? = null,
+    /** Subset of host, cohost, steward. */
+    val roles: List<String> = emptyList(),
+    val mayCheckIn: Boolean = false,
+)
+
+/** A ticket holder as the check-in list shows them (`POST /events/<d>/attendees`). */
+data class Attendee(
+    val pubkey: String,
+    val name: String,
+    val ticket: String,
+    val ticketTitle: String,
+    val rsvp: String?,
+    val checkedIn: Long?,
+    val role: String,
+)
+
+data class AttendeeList(val people: List<Attendee>, val going: Int, val checkedIn: Int)
+
+data class CheckInResult(val person: Attendee, val already: Boolean)
 
 data class ApiEvent(
     val d: String,

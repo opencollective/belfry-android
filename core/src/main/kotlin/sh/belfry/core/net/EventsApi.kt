@@ -10,6 +10,12 @@ import sh.belfry.core.model.ApiTicket
 import sh.belfry.core.model.EventStatus
 import sh.belfry.core.model.Rsvp
 import sh.belfry.core.model.SlugCheck
+import sh.belfry.core.model.TicketScan
+import sh.belfry.core.model.Attendee
+import sh.belfry.core.model.AttendeeList
+import sh.belfry.core.model.CheckInResult
+import sh.belfry.core.model.GroupRole
+import sh.belfry.core.nostr.long
 import sh.belfry.core.model.Visibility
 import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.Signer
@@ -124,7 +130,95 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
         if (status !in 200..299) fail(status, body, "That did not work. Try again.", MEETING_ERRORS)
     }
 
+    // ---- check-in and roles in a group (SPEC 19.29, collective-belfry docs/checkin.md) ----------
+
+    /** A 404 without one of the endpoint's codes (or a 405): the belfry is older ("This belfry needs an update."). */
+    private fun checkinFail(status: Int, body: JsonObject?, fallback: String, known: Set<String>): Nothing {
+        val code = body?.s("error") ?: ""
+        if ((status == 404 && code !in known) || status == 405) throw ApiException("update_needed", status, UPDATE_NEEDED)
+        fail(status, body, fallback, CHECKIN_ERRORS)
+    }
+
+    /** Ticket holders with their check-in state (hosts, co-hosts, stewards). Codes: `not_allowed`. */
+    suspend fun attendees(d: String): AttendeeList {
+        val (status, body) = api.signedFetch(signer, "$base/$d/attendees", "POST", JsonObject(emptyMap()))
+        if (status !in 200..299 || body == null) checkinFail(status, body, "The list could not be loaded.", setOf("not_allowed"))
+        val people = body["people"].arr()?.mapNotNull { it.obj()?.let(::attendee) } ?: emptyList()
+        return AttendeeList(people, body["going"].int() ?: people.size, body["checked_in"].int() ?: people.count { it.checkedIn != null })
+    }
+
+    /** Check someone in (by their ticket's CODE or their PUBKEY), or UNDO it; PEEK: who it is, nothing recorded. Codes: `no_ticket`, `not_allowed`. */
+    suspend fun checkIn(d: String, code: String? = null, pubkey: String? = null, undo: Boolean = false, peek: Boolean = false): CheckInResult {
+        val (status, body) = api.signedFetch(signer, "$base/$d/checkin", "POST", buildJsonObject {
+            if (code != null) put("code", JsonPrimitive(code)) else if (pubkey != null) put("pubkey", JsonPrimitive(pubkey))
+            if (undo) put("undo", JsonPrimitive(true))
+            if (peek) put("peek", JsonPrimitive(true))
+        })
+        val p = body?.get("person")?.obj()?.let(::attendee)
+        if (status !in 200..299 || body == null || p == null) checkinFail(status, body, "That did not work. Try again.", setOf("no_ticket", "not_allowed"))
+        return CheckInResult(p, body["already"].bool() ?: false)
+    }
+
+    /** Change PUBKEY's role in a channel, group or event (`POST /group-roles`). */
+    suspend fun setGroupRole(channel: String, pubkey: String, role: GroupRole): GroupRole {
+        val (status, body) = api.signedFetch(signer, api.community.apiBase + "/group-roles", "POST", buildJsonObject {
+            put("channel", JsonPrimitive(channel)); put("pubkey", JsonPrimitive(pubkey)); put("role", JsonPrimitive(role.key))
+        })
+        if (status !in 200..299) checkinFail(status, body, "The role could not be changed.", ROLE_CODES)
+        return GroupRole.entries.firstOrNull { it.key == body?.s("role") } ?: role
+    }
+
+    /** Take PUBKEY out of a channel, group or event through the belfry (`role: removed`); an older belfry: `update_needed`. */
+    suspend fun removeFromGroup(channel: String, pubkey: String) {
+        val (status, body) = api.signedFetch(signer, api.community.apiBase + "/group-roles", "POST", buildJsonObject {
+            put("channel", JsonPrimitive(channel)); put("pubkey", JsonPrimitive(pubkey)); put("role", JsonPrimitive("removed"))
+        })
+        if (status !in 200..299) checkinFail(status, body, "They could not be removed.", ROLE_CODES)
+    }
+
+    /**
+     * A group's name / description / access / archived state through the belfry (an admin by role:
+     * the relay refuses their own 9002). Returns the `archived` the belfry answers with, null when
+     * it says nothing about it (a belfry from before archiving).
+     */
+    suspend fun groupMeta(channel: String, name: String? = null, about: String? = null, closed: Boolean? = null, prompt: String? = null, archived: Boolean? = null): Boolean? {
+        val (status, body) = api.signedFetch(signer, api.community.apiBase + "/group-meta", "POST", buildJsonObject {
+            put("channel", JsonPrimitive(channel))
+            if (name != null) put("name", JsonPrimitive(name))
+            if (about != null) put("about", JsonPrimitive(about))
+            if (closed != null) put("closed", JsonPrimitive(closed))
+            if (prompt != null) put("prompt", JsonPrimitive(prompt))
+            if (archived != null) put("archived", JsonPrimitive(archived))
+        })
+        if (status !in 200..299) checkinFail(status, body, "The change could not be saved.", setOf("not_allowed", "not_found", "invalid", "relay", "archived", "always_open"))
+        return body?.get("archived")?.bool()
+    }
+
     companion object {
+        const val UPDATE_NEEDED = "This belfry needs an update."
+        private val ROLE_CODES = setOf("not_allowed", "not_in_group", "last_admin", "guest_not_saved", "agent", "events_only", "always_admin", "invalid", "relay", "archived")
+        private val CHECKIN_ERRORS = mapOf(
+            "not_allowed" to "Only the admins can change this.",
+            "not_in_group" to "This person isn’t in the group.",
+            "last_admin" to "A group keeps at least one admin.",
+            "guest_not_saved" to "This guest has no e-mail yet. Once they save their account, they can be an admin.",
+            "agent" to "An agent can’t be an admin.",
+            "events_only" to "Door is for events.",
+            "always_admin" to "The host and the belfry’s stewards stay admins.",
+            "invalid" to "That did not work. Try again.",
+            "relay" to "The event could not be reached. Try again.",
+            "no_ticket" to "Not a ticket for this event",
+            "archived" to "This group is archived: nothing changes in it until it is unarchived.",
+            "always_open" to "The Townsquare can’t be archived.",
+            "update_needed" to UPDATE_NEEDED,
+        )
+
+        fun attendee(x: JsonObject): Attendee? {
+            val pk = x.s("pubkey")?.takeIf { Hex.isKey(it) } ?: return null
+            return Attendee(pk, (x.s("name") ?: "").take(100), (x.s("ticket") ?: "").take(200), (x.s("ticket_title") ?: "").take(120),
+                x.s("rsvp"), x["checked_in"].long(), (x.s("role") ?: "member").take(20))
+        }
+
         private val MEETING_ERRORS = mapOf(
             "invalid" to "That name or e-mail can’t be used.",
             "invalid_json" to "That did not work. Try again.",
@@ -144,11 +238,20 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
             val d = o.s("d") ?: return null
             val coord = o.s("coord") ?: return null
             val group = o.s("group") ?: return null
-            val me = o["me"].obj()?.let { m ->
+            // `me` (events v1) and `viewer` (the check-in contract, SPEC 19.29): read both, viewer's fields win
+            val mo = o["me"].obj()
+            val vo = o["viewer"].obj()
+            val me = if (mo == null && vo == null) null else {
+                val m = JsonObject((mo ?: JsonObject(emptyMap())) + (vo ?: JsonObject(emptyMap())))
+                val code = m.s("ticket_code")?.takeIf { TicketScan.isCode(it) }
+                val url = m.s("ticket_url")?.takeIf { code != null && it.startsWith("https://") && it.endsWith("/t/$code") && it.length <= 400 }
                 ApiMe(
                     host = m["host"].bool() ?: false, ticket = m.s("ticket"), applied = m["applied"].bool() ?: false,
                     waitlist = m["waitlist"].bool() ?: false, declined = m["declined"].bool() ?: false,
                     rsvp = Rsvp.of(m.s("rsvp")), member = m["member"].bool() ?: false,
+                    ticketCode = code, ticketUrl = url, checkedIn = m["checked_in"].long(),
+                    roles = m["roles"].arr()?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }?.filter { it in setOf("host", "cohost", "steward") } ?: emptyList(),
+                    mayCheckIn = m["may_check_in"].bool() ?: false,
                 )
             }
             return ApiEvent(

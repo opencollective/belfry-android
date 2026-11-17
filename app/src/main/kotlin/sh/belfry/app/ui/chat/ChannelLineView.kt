@@ -137,6 +137,7 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
                     LineAction.Review -> nav.go(Routes.channelInfo(groupId, InfoTab.KEY_MEMBERS))
                     is LineAction.OpenProposal -> nav.go(Routes.proposal(act.groupId))
                     is LineAction.OpenEvent -> nav.go(Routes.event(act.coord))
+                    LineAction.Todos -> nav.go(Routes.channelInfo(groupId, InfoTab.KEY_TODOS))
                 }
             }))
         }
@@ -168,6 +169,7 @@ private fun LineGlyph(line: ChannelLine, tint: androidx.compose.ui.graphics.Colo
         LineIcon.EVENT -> Icon(BelfryIcons.Calendar, null, tint = tint, modifier = Modifier.size(16.dp))
         LineIcon.PIN -> Icon(BelfryIcons.Pin, null, tint = Belfry.colors.orange, modifier = Modifier.size(16.dp))
         LineIcon.POD -> PodShape(line.podMembers, size = 17.dp, color = tint)
+        LineIcon.TODO -> Icon(MoreIcons.Todo, null, tint = tint, modifier = Modifier.size(16.dp))
     }
 }
 

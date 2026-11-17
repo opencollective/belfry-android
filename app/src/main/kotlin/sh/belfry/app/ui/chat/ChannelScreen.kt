@@ -408,6 +408,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                     Text(ChatFormat.time(world, j.at), fontSize = 12.sp, color = c.faint)
                 }
             }
+            is FeedItem.MailThread -> MailThreadRow(item.t) { openThread(item.t.id) }
             is FeedItem.Activity -> {
                 val key = item.key
                 val open = chat.openThreads.containsKey(key)

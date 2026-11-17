@@ -25,6 +25,13 @@ data class WorldContext(
     /** What the belfry's register says each key is (`POST /whois`): "member", "agent" or "guest".
      *  Empty on an old belfry, offline or in the demo: join and label events decide then. */
     val kinds: Map<String, String> = emptyMap(),
+    /**
+     * Deleted by absence (SPEC 19.30): groups the groups relay said it has no metadata for → the
+     * newest 9007 / 9002 / 39000 this device held for each then (0: none). Stored per account.
+     */
+    val groupsAbsent: Map<String, Long> = emptyMap(),
+    /** Show general / events / proposals / website by their on-brand names (SPEC 19.31). True in the app, false in the vectors. */
+    val placeNames: Boolean = false,
 )
 
 data class Profile(val name: String? = null, val picture: String? = null, val nip05: String? = null, val about: String = "", val at: Long = 0)
@@ -56,6 +63,16 @@ data class Group(
     val pending: Boolean,
     /** Guest mode (SPEC 19.26): who opened a guest link and has not joined; not in [members]. */
     val reading: Set<String> = emptySet(),
+    /** SPEC 19.30: `["archived","1"]` on its latest 9002 that says anything about it. In no list, read only. */
+    val archived: Boolean = false,
+    /** Closed groups accepting by vouches (docs/membership.md): how many members must vouch (0 = its admins decide). */
+    val vouches: Int = 0,
+    /** Its own name as the metadata says (before the on-brand names of SPEC 19.31). */
+    val rawName: String = "",
+    /** The admins the relay itself lets moderate: its latest 39001 and the creator (not admins by role). */
+    val relayAdmins: Set<String> = emptySet(),
+    /** The author of its first 9007 (an event's host). */
+    val creator: String? = null,
 ) {
     val isEvent get() = type == ChannelType.EVENT
     val isPod get() = type == ChannelType.POD
@@ -159,6 +176,11 @@ sealed interface FeedItem {
         override val key get() = "j" + j.id
     }
     /** An older thread back in the feed at its latest reply. */
+    /** A shared inbox's e-mail thread, where its latest activity is (SPEC 19.33). */
+    data class MailThread(val t: InboxThread) : FeedItem {
+        override val at get() = t.last
+        override val key get() = "mail:" + t.id
+    }
     data class Activity(val root: Message, val last: Message, override val at: Long) : FeedItem {
         override val key get() = "act:" + root.id
     }

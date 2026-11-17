@@ -42,6 +42,9 @@ object MailThreads {
 
     fun isMail(conv: String): Boolean = conv.startsWith("m:")
 
+    /** Runs of white space as one space. */
+    fun foldSpaces(s: String): String = SPACES.matcher(s).replaceAll(" ")
+
     /** `m:<address>` alone: a new e-mail not sent yet. */
     fun isNewMail(conv: String): Boolean = conv.startsWith("m:") && !conv.contains("|")
 
