@@ -163,7 +163,7 @@ private fun AgreementRow(
                 if (marker != null) Text(marker, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.text)
                 sh.belfry.app.ui.kit.AgreementText(a.title, a.about, titleSize = 17, aboutSize = 15)
                 if (!readOnly) {
-                    val count = "${a.agreed.keys.count { it in world.charterPeople() || it == world.me }} of $members members"
+                    val count = "${a.agreed.keys.count { it in world.charterPeople() || it == world.me }} of $members agreed"
                     Text(count, fontSize = 13.sp, color = c.muted, modifier = Modifier.padding(top = 4.dp).then(if (steward) Modifier.clickable(role = Role.Button, onClick = onWho) else Modifier))
                 }
             }
