@@ -137,7 +137,7 @@ class R6ShotsTest : DemoShots() {
     @Test fun settingsPostsAndForward() {
         runBlocking { session.members.setMailForward(Demo.GARDEN, "lou@example.org") }
         demoShot("channel-settings-forward", act = {
-            compose.onNodeWithTag("settings-forward").performClick()
+            // a forward set already: the switch is on, the state and the address show
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("forward-state").fetchSemanticsNodes().isNotEmpty() }
         }) { ChannelPlaceScreen(Demo.GARDEN, ChannelPlaceKey.SETTINGS) }
         compose.onNodeWithTag("settings-posts").assertExists()
