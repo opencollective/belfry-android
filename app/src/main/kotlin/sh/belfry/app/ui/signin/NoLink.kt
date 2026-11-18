@@ -284,7 +284,7 @@ fun ApplyContent(
             enabled = all && email.isNotBlank() && why.isNotBlank(),
         )
         Spacer(Modifier.height(12.dp))
-        TextButton(onClick = onLogIn, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("I’m a member: log in", fontSize = 16.sp, color = c.text, fontWeight = FontWeight.SemiBold) }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { TextButton(onClick = onLogIn) { Text("I’m a member: log in", fontSize = 16.sp, color = c.text, fontWeight = FontWeight.SemiBold) } }
     }
 }
 
