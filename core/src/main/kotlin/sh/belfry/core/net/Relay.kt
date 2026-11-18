@@ -108,6 +108,9 @@ class Relay(
     val state: StateFlow<RelayState> = _state
     val isUp: Boolean get() = _state.value == RelayState.UP || _state.value == RelayState.AUTH
 
+    /** NIP-42 done on this socket (an EOSE before it may hold only what the relay shows anyone). */
+    val isAuthenticated: Boolean get() = synchronized(lock) { authed }
+
     private val lock = Any()
     private var socket: WebSocket? = null
     private var isOpen = false

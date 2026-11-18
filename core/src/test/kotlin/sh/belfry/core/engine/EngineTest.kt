@@ -655,4 +655,35 @@ class EngineTest {
         val o: JsonObject? = parseJsonOrNull("{}").obj()
         assertNotNull(o)
     }
+
+    /**
+     * The web's missing channels and agreement (chat 458704e): the groups relay answered the first
+     * REQ before NIP-42 with only public events, and a recent public message moved the catch-up
+     * mark past members-only events never asked for. The mark now moves only at an EOSE after AUTH.
+     */
+    @Test
+    fun aPublicAnswerBeforeAuthDoesNotMoveTheCatchUp() = runBlocking<Unit> {
+        val now = System.currentTimeMillis() / 1000
+        val author = LocalSigner.random()
+        val old = author.signNow(sh.belfry.core.nostr.EventTemplate(9, "members only, long ago", listOf(listOf("h", "board")), now - 30 * 86400))
+        val fresh = author.signNow(sh.belfry.core.nostr.EventTemplate(9, "public, just now", listOf(listOf("h", "general")), now - 60))
+        val g = FakeRelay(requireAuth = true, publicBeforeAuth = { it.content.startsWith("public") }, lateAuth = true).also { it.expect(6); fakes.add(it) }
+        g.stored.addAll(listOf(old, fresh))
+        val m = fake()
+        val store = MemoryStore()
+        val me = LocalSigner.random()
+        // first run: the relay never gets to AUTH (the app is closed): only the public message arrives
+        g.sendAuth = false
+        val first = session(community(g, m), store, me)
+        first.start()
+        until("the public message") { first.world.value.messages("general").any { it.text == "public, just now" } }
+        first.stop()
+        assertNull(store.get(Session.K_GROUPS_MARK), "no mark from an answer given before AUTH")
+        // next run: the relay asks for AUTH after answering: the old members-only message must come
+        g.sendAuth = true
+        val second = session(community(g, m), store, me)
+        second.start()
+        until("the members-only message from before") { second.world.value.messages("board").any { it.text == "members only, long ago" } }
+        until("the mark set after AUTH") { store.get(Session.K_GROUPS_MARK) != null }
+    }
 }
