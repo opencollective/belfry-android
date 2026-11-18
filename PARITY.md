@@ -11,6 +11,15 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
+## No link, closed requests (Android, 2026-11-18)
+
+| Board | Status | Notes |
+|---|---|---|
+| onboarding/no-link-belfry: Find your community (a belfry's address; `name@address` goes straight to the code) | done, never run live | `ui/signin/NoLink.kt` `SignedOutFlow` is the signed-out screen now; a code on its way, a finishing sign-in or guest mode's "Sign in instead" still show the sign-in screen. |
+| onboarding/no-link: the belfry's Welcome, Log in · Apply to join · I have an invite code | done, never run live | Log in = the native code sign-in with the belfry's name; the invite code takes a link or a bare token. Not built: logged in with an address that isn't a member's → the Apply form with the e-mail filled in. |
+| onboarding/apply-form, apply-sent | done, never run live | `GET /charter` + `POST /apply` (no auth, Belfry 8b0331d); round ticks; "Tick each agreement (n of N)"; fixed words per code, the server's message only for `refused` (`ApplyForm`, `ApplyFormTest`). |
+| channels/closed-requests | done, never run live | Requests at the top of a closed channel's / group's Members; Accept / Decline through `POST /group-requests/decide` (Belfry 161d4d7) for every admin, by role too. |
+
 ## Round 6 (Android branch `r6`, 2026-11-18; canvas "Belfry app" boards channels/*; SPEC 19.41 / 19.42)
 
 | Board | Status | Notes |

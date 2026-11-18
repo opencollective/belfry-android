@@ -199,6 +199,11 @@ minSdk 26, JDK 17.
   `ui/cards/ProposalTop.kt` inside `ChannelScreen` for proposal chats (`proposalStart`).
   Screenshots `R6ShotsTest`. Demo: closed `Demo.TOOLS`.
 
+- No link (2026-11-18): signed out = `ui/signin/NoLink.kt` `SignedOutFlow` (Find → the belfry's
+  Welcome → Log in / Apply / invite code → Thank you); `ApplyForm` + `BelfryApi.applyToJoin` /
+  `plainPost` (core `net/Members.kt`), `Onboarding.charterFor / applyTo`. Closed requests:
+  `Session.members.decideGroupRequest` (`POST /group-requests/decide`; the demo writes 9000 / 9001).
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.
