@@ -132,7 +132,9 @@ class MemberLinkTest {
         val only = channels.filter { !(it.kind == 39000 && it.t("d") == "issues-5fce") && !(it.kind == 9007 && it.t("h") == "issues-5fce") } +
             ev(alice, t0 + 40, 9, t("h", "issues-5fce"), content = "a bug")
         val w1 = world(only, kinds = mapOf(manuel to "member"))
-        assertEquals("issues-5fce", w1.group("issues-5fce")!!.name)
+        // never the id (SPEC 19.43): the kind's word until the 39000 arrives
+        assertEquals("Channel", w1.group("issues-5fce")!!.name)
+        assertEquals(false, w1.group("issues-5fce")!!.named)
         // the metadata arrives: the next snapshot (built on the one before) has the name
         val w2 = world(only + ev(gk, t0 + 2, 39000, t("d", "issues-5fce"), t("name", "issues")), kinds = mapOf(manuel to "member"), prev = w1)
         assertEquals("issues", w2.group("issues-5fce")!!.name)

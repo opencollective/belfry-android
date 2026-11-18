@@ -42,7 +42,9 @@ class ModelVectorsTest {
             val want = c["expect"].o()["groups"].list()
             assertEquals(want.map { it["id"].sOrNull() }, got.map { it.id }, "order")
             for ((g, w) in got.zip(want)) {
-                assertEquals(w["name"].sOrNull(), g.name, g.id)
+                // the shared vector's name falls back to the id (written before SPEC 19.43): Android shows the
+                // kind's word instead (g.named = false), so the id stands in for the comparison
+                assertEquals(w["name"].sOrNull(), if (g.named) g.name else g.id, g.id)
                 assertEquals(w["about"].sOrNull(), g.about, g.id)
                 assertEquals(w["created_at"].long(), g.createdAt, g.id)
                 assertEquals(w["last_activity"].long(), g.lastActivity, g.id)
