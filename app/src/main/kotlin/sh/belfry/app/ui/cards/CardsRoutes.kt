@@ -12,7 +12,14 @@ fun NavGraphBuilder.cardsRoutes() {
     composable(Routes.EVENT, listOf(Routes.optional("t"))) { entry -> EventScreen(entry.arg("coord"), entry.optArg("t")) }
     composable(Routes.CHECK_IN) { entry -> CheckInScreen(entry.arg("coord")) }
     composable(Routes.POD) { entry -> PodScreen(entry.arg("id")) }
-    composable(Routes.PROPOSAL) { entry -> ProposalScreen(entry.arg("id")) }
+    // round 6: a proposal opens as its chat with the proposal on top, at full; the old page while its text syncs
+    composable(Routes.PROPOSAL) { entry ->
+        val id = entry.arg("id")
+        val nav = sh.belfry.app.ui.nav.LocalNav.current
+        if (sh.belfry.app.ui.nav.LocalWorld.current.proposalFor(id) != null && sh.belfry.app.ui.nav.LocalWorld.current.group(id) != null) {
+            sh.belfry.app.ui.chat.ChannelScreen(id, onBack = { nav.back() }, proposalStart = EventLevel.FULL)
+        } else ProposalScreen(id)
+    }
     composable(Routes.CREATE_CHANNEL, listOf(Routes.optional("category"))) { e -> CreateChannelScreen(e.optArg("category")) }
     composable(Routes.CREATE_POD) { entry -> CreatePodScreen(entry.arg("parent")) }
     composable(Routes.CREATE_EVENT) { entry -> CreateEventScreen(entry.arg("channel")) }

@@ -102,4 +102,23 @@ class R6ShotsTest : DemoShots() {
         demoShot("mail-comment") { sh.belfry.app.ui.cards.MailThreadScreen(Demo.HELLO, t, startWithComment = true) }
         compose.onNodeWithTag("mode-comment").assertExists()
     }
+
+    /** channels/proposal-top: a proposal's chat opens with the proposal on top, at half, its votes and turnout. */
+    @Test fun proposalTop() {
+        val id = world.proposals.first().groupId
+        demoShot("proposal-top") { ChannelScreen(id, onBack = {}) }
+        compose.onNodeWithTag("proposal-top-half").assertExists()
+    }
+
+    @Test fun proposalFull() {
+        val id = world.proposals.first().groupId
+        demoShot("proposal-full") { ChannelScreen(id, onBack = {}, proposalStart = sh.belfry.app.ui.cards.EventLevel.FULL) }
+    }
+
+    /** channels/proposal-folded: one bar with the title, status, tally and Vote. */
+    @Test fun proposalFolded() {
+        val id = world.proposals.first().groupId
+        demoShot("proposal-folded") { ChannelScreen(id, onBack = {}, proposalStart = sh.belfry.app.ui.cards.EventLevel.UP) }
+        compose.onNodeWithTag("proposal-bar").assertExists()
+    }
 }

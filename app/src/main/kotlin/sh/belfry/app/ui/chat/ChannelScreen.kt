@@ -31,6 +31,8 @@ import sh.belfry.core.model.unsubstituteChannels
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -126,6 +128,8 @@ fun ChannelScreen(
     composer: ComposerState = rememberComposerState(groupId),
     /** A large screen: threads open beside the channel instead of on their own screen. */
     onOpenThread: ((rootId: String) -> Unit)? = null,
+    /** A proposal's chat: the level its header opens at (round 6: half; from a proposal's card: full). */
+    proposalStart: sh.belfry.app.ui.cards.EventLevel = sh.belfry.app.ui.cards.EventLevel.HALF,
 ) {
     val c = Belfry.colors
     val world = LocalWorld.current
@@ -239,9 +243,25 @@ fun ChannelScreen(
         if (g != null && g.archived) ArchivedBar(g)
         status.banner?.let { Banner(it, kind = BannerKind.Warning) }
         if (!embedded) ChannelBars(groupId)
+        // a proposal's chat: the proposal on top (round 6, SPEC 19.42); the keyboard folds it
+        val proposal = if (!embedded && g?.isProposal == true) world.proposalFor(groupId) else null
+        var pLevel by androidx.compose.runtime.saveable.rememberSaveable(groupId) { mutableStateOf(proposalStart) }
+        var pTab by remember(groupId) { mutableStateOf(sh.belfry.app.ui.cards.ProposalTab.CHAT) }
+        val imeOpen = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+        if (proposal != null) {
+            sh.belfry.app.ui.cards.ProposalTop(proposal, if (imeOpen) sh.belfry.app.ui.cards.EventLevel.UP else pLevel) { pLevel = it }
+            val tabs = sh.belfry.app.ui.cards.proposalTabs(world, proposal)
+            if (pTab !in tabs) pTab = sh.belfry.app.ui.cards.ProposalTab.CHAT
+            sh.belfry.app.ui.cards.ProposalTabsRow(tabs, pTab) { pTab = it }
+            Hairline()
+        }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            if (rows.isEmpty()) {
+            if (proposal != null && pTab == sh.belfry.app.ui.cards.ProposalTab.VERSIONS) {
+                sh.belfry.app.ui.cards.ProposalVersionsPane(proposal) { pLevel = sh.belfry.app.ui.cards.EventLevel.FULL }
+            } else if (proposal != null && pTab == sh.belfry.app.ui.cards.ProposalTab.VOTES) {
+                sh.belfry.app.ui.cards.ProposalVotesPane(proposal)
+            } else if (rows.isEmpty()) {
                 if (chat.topic != null) {
                     EmptyState("Nothing here yet", text = if (chat.topic == Topics.ANNOUNCE) "No announcements in this channel." else "No messages in #${chat.topic}.")
                 } else if (guestReading) {
