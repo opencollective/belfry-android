@@ -244,6 +244,7 @@ fun ApplyContent(
         if (intro != null) { Spacer(Modifier.height(8.dp)); Text(intro, fontSize = 16.sp, lineHeight = 22.sp, color = c.muted) }
         Spacer(Modifier.height(20.dp))
         BelfryTextField(email, onEmail, Modifier.fillMaxWidth().testTag("apply-email"), label = "Your e-mail", placeholder = "you@example.org", enabled = !emailLocked,
+            trailing = if (emailLocked) ({ Icon(BelfryIcons.Lock, contentDescription = "Your account’s e-mail", tint = c.muted, modifier = Modifier.size(18.dp)) }) else null,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Email))
         Spacer(Modifier.height(14.dp))
         BelfryTextField(why, onWhy, Modifier.fillMaxWidth().testTag("apply-why"), label = "Why would you like to join?", singleLine = false, minLines = 3, maxLines = 8)
