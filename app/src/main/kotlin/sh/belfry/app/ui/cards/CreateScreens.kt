@@ -466,17 +466,21 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                 Chip("New Jitsi link", icon = BelfryIcons.Link, onClick = { online = Actions.jitsiLink(title.ifBlank { "meeting" }) })
             }
             BelfryTextField(description, { description = it }, Modifier.fillMaxWidth(), label = "Description", placeholder = "Markdown: **bold**, *italic*, - lists, [links](https://…)", singleLine = false, minLines = 3, maxLines = 8, keyboardOptions = words)
-            Column {
+            // events/new-event: Who sees it · Who can come as two segmented rows
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Who sees it", fontSize = 13.sp, color = Belfry.colors.muted)
-                Gap(6)
-                // squares with a line each, like the web (Xavier, 2026-11-11); who can come is set
-                // with the event's tickets, not here
-                ChoiceSquares(Visibility.entries.map { it.label to it.hint }, visibility.ordinal, { visibility = Visibility.entries[it] }, Modifier.testTag("event-visibility"))
+                Segmented(listOf("Members", "Link", "Public"), visibility.ordinal, { visibility = Visibility.entries[it] }, Modifier.fillMaxWidth().testTag("event-visibility"))
+                Muted(visibility.hint)
+            }
+            if (old == null) Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Who can come", fontSize = 13.sp, color = Belfry.colors.muted)
+                Segmented(listOf("Anyone", "By application"), if (byApplication) 1 else 0, { byApplication = it == 1 }, Modifier.fillMaxWidth().testTag("event-who-comes"))
+                if (byApplication) BelfryTextField(question, { question = it.take(300) }, Modifier.fillMaxWidth(), label = "Question people answer", placeholder = "Why would you like to come?", singleLine = false, minLines = 2, maxLines = 4, keyboardOptions = words)
             }
             Column {
                 BelfryTextField(
-                    slug, { slugEdited = true; slug = EventLinks.cleanSlug(it) }, Modifier.fillMaxWidth().testTag("event-slug"), label = "URL",
-                    placeholder = old?.d ?: "garden-day",
+                    slug, { slugEdited = true; slug = EventLinks.cleanSlug(it) }, Modifier.fillMaxWidth().testTag("event-slug"), label = "Its address",
+                    placeholder = "garden-day",
                     error = if (slugTaken) slugState?.problem ?: "Taken. Try ${slugState?.suggestion}" else null,
                     hint = when {
                         slug.isEmpty() -> null
@@ -487,7 +491,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                 )
                 Gap(4)
-                Muted(EventLinks.url(world.ctx.domain, slug.ifEmpty { old?.d ?: "…" }))
+                Muted(EventLinks.url(world.ctx.domain, slug.ifEmpty { "…" }))
             }
             error?.let { ErrorLine(it) }
             BusyButton(

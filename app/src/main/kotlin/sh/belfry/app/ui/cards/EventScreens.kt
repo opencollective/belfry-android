@@ -367,8 +367,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
             Column(Modifier.testTag("event-hosts")) {
                 SectionTitle("Hosted by")
-                for (h in hostList.ifEmpty { e.hosts }) {
-                    val name = api?.hosts?.firstOrNull { it.first == h }?.second?.ifEmpty { null } ?: world.displayName(h)
+                // the belfry's `hosted_by` when it gives one (no service keys), else who the relay says hosts
+                for (h in api?.hostedBy?.map { it.first }?.ifEmpty { null } ?: hostList.ifEmpty { e.hosts }) {
+                    val name = (api?.hostedBy.orEmpty() + api?.hosts.orEmpty()).firstOrNull { it.first == h }?.second?.ifEmpty { null } ?: world.displayName(h)
                     Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.profile(h, e.groupId)) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                         Avatar(world.face(h), size = 32.dp)
                         GapW(10)

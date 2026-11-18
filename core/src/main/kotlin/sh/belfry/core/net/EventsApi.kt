@@ -265,6 +265,11 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
                 status = if (o.s("status") == "cancelled") EventStatus.CANCELLED else EventStatus.SCHEDULED,
                 statusReason = (o.s("status_reason") ?: "").take(500),
                 hosts = o["hosts"].arr()?.mapNotNull { h -> h.obj()?.let { x -> x.s("pubkey")?.let { it to (x.s("name") ?: "").take(100) } } } ?: emptyList(),
+                hostedBy = o["hosted_by"].arr()?.mapNotNull { h ->
+                    // objects like `hosts`, or bare keys
+                    h.obj()?.let { x -> x.s("pubkey")?.takeIf { sh.belfry.core.crypto.Hex.isKey(it) }?.let { it to (x.s("name") ?: "").take(100) } }
+                        ?: (h as? JsonPrimitive)?.takeIf { it.isString && sh.belfry.core.crypto.Hex.isKey(it.content) }?.let { it.content to "" }
+                } ?: emptyList(),
                 tickets = o["tickets"].arr()?.mapNotNull { t ->
                     t.obj()?.let { x ->
                         val td = x.s("d") ?: return@let null

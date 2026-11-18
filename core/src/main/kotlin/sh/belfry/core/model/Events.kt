@@ -164,6 +164,8 @@ data class ApiEvent(
     val statusReason: String,
     /** pubkey → name */
     val hosts: List<Pair<String, String>>,
+    /** `hosted_by` (the creator and co-hosts, no service keys; belfry 2026-11-18): who "Hosted by" names. Empty from an older belfry. */
+    val hostedBy: List<Pair<String, String>> = emptyList(),
     val tickets: List<ApiTicket>,
     val going: Int,
     val community: String,
