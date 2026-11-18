@@ -277,6 +277,8 @@ fun Composer(
                     cursorBrush = SolidColor(c.text),
                     maxLines = 6,
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                    // channels/composer-mention: a picked @name or #channel is marked while its label is whole
+                    visualTransformation = PickMarks(state.picked.map { "@" + it.first } + state.pickedChannels.map { it.first }, c.text),
                 )
             }
             Spacer(Modifier.width(8.dp))
@@ -375,5 +377,43 @@ private fun ComposerDraftKeeper(state: ComposerState, key: String, paused: () ->
                 else if (skip) skip = false
                 else session.saveDraft(key, v.first, v.second, v.third)
             }
+    }
+}
+
+/**
+ * channels/composer-mention: each picked label still whole in the text (`@Name`, `#Channel`) is
+ * marked semibold on a soft tint of the text's colour (about 14%), spaces included; what follows is
+ * plain. A label that no longer matches loses its mark (and is sent as plain text); typing it back
+ * marks it again while the pick is remembered. The text and its offsets are unchanged.
+ */
+class PickMarks(private val labels: List<String>, private val color: androidx.compose.ui.graphics.Color) : androidx.compose.ui.text.input.VisualTransformation {
+    override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+        val raw = text.text
+        val spans = marks(raw, labels)
+        if (spans.isEmpty()) return androidx.compose.ui.text.input.TransformedText(text, androidx.compose.ui.text.input.OffsetMapping.Identity)
+        val b = androidx.compose.ui.text.AnnotatedString.Builder(text)
+        val style = androidx.compose.ui.text.SpanStyle(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, background = color.copy(alpha = 0.14f))
+        for (r in spans) b.addStyle(style, r.first, r.last + 1)
+        return androidx.compose.ui.text.input.TransformedText(b.toAnnotatedString(), androidx.compose.ui.text.input.OffsetMapping.Identity)
+    }
+
+    override fun equals(other: Any?) = other is PickMarks && other.labels == labels && other.color == color
+    override fun hashCode() = labels.hashCode() * 31 + color.hashCode()
+
+    companion object {
+        /** Where the labels stand whole in TEXT: not followed by a letter or digit (a longer name is someone else). Longest first. */
+        fun marks(text: String, labels: List<String>): List<IntRange> {
+            val out = ArrayList<IntRange>()
+            for (l in labels.filter { it.length > 1 }.distinct().sortedByDescending { it.length }) {
+                var i = text.indexOf(l)
+                while (i >= 0) {
+                    val end = i + l.length
+                    val whole = end >= text.length || !text[end].isLetterOrDigit()
+                    if (whole && out.none { i <= it.last && end - 1 >= it.first }) out.add(i until end)
+                    i = text.indexOf(l, i + 1)
+                }
+            }
+            return out.sortedBy { it.first }
+        }
     }
 }
