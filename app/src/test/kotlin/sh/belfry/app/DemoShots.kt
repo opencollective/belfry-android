@@ -33,14 +33,25 @@ import java.time.ZoneOffset
 abstract class DemoShots : Shots() {
     val nav = RecordingNav()
 
-    /** A settled demo session. Not started: nothing changes behind a screenshot. Call [started] for tests that send. */
-    val session: Session by lazy {
+    private val sessionLazy = lazy {
         runBlocking {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
             val onboarding = Onboarding(MemoryVault(), MemoryStore(), OkHttpClient(), scope, clock = { NOW }, zone = ZoneOffset.UTC)
             onboarding.placeNames = true // the app shows the town's on-brand names (SPEC 19.31)
             onboarding.demo().also { it.settle() }
         }
+    }
+    /** A settled demo session. Not started: nothing changes behind a screenshot. Call [started] for tests that send. */
+    val session: Session by sessionLazy
+
+    /**
+     * Each test's session is stopped after it: a started one kept its loops (outbox, read sync,
+     * watchdog) running into the next tests of the same JVM, and once the main looper never went
+     * idle every later test failed with AppNotIdleException (CI 2026-11-18).
+     */
+    @org.junit.After
+    fun stopSession() {
+        if (sessionLazy.isInitialized()) try { session.stop() } catch (e: Exception) { }
     }
 
     val world: World get() = session.world.value
