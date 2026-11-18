@@ -149,7 +149,7 @@ fun HomePlace(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> Unit)?
                     PlaceCard {
                         unread.forEachIndexed { i, g ->
                             if (i > 0) RowDivider()
-                            NavRow(g.glyph(world).icon(), g.name, null, { nav.openChannel(g.id) }, badge = Unread.channel(world, read, g.id, now))
+                            NavRow(g.glyph(world).icon(), g.name, null, { nav.openChannel(g.id) }, badge = Unread.channel(world, read, g.id, now), titleLoading = sh.belfry.app.ui.kit.rememberNameLoading(g.named))
                         }
                     }
                 }
@@ -197,7 +197,7 @@ private fun guestHome(scope: androidx.compose.foundation.lazy.LazyListScope, now
             PlaceCard {
                 mine.forEachIndexed { i, g ->
                     if (i > 0) RowDivider()
-                    NavRow(g.glyph(world).icon(), g.name, g.about.replace(Regex("[*_`#>]"), "").takeIf { it.isNotBlank() }, { nav.openChannel(g.id) })
+                    NavRow(g.glyph(world).icon(), g.name, g.about.replace(Regex("[*_`#>]"), "").takeIf { it.isNotBlank() }, { nav.openChannel(g.id) }, titleLoading = sh.belfry.app.ui.kit.rememberNameLoading(g.named))
                 }
             }
         }

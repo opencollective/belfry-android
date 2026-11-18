@@ -129,7 +129,8 @@ private fun GroupRow(world: World, g: Group, unread: Int, onClick: () -> Unit) {
         PodIcon(n, size = 40.dp)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(g.name, fontSize = 16.sp, fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (sh.belfry.app.ui.kit.rememberNameLoading(g.named)) sh.belfry.app.ui.kit.NameSkeleton(Modifier.padding(vertical = 3.dp))
+            else Text(g.name, fontSize = 16.sp, fontWeight = if (unread > 0) FontWeight.Bold else FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(listOfNotNull("$n ${if (n == 1) "member" else "members"}", state).joinToString(" · "), fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (unread > 0) { CountBadge(unread, color = c.surface2, onColor = c.muted); Spacer(Modifier.width(4.dp)) }

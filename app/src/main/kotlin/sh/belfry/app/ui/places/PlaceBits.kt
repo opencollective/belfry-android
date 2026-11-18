@@ -53,7 +53,7 @@ internal fun PlaceCard(modifier: Modifier = Modifier, content: @Composable () ->
 
 /** A row that navigates: an icon in a tinted square, a title, a line, a count, a chevron. */
 @Composable
-internal fun NavRow(icon: ImageVector, title: String, sub: String?, onClick: () -> Unit, badge: Int = 0, modifier: Modifier = Modifier, subLines: Int = 1) {
+internal fun NavRow(icon: ImageVector, title: String, sub: String?, onClick: () -> Unit, badge: Int = 0, modifier: Modifier = Modifier, subLines: Int = 1, titleLoading: Boolean = false) {
     val c = Belfry.colors
     Row(modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(c.surface), contentAlignment = Alignment.Center) {
@@ -61,7 +61,9 @@ internal fun NavRow(icon: ImageVector, title: String, sub: String?, onClick: () 
         }
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // a name not arrived: a grey bar for a few seconds (SPEC 19.43)
+            if (titleLoading) sh.belfry.app.ui.kit.NameSkeleton(Modifier.padding(vertical = 3.dp))
+            else Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!sub.isNullOrEmpty()) Text(sub, fontSize = 14.sp, color = c.muted, maxLines = subLines, overflow = TextOverflow.Ellipsis)
         }
         if (badge > 0) { Spacer(Modifier.width(8.dp)); CountBadge(badge) }
