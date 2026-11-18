@@ -163,4 +163,21 @@ class Round6Test {
         val bare = Poll(ev(emma, 1068, 1, listOf(listOf("h", prop))), 1, emptyMap())
         assertEquals(listOf("yes", "no", "abstain"), bare.options.map { it.first })
     }
+
+    @Test fun postsAndVisibilityInOneEvent() {
+        val id = "garden-3f2a"
+        val w = world(channel(id, "Garden Club", listOf(me), listOf(me)))
+        val g = w.group(id)!!
+        assertNull(Actions.webSettings(g, w, 1000, public = false, posts = null))
+        val d = Actions.webSettings(g, w, 1000, public = false, posts = "thread")!!
+        val c = parseJsonOrNull(d.content) as JsonObject
+        assertEquals("thread", c["posts"].s())
+        assertEquals("members", c["visibility"].s())
+        val w2 = world(channel(id, "Garden Club", listOf(me), listOf(me)) + listOf(ev(me, 30078, 2000, d.tags, d.content)))
+        assertEquals("thread", w2.webPage(w2.group(id))?.posts)
+        // public and events at once: one event, the period opened
+        val both = parseJsonOrNull(Actions.webSettings(g, w, 1000, public = true, posts = "event")!!.content) as JsonObject
+        assertEquals("public", both["visibility"].s()); assertEquals("event", both["posts"].s())
+        assertEquals(listOf(listOf<Long?>(1000, null)), periods(both["periods"]))
+    }
 }

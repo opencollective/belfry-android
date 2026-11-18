@@ -31,6 +31,7 @@ import sh.belfry.core.model.townChannels
 import sh.belfry.core.model.vouch
 import sh.belfry.core.net.AgentRequest
 import sh.belfry.core.net.applyToJoin
+import sh.belfry.core.net.mailForward
 import sh.belfry.core.net.ApplyStatus
 import sh.belfry.core.net.BelfryRequest
 import sh.belfry.core.net.DirMember
@@ -262,6 +263,28 @@ class MembersService internal constructor(private val s: Session) {
         _apply.value = st
         s.store.set(K_APPLY, st.toJson().toString())
     }
+
+    // ---- forwarding a channel's e-mails (docs/mail.md "Forwarding") ----
+
+    private val demoForwards = HashMap<String, sh.belfry.core.net.MailForward>()
+
+    /** CHANNEL's forward as the belfry has it (null: none). The demo keeps one on this device. */
+    suspend fun mailForward(channel: String): sh.belfry.core.net.MailForward? =
+        if (demo) demoForwards[channel] else s.apiCall(write = false) { it.mailForward(s.signer, buildJsonObject { put("channel", JsonPrimitive(channel)) }) }
+
+    /** Set ADDRESS (pending until the outside address confirms) or turn it off (null). */
+    suspend fun setMailForward(channel: String, address: String?): sh.belfry.core.net.MailForward? {
+        if (demo) {
+            if (address == null) { demoForwards.remove(channel); return null }
+            val f = sh.belfry.core.net.MailForward(address.trim(), false, s.me, s.now(), false)
+            demoForwards[channel] = f
+            return f
+        }
+        return s.apiCall(write = true) { it.mailForward(s.signer, buildJsonObject { put("channel", JsonPrimitive(channel)); put("address", if (address == null) kotlinx.serialization.json.JsonNull else JsonPrimitive(address.trim())) }) }
+    }
+
+    suspend fun resendMailForward(channel: String): sh.belfry.core.net.MailForward? =
+        if (demo) demoForwards[channel] else s.apiCall(write = true) { it.mailForward(s.signer, buildJsonObject { put("channel", JsonPrimitive(channel)); put("resend", JsonPrimitive(true)) }) }
 
     // ---- the public charter and events (no auth) ----
 

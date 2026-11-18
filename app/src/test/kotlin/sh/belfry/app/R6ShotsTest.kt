@@ -6,6 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.runBlocking
@@ -130,5 +131,15 @@ class R6ShotsTest : DemoShots() {
         compose.onNodeWithTag("request-accept").performClick()
         compose.waitUntil(10_000) { settle(); world.group(Demo.TOOLS)!!.applications.isEmpty() }
         assertTrue(Demo.lena.pubkey in world.group(Demo.TOOLS)!!.members)
+    }
+
+    /** channels/settings: Posts and "Forward all e-mails to" (the demo keeps the forward on this device). */
+    @Test fun settingsPostsAndForward() {
+        runBlocking { session.members.setMailForward(Demo.GARDEN, "lou@example.org") }
+        demoShot("channel-settings-forward", act = {
+            compose.onNodeWithTag("settings-forward").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("forward-state").fetchSemanticsNodes().isNotEmpty() }
+        }) { ChannelPlaceScreen(Demo.GARDEN, ChannelPlaceKey.SETTINGS) }
+        compose.onNodeWithTag("settings-posts").assertExists()
     }
 }

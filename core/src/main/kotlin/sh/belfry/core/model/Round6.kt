@@ -176,3 +176,23 @@ fun World.proposalVersions(p: Proposal): List<ProposalVersion> {
     }
     return out.sortedByDescending { it.version }
 }
+
+/**
+ * A channel's web settings with who reads it and its one type of post (Settings → Posts: Anything
+ * / Threads / Events / Proposals; web ChannelInfo). One event for both; every other key kept.
+ * POSTS null = anything. Null when nothing changes.
+ */
+fun Actions.webSettings(g: Group, world: World, now: Long, public: Boolean, posts: String?): Draft? {
+    val vis = setVisibility(g, public, world, now)
+    val was = world.webPage(g)?.posts
+    if (posts == was) return vis
+    val base = vis?.let { parseJsonObject(it.content) } ?: world.webContent(g)
+    val c = LinkedHashMap(base)
+    if (posts == null) c.remove("posts") else c["posts"] = JsonPrimitive(posts)
+    if (!c.containsKey("slug")) c["slug"] = JsonPrimitive(world.webPage(g)?.slug?.takeIf { it.isNotEmpty() } ?: World.slugify(g.rawName.ifEmpty { g.name }))
+    if (!c.containsKey("visibility")) c["visibility"] = JsonPrimitive(if (public) "public" else "members")
+    if (!c.containsKey("on")) c["on"] = JsonPrimitive(world.webPage(g)?.on ?: false)
+    return webPage(g.id, JsonObject(c))
+}
+
+private fun parseJsonObject(text: String): JsonObject = (sh.belfry.core.nostr.parseJsonOrNull(text) as? JsonObject) ?: JsonObject(emptyMap())
