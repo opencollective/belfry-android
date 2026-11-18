@@ -93,7 +93,7 @@ fun MembersScreen() {
         TopBar(
             PlaceNames.MEMBERS, subtitle = "${list.size} ${if (list.size == 1) "member" else "members"}",
             navigation = { BackButton { nav.back() } },
-            actions = { if (mayInvite) IconAction(BelfryIcons.Plus, "Invite", { nav.go(Routes.invite("general")) }, modifier = Modifier.testTag("members-invite")) },
+            actions = { if (mayInvite) IconAction(BelfryIcons.Plus, "Invite", { nav.go(Routes.inviteToCommunity()) }, modifier = Modifier.testTag("members-invite")) },
         )
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding()) {
             item(key = "<search>") {

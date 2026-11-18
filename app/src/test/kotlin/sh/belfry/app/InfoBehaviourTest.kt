@@ -9,6 +9,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -51,14 +53,13 @@ class InfoBehaviourTest : DemoShots() {
                 }
             }
         }
-        // Before: the member link can be copied.
-        compose.onNodeWithTag("link-copy").assertIsEnabled()
-        compose.onNodeWithTag("invite-guest").performClick()
+        // No link is made until "Or invite an external person" is opened (inviting/sheet-from-channel).
+        compose.onAllNodesWithTag("link-copy").assertCountEquals(0)
+        compose.onNodeWithTag("invite-external").performScrollTo().performClick()
         compose.waitForIdle()
-        // While the belfry makes the link: nothing to copy, and a second tap does nothing.
+        // While the belfry makes the link: nothing to copy, and the choices are locked.
         compose.onNodeWithTag("link-copy").assertIsNotEnabled()
-        compose.onNodeWithTag("invite-guest").performClick()
-        compose.waitForIdle()
+        compose.onNodeWithTag("invite-joins").assertIsNotEnabled()
         compose.onNodeWithText("Making the link…").assertIsDisplayed()
         assertEquals("the guest link was asked more than once", 1, calls)
         gate.complete(Unit)
@@ -129,15 +130,23 @@ class InfoBehaviourTest : DemoShots() {
                 }
             }
         }
+        // opening the external part makes a guest link for a day; "Joins as" picks my own agent instead
+        compose.onNodeWithTag("invite-external").performScrollTo().performClick()
+        compose.waitUntil(5_000) { asked.size == 1 }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-joins").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("invite-joins").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-own-agent").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("invite-own-agent").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText(agentUrl).fetchSemanticsNodes().isNotEmpty() }
-        assertEquals(listOf(Triple(1, 1, true)), asked)
+        assertEquals(listOf(Triple(1, 1, false), Triple(1, 1, true)), asked)
         compose.onNodeWithText("It works once", substring = true).performScrollTo().assertIsDisplayed()
-        // choosing a guest link instead asks for a plain guest link
+        // choosing a guest link again asks for a plain guest link
+        compose.onNodeWithTag("invite-joins").performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-guest").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("invite-guest").performScrollTo().performClick()
-        compose.waitUntil(5_000) { asked.size == 2 }
-        assertEquals(Triple(1, 1, false), asked[1])
+        compose.waitUntil(5_000) { asked.size == 3 }
+        assertEquals(Triple(1, 1, false), asked[2])
     }
 
     @Test

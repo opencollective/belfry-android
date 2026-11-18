@@ -91,6 +91,7 @@ object BelfryIcons {
     /** Points right: "opens something". */
     val Chevron by lazy { icon("chevron", "M9 6l6 6-6 6") }
     val ChevronDown by lazy { icon("chevron-down", "M6 9l6 6 6-6") }
+    val ChevronUp by lazy { icon("chevron-up", "M6 15l6-6 6 6") }
     val Back by lazy { icon("back", "M19 12H5M11 6l-6 6 6 6") }
     val More by lazy {
         icon("more", P(circle(5f, 12f, 1.2f), true), P(circle(12f, 12f, 1.2f), true), P(circle(19f, 12f, 1.2f), true))

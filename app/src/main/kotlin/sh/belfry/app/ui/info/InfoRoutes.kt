@@ -26,7 +26,7 @@ fun NavGraphBuilder.infoRoutes() {
     }
     composable(Routes.CHANNEL_PLACE) { entry -> ChannelPlaceScreen(entry.arg("id"), entry.arg("key")) }
     composable(Routes.TODO) { entry -> TodoScreen(entry.arg("id"), entry.arg("task")) }
-    composable(Routes.INVITE) { entry -> InviteScreen(entry.arg("id")) }
+    composable(Routes.INVITE, listOf(Routes.optional("members"))) { entry -> InviteScreen(entry.arg("id"), toCommunity = entry.optArg("members") == "1") }
     composable(Routes.TOPICS) { entry -> TopicsScreen(entry.arg("id")) }
     composable(Routes.FILES) { entry -> FilesScreen(entry.arg("id")) }
     composable(Routes.DROP) { entry -> DropScreen(entry.arg("id")) }

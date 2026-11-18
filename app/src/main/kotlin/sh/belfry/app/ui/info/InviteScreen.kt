@@ -1,6 +1,10 @@
 package sh.belfry.app.ui.info
 
 import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import sh.belfry.app.ui.kit.ActionGroup
 import sh.belfry.app.ui.kit.ActionRow
 import sh.belfry.core.net.Role
@@ -57,6 +61,8 @@ private val LINK_DAYS = listOf(1 to "1 day", 7 to "1 week", 30 to "1 month")
 fun InviteScreen(
     id: String,
     startAsGuest: Boolean = false,
+    /** From Members (inviting/sheet-from-members): "Invite to <community>", the link at once, no search by name. */
+    toCommunity: Boolean = false,
     makeLink: (suspend (who: JoinsAs, people: Int, linkDays: Int) -> GuestLink)? = null,
     invite: (suspend (pubkey: String) -> Session.Invited)? = null,
 ) {
@@ -116,93 +122,143 @@ fun InviteScreen(
         fetch(w, people, linkDays)
     }
 
-    LaunchedEffect(Unit) { if (startAsGuest) pick(JoinsAs.Guest(1)) }
+    // inviting/sheet-from-channel: people already here first; the link folded under "Or invite an
+    // external person" and made only when that is opened (no link before). From Members: open at once.
+    var external by remember { mutableStateOf(startAsGuest || toCommunity) }
+    var panel by remember { mutableStateOf(InvitePanel.MAIN) }
+    LaunchedEffect(external) {
+        if (external && who == null) pick(if (toCommunity && mayMembers) JoinsAs.Member(roles.defaultRole, "permanent") else JoinsAs.Guest(1))
+    }
+    val community = session.community.name
+    val w = who
+    val within = when (linkDays) { 1 -> "a day"; 7 -> "a week"; else -> "a month" }
 
-    InfoPage("Invite to $label") {
-        Text("Joins as", fontSize = 13.sp, color = c.muted)
-        Spacer(Modifier.height(6.dp))
-        ActionGroup {
-            for ((days, tag) in listOf(1 to "invite-guest", 7 to "invite-guest-week", 30 to "invite-guest-month")) {
-                val w = JoinsAs.Guest(days)
-                val (title, sub) = w.line(label, session.community.name, roles)
-                ChoiceRow(title, sub, who == w, BelfryIcons.User, enabled = !busy, tag = tag) { pick(w) }
-            }
-            val m = mine
-            if (m != null && m.limit > 0) {
-                val (title, sub) = JoinsAs.Agent.line(label, session.community.name, roles)
-                ChoiceRow(
-                    title,
-                    if (room > 0 || who == JoinsAs.Agent) sub else "You have " + (if (m.limit == 1) "your agent" else "your ${m.limit} agents") + " already. Remove one from its profile to bring another.",
-                    who == JoinsAs.Agent, BelfryIcons.Shield, enabled = !busy && (room > 0 || who == JoinsAs.Agent), tag = "invite-own-agent",
-                ) { pick(JoinsAs.Agent) }
-            }
-            if (mayMembers) {
-                val cur = who as? JoinsAs.Member
-                val (title, sub) = (cur ?: JoinsAs.Member(roles.defaultRole, "permanent")).line(label, session.community.name, roles)
-                Box {
-                    ChoiceRow(if (cur != null) title else "A member", if (cur != null) sub else "Of ${session.community.name}, with a role", cur != null, BelfryIcons.Users, enabled = !busy, tag = "invite-member") { rolePicker = true }
-                    DropdownMenu(expanded = rolePicker, onDismissRequest = { rolePicker = false }) {
-                        val choices = roles.roles.filter { world.isCommunityAdmin || it.id == roles.defaultRole }
-                        for (r in choices) for (ms in JoinsAs.MEMBERSHIPS) {
-                            DropdownMenuItem(
-                                text = { Text("${r.label} · ${JoinsAs.membershipWord(ms)}") },
-                                leadingIcon = { Icon(BelfryIcons.User, contentDescription = null) },
-                                onClick = { rolePicker = false; pick(JoinsAs.Member(r.id, ms)) },
-                                modifier = Modifier.testTag("invite-role-${r.id}-$ms"),
-                            )
+    when (panel) {
+        // inviting/sheet-member: who the link makes them
+        InvitePanel.JOINS -> {
+            BackHandler { panel = InvitePanel.MAIN }
+            InfoSubPage("Joins as", onBack = { panel = InvitePanel.MAIN }) {
+                if (!toCommunity) {
+                    Hint("Guest of $label")
+                    Spacer(Modifier.height(6.dp))
+                    ActionGroup {
+                        for ((days, tag) in listOf(1 to "invite-guest", 7 to "invite-guest-week", 30 to "invite-guest-month")) {
+                            val x = JoinsAs.Guest(days)
+                            ChoiceRow("For " + (when (days) { 1 -> "a day"; 7 -> "a week"; else -> "a month" }), x.line(label, community, roles).second, who == x, BelfryIcons.User, enabled = !busy, tag = tag) { pick(x); panel = InvitePanel.MAIN }
                         }
                     }
+                    Spacer(Modifier.height(12.dp))
+                }
+                val m = mine
+                if (m != null && m.limit > 0) {
+                    ActionGroup {
+                        ChoiceRow(
+                            "My own agent",
+                            if (room > 0 || who == JoinsAs.Agent) "A member for as long as you are one" else "You have " + (if (m.limit == 1) "your agent" else "your ${m.limit} agents") + " already. Remove one from its profile to bring another.",
+                            who == JoinsAs.Agent, BelfryIcons.Shield, enabled = !busy && (room > 0 || who == JoinsAs.Agent), tag = "invite-own-agent",
+                        ) { pick(JoinsAs.Agent); panel = InvitePanel.MAIN }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+                if (mayMembers) {
+                    val cur = who as? JoinsAs.Member
+                    val term = cur?.membership ?: "permanent"
+                    Hint("Member of $community")
+                    Spacer(Modifier.height(6.dp))
+                    Segmented(JoinsAs.MEMBERSHIPS.map { JoinsAs.membershipWord(it).replaceFirstChar { ch -> ch.uppercase() } }, JoinsAs.MEMBERSHIPS.indexOf(term).coerceAtLeast(0),
+                        { k -> pick(JoinsAs.Member(cur?.role ?: roles.defaultRole, JoinsAs.MEMBERSHIPS[k])) }, enabled = !busy, modifier = Modifier.testTag("invite-term"))
+                    Spacer(Modifier.height(8.dp))
+                    ActionGroup {
+                        val choices = roles.roles.filter { world.isCommunityAdmin || it.id == roles.defaultRole }
+                        for (r in choices) ChoiceRow(r.label, r.description, cur?.role == r.id, BelfryIcons.Users, enabled = !busy, tag = "invite-role-${r.id}") { pick(JoinsAs.Member(r.id, term)); panel = InvitePanel.MAIN }
+                    }
+                    Hint("Member choices are for Stewards. A member may invite members only when Membership settings allow it, and then with the default role only.", Modifier.padding(top = 6.dp))
                 }
             }
         }
-        val w = who
-        if (w != null && w !is JoinsAs.Agent && !(w is JoinsAs.Member && w.role == Role.ADMIN)) {
-            Spacer(Modifier.height(12.dp))
-            Text("How many", fontSize = 13.sp, color = c.muted)
-            Spacer(Modifier.height(6.dp))
-            Segmented(
-                PEOPLE.map { it.second }, PEOPLE.indexOfFirst { it.first == people },
-                { i -> val n = PEOPLE[i].first; if (n != people) { people = n; fetch(w, n, linkDays) } },
-                enabled = !busy,
-            )
+        // inviting/sheet-link: how many people, for how long
+        InvitePanel.LINK -> {
+            BackHandler { panel = InvitePanel.MAIN }
+            InfoSubPage("Link", onBack = { panel = InvitePanel.MAIN }) {
+                val single = w is JoinsAs.Agent || (w is JoinsAs.Member && w.role == Role.ADMIN)
+                Hint("How many people")
+                Spacer(Modifier.height(6.dp))
+                ActionGroup {
+                    for ((n, words) in listOf(1 to "One person", 50 to "Up to 50 people")) {
+                        ChoiceRow(words, "", people == n, BelfryIcons.Users, enabled = !busy && (n == 1 || !single), tag = "invite-people-$n") {
+                            if (n != people && w != null) { people = n; fetch(w, n, linkDays) }; panel = InvitePanel.MAIN
+                        }
+                    }
+                }
+                Hint("Up to 50 is off only for a Steward link or an agent link: those work once.", Modifier.padding(top = 6.dp))
+                Spacer(Modifier.height(12.dp))
+                Hint("The link can be opened for")
+                Spacer(Modifier.height(6.dp))
+                ActionGroup {
+                    for ((d, words) in LINK_DAYS) ChoiceRow(words, "", linkDays == d, BelfryIcons.Clock, enabled = !busy, tag = "invite-days-$d") {
+                        if (d != linkDays && w != null) { linkDays = d; fetch(w, people, d) }; panel = InvitePanel.MAIN
+                    }
+                }
+                Hint("How long they stay is chosen under \u201cJoins as\u201d. Picking a row goes back and makes a new link.", Modifier.padding(top = 6.dp))
+            }
         }
-        if (w != null) {
-            Spacer(Modifier.height(10.dp))
-            Text("Link works for", fontSize = 13.sp, color = c.muted)
-            Spacer(Modifier.height(6.dp))
-            Segmented(
-                LINK_DAYS.map { it.second }, LINK_DAYS.indexOfFirst { it.first == linkDays },
-                { i -> val d = LINK_DAYS[i].first; if (d != linkDays) { linkDays = d; fetch(w, people, d) } },
-                enabled = !busy,
-            )
+        InvitePanel.MAIN -> InfoPage(if (toCommunity) "Invite to $community" else "Invite to $label") {
+            if (!toCommunity) {
+                Hint("Invite someone already in the community")
+                Spacer(Modifier.height(6.dp))
+                InviteSomeone(id, invite)
+                Hint("They get the link to $label as a direct message. A guest of another channel is added here as a guest.", Modifier.padding(top = 6.dp))
+                Spacer(Modifier.height(16.dp))
+                ActionGroup {
+                    ActionRow(
+                        "Or invite an external person", onClick = { external = !external }, icon = BelfryIcons.Qr,
+                        sub = if (external) null else "A link or a QR code for someone who is not in $community yet",
+                        modifier = Modifier.testTag("invite-external").semantics { selected = external },
+                        trailing = { Icon(if (external) BelfryIcons.ChevronUp else BelfryIcons.ChevronDown, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp)) },
+                    )
+                }
+                if (!external) Hint("No link is made until you open this.", Modifier.padding(top = 6.dp))
+            }
+            if (external) {
+                Spacer(Modifier.height(14.dp))
+                val made = link
+                LinkBox(
+                    // my agent reads its instructions (agent_url): that is the link to hand it
+                    url = if (w is JoinsAs.Agent) made?.agentUrl ?: made?.url ?: memberUrl else made?.url ?: memberUrl,
+                    shareTitle = label,
+                    waiting = w != null && made == null, busy = busy, error = error,
+                    waitingText = "Making the link…",
+                    onRetry = { if (w != null) fetch(w, people, linkDays) },
+                )
+                Spacer(Modifier.height(12.dp))
+                ActionGroup {
+                    val (title, sub) = w?.line(label, community, roles) ?: ("Guest for a day" to "")
+                    ActionRow("Joins as", onClick = { panel = InvitePanel.JOINS }, value = title, sub = sub.ifEmpty { null }, chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-joins"))
+                    ActionRow("Link", onClick = { panel = InvitePanel.LINK }, value = (if (people == 1) "One person" else "Up to 50") + ", works for $within", chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-link"))
+                }
+                Spacer(Modifier.height(10.dp))
+                Hint(
+                    when (w) {
+                        JoinsAs.Agent -> "Give this link to your agent, within $within: it reads the instructions there and joins with its own key. It works once."
+                        is JoinsAs.Guest -> "They read $label at once and join with a name and an e-mail address; someone with an account joins with it. Everyone here sees who invited them."
+                        is JoinsAs.Member -> "They join $community as ${roles.roles.firstOrNull { it.id == w.role }?.label ?: "a member"} with their name and e-mail address. Copy and Share stay locked while the link is made; each new choice makes a new link."
+                        null -> ""
+                    },
+                )
+            }
+            Spacer(Modifier.height(24.dp))
         }
-        Spacer(Modifier.height(18.dp))
-        val made = link
-        val pending = w != null && made == null
-        LinkBox(
-            // my agent reads its instructions (agent_url): that is the link to hand it
-            url = if (w is JoinsAs.Agent) made?.agentUrl ?: made?.url ?: memberUrl else if (w != null) made?.url ?: memberUrl else memberUrl,
-            shareTitle = label,
-            waiting = pending, busy = busy, error = error,
-            waitingText = "Making the link…",
-            onRetry = { if (w != null) fetch(w, people, linkDays) },
-        )
-        Spacer(Modifier.height(14.dp))
-        val within = when (linkDays) { 1 -> "a day"; 7 -> "a week"; else -> "a month" }
-        Hint(
-            when (w) {
-                JoinsAs.Agent -> "Give this link to your agent, within $within: it reads the instructions there and joins with its own key. It works once."
-                is JoinsAs.Guest -> (if (people == 1) "For one person" else "For up to 50 people") + ", within $within" +
-                    ". They read $label at once and join with a name and an e-mail address; someone who has an account joins with it. Everyone here sees who invited them."
-                is JoinsAs.Member -> "They join ${session.community.name} as a member, within $within, starting in $label."
-                null -> "Members open $label with this link. For someone who isn't a member yet, pick how they join above."
-            },
-        )
-        Spacer(Modifier.height(20.dp))
-        Text("Or someone already in the community", fontSize = 15.sp, color = c.muted)
-        Spacer(Modifier.height(8.dp))
-        InviteSomeone(id, invite)
-        Spacer(Modifier.height(24.dp))
+    }
+}
+
+private enum class InvitePanel { MAIN, JOINS, LINK }
+
+/** A choice page inside the invite flow, with its own back arrow (back returns to the invite page, never pushes). */
+@Composable
+private fun InfoSubPage(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxSize().background(Belfry.colors.bg)) {
+        TopBar(title, navigation = { BackButton(onBack) })
+        Column(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), content = content)
     }
 }
 
@@ -210,7 +266,7 @@ fun InviteScreen(
 @Composable
 private fun ChoiceRow(title: String, sub: String, on: Boolean, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean, tag: String, onClick: () -> Unit) {
     ActionRow(
-        title, onClick = onClick, icon = icon, sub = sub, enabled = enabled,
+        title, onClick = onClick, icon = icon, sub = sub.ifEmpty { null }, enabled = enabled,
         modifier = Modifier.testTag(tag).semantics { selected = on },
         trailing = if (on) ({ Icon(BelfryIcons.Check, contentDescription = "Chosen", tint = Belfry.colors.text, modifier = Modifier.size(20.dp)) }) else null,
     )
