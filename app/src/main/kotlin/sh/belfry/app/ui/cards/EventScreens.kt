@@ -326,6 +326,14 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             // what needs me (asking, still going?, RSVP), only when there is something to do
             val needsMe = e.status == EventStatus.CANCELLED || world.stillGoing(e) || asking > 0 || (open && st == MyState.NONE)
             if (needsMe) EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
+            // else my answer, in words (You're going, Maybe, Applied…)
+            else st.line?.let { line ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("event-mine")) {
+                    Icon(BelfryIcons.Check, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+                    GapW(8)
+                    Text(line, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                }
+            }
             // my ticket and, on the event's days, checking people in (SPEC 19.29): one wide button each
             val code = viewer?.ticketUrl
             if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-ticket"))
