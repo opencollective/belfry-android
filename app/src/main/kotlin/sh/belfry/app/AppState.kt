@@ -337,8 +337,8 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     suspend fun discover(domain: String): Community = onboarding.discover(domain)
 
     /** No link (onboarding/no-link): a belfry's charter for someone with no account, and applying to join it. */
-    suspend fun publicCharter(c: Community) = onboarding.publicCharter(c)
-    suspend fun applyToJoin(c: Community, email: String, motivation: String, agreed: List<String>) = onboarding.applyToJoin(c, email, motivation, agreed)
+    suspend fun publicCharter(c: Community) = onboarding.charterFor(c)
+    suspend fun applyToJoin(c: Community, email: String, motivation: String, agreed: List<String>) = onboarding.applyTo(c, email, motivation, agreed)
 
     /** Starts a sign-in; returns the address to open in a Custom Tab. */
     fun beginSignIn(community: Community): String {

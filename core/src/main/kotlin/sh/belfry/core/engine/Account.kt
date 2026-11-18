@@ -196,10 +196,10 @@ class Onboarding(
     // ---- no link: a belfry's Welcome, its charter, applying (onboarding/no-link, apply-form) ----
 
     /** The charter of community C for someone with no account (`GET /charter`). Throws [sh.belfry.core.net.ApiException]. */
-    suspend fun publicCharter(c: Community): List<sh.belfry.core.net.PublicAgreement> = with(sh.belfry.core.net.BelfryApi(c, http)) { publicCharter() }
+    suspend fun charterFor(c: Community): List<sh.belfry.core.net.PublicAgreement> = with(sh.belfry.core.net.BelfryApi(c, http)) { publicCharter() }
 
     /** Applies to join C (no auth). Throws [sh.belfry.core.net.ApiException] with words to show. */
-    suspend fun applyToJoin(c: Community, email: String, motivation: String, agreed: List<String>) =
+    suspend fun applyTo(c: Community, email: String, motivation: String, agreed: List<String>): Unit =
         with(sh.belfry.core.net.BelfryApi(c, http)) { applyToJoin(email, motivation, agreed) }
 
     // ---- sign-in (OAuth code + PKCE → NIP-46) -----------------------------------------------------
