@@ -8,6 +8,7 @@ import org.junit.Test
 import sh.belfry.app.ui.cards.CheckInScreen
 import sh.belfry.app.ui.cards.EventScreen
 import sh.belfry.core.engine.Demo
+import sh.belfry.core.model.eventByLink
 
 /** The event screen redesign (2026-11-18; the events boards). */
 class EventsShotsTest : DemoShots() {
