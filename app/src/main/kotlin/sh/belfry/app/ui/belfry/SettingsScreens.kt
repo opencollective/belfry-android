@@ -111,7 +111,7 @@ fun BelfrySettingsScreen() {
                     trailing = { androidx.compose.material3.Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Opens in the browser", tint = Belfry.colors.faint, modifier = Modifier.size(18.dp)) })
             }
         }
-        Text("Opened from the gear at the top of the Town drawer, stewards only. Console rows open ${console.removePrefix("https://").substringBefore('/')} in the browser.",
+        Text("These open ${console.removePrefix("https://").substringBefore('/')} in the browser.",
             fontSize = 13.sp, color = Belfry.colors.muted, modifier = Modifier.padding(top = 6.dp))
     }
 }
