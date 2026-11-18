@@ -24,6 +24,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,6 +69,8 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
     val n = world.channelCounts(groupId, now)
     val go: (String) -> Unit = { chat.closeLine(); nav.go(it) }
     val place: (String) -> Unit = { go(Routes.channelPlace(groupId, it)) }
+    var notify by remember { mutableStateOf(false) }
+    if (notify) sh.belfry.app.ui.info.NotifySheet(groupId, onDismiss = { notify = false })
     Column(modifier.fillMaxWidth().background(c.bg).verticalScroll(rememberScrollState()).testTag("pull-down")) {
         if (g.about.isNotBlank()) {
             MarkdownText(g.about.trim(), fontSize = 16.sp, maxLines = 4, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).testTag("pull-about"))
@@ -99,7 +105,8 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         if (!g.isEvent && !g.isProposal && n.showsRow("groups")) MenuRow(null, "Groups", n.groups, "pd-groups", pod = true) { place(ChannelPlaceKey.GROUPS) }
         if (n.showsRow("topics")) MenuRow(BelfryIcons.Hash, "Topics", n.topics, "pd-topics") { go(Routes.topics(groupId)) }
         MenuRow(BelfryIcons.Users, "Members", n.members, "pd-members") { place(ChannelPlaceKey.MEMBERS) }
-        if (!world.isLocked(groupId)) MenuRow(Icons.Outlined.NotificationsNone, "Notifications", 0, "pd-notifications") { go(Routes.follow(groupId)) }
+        // the one row that opens a sheet (round 6): the channel stays behind it
+        if (!world.isLocked(groupId)) MenuRow(Icons.Outlined.NotificationsNone, "Notifications", 0, "pd-notifications") { notify = true }
         MenuRow(Icons.Outlined.History, "Log", 0, "pd-log") { place(ChannelPlaceKey.LOG) }
         if (world.canAdmin(g)) MenuRow(Icons.Outlined.Settings, "Settings", 0, "pd-settings") { place(ChannelPlaceKey.SETTINGS) }
     }

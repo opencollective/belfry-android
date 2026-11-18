@@ -66,6 +66,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import sh.belfry.app.ui.cards.ChannelBars
+import sh.belfry.core.model.readOnlyClosed
 import sh.belfry.app.ui.cards.EventHandoff
 import sh.belfry.app.ui.kit.ActionGroup
 import sh.belfry.app.ui.kit.ActionRow
@@ -294,7 +295,7 @@ fun ChannelScreen(
         RecordingBar(groupId)
         SaveAccountBar(session)
         if (guestReading) GuestBar(groupId)
-        val readOnly = guestReading || (g != null && g.isPod && g.closed && world.me !in g.members) || world.isLocked(groupId)
+        val readOnly = guestReading || (g != null && world.readOnlyClosed(g)) || world.isLocked(groupId)
         val editing = chat.editing
         // #proposals, #events, #bookings (web 2026-11-11): one type of post, no free text at the top
         val page = world.webPage(g)

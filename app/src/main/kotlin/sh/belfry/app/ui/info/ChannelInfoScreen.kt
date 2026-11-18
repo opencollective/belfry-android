@@ -8,6 +8,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import sh.belfry.core.model.ChannelAccess
+import sh.belfry.core.model.ChannelType
+import sh.belfry.core.model.channelAccess
+import sh.belfry.core.model.mayClose
+import sh.belfry.core.model.setVisibility
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -299,7 +311,8 @@ fun ChannelSettingsSheet(g: Group, onClose: () -> Unit) {
 }
 
 @Composable
-fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
+fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean = false) {
+    val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
     val wasInbox = remember(g.id) { world.isInbox(g) }
@@ -307,17 +320,15 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
     val raw = g.rawName.ifEmpty { g.name }
     var name by remember(g.id) { mutableStateOf(raw) }
     var about by remember(g.id) { mutableStateOf(g.about) }
-    var closed by remember(g.id) { mutableStateOf(g.closed) }
     var prompt by remember(g.id) { mutableStateOf(g.prompt ?: "") }
+    var vouches by remember(g.id) { mutableStateOf(g.vouches) }
     var openMail by remember(g.id) { mutableStateOf(wasInbox) }
-    // its visibility and its page on the web (web 2026-11-11): one setting, kept in one event
-    val wasPage = remember(g.id) { world.webPage(g) }
-    var public by remember(g.id) { mutableStateOf(wasPage?.visibility != "members") }
-    var webOn by remember(g.id) { mutableStateOf(wasPage?.on == true) }
-    var slug by remember(g.id) { mutableStateOf(wasPage?.slug?.ifEmpty { null } ?: World.slugify(g.rawName.ifEmpty { g.name })) }
-    var slugError by remember(g.id) { mutableStateOf<String?>(null) }
-    val domain = session.community.domain
+    // who reads it (round 6, SPEC 19.41): members only / public (asks first) / closed
+    val wasAccess = remember(g.id) { world.channelAccess(g) }
+    var access by remember(g.id) { mutableStateOf(wasAccess) }
+    var askPublic by remember(g.id) { mutableStateOf(askPublicAtOnce) }
     val busy = rememberBusy()
+    val kind = if (g.isPod) "group" else "channel"
 
     BelfryTextField(name, { name = it }, label = "Name", enabled = !busy.busy)
     Spacer(Modifier.height(12.dp))
@@ -325,48 +336,53 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
         about, { about = it }, label = "Description", hint = "Markdown works, links become clickable",
         singleLine = false, minLines = 3, enabled = !busy.busy,
     )
-    if (g.isPod) {
-        Spacer(Modifier.height(12.dp))
-        Hint("Who can join")
+    if (g.type == ChannelType.CHANNEL || g.isPod) {
+        Spacer(Modifier.height(14.dp))
+        Hint("Who can read it")
         Spacer(Modifier.height(6.dp))
-        Segmented(listOf("Open", "Closed"), if (closed) 1 else 0, { closed = it == 1 }, enabled = !busy.busy)
-        Hint(if (closed) "People apply by answering a question; admins admit them." else "Any member joins.", Modifier.padding(top = 6.dp))
-        if (closed) {
-            Spacer(Modifier.height(10.dp))
-            BelfryTextField(prompt, { prompt = it }, label = "Question for applicants", placeholder = Actions.DEFAULT_PROMPT, singleLine = false, enabled = !busy.busy)
+        ActionGroup(Modifier.testTag("settings-access")) {
+            val rows = buildList {
+                add(Triple(ChannelAccess.MEMBERS, BelfryIcons.Lock, "Members only" to "Everyone with a pass in this belfry"))
+                add(Triple(ChannelAccess.PUBLIC, BelfryIcons.Globe, "Public" to "Anyone on the web can read it. Only members write."))
+                if (mayClose(g)) add(Triple(ChannelAccess.CLOSED, Icons.Outlined.PersonAdd, "Closed" to "People ask to join. A steward of this $kind approves."))
+            }
+            rows.forEachIndexed { i, (a, icon, words) ->
+                if (i > 0) Hairline()
+                ActionRow(
+                    words.first,
+                    onClick = { if (a != access) { if (a == ChannelAccess.PUBLIC) askPublic = true else access = a } },
+                    icon = icon, sub = words.second, enabled = !busy.busy,
+                    modifier = Modifier.testTag("access-${a.key}").semantics { selected = access == a },
+                    trailing = { if (access == a) Icon(BelfryIcons.Check, "Selected", tint = c.text, modifier = Modifier.size(22.dp)) },
+                )
+            }
+        }
+        Hint("A change counts from now on. Messages keep the visibility they were posted with.", Modifier.padding(top = 6.dp))
+        if (g.isPod && access == ChannelAccess.CLOSED) {
+            Spacer(Modifier.height(12.dp))
+            BelfryTextField(prompt, { prompt = it }, label = "Question people answer when they ask", placeholder = Actions.DEFAULT_PROMPT, singleLine = false, enabled = !busy.busy)
+            Spacer(Modifier.height(12.dp))
+            Hint("Requests are accepted")
+            Spacer(Modifier.height(6.dp))
+            Segmented(listOf("By its stewards", "When members vouch"), if (vouches > 0) 1 else 0, { vouches = if (it == 1) maxOf(vouches, 2) else 0 }, enabled = !busy.busy, modifier = Modifier.testTag("settings-vouch"))
+            if (vouches > 0) {
+                Spacer(Modifier.height(8.dp))
+                Segmented((1..5).map { if (it == 1) "1 vouch" else "$it" }, vouches - 1, { vouches = it + 1 }, enabled = !busy.busy)
+            }
+            Hint(
+                if (vouches > 0) "Once enough of its members vouch (not guests, not agents), they’re in. Stewards can still answer." else "A steward accepts or declines each request.",
+                Modifier.padding(top = 6.dp),
+            )
         }
     }
     Spacer(Modifier.height(14.dp))
+    Hint("E-mail · ${world.shownMailAddress(g)}")
+    Spacer(Modifier.height(6.dp))
     ActionGroup {
         SwitchRow(
             "E-mails from anyone", openMail, { openMail = it }, icon = BelfryIcons.Inbox, enabled = !busy.busy,
-            sub = "Mail from outside lands here as cards; admins answer as the channel.",
+            sub = if (openMail) "Mail from outside lands here as cards; admins answer as the $kind." else "Off: only members can e-mail it",
         )
-    }
-    Hint("The address is ${world.shownMailAddress(g)}. Off: only members' mail comes in, as their message.", Modifier.padding(top = 6.dp))
-    if (!g.isPod) {
-        Spacer(Modifier.height(14.dp))
-        Hint("Visibility")
-        Spacer(Modifier.height(6.dp))
-        Segmented(listOf("Public", "Members only"), if (public) 0 else 1, { public = it == 0 }, enabled = !busy.busy, modifier = Modifier.testTag("settings-visibility"))
-        Hint(if (public) "Anyone reads its threads on the web." else "People from outside see only their own thread.", Modifier.padding(top = 6.dp))
-        Spacer(Modifier.height(14.dp))
-        ActionGroup {
-            SwitchRow(
-                "Threads from the web", webOn, { webOn = it; slugError = null }, icon = BelfryIcons.Globe, enabled = !busy.busy,
-                sub = "A page at $domain/${World.slugify(slug).ifEmpty { "…" }} where anyone opens a thread: it lands here as a card, and members' replies are mailed back to its author.",
-                modifier = Modifier.testTag("settings-web"),
-            )
-        }
-        if (webOn) {
-            Spacer(Modifier.height(10.dp))
-            BelfryTextField(
-                slug, { slug = it.lowercase().take(60); slugError = null }, label = "Page address", error = slugError, enabled = !busy.busy,
-                hint = "$domain/${World.slugify(slug).ifEmpty { "…" }}",
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Uri),
-                modifier = Modifier.testTag("settings-slug"),
-            )
-        }
     }
     Spacer(Modifier.height(16.dp))
     BusyButton(
@@ -374,24 +390,42 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit) {
         onClick = {
             val n = name.trim()
             val a = about.trim()
-            val address = World.slugify(slug)
-            if (!g.isPod && webOn) {
-                val problem = world.webSlugProblem(g, address)
-                if (problem != null) { slugError = problem; return@BusyButton }
+            if (g.type == ChannelType.CHANNEL || g.isPod) {
+                // public / members only first, then closed (going closed from public writes both)
+                Actions.setVisibility(g, access == ChannelAccess.PUBLIC, world, session.now())?.let { session.send(it) }
             }
-            if (!g.isPod) {
-                val visibility = if (public) "public" else "members"
-                val keptSlug = if (webOn) address else wasPage?.slug.orEmpty()
-                val changed = webOn != (wasPage?.on == true) || keptSlug != wasPage?.slug.orEmpty() || visibility != (wasPage?.visibility ?: "public")
-                if (changed) session.send(Actions.setWebPage(g.id, webOn, keptSlug, visibility, wasPage?.posts))
-            }
-            if (n != raw || a != g.about || (g.isPod && (closed != g.closed || prompt != (g.prompt ?: "")))) {
-                // one 9002 keeping every other setting (picture, vouches, archived: SPEC 19.30)
-                session.members.saveGroupMeta(g, name = n, about = a, closed = if (g.isPod) closed else null, prompt = if (g.isPod) prompt else null)
+            val closed = access == ChannelAccess.CLOSED
+            val closedChanged = (g.type == ChannelType.CHANNEL || g.isPod) && closed != g.closed
+            val podChanged = g.isPod && closed && (prompt != (g.prompt ?: "") || vouches != g.vouches)
+            if (n != raw || a != g.about || closedChanged || podChanged) {
+                // one 9002 keeping every other setting (picture, archived: SPEC 19.30)
+                session.members.saveGroupMeta(
+                    g, name = n, about = a,
+                    closed = if (closedChanged || podChanged) closed else null,
+                    prompt = if (closed && (closedChanged || podChanged)) (if (g.isPod) prompt else g.prompt ?: "") else null,
+                    vouches = if (g.isPod && closed) vouches else if (closedChanged) 0 else null,
+                )
             }
             if (openMail != wasInbox) session.send(Actions.setInbox(g.id, openMail))
             onClose()
         },
         modifier = Modifier.fillMaxWidth().testTag("settings-save"), enabled = name.isNotBlank(), busy = busy,
     )
+    if (askPublic) {
+        AlertDialog(
+            onDismissRequest = { askPublic = false },
+            title = { Text("Make ${channelLabel(g, g.id)} public?") },
+            text = { Text("From now on, anyone on the web can read what is posted here, with the names of the people who post. Earlier messages stay for members only.") },
+            confirmButton = {
+                TextButton(onClick = { access = ChannelAccess.PUBLIC; askPublic = false }, modifier = Modifier.testTag("make-public")) {
+                    Text("Make it public", color = c.text, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { askPublic = false }, modifier = Modifier.testTag("keep-members")) { Text("Keep it for members", color = c.text) }
+            },
+            containerColor = c.bg,
+            modifier = Modifier.testTag("make-public-dialog"),
+        )
+    }
 }

@@ -60,6 +60,8 @@ object Demo {
     const val HELLO = "hello-b04e"
     const val WEBSITE = "website-5d1c"
     const val RANDOM = "random-9e77"
+    /** A closed channel I'm not in (round 6): Tomás its steward, Lena asking to join. */
+    const val TOOLS = "tools-5d1e"
     const val POD_OPEN = "pod-reading-circle-a1b2"
     const val POD_CLOSED = "pod-finance-9f3c"
     const val EVENT_GROUP = "ws-e1a2b3c4"
@@ -153,6 +155,12 @@ object Demo {
         channel(maya, HELLO, "hello", "Our front desk: e-mails to hello@$DOMAIN land here.", t0 + 500, listOf(maya, me), listOf(maya, me, lena, kofi))
         channel(kofi, WEBSITE, "website", "What is on $DOMAIN, and what should be.", t0 + 600, listOf(kofi), listOf(kofi, maya, me))
         channel(sam, RANDOM, "random", "Anything else.", t0 + 700, listOf(sam), listOf(sam, tomas, me, joris, kofi))
+        run {
+            val about = "Drills, ladders and the sander: who has what, and when it comes back."
+            Actions.createChannel(TOOLS, "Tool library", about).forEachIndexed { i, d -> post(tomas, t0 + 800 + i, d) }
+            lists(TOOLS, t0 + 801, listOf(listOf("name", "Tool library"), listOf("about", about), listOf("closed"), listOf("prompt", "What would you like to borrow, or lend?")),
+                listOf(tomas), listOf(tomas, kofi, sam, joris))
+        }
 
         // ---- #general: two days ago ------------------------------------------------------------
         val d2 = now - 2 * day - 3 * h
@@ -329,6 +337,9 @@ object Demo {
         ), "Version 4 has the new photos of the garden (https://preview.$DOMAIN/p/${Bech32.npub(kofi.pubkey)}@website). Approve it below, or tell me what to change.")
         say(sam, RANDOM, now - 6 * day, "Found a blue bike helmet by the gate. It's on the shelf in the hall.")
         say(tomas, RANDOM, now - 26 * h, "Does anyone want a box of *very* ripe pears?")
+        say(tomas, TOOLS, now - 2 * day, "The long ladder is back on its hook.")
+        say(kofi, TOOLS, now - 5 * h, "Borrowing the drill until Saturday, for the community shelves.")
+        raw(lena, now - 3 * h, 9021, listOf(listOf("h", TOOLS)), "I'd like to borrow the sander, and I can lend my bike stand.")
         say(ines, POD_OPEN, now - 8 * h, "Chapter 1 to 4 for next time. Tea is on me.")
         say(lena, POD_CLOSED, now - 30 * h, "Draft accounts for last year are in the shared folder. Two receipts are missing.")
 
