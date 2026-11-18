@@ -236,17 +236,16 @@ data class TicketForm(
 
 /** Ids, links and URL names. */
 object EventLinks {
-    val D = Regex("^\\d{4}-[a-z0-9]{6}$")
+    val D = Regex("^(\\d{4}-)?[a-z0-9]{6}$")
     val SLUG = Regex("^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
     private val RESERVED = setOf("new", "slug", "feed", "past", "mine")
     const val STATUS_NS = "belfry/event-status"
     private const val ALPHA = "abcdefghijklmnopqrstuvwxyz0123456789"
 
-    /** A new event's id: the year it is made in (UTC) and 6 random characters. Never recomputed. */
-    fun newD(now: Long, random: ByteArray = Random.bytes(6)): String {
-        val year = Instant.ofEpochSecond(now).atZone(ZoneOffset.UTC).year
-        return "$year-" + random.take(6).joinToString("") { ALPHA[(it.toInt() and 0xff) % 36].toString() }
-    }
+    /** A new event's id: 6 random characters (ids made before 2026-11-18 start with their year). Never recomputed. */
+    @Suppress("UNUSED_PARAMETER")
+    fun newD(now: Long = 0, random: ByteArray = Random.bytes(6)): String =
+        random.take(6).joinToString("") { ALPHA[(it.toInt() and 0xff) % 36].toString() }
 
     /** Why a custom URL can't be used (fixed text), or null. */
     fun slugProblem(s: String): String? = when {
