@@ -230,14 +230,20 @@ private fun ApplyScreen(state: AppState, c: Community, onBack: () -> Unit, onLog
 fun ApplyContent(
     email: String, onEmail: (String) -> Unit, why: String, onWhy: (String) -> Unit,
     agreements: List<PublicAgreement>?, ticked: List<String>, onTick: (String) -> Unit,
-    error: String?, onRetry: (suspend () -> Unit)?, onSend: suspend () -> Unit, onBack: () -> Unit, onLogIn: () -> Unit,
+    error: String?, onRetry: (suspend () -> Unit)?, onSend: suspend () -> Unit, onBack: (() -> Unit)?, onLogIn: () -> Unit,
+    /** Logged in already (the "Almost in" screen): its own heading and line, the e-mail the belfry knows locked, its own buttons under the form. */
+    heading: String = "Apply to join",
+    intro: String? = null,
+    emailLocked: Boolean = false,
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val c = Belfry.colors
     SignedOutPage {
-        Box(Modifier.padding(bottom = 12.dp)) { BackButton(onBack) }
-        Text("Apply to join", fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, color = c.text)
+        if (onBack != null) Box(Modifier.padding(bottom = 12.dp)) { BackButton(onBack) }
+        Text(heading, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, color = c.text)
+        if (intro != null) { Spacer(Modifier.height(8.dp)); Text(intro, fontSize = 16.sp, lineHeight = 22.sp, color = c.muted) }
         Spacer(Modifier.height(20.dp))
-        BelfryTextField(email, onEmail, Modifier.fillMaxWidth().testTag("apply-email"), label = "Your e-mail", placeholder = "you@example.org",
+        BelfryTextField(email, onEmail, Modifier.fillMaxWidth().testTag("apply-email"), label = "Your e-mail", placeholder = "you@example.org", enabled = !emailLocked,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Email))
         Spacer(Modifier.height(14.dp))
         BelfryTextField(why, onWhy, Modifier.fillMaxWidth().testTag("apply-why"), label = "Why would you like to join?", singleLine = false, minLines = 3, maxLines = 8)
@@ -284,7 +290,7 @@ fun ApplyContent(
             enabled = all && email.isNotBlank() && why.isNotBlank(),
         )
         Spacer(Modifier.height(12.dp))
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { TextButton(onClick = onLogIn) { Text("I’m a member: log in", fontSize = 16.sp, color = c.text, fontWeight = FontWeight.SemiBold) } }
+        if (footer != null) footer() else Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { TextButton(onClick = onLogIn) { Text("I’m a member: log in", fontSize = 16.sp, color = c.text, fontWeight = FontWeight.SemiBold) } }
     }
 }
 

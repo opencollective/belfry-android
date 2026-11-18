@@ -30,6 +30,7 @@ import sh.belfry.core.model.mayModerate
 import sh.belfry.core.model.townChannels
 import sh.belfry.core.model.vouch
 import sh.belfry.core.net.AgentRequest
+import sh.belfry.core.net.applyToJoin
 import sh.belfry.core.net.ApplyStatus
 import sh.belfry.core.net.BelfryRequest
 import sh.belfry.core.net.DirMember
@@ -263,6 +264,23 @@ class MembersService internal constructor(private val s: Session) {
     }
 
     // ---- the public charter and events (no auth) ----
+
+    /**
+     * Logged in with an address that isn't a member's (onboarding/no-link, as the web's
+     * MembershipScreen): the charter to tick, the e-mail the belfry knows for me (null when it
+     * says none), and `POST /apply`. The demo answers itself.
+     */
+    suspend fun charterToApply(): List<sh.belfry.core.net.PublicAgreement> =
+        if (demo) world.charter().mapIndexed { i, a -> sh.belfry.core.net.PublicAgreement(a.id, a.title, a.about, i, 0, 0) }
+        else s.apiCall(write = false) { it.publicCharter() }
+
+    suspend fun myEmail(): String? = try { s.follows().email.trim().ifEmpty { null } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
+
+    suspend fun applyToJoin(email: String, motivation: String, agreed: List<String>) {
+        if (demo) return
+        s.apiCall(write = false) { it.applyToJoin(email, motivation, agreed) }
+    }
+
 
     suspend fun refreshPublicCharter(): List<Agreement> {
         if (demo) return _publicCharter.value.ifEmpty { world.charter().also { _publicCharter.value = it } }
