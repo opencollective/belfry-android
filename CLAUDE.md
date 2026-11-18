@@ -11,8 +11,8 @@ don't guess. What is done and what is not: [PARITY.md](PARITY.md). What the serv
 ## Building (CI only)
 
 The dev box has no Android SDK and little memory: **never run Gradle there**. Push and let GitHub
-Actions build (`gh run watch <id> --exit-status`, `gh run view <id> --log-failed`,
-`gh run download <id> -n screenshots`). Two jobs:
+Actions build; poll `gh run view <id> --json status,conclusion,jobs` every 4–5 minutes (never
+`gh run watch`), then `gh run view <id> --log-failed` or `gh run download <id> -n screenshots`. Two jobs:
 
 - `core`: `./gradlew :core:test` (JVM unit tests, the shared vectors).
 - `app`: `:app:assembleDebug`, `:app:lintDebug`, `:app:recordRoborazziDebug` (Robolectric +
