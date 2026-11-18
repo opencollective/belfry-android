@@ -93,4 +93,5 @@ fun World.unsubstituteChannels(text: String): Pair<String, List<Pair<String, Str
 /** A bare naddr as previews name it ([plainRefs]): "#name", "#<id>" for a channel not known here,
  *  the reference as written when it is not a channel's. For `Markdown.plain(…, channel = …)`. */
 fun World.refLabel(naddr: String): String =
-    ChannelRefs.groupOf(naddr)?.let { "#" + (group(it)?.name ?: it) } ?: ("nostr:$naddr")
+    // a channel whose name isn't known: the kind's word, never its id (SPEC 19.43; vectors/channel-refs.json)
+    ChannelRefs.groupOf(naddr)?.let { id -> "#" + (group(id)?.takeIf { it.named }?.name ?: "channel") } ?: ("nostr:$naddr")

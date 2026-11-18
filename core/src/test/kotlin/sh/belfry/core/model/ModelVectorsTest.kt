@@ -42,9 +42,9 @@ class ModelVectorsTest {
             val want = c["expect"].o()["groups"].list()
             assertEquals(want.map { it["id"].sOrNull() }, got.map { it.id }, "order")
             for ((g, w) in got.zip(want)) {
-                // the shared vector's name falls back to the id (written before SPEC 19.43): Android shows the
-                // kind's word instead (g.named = false), so the id stands in for the comparison
-                assertEquals(w["name"].sOrNull(), if (g.named) g.name else g.id, g.id)
+                // no name without its metadata (SPEC 19.43): "name": null, "named": false (belfry-ios 9da1f18)
+                assertEquals(w["name"].sOrNull(), if (g.named) g.name else null, g.id)
+                w["named"].bool()?.let { assertEquals(it, g.named, g.id) }
                 assertEquals(w["about"].sOrNull(), g.about, g.id)
                 assertEquals(w["created_at"].long(), g.createdAt, g.id)
                 assertEquals(w["last_activity"].long(), g.lastActivity, g.id)
@@ -121,6 +121,31 @@ class ModelVectorsTest {
                 assertEquals(w.map { it["emoji"].sOrNull() }, g.map { it.emoji })
                 assertEquals(w.map { it["who"].strs() }, g.map { it.who.sorted() })
                 assertEquals(w.map { it["mine"].sOrNull() }, g.map { it.mine?.id })
+            }
+        }
+    }
+
+    /** Reactions on a thread reply (belfry-ios 1bd9e01): keyed on e, k never filtered; what a client writes per target kind. */
+    @Test
+    fun replyReactions() {
+        val cases = Vectors.load("reply-reactions.json")["cases"].list()
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val got = world(c).reactions(c["group"].sOrNull()!!)
+            val want = c["expect"].o()["reactions"].o()
+            assertEquals(want.keys, got.keys)
+            for ((id, list) in want) {
+                val w = list.list()
+                val g = got[id] ?: emptyList()
+                assertEquals(w.map { it["emoji"].sOrNull() }, g.map { it.emoji })
+                assertEquals(w.map { it["who"].strs() }, g.map { it.who.sorted() })
+                assertEquals(w.map { it["mine"].sOrNull() }, g.map { it.mine?.id })
+            }
+            for (x in c["write"].list()) {
+                val d = Actions.react(c["group"].sOrNull()!!, x["target"].sOrNull()!!, x["author"].sOrNull()!!, x["emoji"].sOrNull()!!, x["target_kind"].long()!!.toInt())
+                assertEquals(7, d.kind)
+                assertEquals(x["emoji"].sOrNull(), d.content)
+                assertEquals(x["tags"].list().map { t -> t.list().map { (it as JsonPrimitive).content } }, d.tags)
             }
         }
     }

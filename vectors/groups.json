@@ -1,5 +1,5 @@
 {
-  "about": "NIP-29 groups derived from the event log: metadata (latest per field), admins, members, type, parent, closed + applications, deletion (9008), order (general first, then latest activity).",
+  "about": "NIP-29 groups derived from the event log: metadata (latest per field), admins, members, type, parent, closed + applications, deletion (9008), order (general first, then latest activity). A group without its metadata has no name (\"name\": null, \"named\": false): never shown by its id (Xavier, 2026-11-18; the UI shows a placeholder or the kind's word).",
   "generated_by": "tools/vectors/build.mjs from the web chat (village-app, branch belfry-chat)",
   "people": {
     "alice": {
@@ -466,6 +466,7 @@
           {
             "id": "general",
             "name": "General",
+            "named": true,
             "about": "From the relay",
             "created_at": 1793000000,
             "last_activity": 1793000100,
@@ -487,6 +488,7 @@
           {
             "id": "garden",
             "name": "Garden",
+            "named": true,
             "about": "Plants",
             "created_at": 1793000002,
             "last_activity": 1793000200,
@@ -503,6 +505,7 @@
           {
             "id": "ws-1234",
             "name": "Picnic",
+            "named": true,
             "about": "Bring food",
             "created_at": 1793000050,
             "last_activity": 1793000050,
@@ -518,7 +521,8 @@
           },
           {
             "id": "prop-rules-cd",
-            "name": "prop-rules-cd",
+            "name": null,
+            "named": false,
             "about": "",
             "created_at": 1793000040,
             "last_activity": 1793000040,
@@ -535,6 +539,7 @@
           {
             "id": "pod-tools-ab",
             "name": "Tools",
+            "named": true,
             "about": "Shared tools",
             "created_at": 1793000010,
             "last_activity": 1793000010,
@@ -559,6 +564,7 @@
           {
             "id": "quiet",
             "name": "Quiet",
+            "named": true,
             "about": "",
             "created_at": 1793000003,
             "last_activity": 1793000003,
