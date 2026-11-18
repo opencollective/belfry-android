@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Category
@@ -92,6 +96,23 @@ fun BelfrySettingsScreen() {
             ActionRow("Membership", onClick = { nav.go(Routes.SETTINGS_MEMBERSHIP) }, icon = Icons.Outlined.HowToReg, sub = "Who invites members, who accepts them", chevron = true)
             ActionRow("Channels", onClick = { nav.go(Routes.SETTINGS_CHANNELS) }, icon = Icons.Outlined.ViewList, sub = "Categories, order, archive or delete", chevron = true, modifier = Modifier.testTag("settings-channels"))
         }
+        // home/belfry-settings: the console's own pages, in the browser (stewards sign in there)
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val console = session.community.apiBase.substringBefore("/api/") + "/console"
+        Text("In the console", fontSize = 13.sp, color = Belfry.colors.muted, modifier = Modifier.padding(top = 20.dp, bottom = 6.dp))
+        ActionGroup(Modifier.testTag("belfry-console")) {
+            for ((label, path, icon) in listOf(
+                Triple("Mail", "/plugins/email", BelfryIcons.Mail),
+                Triple("Website", "/website", BelfryIcons.Globe),
+                Triple("Plugins and sales", "/plugins", Icons.Outlined.Extension),
+                Triple("Add people", "/members/add", Icons.Outlined.PersonAdd),
+            )) {
+                ActionRow(label, onClick = { sh.belfry.app.ui.signin.openInBrowser(context, console + path) }, icon = icon,
+                    trailing = { androidx.compose.material3.Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = "Opens in the browser", tint = Belfry.colors.faint, modifier = Modifier.size(18.dp)) })
+            }
+        }
+        Text("Opened from the gear at the top of the Town drawer, stewards only. Console rows open ${console.removePrefix("https://").substringBefore('/')} in the browser.",
+            fontSize = 13.sp, color = Belfry.colors.muted, modifier = Modifier.padding(top = 6.dp))
     }
 }
 
