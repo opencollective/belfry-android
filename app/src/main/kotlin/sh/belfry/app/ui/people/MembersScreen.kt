@@ -207,14 +207,14 @@ fun RequestSections() {
                 modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.pod(x.group.id)) }.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
             )
             for (a in x.list) {
-                val moderate = world.mayModerate(x.group)
+                val moderate = world.canAdmin(x.group)
                 val who = world.vouchesFor(x.group, a)
                 val line = if (moderate && x.group.vouches == 0) "Asks to join" else "${who.size} of ${x.group.vouches} ${if (x.group.vouches == 1) "vouch" else "vouches"}" +
                     if (who.isNotEmpty()) " · " + who.joinToString(", ") { world.displayName(it) } else ""
                 RequestCard(a.pubkey, world.displayName(a.pubkey), line, a.answer) {
                     if (moderate) {
-                        BusyButton("Accept", onClick = { session.send(Actions.admit(x.group.id, a.pubkey)) }, small = true, onError = onError)
-                        BusyButton("Decline", onClick = { session.send(Actions.decline(x.group.id, a.pubkey)) }, kind = ButtonKind.Ghost, small = true, onError = onError)
+                        BusyButton("Accept", onClick = { session.members.decideGroupRequest(x.group, a.pubkey, true) }, small = true, onError = onError)
+                        BusyButton("Decline", onClick = { session.members.decideGroupRequest(x.group, a.pubkey, false) }, kind = ButtonKind.Ghost, small = true, onError = onError)
                     } else {
                         val mine = world.me in who
                         BusyButton(if (mine) "Take back my vouch" else "Vouch", onClick = { session.members.vouchInGroup(x.group, a, !mine) }, kind = ButtonKind.Ghost, small = true, onError = onError)

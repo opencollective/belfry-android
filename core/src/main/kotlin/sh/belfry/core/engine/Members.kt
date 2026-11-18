@@ -187,6 +187,15 @@ class MembersService internal constructor(private val s: Session) {
         _agentRequests.value = _agentRequests.value.filter { it.id != r.id }
     }
 
+    /**
+     * Accept or decline someone asking to join closed group G, through the belfry (every admin,
+     * admins by role too; round 6 channels/closed-requests). The demo writes the 9000 / 9001 itself.
+     */
+    suspend fun decideGroupRequest(g: Group, pubkey: String, approve: Boolean) {
+        if (demo) { s.send(if (approve) Actions.admit(g.id, pubkey) else Actions.decline(g.id, pubkey)); return }
+        api { it.decideGroupRequest(g.id, pubkey, approve) }
+    }
+
     /** Vouch for a request to join a closed group (a label in the group), then ask the belfry to count. */
     suspend fun vouchInGroup(g: Group, a: Application, on: Boolean) {
         s.send(Actions.vouch(g.id, a.ev.id, a.pubkey, on))

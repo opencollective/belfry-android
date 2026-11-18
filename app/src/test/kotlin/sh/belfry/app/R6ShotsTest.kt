@@ -121,4 +121,14 @@ class R6ShotsTest : DemoShots() {
         demoShot("proposal-folded") { ChannelScreen(id, onBack = {}, proposalStart = sh.belfry.app.ui.cards.EventLevel.UP) }
         compose.onNodeWithTag("proposal-bar").assertExists()
     }
+
+    /** channels/closed-requests: the request at the top of the channel's Members, its question and answer; Accept lets them in. */
+    @Test fun closedRequests() {
+        val g = world.group(Demo.TOOLS)!!
+        assertEquals(1, g.applications.size)
+        demoShot("channel-closed-requests") { ChannelPlaceScreen(Demo.TOOLS, ChannelPlaceKey.MEMBERS) }
+        compose.onNodeWithTag("request-accept").performClick()
+        compose.waitUntil(10_000) { settle(); world.group(Demo.TOOLS)!!.applications.isEmpty() }
+        assertTrue(Demo.lena.pubkey in world.group(Demo.TOOLS)!!.members)
+    }
 }

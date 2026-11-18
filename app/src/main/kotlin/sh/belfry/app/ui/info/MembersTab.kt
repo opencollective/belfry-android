@@ -46,7 +46,10 @@ fun MembersTab(g: Group) {
     val rows = remember(world, g.id) { world.memberRows(g.id) }
     // who is a guest, an agent or a member: asked of the belfry again when the list opens
     LaunchedEffect(g.id) { session.recheckPeople(world.guestJoins(g.id).map { it.pubkey }) }
-    val reviewing = if (g.isPod && world.canAdmin(g)) g.applications else emptyList()
+    // a closed group's or channel's requests, the question and the answer (round 6, channels/closed-requests)
+    val reviewing = if (g.closed && (g.isPod || g.type == sh.belfry.core.model.ChannelType.CHANNEL) && world.canAdmin(g)) g.applications else emptyList()
+    var requestError by remember { mutableStateOf<String?>(null) }
+    val onRequestError: (Throwable) -> Unit = { e -> requestError = (e as? sh.belfry.core.engine.ActionException)?.message ?: "That did not work. Try again." }
     var declining by remember { mutableStateOf<Application?>(null) }
     var labelling by remember { mutableStateOf<MemberRow?>(null) }
 
@@ -68,11 +71,12 @@ fun MembersTab(g: Group) {
                 }
                 Spacer(Modifier.height(10.dp))
                 ActionGroup {
-                    BusyRow("Admit", { session.send(Actions.admit(g.id, a.pubkey)) }, icon = BelfryIcons.Check)
+                    BusyRow("Accept", { requestError = null; session.members.decideGroupRequest(g, a.pubkey, true) }, icon = BelfryIcons.Check, onError = onRequestError, modifier = Modifier.testTag("request-accept"))
                     ActionRow("Decline", { declining = a }, icon = BelfryIcons.Close, danger = true)
                 }
             }
         }
+        requestError?.let { ErrorLine(it, Modifier.padding(bottom = 8.dp)) }
         SectionTitle("Members · ${g.members.size}")
     }
 
@@ -129,7 +133,11 @@ fun MembersTab(g: Group) {
     declining?.let { a ->
         ConfirmSheet(
             "Decline ${world.displayName(a.pubkey)}?", "Decline",
-            onConfirm = { session.send(Actions.decline(g.id, a.pubkey)); declining = null },
+            onConfirm = {
+                requestError = null
+                try { session.members.decideGroupRequest(g, a.pubkey, false) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { onRequestError(e) }
+                declining = null
+            },
             onDismiss = { declining = null },
             message = "They are told nothing; they can ask again.",
         )

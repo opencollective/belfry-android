@@ -324,6 +324,17 @@ class MembersApi(private val api: BelfryApi, private val signer: Signer) {
     }
 
     /**
+     * Accept or decline a request to join a closed channel or group (`POST /group-requests/decide`,
+     * Belfry 161d4d7 docs/membership.md): any admin of it (relay list, creator, by role) or a belfry
+     * admin; the belfry publishes the 9000 / 9001. `already` (someone answered) counts as done.
+     */
+    suspend fun decideGroupRequest(channel: String, pubkey: String, approve: Boolean) {
+        post("/group-requests/decide", buildJsonObject {
+            put("channel", JsonPrimitive(channel)); put("pubkey", JsonPrimitive(pubkey)); put("action", JsonPrimitive(if (approve) "approve" else "decline"))
+        }, GROUP_REQUEST_ERRORS, "That did not work. Try again.")
+    }
+
+    /**
      * Deletes a channel with no content (`POST /group-delete`, a group admin or belfry admin; the
      * belfry publishes the 9008). Codes: 409 `not_empty`, 409 `always_open` (general), 422 (events,
      * proposals), `not_allowed`.
@@ -397,6 +408,16 @@ class MembersApi(private val api: BelfryApi, private val signer: Signer) {
             "unsupported" to "This belfry can’t keep requests yet.",
             "limit" to "You have as many agents as you can have.",
             "network" to "No connection to the belfry.",
+        )
+        val GROUP_REQUEST_ERRORS = mapOf(
+            "not_allowed" to "Only the channel’s admins and the stewards can answer requests.",
+            "no_request" to "This request is gone.",
+            "archived" to "This channel is archived: unarchive it first.",
+            "event" to "Requests for an event are answered on the event.",
+            "invalid" to "That did not work. Try again.",
+            "relay" to "The belfry couldn’t reach its relay. Try again.",
+            "network" to "No connection to the belfry. Try again.",
+            "http" to "This belfry can’t answer requests from the app yet: it needs an update.",
         )
         val DELETE_ERRORS = mapOf(
             "not_empty" to "This channel has messages: archive it instead.",
