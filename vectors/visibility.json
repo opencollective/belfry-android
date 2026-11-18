@@ -1,0 +1,28 @@
+{
+  "about": "A channel's visibility (SPEC 19.38; web actions.ts setVisibility, model.ts publicPeriods / cleanPeriods). The channel is named 'Garden Club' (id garden-3f2a). content = its latest web-settings content (30078 d=belfry:web:<id>, by an admin or the relay's key), null = none. to = the choice; expect = the content written (keys compared: on, slug, visibility, periods, posts), null = nothing written (it is that already).",
+  "name": "Garden Club",
+  "id": "garden-3f2a",
+  "now": 1000,
+  "cases": [
+    {"name": "members only, no settings yet, made public", "content": null, "to": "public",
+     "expect": {"on": true, "slug": "garden-club", "visibility": "public", "periods": [[1000, null]]}},
+    {"name": "no settings is members only already", "content": null, "to": "members", "expect": null},
+    {"name": "public before periods: since ever, closed now", "content": {"on": true, "slug": "garden", "visibility": "public"}, "to": "members",
+     "expect": {"on": true, "slug": "garden", "visibility": "members", "periods": [[0, 1000]]}},
+    {"name": "public again: a new period, earlier ones kept", "content": {"on": true, "slug": "garden", "visibility": "members", "periods": [[100, 200]], "posts": "thread"}, "to": "public",
+     "expect": {"on": true, "slug": "garden", "visibility": "public", "periods": [[100, 200], [1000, null]], "posts": "thread"}},
+    {"name": "page off, members: going public turns it on", "content": {"on": false, "slug": "", "visibility": "members"}, "to": "public",
+     "expect": {"on": true, "slug": "garden-club", "visibility": "public", "periods": [[1000, null]]}},
+    {"name": "an open period is closed", "content": {"on": true, "slug": "g", "visibility": "public", "periods": [[500, null]]}, "to": "members",
+     "expect": {"on": true, "slug": "g", "visibility": "members", "periods": [[500, 1000]]}},
+    {"name": "broken periods are dropped, the rest sorted", "content": {"on": true, "slug": "g", "visibility": "public", "periods": [[600, null], [100, 200], ["x", 3], [300]]}, "to": "members",
+     "expect": {"on": true, "slug": "g", "visibility": "members", "periods": [[100, 200], [600, 1000]]}}
+  ],
+  "access": [
+    {"name": "no settings, open", "content": null, "closed": false, "expect": "members"},
+    {"name": "closed", "content": null, "closed": true, "expect": "closed"},
+    {"name": "public wins over closed", "content": {"on": true, "slug": "g", "visibility": "public"}, "closed": true, "expect": "public"},
+    {"name": "page on, members", "content": {"on": true, "slug": "g", "visibility": "members"}, "closed": false, "expect": "members"},
+    {"name": "page off says public: members only", "content": {"on": false, "slug": "g", "visibility": "public"}, "closed": false, "expect": "members"}
+  ]
+}

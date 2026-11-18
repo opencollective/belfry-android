@@ -112,7 +112,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** Events carrying this `h`, in arrival order. */
     private fun inGroup(id: String): List<Event> = byH[id] ?: emptyList()
     private fun inGroupSorted(id: String): List<Event> = sortedByH.getOrPut(id) { inGroup(id).sortedWith(BY_TIME) }
-    private fun ofKind(kind: Int): List<Event> = byKind[kind] ?: emptyList()
+    internal fun ofKind(kind: Int): List<Event> = byKind[kind] ?: emptyList()
     /** A group's events by time (Events.kt reads an event's people from them). */
     internal fun groupEventsSorted(id: String): List<Event> = inGroupSorted(id)
 
@@ -880,6 +880,19 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val members = vis == "members" || (vis == null && c["list"]?.str() == "own")
         val posts = c["posts"]?.str()?.takeIf { it in setOf("proposal", "event", "request") }
         return WebPage(c["on"]?.let { truthy(it) } == true, c["slug"]?.str().orEmpty(), if (members) "members" else "public", posts)
+    }
+
+    /**
+     * The content of G's own latest web-settings event, every key kept (SPEC 19.38: written back
+     * whole with a change, as the web's setWebPage does), or an empty object when there is none.
+     */
+    fun webContent(g: Group?): kotlinx.serialization.json.JsonObject {
+        val empty = kotlinx.serialization.json.JsonObject(emptyMap())
+        if (g == null) return empty
+        val relayKey = firstMetaAuthor[g.id]
+        val own = (webEvents[WEB_D + g.id] ?: return empty).filter { it.t("h") == g.id && (it.pubkey in g.admins || it.pubkey == relayKey) }
+            .maxByOrNull { it.createdAt } ?: return empty
+        return parseJsonOrNull(own.content.ifEmpty { "{}" }).obj() ?: empty
     }
 
     /** A public channel: its page on the web is on and anyone may read it (a globe, not a hash). */
