@@ -24,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,9 +52,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import sh.belfry.app.ui.chat.ChannelScreen
 import sh.belfry.app.ui.chat.ChatFormat
+import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.chat.Photos
 import sh.belfry.app.ui.info.FilesTab
 import sh.belfry.app.ui.kit.BackButton
+import sh.belfry.app.ui.kit.ActionGroup
+import sh.belfry.app.ui.kit.Avatar
+import sh.belfry.app.ui.kit.IconAction
 import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BelfrySheet
 import sh.belfry.app.ui.kit.BusyButton
@@ -168,13 +173,12 @@ fun TicketSheet(e: CalEvent, url: String, checkedIn: Long?, onDismiss: () -> Uni
 /** Chat · Photos · People under the event's header (all three kept, the chosen one shown). */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun EventTabs(e: CalEvent, modifier: Modifier = Modifier) {
+fun EventTabs(e: CalEvent, modifier: Modifier = Modifier, tab: Int = 0, onTab: (Int) -> Unit = {}) {
     val c = Belfry.colors
-    var tab by rememberSaveable(e.coord) { mutableIntStateOf(0) }
     Column(modifier.fillMaxWidth()) {
         PrimaryTabRow(selectedTabIndex = tab, containerColor = c.bg, contentColor = c.text) {
             listOf("Chat", "Photos", "People").forEachIndexed { i, t ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(t, fontSize = 15.sp) }, selectedContentColor = c.text, unselectedContentColor = c.muted, modifier = Modifier.testTag("event-tab-$i"))
+                Tab(selected = tab == i, onClick = { onTab(i) }, text = { Text(t, fontSize = 15.sp) }, selectedContentColor = c.text, unselectedContentColor = c.muted, modifier = Modifier.testTag("event-tab-$i"))
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -207,33 +211,46 @@ private fun EventPhotos(e: CalEvent) {
     }
 }
 
+/** events/people: Hosts (Host, Co-host, Door), Going, Maybe; a tap opens the profile, where hosts set Co-host or Door. */
 @Composable
 private fun EventPeoplePane(e: CalEvent) {
+    val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current
     val (hosts, going, maybe) = world.eventPeopleList(e)
     val checked = world.ticketLabels(e.groupId)
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding()) {
-        if (world.mayCheckIn(e)) {
-            Spacer(Modifier.height(8.dp))
-            BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Check, modifier = Modifier.fillMaxWidth())
-        }
-        for ((title, list) in listOf("Hosts" to hosts, "Going · ${going.size}" to going, "Maybe · ${maybe.size}" to maybe)) {
+    val doors = world.eventPeopleList(e).let { (h, g, m) -> (g + m).filter { world.eventRole(e, it) == sh.belfry.core.model.EventRole.STEWARD } }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).navigationBarsPadding().testTag("event-people")) {
+        val staff = (hosts + doors).distinct()
+        for ((title, list) in listOf("Hosts" to staff, "Going · ${going.size - going.count { it in staff }}" to going.filter { it !in staff }, "Maybe · ${maybe.size}" to maybe.filter { it !in staff })) {
             if (list.isEmpty()) continue
             SectionTitle(title)
-            for (pk in list) {
-                val role = world.eventRole(e, pk)
-                val sub = listOfNotNull(
-                    if (role != sh.belfry.core.model.EventRole.ATTENDEE) role.label else null,
-                    if (checked[pk]?.first == true) "checked in" else null,
-                ).joinToString(" · ").ifEmpty { null }
-                Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.profile(pk, e.groupId)) }) {
-                    PersonRow(pk, sub, host = false, guest = false) {
-                        if (pk != world.me) BusyButton("Message", onClick = { nav.go(Routes.conversation("n:$pk")) }, kind = ButtonKind.Ghost, small = true)
+            ActionGroup {
+                list.forEachIndexed { i, pk ->
+                    if (i > 0) Hairline()
+                    val role = world.eventRole(e, pk)
+                    val sub = listOfNotNull(
+                        if (role != sh.belfry.core.model.EventRole.ATTENDEE) role.label else null,
+                        if (checked[pk]?.first == true) "checked in" else null,
+                    ).joinToString(" · ").ifEmpty { null }
+                    Row(
+                        Modifier.fillMaxWidth().background(c.surface).clickable(role = Role.Button) { nav.go(Routes.profile(pk, e.groupId)) }.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Avatar(world.face(pk), size = 36.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(if (pk == world.me) "You" else world.displayName(pk), fontSize = 16.sp, color = c.text, maxLines = 1)
+                            if (sub != null) Text(sub, fontSize = 13.sp, color = c.muted)
+                        }
+                        if (pk != world.me && role != sh.belfry.core.model.EventRole.ATTENDEE) {
+                            IconAction(BelfryIcons.Thread, "Message ${world.displayName(pk)}", { nav.go(Routes.conversation("n:$pk")) })
+                        } else Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp))
                     }
                 }
             }
         }
+        Text("Tap someone to open their profile. Hosts set Co-host or Door there, under \u201cIn ${e.title}\u201d.", fontSize = 13.sp, color = c.muted, modifier = Modifier.padding(top = 12.dp))
         Spacer(Modifier.height(24.dp))
     }
 }

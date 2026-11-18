@@ -34,11 +34,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -65,6 +67,7 @@ import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.kit.ActionGroup
 import sh.belfry.app.ui.kit.ActionRow
 import sh.belfry.app.ui.kit.Avatar
+import sh.belfry.app.ui.kit.AvatarStack
 import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.BusyRow
@@ -97,6 +100,8 @@ import sh.belfry.core.model.EventPeople
 import sh.belfry.core.model.EventStatus
 import sh.belfry.core.model.EventsTab
 import sh.belfry.core.model.MyState
+import sh.belfry.core.model.eventPeopleList
+import sh.belfry.core.model.eventRole
 import sh.belfry.core.model.Rsvp
 import sh.belfry.core.model.Ticket
 import sh.belfry.core.model.World
@@ -281,10 +286,13 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
     val viewer = rememberViewer(e)
     val mayCheck = viewer?.mayCheckIn ?: world.mayCheckIn(e)
     var ticketOpen by remember(e.coord) { mutableStateOf(false) }
+    var tab by rememberSaveable(e.coord) { mutableIntStateOf(0) }
+    val (hostList, goingList, maybeList) = world.eventPeopleList(e)
     Column(Modifier.fillMaxSize().background(c.bg).testTag("event-screen-${level.name.lowercase()}")) {
+        // the board: the title in the bar only when the header is folded (its subtitle says my state)
         TopBar(
-            e.title,
-            subtitle = if (e.meeting) "Meeting · members only" else ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e),
+            if (level == EventLevel.UP) e.title else "",
+            subtitle = if (level != EventLevel.UP) null else if (e.meeting) "Meeting · members only" else ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + (st.line?.let { " · $it" } ?: ""),
             navigation = { BackButton { nav.back() } },
             actions = { IconAction(BelfryIcons.More, "More", { sheet = EventSheet.Menu }, Modifier.testTag("event-more")) },
         )
@@ -293,34 +301,48 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 .fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(if (full) 16f / 9f else 3f).clip(RoundedCornerShape(12.dp))) }
+            // the cover across the top, taller at full (events/event-half, event-full)
+            e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(if (full) 16f / 9f else 2.4f).clip(RoundedCornerShape(14.dp))) }
             // a ticket link opened by someone who may check people in: who it is, then Check in
             if (ticket != null && mayCheck) TicketLinkCard(e, ticket)
-            EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
-            // my ticket and, on the event's days, checking people in (SPEC 19.29)
-            val code = viewer?.ticketUrl
-            if (code != null || (mayCheck && world.onEventDays(e, now))) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, small = true, modifier = Modifier.testTag("event-ticket"))
-                    if (mayCheck && world.onEventDays(e, now)) BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Check, small = true, modifier = Modifier.testTag("event-checkin"))
+            Text(e.title, fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, color = c.text, modifier = Modifier.testTag("event-title"))
+            Column(Modifier.testTag("event-details"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(BelfryIcons.Calendar, contentDescription = "When", tint = c.text, modifier = Modifier.size(18.dp))
+                    GapW(8)
+                    Text(ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + endDay(world, e, now), fontSize = 16.sp, color = c.text)
                 }
-            }
-
-            Panel(Modifier.testTag("event-details")) {
-                Text(ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + endDay(world, e, now), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                if (!e.location.isNullOrEmpty()) {
-                    Gap(6)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(BelfryIcons.MapPin, contentDescription = "Where", tint = c.muted, modifier = Modifier.size(16.dp))
-                        GapW(6)
-                        Text(e.location ?: "", fontSize = 15.sp, color = c.text)
-                    }
+                if (!e.location.isNullOrEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(BelfryIcons.MapPin, contentDescription = "Where", tint = c.text, modifier = Modifier.size(18.dp))
+                    GapW(8)
+                    Text(e.location ?: "", fontSize = 16.sp, color = c.text)
                 }
                 for (link in e.links.filter { isSafeLink(it) }) {
-                    Gap(8)
                     BusyButton("Join on " + Actions.meetingLabel(link), onClick = { openInBrowser(context, link) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Globe, small = true)
                 }
-                if (e.links.isEmpty() && api?.online == true) { Gap(6); Muted("Online: the link shows once you have a place.") }
+                if (e.links.isEmpty() && api?.online == true) Muted("Online: the link shows once you have a place.")
+            }
+            // what needs me (asking, still going?, RSVP), only when there is something to do
+            val needsMe = e.status == EventStatus.CANCELLED || world.stillGoing(e) || asking > 0 || (open && st == MyState.NONE)
+            if (needsMe) EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
+            // my ticket and, on the event's days, checking people in (SPEC 19.29): one wide button each
+            val code = viewer?.ticketUrl
+            if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-ticket"))
+            if (mayCheck && world.onEventDays(e, now)) {
+                BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-checkin"))
+            }
+            // who comes: faces and counts, a tap opens People
+            if (!e.meeting && (goingList.isNotEmpty() || maybeList.isNotEmpty())) {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { tab = 2; if (level == EventLevel.FULL) level = EventLevel.HALF }
+                        .padding(vertical = 4.dp).testTag("event-faces"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AvatarStack((hostList + goingList).distinct().take(3).map { world.face(it) }, size = 26.dp)
+                    GapW(8)
+                    Text("${goingList.size} going" + if (maybeList.isNotEmpty()) " · ${maybeList.size} maybe" else "", fontSize = 15.sp, color = c.muted, modifier = Modifier.weight(1f))
+                    Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp))
+                }
             }
             if (full) {
             // a meeting: who is invited, what they answered, who was there (hosts check people in)
@@ -333,20 +355,30 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 }
             }
 
-            Column {
-                SectionTitle(if (e.hosts.size == 1) "Host" else "Hosts")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (h in e.hosts) {
-                        val name = api?.hosts?.firstOrNull { it.first == h }?.second?.ifEmpty { null } ?: world.displayName(h)
-                        Row(
-                            Modifier.clip(CircleShape).border(1.dp, c.line, CircleShape).clickable(role = Role.Button) { nav.go(Routes.profile(h)) }.padding(start = 4.dp, end = 10.dp, top = 4.dp, bottom = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Avatar(world.face(h), size = 24.dp)
-                            GapW(6)
-                            Text(name, fontSize = 14.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
+            Column(Modifier.testTag("event-hosts")) {
+                SectionTitle("Hosted by")
+                for (h in hostList.ifEmpty { e.hosts }) {
+                    val name = api?.hosts?.firstOrNull { it.first == h }?.second?.ifEmpty { null } ?: world.displayName(h)
+                    Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.profile(h, e.groupId)) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Avatar(world.face(h), size = 32.dp)
+                        GapW(10)
+                        Column(Modifier.weight(1f)) {
+                            Text(name, fontSize = 16.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(world.eventRole(e, h).label, fontSize = 13.sp, color = c.muted)
                         }
                     }
+                }
+            }
+            if (!e.meeting && goingList.isNotEmpty()) Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { SectionTitle("Going · ${goingList.size}") }
+                    if (goingList.size > 3) TextButton(onClick = { tab = 2; level = EventLevel.HALF }) { Text("See all", color = c.text, fontWeight = FontWeight.SemiBold) }
+                }
+                for (pk in goingList.take(3)) Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.profile(pk, e.groupId)) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(world.face(pk), size = 32.dp)
+                    GapW(10)
+                    Text(world.displayName(pk), fontSize = 16.sp, color = c.text)
                 }
             }
 
@@ -356,8 +388,6 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                     for (t in tks) TicketRow(t, p, onPick = if (open && st == MyState.NONE) ({ pick(t) }) else null)
                 }
             }
-
-            if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
 
             if (e.isNew) {
                 Column(Modifier.testTag("event-url")) {
@@ -422,7 +452,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
         Hairline()
         if (!full) {
-            if (inside && g != null) EventTabs(e, Modifier.weight(1f))
+            if (inside && g != null) EventTabs(e, Modifier.weight(1f), tab) { tab = it }
             else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
                 if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
                 else Muted("Get a place to see the event's chat, photos and people.")
