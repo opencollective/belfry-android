@@ -287,6 +287,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
     val mayCheck = viewer?.mayCheckIn ?: world.mayCheckIn(e)
     var ticketOpen by remember(e.coord) { mutableStateOf(false) }
     var tab by rememberSaveable(e.coord) { mutableIntStateOf(0) }
+    var cardOpen by remember(ticket) { mutableStateOf(true) }
     val (hostList, goingList, maybeList) = world.eventPeopleList(e)
     Column(Modifier.fillMaxSize().background(c.bg).testTag("event-screen-${level.name.lowercase()}")) {
         // the board: the title in the bar only when the header is folded (its subtitle says my state)
@@ -301,10 +302,10 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 .fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            // a ticket link opened by someone who may check people in: who it is, then Check in (events/ticket-card)
+            if (ticket != null && mayCheck && cardOpen) TicketLinkCard(e, ticket, onClose = { cardOpen = false })
             // the cover across the top, taller at full (events/event-half, event-full)
             e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(if (full) 16f / 9f else 2.4f).clip(RoundedCornerShape(14.dp))) }
-            // a ticket link opened by someone who may check people in: who it is, then Check in
-            if (ticket != null && mayCheck) TicketLinkCard(e, ticket)
             Text(e.title, fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, color = c.text, modifier = Modifier.testTag("event-title"))
             Column(Modifier.testTag("event-details"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

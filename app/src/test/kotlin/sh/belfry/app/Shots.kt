@@ -51,8 +51,10 @@ abstract class Shots {
         compose.waitForIdle()
     }
 
-    fun shot(name: String, content: @Composable () -> Unit) {
+    /** [act]: taps and the like before the pictures (the light one and the dark one show the same state). */
+    fun shot(name: String, act: (() -> Unit)? = null, content: @Composable () -> Unit) {
         set(content)
+        if (act != null) { act(); compose.waitForIdle() }
         compose.onRoot().captureRoboImage("$DIR/$name.png")
         dark = true
         compose.waitForIdle()
@@ -60,8 +62,9 @@ abstract class Shots {
     }
 
     @OptIn(ExperimentalRoborazziApi::class)
-    fun screenShot(name: String, content: @Composable () -> Unit) {
+    fun screenShot(name: String, act: (() -> Unit)? = null, content: @Composable () -> Unit) {
         set(content)
+        if (act != null) { act(); compose.waitForIdle() }
         captureScreenRoboImage("$DIR/$name.png")
         dark = true
         compose.waitForIdle()

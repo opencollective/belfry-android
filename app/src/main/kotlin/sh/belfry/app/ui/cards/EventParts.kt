@@ -42,6 +42,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -274,12 +279,17 @@ fun CheckInScreen(key: String) {
     var error by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<Pair<String, Int>?>(null) } // text, 0 green 1 amber 2 red
     var lastText by remember { mutableStateOf("" to 0L) }
-    var camera by remember { mutableStateOf(false) }
+    // events/check-in: the camera is on from the start when Belfry may use it
+    var camera by remember { mutableStateOf(sh.belfry.app.scan.cameraGranted(context)) }
+    // the one just checked in, with Undo / Keep (also for a tick on someone already in)
+    var undoFor by remember { mutableStateOf<Attendee?>(null) }
+    var query by remember { mutableStateOf("") }
     LaunchedEffect(key) {
         if (e == null) return@LaunchedEffect
         if (session.localOnly) list = demoAttendees(world, e) else try { list = session.members.attendees(e.d).people } catch (x: ActionException) { error = x.message }
     }
-    LaunchedEffect(result) { if (result != null) { delay(2000); result = null } }
+    LaunchedEffect(result) { if (result != null) { delay(4000); result = null } }
+    LaunchedEffect(undoFor) { if (undoFor != null) { delay(8000); undoFor = null } }
     fun check(code: String?, pubkey: String?, undo: Boolean = false) {
         if (e == null) return
         scope.launch {
@@ -287,25 +297,23 @@ fun CheckInScreen(key: String) {
                 val r = if (session.localOnly) sh.belfry.core.model.CheckInResult(list?.firstOrNull { it.pubkey == pubkey } ?: Attendee(pubkey ?: "", "Someone", "", "Ticket", null, null, "member"), false)
                 else session.members.checkIn(e.d, code, pubkey, undo)
                 val who = r.person.name.ifEmpty { world.displayName(r.person.pubkey) }
-                result = if (r.already && !undo) ("Already checked in at " + (r.person.checkedIn?.let { ChatFormat.time(world, it) } ?: "")) to 1
-                else (if (undo) "$who · not checked in" else "$who · ${r.person.ticketTitle.ifEmpty { "ticket" }} · checked in") to 0
-                list = list?.map { if (it.pubkey == r.person.pubkey) it.copy(checkedIn = if (undo) null else (r.person.checkedIn ?: session.now())) else it }
+                result = if (r.already && !undo) ("$who · already in at " + (r.person.checkedIn?.let { ChatFormat.time(world, it) } ?: "")) to 1
+                else (if (undo) "$who · not checked in" else "$who · checked in") to 0
+                val at = if (undo) null else (r.person.checkedIn ?: session.now())
+                list = list?.map { if (it.pubkey == r.person.pubkey) it.copy(checkedIn = at) else it }
+                undoFor = if (undo || r.already) null else r.person.copy(checkedIn = at)
             } catch (x: ActionException) {
                 result = (if (x.code == "no_ticket") "Not a ticket for this event" else x.message ?: "That did not work.") to 2
             }
         }
     }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> camera = ok; if (!ok) error = "The camera is off for Belfry: allow it in the settings to scan tickets." }
     Column(Modifier.fillMaxSize().background(c.bg).testTag("check-in")) {
         TopBar("Check people in", subtitle = e?.title, navigation = { BackButton { nav.back() } })
         if (e == null) { Text("This event is not here.", modifier = Modifier.padding(16.dp)); return@Column }
-        result?.let { (text, tone) ->
-            val bg = when (tone) { 0 -> androidx.compose.ui.graphics.Color(0xFF15803D); 1 -> androidx.compose.ui.graphics.Color(0xFFB45309); else -> c.danger }
-            // the words say it too: colour alone means nothing on an e-ink screen
-            Text((when (tone) { 0 -> "✓ "; 1 -> "! "; else -> "✕ " }) + text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White,
-                modifier = Modifier.fillMaxWidth().background(bg).padding(16.dp).testTag("check-result"))
-        }
-        if (camera && sh.belfry.app.scan.cameraGranted(context)) {
-            Box(Modifier.fillMaxWidth().height(280.dp)) {
+        // the camera (or what turns it on), the last result across its foot
+        Box(Modifier.fillMaxWidth().height(260.dp).background(androidx.compose.ui.graphics.Color.Black)) {
+            if (camera && sh.belfry.app.scan.cameraGranted(context)) {
                 sh.belfry.app.scan.CameraPreview(
                     onText = { text ->
                         val now = System.currentTimeMillis()
@@ -317,29 +325,80 @@ fun CheckInScreen(key: String) {
                     },
                     onFailed = { camera = false; error = "The camera could not start." },
                 )
-            }
-        } else {
-            val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> camera = ok; if (!ok) error = "The camera is off for Belfry: allow it in the settings to scan tickets." }
-            BusyButton("Scan a ticket", onClick = { if (sh.belfry.app.scan.cameraGranted(context)) camera = true else launcher.launch(android.Manifest.permission.CAMERA) },
-                icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().padding(16.dp).testTag("check-scan"))
-        }
-        error?.let { Text(it, color = c.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp)) }
-        Hairline()
-        val people = list
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding()) {
-            if (people == null) { Text("Loading…", color = c.muted, modifier = Modifier.padding(16.dp)); return@Column }
-            val inside = people.count { it.checkedIn != null }
-            Text("$inside of ${people.size} checked in", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.padding(16.dp))
-            for (a in people.sortedBy { (it.name.ifEmpty { world.displayName(it.pubkey) }).lowercase() }) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(a.name.ifEmpty { world.displayName(a.pubkey) }, fontSize = 16.sp, color = c.text)
-                        Text(listOfNotNull(a.ticketTitle.ifEmpty { null }, a.checkedIn?.let { "in at " + ChatFormat.time(world, it) }).joinToString(" · "), fontSize = 13.sp, color = c.muted)
-                    }
-                    if (a.checkedIn == null) BusyButton("Check in", onClick = { check(null, a.pubkey) }, small = true)
-                    else BusyButton("Undo", onClick = { check(null, a.pubkey, undo = true) }, kind = ButtonKind.Ghost, small = true)
+            } else {
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(BelfryIcons.Qr, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(48.dp))
+                    Spacer(Modifier.height(10.dp))
+                    BusyButton("Turn on the camera", onClick = { launcher.launch(android.Manifest.permission.CAMERA) }, small = true, modifier = Modifier.testTag("check-scan"))
                 }
             }
+            if (camera) Text("Point the camera at a ticket", fontSize = 15.sp, color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.align(Alignment.Center).padding(top = 90.dp))
+            result?.let { (text, tone) ->
+                val bg = when (tone) { 0 -> androidx.compose.ui.graphics.Color(0xFF15803D); 1 -> androidx.compose.ui.graphics.Color(0xFFB45309); else -> c.danger }
+                // the words and a mark say it too: colour alone means nothing on an e-ink screen
+                Row(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp).clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 14.dp, vertical = 12.dp).testTag("check-result"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(when (tone) { 0 -> "✓"; 1 -> "!"; else -> "✕" }, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = androidx.compose.ui.graphics.Color.White)
+                    Spacer(Modifier.width(10.dp))
+                    Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = androidx.compose.ui.graphics.Color.White)
+                }
+            }
+        }
+        error?.let { Text(it, color = c.danger, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
+        val people = list
+        if (people == null) { Text("Loading…", color = c.muted, modifier = Modifier.padding(16.dp)); return@Column }
+        val inside = people.count { it.checkedIn != null }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("$inside of ${people.size} checked in", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.weight(1f).testTag("check-count"))
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { if (people.isEmpty()) 0f else inside.toFloat() / people.size },
+                modifier = Modifier.width(96.dp).height(6.dp).clip(RoundedCornerShape(3.dp)), color = c.text, trackColor = c.surface2,
+            )
+        }
+        undoFor?.let { u ->
+            Row(Modifier.fillMaxWidth().background(c.surface).padding(horizontal = 16.dp, vertical = 10.dp).testTag("check-undo"), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Undo check-in?", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                    Text(u.name.ifEmpty { world.displayName(u.pubkey) } + (u.checkedIn?.let { " · in at " + ChatFormat.time(world, it) } ?: ""), fontSize = 13.sp, color = c.muted)
+                }
+                BusyButton("Undo", onClick = { check(null, u.pubkey, undo = true); undoFor = null }, kind = ButtonKind.Danger, small = true)
+                Spacer(Modifier.width(8.dp))
+                BusyButton("Keep", onClick = { undoFor = null }, kind = ButtonKind.Ghost, small = true)
+            }
+        }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+            val q = query.trim().lowercase()
+            for (a in people.sortedBy { (it.name.ifEmpty { world.displayName(it.pubkey) }).lowercase() }.filter { q.isEmpty() || (it.name.ifEmpty { world.displayName(it.pubkey) }).lowercase().contains(q) }) {
+                val name = if (a.pubkey == world.me) "You" else a.name.ifEmpty { world.displayName(a.pubkey) }
+                val on = a.checkedIn != null
+                Row(
+                    Modifier.fillMaxWidth().semantics { selected = on }
+                        .clickable(role = Role.Checkbox, onClickLabel = if (on) "Undo the check-in" else "Check in") { if (on) undoFor = a else check(null, a.pubkey) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp).testTag("check-row"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Avatar(world.face(a.pubkey), size = 36.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(name, fontSize = 16.sp, color = c.text)
+                        if (a.ticketTitle.isNotEmpty()) Text(a.ticketTitle, fontSize = 13.sp, color = c.muted)
+                    }
+                    a.checkedIn?.let { Text(ChatFormat.time(world, it), fontSize = 14.sp, color = c.muted); Spacer(Modifier.width(10.dp)) }
+                    // a round tick: filled with a check when in, an outline when not
+                    Box(
+                        Modifier.size(26.dp).clip(CircleShape).then(if (on) Modifier.background(c.text) else Modifier.border(2.dp, c.muted, CircleShape)),
+                        contentAlignment = Alignment.Center,
+                    ) { if (on) Icon(BelfryIcons.Check, contentDescription = "Checked in", tint = c.bg, modifier = Modifier.size(16.dp)) }
+                }
+                Hairline(Modifier.padding(start = 64.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).navigationBarsPadding()) {
+            sh.belfry.app.ui.kit.BelfryTextField(query, { query = it.take(80) }, Modifier.fillMaxWidth().testTag("check-search"), placeholder = "Search ticket holders",
+                trailing = { Icon(BelfryIcons.Search, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp)) })
         }
     }
 }
@@ -357,29 +416,44 @@ private fun demoAttendees(world: sh.belfry.core.model.World, e: CalEvent): List<
  * → "Checked in at …" with Undo. An older belfry without peek: the card shows "Check in" only.
  */
 @Composable
-fun TicketLinkCard(e: CalEvent, code: String) {
+fun TicketLinkCard(e: CalEvent, code: String, onClose: () -> Unit = {}) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
     var person by remember(code) { mutableStateOf<Attendee?>(null) }
     var error by remember(code) { mutableStateOf<String?>(null) }
     LaunchedEffect(code) {
-        if (session.localOnly) return@LaunchedEffect
+        // the demo: the first ticket holder not in yet
+        if (session.localOnly) { person = demoAttendees(world, e).firstOrNull { it.checkedIn == null && it.pubkey != world.me }; return@LaunchedEffect }
         try { person = session.members.checkIn(e.d, code = code, peek = true).person } catch (x: ActionException) { if (x.code == "no_ticket") error = "Not a ticket for this event" }
     }
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surface).padding(14.dp).testTag("ticket-link-card")) {
+    // events/ticket-card: who it is and whether they are in; nobody is checked in by opening the link
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).border(1.dp, c.line, RoundedCornerShape(16.dp)).background(c.bg).padding(16.dp).testTag("ticket-link-card"),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         val p = person
-        Text(p?.let { it.name.ifEmpty { world.displayName(it.pubkey) } } ?: "A ticket", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-        if (p != null) Text(listOfNotNull(p.ticketTitle.ifEmpty { null }, p.checkedIn?.let { "Checked in at " + ChatFormat.time(world, it) }).joinToString(" · "), fontSize = 15.sp, color = c.muted)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(BelfryIcons.Qr, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("A ticket for this event", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.weight(1f))
+            IconAction(BelfryIcons.Close, "Close", onClose)
+        }
+        Text(p?.let { it.name.ifEmpty { world.displayName(it.pubkey) } } ?: "A ticket", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.text)
+        if (p != null) Text(listOfNotNull(p.ticketTitle.ifEmpty { null }, p.checkedIn?.let { "checked in at " + ChatFormat.time(world, it) } ?: "not checked in yet").joinToString(" · "), fontSize = 15.sp, color = c.muted)
         error?.let { Text("✕ $it", fontSize = 15.sp, color = c.danger) }
         if (error == null) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             if (p?.checkedIn == null) BusyButton("Check in", onClick = {
-                try { person = session.members.checkIn(e.d, code = code).person } catch (x: ActionException) { error = x.message }
-            }, small = true, modifier = Modifier.testTag("ticket-checkin"))
+                try {
+                    person = if (session.localOnly) p?.copy(checkedIn = session.now()) else session.members.checkIn(e.d, code = code).person
+                } catch (x: ActionException) { error = x.message }
+            }, modifier = Modifier.fillMaxWidth().testTag("ticket-checkin"))
             else BusyButton("Undo", onClick = {
-                try { person = session.members.checkIn(e.d, pubkey = p.pubkey, undo = true).person } catch (x: ActionException) { error = x.message }
-            }, kind = ButtonKind.Ghost, small = true)
+                try {
+                    person = if (session.localOnly) p.copy(checkedIn = null) else session.members.checkIn(e.d, pubkey = p.pubkey, undo = true).person
+                } catch (x: ActionException) { error = x.message }
+            }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth())
         }
     }
 }

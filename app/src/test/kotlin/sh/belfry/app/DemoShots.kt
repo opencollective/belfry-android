@@ -78,10 +78,10 @@ abstract class DemoShots : Shots() {
     }
 
     /** `<name>.png` and `<name>-dark.png` of a signed-in screen. */
-    fun demoShot(name: String, content: @Composable () -> Unit) = shot(name) { InDemo(content) }
+    fun demoShot(name: String, act: (() -> Unit)? = null, content: @Composable () -> Unit) = shot(name, act) { InDemo(content) }
 
     /** The same, capturing every window: for screens that open a sheet or a dialog. */
-    fun demoScreenShot(name: String, content: @Composable () -> Unit) = screenShot(name) { InDemo(content) }
+    fun demoScreenShot(name: String, act: (() -> Unit)? = null, content: @Composable () -> Unit) = screenShot(name, act) { InDemo(content) }
 
     companion object {
         /** Tuesday 10 November 2026, 10:30 UTC. */

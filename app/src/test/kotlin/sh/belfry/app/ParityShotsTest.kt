@@ -75,9 +75,7 @@ class ParityShotsTest : DemoShots() {
     }
     @Test fun eventFull() {
         val e = world.eventByLink(Demo.REPAIR_D)!!
-        demoShot("event-full") { EventScreen(e.coord) }
-        compose.onNodeWithTag("event-handle").performClick()
-        compose.waitForIdle()
+        demoShot("event-full", act = { compose.onNodeWithTag("event-handle").performClick() }) { EventScreen(e.coord) }
     }
     @Test fun ticket() {
         val e = world.eventByLink(Demo.REPAIR_D)!!
