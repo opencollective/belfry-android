@@ -58,6 +58,9 @@ object Routes {
     /** One of a channel's screens from its pull-down (SPEC: the pull-down is a menu of rows that each push a screen). */
     const val CHANNEL_PLACE = "place/{id}/{key}"
     fun channelPlace(channel: String, key: String) = "place/${enc(channel)}/${enc(key)}"
+    /** One to-do of a channel: tick it, claim / assign / unassign it, discuss it (SPEC 19.40). */
+    const val TODO = "todo/{id}/{task}"
+    fun todo(channel: String, taskId: String) = "todo/${enc(channel)}/${enc(taskId)}"
     const val INVITE = "invite/{id}"
     fun invite(channel: String) = "invite/${enc(channel)}"
     const val TOPICS = "topics/{id}"

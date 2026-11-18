@@ -47,7 +47,7 @@ fun MyTodosScreen() {
                         part.forEachIndexed { i, r ->
                             if (i > 0) RowDivider()
                             val g = world.group(r.group)
-                            NavRow(MoreIcons.Todo, r.task.title, g?.name, { nav.go(Routes.channelPlace(r.group, sh.belfry.app.ui.nav.ChannelPlaceKey.TODOS)) })
+                            sh.belfry.app.ui.info.TodoListRow(r.group, r.task, sub = g?.name)
                         }
                     }
                 }

@@ -1952,3 +1952,30 @@ guest link; only the belfry's answers tell them apart.
   until its 39000 arrives (a non-everyday event: the next snapshot is built anew).
 - Tests: `core/.../model/MemberLinkTest.kt`.
 
+### 19.40 To-dos: claim, assign, unassign; a row opens the to-do (Android, 2026-11-18)
+
+(tasklist.sh kinds 2100–2103 as the web writes them, `core/model.ts` `tasklist`,
+`core/actions.ts` `taskAction`.) The web has only `claim` / `unclaim` by the person themself
+(assignee = the claim's author). Giving a to-do to someone else is new here; it is written so
+that the web's reader ignores it rather than misreads it (an unknown `action` changes nothing
+there), until the web reads it too.
+
+- **Claim** (to me) = kind 2101 `["e", task] ["action", "claim"] ["t", list] ["h", group]`, as
+  today. **Assign to someone else** = the same with `["action", "assign"] ["p", <their key>]`:
+  the assignee becomes that key (a `p` that is not a 64-hex key is ignored). **Unassign** my own
+  = `unclaim`; someone else's = `["action", "unassign"] ["p", <the assignee>]`: nobody is on it
+  when that `p` is the assignee then, else nothing changes. Latest event in time order wins, as
+  for every 2101. Anyone who can write in the channel may assign or unassign (like the web's
+  "Take over").
+- History steps `assign` ("gave it to someone") and `unassign` ("took someone off it") join the
+  thread's step lines and the channel Log.
+- **Lists**: every to-do row (the channel's To-dos screen, the pull-down, Home's My to-dos) is
+  the tick box (its own tap target) · title and who is on it · a chevron; tapping the row opens
+  the to-do's own screen. No per-row comment, delete or take buttons.
+- **The to-do's screen**: the tick box, title, who is on it, who made it; rows Claim (or "Take it
+  over"), Assign to… (a sheet: me first, then the channel's people and the belfry's members, not
+  reading guests), Unassign me / Unassign <name>, Open the message it came from (its `q`),
+  Delete the to-do (its author only); then the discussion (kind 2103 comments) with a comment
+  field. Editing a to-do's title has no event in the protocol: not offered.
+- Tests: `core/.../model/TodoAssignTest.kt`.
+

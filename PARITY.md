@@ -19,6 +19,7 @@ in the real world.
 | `/guest/save/verify` `member: true` → a member: guest state cleared, account opened again | done, never run live | Also on `join` with an account (`member: true`) and when whois says `member` for a device with a guest record. |
 | Application form never for a member; `not_guest` → a member, no error | done | `World.mayApply`. |
 | Groups relay: metadata without `since`, a member's first full catch-up | done | Fixes "only #general" after a member link and channels named by their id. |
+| To-dos: claim, assign to…, unassign; rows with a chevron open the to-do's screen (SPEC 19.40) | done, Android ahead of the web | `assign` / `unassign` with `p` are new wire actions: the web and iOS don't read them yet (the web ignores them; it still shows the claimer). |
 | Member link used with an account (signed in) | done | The join sheet says "join <community> as <role>" to a guest of this belfry; a member just gets the channel. A guest without an e-mail (`email_needed`) still has to save it from the bar. |
 
 ## Round 5 (Android branch `r5`, 2026-11-17)

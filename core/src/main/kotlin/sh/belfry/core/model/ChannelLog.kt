@@ -29,6 +29,7 @@ object ChannelLog {
     private val TASK_WORDS = mapOf(
         "claim" to "took a todo", "unclaim" to "let go of a todo", "done" to "marked a todo done",
         "undone" to "reopened a todo", "delete" to "deleted a todo",
+        "assign" to "gave a todo to someone", "unassign" to "took someone off a todo",
     )
     private val SPACES = Regex("\\s+")
 

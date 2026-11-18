@@ -1102,10 +1102,13 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             } else if (e.kind != 2102) {
                 val t = tasks[e.t("e") ?: ""] ?: continue
                 if (e.kind == 2103) t.comments.add(TaskComment(e.pubkey, e.content.sliceUnits(2000), e.createdAt))
-                e.t("action")?.let { a -> if (a in setOf("claim", "working", "done", "undone")) t.history.add(TaskStep(e.createdAt, e.pubkey, a)) }
+                e.t("action")?.let { a -> if (a in setOf("claim", "working", "done", "undone", "assign", "unassign")) t.history.add(TaskStep(e.createdAt, e.pubkey, a)) }
                 when (e.t("action")) {
                     "claim" -> t.assignee = e.pubkey
                     "unclaim" -> if (t.assignee == e.pubkey) t.assignee = null
+                    // SPEC 19.40: someone gives it to a person (`p`), or takes it from them
+                    "assign" -> e.t("p")?.takeIf { sh.belfry.core.crypto.Hex.isKey(it) }?.let { t.assignee = it }
+                    "unassign" -> if (e.t("p") == t.assignee) t.assignee = null
                     "done" -> { t.done = true; t.lastSaid[e.pubkey] = "done" }
                     "undone" -> t.done = false
                     "delete" -> if (e.pubkey == t.author) tasks.remove(t.id)

@@ -74,6 +74,19 @@ fun World.todoWho(t: Task, now: Long = 0): String {
     else displayName(a) + (if (busy) " is working on it$time" else " is on it")
 }
 
+/**
+ * Who a to-do of GROUP_ID can be given to (SPEC 19.40): the channel's people and the belfry's
+ * members (an open channel is every member's), not reading guests; me first, then by name.
+ */
+fun World.todoAssignees(groupId: String): List<String> {
+    val keys = LinkedHashSet<String>()
+    group(groupId)?.members?.let(keys::addAll)
+    keys.addAll(memberKeys())
+    keys.removeAll(readingOnly)
+    keys.remove(me)
+    return listOf(me) + keys.sortedBy { displayName(it).lowercase() }
+}
+
 /** Everything the line and its pull-down show about a channel. */
 class ChannelFacts(
     val group: Group?,

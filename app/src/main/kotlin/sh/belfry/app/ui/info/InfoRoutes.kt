@@ -25,6 +25,7 @@ fun NavGraphBuilder.infoRoutes() {
         ChannelPlaceScreen(entry.arg("id"), key)
     }
     composable(Routes.CHANNEL_PLACE) { entry -> ChannelPlaceScreen(entry.arg("id"), entry.arg("key")) }
+    composable(Routes.TODO) { entry -> TodoScreen(entry.arg("id"), entry.arg("task")) }
     composable(Routes.INVITE) { entry -> InviteScreen(entry.arg("id")) }
     composable(Routes.TOPICS) { entry -> TopicsScreen(entry.arg("id")) }
     composable(Routes.FILES) { entry -> FilesScreen(entry.arg("id")) }

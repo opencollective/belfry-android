@@ -216,6 +216,19 @@ object Actions {
     /** action: claim | unclaim | done | undone | delete */
     fun taskAction(groupId: String, taskId: String, action: String): Draft =
         Draft(Target.GROUPS, 2101, tags = listOf(listOf("e", taskId), listOf("action", action)) + taskTags(groupId))
+    /**
+     * SPEC 19.40: the to-do goes to PUBKEY. To me = `claim` (what every client reads); to someone
+     * else = `assign` with `["p", pubkey]`.
+     */
+    fun assignTask(groupId: String, taskId: String, pubkey: String, me: String): Draft =
+        if (pubkey == me) taskAction(groupId, taskId, "claim")
+        else Draft(Target.GROUPS, 2101, tags = listOf(listOf("e", taskId), listOf("action", "assign"), listOf("p", pubkey)) + taskTags(groupId))
+
+    /** Nobody on it any more: my own = `unclaim`; someone else's = `unassign` with `["p", assignee]`. */
+    fun unassignTask(groupId: String, taskId: String, assignee: String, me: String): Draft =
+        if (assignee == me) taskAction(groupId, taskId, "unclaim")
+        else Draft(Target.GROUPS, 2101, tags = listOf(listOf("e", taskId), listOf("action", "unassign"), listOf("p", assignee)) + taskTags(groupId))
+
     fun commentTask(groupId: String, taskId: String, text: String): Draft =
         Draft(Target.GROUPS, 2103, text.sliceUnits(2000), listOf(listOf("e", taskId)) + taskTags(groupId))
 

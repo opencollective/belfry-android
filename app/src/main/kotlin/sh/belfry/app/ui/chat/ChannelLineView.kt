@@ -279,10 +279,8 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
             // way: the latest 20, the done ones after the open ones
             val shown = if (full) latestTasks(f.allTasks) else f.todos.take(4)
             for (t in shown) {
-                TodoRow(groupId, t, onOpen = {
-                    val source = t.source
-                    if (source != null) go(Routes.thread(groupId, source)) else if (!full) chat.fullLine()
-                })
+                // a to-do opens its own screen (claim, assign, discuss: SPEC 19.40)
+                TodoRow(groupId, t, onOpen = { go(Routes.todo(groupId, t.id)) })
             }
             if (!full && f.todosAll > minOf(4, f.todos.size)) {
                 LinkText(if (f.todos.isNotEmpty()) "All todos" else "Nothing left to do · show the done ones", Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag("pull-all-todos")) { chat.fullLine() }
@@ -491,7 +489,8 @@ private fun TodoRow(groupId: String, t: Task, onOpen: () -> Unit) {
         }
         Column(Modifier.weight(1f).clickable(role = Role.Button, onClick = onOpen).padding(vertical = 6.dp)) {
             Text(t.title, fontSize = 14.sp, color = if (t.pending || t.done) c.muted else c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text((if (t.done) "Done" else world.todoWho(t, now)) + (if (t.source != null) " · thread" else ""), fontSize = 12.sp, color = c.muted)
+            Text(if (t.done) "Done" else world.todoWho(t, now), fontSize = 12.sp, color = c.muted)
         }
+        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.faint, modifier = Modifier.clickable(role = Role.Button, onClick = onOpen))
     }
 }
