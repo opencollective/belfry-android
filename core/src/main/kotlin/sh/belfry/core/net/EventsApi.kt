@@ -277,6 +277,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
                             td, x.s("id") ?: td.substringAfter(':'), (x.s("title") ?: "Ticket").take(120), (x.s("summary") ?: "").take(300),
                             x["quantity"].int(), x["left"].int(), x["closed"].bool() ?: false, (x.s("prompt") ?: "").take(500),
                             x["members"].bool() ?: false, x["position"].int() ?: 0, x["implicit"].bool() ?: false,
+                            cost = apiPrice(x),
                         )
                     }
                 } ?: emptyList(),
@@ -311,4 +312,22 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
             "network" to "No connection to the belfry.",
         )
     }
+}
+
+/** A ticket's price as `GET /events/<link>` gives it: `price` {amount, currency, vat, vat_included, until}, `prices`, `on_sale`. */
+internal fun apiPrice(x: kotlinx.serialization.json.JsonObject): sh.belfry.core.model.TicketPrice {
+    fun str(o: kotlinx.serialization.json.JsonObject?, k: String) = (o?.get(k) as? JsonPrimitive)?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.content
+    fun long(o: kotlinx.serialization.json.JsonObject?, k: String) = str(o, k)?.toDoubleOrNull()?.toLong()
+    val p = x["price"] as? kotlinx.serialization.json.JsonObject
+    val price = p?.let { o ->
+        val amount = str(o, "amount") ?: return@let null
+        val cur = str(o, "currency") ?: return@let null
+        sh.belfry.core.model.Price(amount.take(12), cur.take(12), str(o, "vat")?.take(6), str(o, "vat_included") == "true", long(o, "until"))
+    }
+    val rows = (x["prices"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { r ->
+        val o = r as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
+        sh.belfry.core.model.PriceRow(str(o, "amount")?.take(12) ?: return@mapNotNull null, str(o, "currency")?.take(12) ?: return@mapNotNull null, long(o, "from"), long(o, "until"))
+    } ?: emptyList()
+    val priced = price != null || rows.isNotEmpty() || str(x, "needs_payment") == "true"
+    return sh.belfry.core.model.TicketPrice(price, priced, rows, str(x, "on_sale")?.let { it == "true" } ?: true)
 }

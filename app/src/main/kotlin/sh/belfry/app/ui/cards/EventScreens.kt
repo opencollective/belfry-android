@@ -1,5 +1,7 @@
 package sh.belfry.app.ui.cards
 
+import sh.belfry.core.model.Prices
+import sh.belfry.core.model.waitingForPayment
 import sh.belfry.core.model.mayCheckIn
 import sh.belfry.core.model.onEventDays
 import androidx.compose.foundation.layout.fillMaxSize
@@ -327,7 +329,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             val needsMe = e.status == EventStatus.CANCELLED || world.stillGoing(e) || asking > 0 || (open && st == MyState.NONE)
             if (needsMe) EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
             // else my answer, in words (You're going, Maybe, Applied…)
-            else st.line?.let { line ->
+            else (if (st == MyState.APPLIED && world.waitingForPayment(e, p)) "Waiting for the host to confirm your payment" else st.line)?.let { line ->
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("event-mine")) {
                     Icon(BelfryIcons.Check, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
                     GapW(8)
@@ -578,12 +580,20 @@ internal fun TicketRow(t: Ticket, p: EventPeople, onPick: (() -> Unit)? = null, 
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp).testTag("ticket-" + t.id), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(if (t.implicit) "RSVP" else t.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            Muted((if (t.closed) "By application" else "Free") + (if (t.members) " · Members only" else "") + (if (left != null) " · $left left" else ""))
+            val price = Prices.line(t.cost, LocalWorld.current.ctx.zone)
+            if (t.cost.priced) Text(price, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.testTag("ticket-price"))
+            Muted((if (t.cost.priced) (if (t.closed) "By application" else null) else if (t.closed) "By application" else "Free")?.let { it + (if (t.members) " · Members only" else "") + (if (left != null) " · $left left" else "") }
+                ?: listOfNotNull(if (t.members) "Members only" else null, if (left != null) "$left left" else null).joinToString(" · "))
             if (t.summary.isNotEmpty()) Muted(t.summary)
         }
         if (onPick != null) {
             GapW(8)
-            BusyButton(if (left == 0) "Waitlist" else if (t.closed) "Apply" else "RSVP", onClick = { onPick() }, small = true)
+            // a priced ticket is asked for, never taken; not on sale now: the button is off
+            BusyButton(
+                when { left == 0 -> "Waitlist"; t.cost.priced -> "Ask"; t.closed -> "Apply"; else -> "RSVP" },
+                onClick = { onPick() }, small = true, enabled = t.cost.onSale, kind = if (t.cost.priced && !t.closed || !t.asks) ButtonKind.Primary else ButtonKind.Ghost,
+                modifier = Modifier.testTag("ticket-take-" + t.id),
+            )
         }
         trailing?.invoke()
     }

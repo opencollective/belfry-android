@@ -185,7 +185,8 @@ class EventsService internal constructor(private val s: Session) {
             api { it.decide(e.d, pubkey, approve, ticketD) }
             return
         }
-        s.send(EventActions.decide(e, pubkey, approve, ticketD, application))
+        val paid = world.tickets(e).firstOrNull { it.d == ticketD }?.cost?.priced == true
+        s.send(EventActions.decide(e, pubkey, approve, ticketD, application, paid))
     }
 
     suspend fun addCoHost(e: CalEvent, pubkey: String) {

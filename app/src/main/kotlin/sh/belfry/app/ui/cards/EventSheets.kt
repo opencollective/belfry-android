@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import sh.belfry.app.ui.info.LinkBox
 import sh.belfry.app.ui.kit.ActionGroup
 import sh.belfry.app.ui.kit.ActionRow
@@ -42,6 +43,8 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.signin.openInBrowser
 import sh.belfry.app.ui.theme.Belfry
+import sh.belfry.core.model.Prices
+import sh.belfry.core.model.waitingForPayment
 import sh.belfry.core.model.CalEvent
 import sh.belfry.core.model.EventApplication
 import sh.belfry.core.model.EventPeople
@@ -106,40 +109,47 @@ internal fun TakeSheet(e: CalEvent, tks: List<Ticket>, p: EventPeople, t: Ticket
     val member = !world.amGuest && !e.remote
     if (t == null) {
         BelfrySheet(onDismiss = onDismiss, title = "Pick a ticket") {
-            Column(Modifier.padding(bottom = 16.dp)) { for (x in tks) TicketRow(x, p, onPick = { onPick(x) }) }
+            Column(Modifier.padding(bottom = 16.dp)) {
+                for (x in tks) TicketRow(x, p, onPick = { onPick(x) })
+                if (tks.any { it.cost.priced }) PaymentNote(Modifier.padding(top = 10.dp))
+            }
         }
         return
     }
     val left = p.placesLeft(t)
     val waitlist = left == 0
-    val needs = t.closed || waitlist
-    BelfrySheet(onDismiss = onDismiss, title = if (waitlist) "Waitlist: ${t.title}" else if (t.closed) "Apply: ${t.title}" else if (t.implicit) "RSVP" else t.title) {
+    val priced = t.cost.priced
+    // a priced ticket goes the application way: people ask, then settle with the hosts
+    val needs = t.closed || waitlist || priced
+    BelfrySheet(onDismiss = onDismiss, title = if (waitlist) "Waitlist: ${t.title}" else if (priced) "Ask: ${t.title}" else if (t.closed) "Apply: ${t.title}" else if (t.implicit) "RSVP" else t.title) {
         Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (t.members && !member) {
                 Text("This ticket is for members of ${world.ctx.communityName.ifEmpty { "the community" }}.", fontSize = 15.sp, color = Belfry.colors.text)
                 BusyButton("OK", onClick = { onDismiss() }, modifier = Modifier.fillMaxWidth())
                 return@Column
             }
+            if (priced) Text(Prices.line(t.cost, world.ctx.zone), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Belfry.colors.text, modifier = Modifier.testTag("take-price"))
+            if (priced) PaymentNote()
             if (t.closed && !waitlist) Text(t.prompt.ifEmpty { "Why would you like to come?" }, fontSize = 15.sp, lineHeight = 21.sp, color = Belfry.colors.text, modifier = Modifier.testTag("take-question"))
             if (waitlist) Muted("It is full. Leave a word for the hosts: they may make an exception.")
             if (needs) {
                 BelfryTextField(
                     answer, { answer = it.take(2000); error = null }, Modifier.fillMaxWidth().testTag("take-answer"),
-                    placeholder = if (waitlist) "Optional" else "Your answer", singleLine = false, minLines = 3, maxLines = 8,
+                    placeholder = if (waitlist || (priced && !t.closed)) "Optional" else "Your answer", singleLine = false, minLines = 3, maxLines = 8,
                 )
             } else {
                 Text(t.summary.ifEmpty { "A free place." } + (if (left != null) " $left left." else ""), fontSize = 15.sp, color = Belfry.colors.text)
             }
             error?.let { ErrorLine(it) }
             BusyButton(
-                if (waitlist) "Join the waitlist" else if (t.closed) "Send my application" else "RSVP",
+                if (waitlist) "Join the waitlist" else if (priced) "Ask for this ticket" else if (t.closed) "Send my application" else "RSVP",
                 onClick = {
                     if (needs) session.events.apply(e, t, answer, waitlist) else session.events.takeTicket(e, t)
                     sent = true
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth().testTag("take-submit"),
-                enabled = !sent && !(t.closed && !waitlist && answer.isBlank()),
+                enabled = !sent && t.cost.onSale && !(t.closed && !waitlist && answer.isBlank()),
                 onError = { error = shownError(it) },
             )
         }
@@ -294,4 +304,13 @@ internal fun CancelSheet(e: CalEvent, onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+/** events/get-tickets: how a priced ticket works. */
+@Composable
+internal fun PaymentNote(modifier: Modifier = Modifier) {
+    Text(
+        "Priced tickets: you ask, you pay the hosts, and once they confirm your payment the place is yours. Until then: \u201cWaiting for the host to confirm your payment\u201d.",
+        fontSize = 14.sp, lineHeight = 19.sp, color = Belfry.colors.muted, modifier = modifier.testTag("payment-note"),
+    )
 }

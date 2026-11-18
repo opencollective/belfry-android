@@ -58,7 +58,12 @@ data class Ticket(
     val ev: Event? = null,
     /** Places left as the belfry counted them (remote events). */
     val apiLeft: Int? = null,
-)
+    /** Its price now (docs/checkin.md "Ticket prices"); free by default. */
+    val cost: TicketPrice = TicketPrice.FREE,
+) {
+    /** People ask for it (an application, a price) instead of taking it in one tap. */
+    val asks: Boolean get() = closed || cost.priced
+}
 
 data class EventApplication(val pubkey: String, val answer: String, val ticket: String?, val waitlist: Boolean, val at: Long, val ev: Event)
 
@@ -105,8 +110,9 @@ enum class EventsTab(val label: String, val empty: String) {
 data class ApiTicket(
     val d: String, val id: String, val title: String, val summary: String, val quantity: Int?, val left: Int?,
     val closed: Boolean, val prompt: String, val members: Boolean, val position: Int, val implicit: Boolean,
+    val cost: TicketPrice = TicketPrice.FREE,
 ) {
-    fun ticket(): Ticket = Ticket(d, id, title, summary, quantity, closed, prompt, members, position, implicit, null, left)
+    fun ticket(): Ticket = Ticket(d, id, title, summary, quantity, closed, prompt, members, position, implicit, null, left, cost)
 }
 
 data class ApiMe(
@@ -342,6 +348,7 @@ fun World.tickets(e: CalEvent, api: ApiEvent? = null): List<Ticket> {
             d = d, id = d.substring(e.d.length + 1), title = x.t("title").orEmpty().ifEmpty { "Ticket" }, summary = x.t("summary") ?: "",
             quantity = q?.takeIf { it >= 0 }, closed = x.tags.any { it.firstOrNull() == "closed" }, prompt = x.t("prompt") ?: "",
             members = x.tags.any { it.firstOrNull() == "members" }, position = x.t("position")?.toIntOrNull() ?: 0, ev = x,
+            cost = Prices.of(x.tags, System.currentTimeMillis() / 1000),
         ))
     }
     return if (out.isEmpty()) listOf(EventLinks.freeTicket(e.d)) else out.sortedWith(compareBy<Ticket> { it.position }.thenBy { it.title })
@@ -539,12 +546,19 @@ object EventActions {
     fun withdraw(e: CalEvent): Draft = Draft(Target.GROUPS, 9022, tags = listOf(listOf("h", e.groupId)))
 
     /** A host approves (the ticket: a 9000 with `ticket`) or declines (9001). */
-    fun decide(e: CalEvent, pubkey: String, approve: Boolean, ticketD: String? = null, application: Event? = null): Draft =
+    fun decide(e: CalEvent, pubkey: String, approve: Boolean, ticketD: String? = null, application: Event? = null, paid: Boolean = false): Draft =
         if (!approve) Draft(Target.GROUPS, 9001, tags = listOf(listOf("h", e.groupId), listOf("p", pubkey)))
+        // a priced ticket: the host admitting them says the price is settled (docs/checkin.md)
         else Draft(Target.GROUPS, 9000, tags = listOf(
-            listOf("h", e.groupId), listOf("p", pubkey, "member"), listOf("ticket", ticketD ?: "${e.d}:free"), listOf("paid", "free"), listOf("a", e.coord),
+            listOf("h", e.groupId), listOf("p", pubkey, "member"), listOf("ticket", ticketD ?: "${e.d}:free"), listOf("paid", if (paid) "paid" else "free"), listOf("a", e.coord),
         ) + (if (application != null) listOf(listOf("e", application.id)) else emptyList()))
 
     /** Make someone a co-host: an admin of the event's group. */
     fun addCoHost(e: CalEvent, pubkey: String): Draft = Draft(Target.GROUPS, 9000, tags = listOf(listOf("h", e.groupId), listOf("p", pubkey, "admin")))
+}
+
+/** I asked for a priced ticket and wait for a host to confirm my payment (web Events.tsx). */
+fun World.waitingForPayment(e: CalEvent, p: EventPeople = eventPeople(e)): Boolean {
+    val app = p.applications.firstOrNull { it.pubkey == me } ?: return false
+    return tickets(e).firstOrNull { it.d == app.ticket }?.cost?.priced == true
 }
