@@ -79,7 +79,8 @@ fun AppRoot(state: AppState) {
 private fun Phases(state: AppState, phase: Phase, adding: Adding?) {
     when (val p = phase) {
         is Phase.Loading -> Splash()
-        is Phase.SignedOut -> SignInScreen(state)
+        // no link (round 6 onboarding/no-link): find a belfry, its Welcome, log in or apply
+        is Phase.SignedOut -> sh.belfry.app.ui.signin.SignedOutFlow(state)
         is Phase.Joining -> JoinScreen(state, p.link)
         is Phase.SignedIn -> Box(Modifier.fillMaxSize()) {
             key(p.session) { SignedIn(state, p.session) }

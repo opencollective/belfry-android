@@ -215,6 +215,12 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         return a.status to a.body
     }
 
+    /** An unsigned POST as a raw status + JSON body (applying to join, no account yet). */
+    suspend fun plainPost(url: String, body: JsonObject): Pair<Int, JsonObject?> {
+        val a = send(build(url, "POST", body.toString(), null))
+        return a.status to a.body
+    }
+
     /** An unsigned GET as a raw status + JSON body (the public charter, public events). */
     suspend fun plainFetch(url: String): Pair<Int, JsonObject?> {
         val a = plain(url)

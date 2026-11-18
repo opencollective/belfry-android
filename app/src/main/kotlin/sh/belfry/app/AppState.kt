@@ -93,6 +93,8 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     @Volatile private var prefill: SignInPrefill? = null
     /** Taken once by the sign-in screen. */
     fun takePrefill(): SignInPrefill? = prefill.also { prefill = null }
+    /** A prefill waits (guest mode's "Sign in instead"): the sign-in screen shows first. */
+    fun hasPrefill(): Boolean = prefill != null
 
     /** (domain, channel): opened once signed in to that belfry ("Sign in instead"). */
     private val _openAfter = MutableStateFlow<Pair<String, String>?>(null)
@@ -333,6 +335,10 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
 
     /** The community at this address. Throws [OnboardingException] with a fixed message. */
     suspend fun discover(domain: String): Community = onboarding.discover(domain)
+
+    /** No link (onboarding/no-link): a belfry's charter for someone with no account, and applying to join it. */
+    suspend fun publicCharter(c: Community) = onboarding.publicCharter(c)
+    suspend fun applyToJoin(c: Community, email: String, motivation: String, agreed: List<String>) = onboarding.applyToJoin(c, email, motivation, agreed)
 
     /** Starts a sign-in; returns the address to open in a Custom Tab. */
     fun beginSignIn(community: Community): String {

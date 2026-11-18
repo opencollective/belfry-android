@@ -483,3 +483,44 @@ suspend fun BelfryApi.publicEvents(from: Long): List<JsonObject> {
     if (status !in 200..299 || b == null) throw ApiException(b?.s("error") ?: "http", status, "The events could not be read just now.")
     return b["events"].arr()?.mapNotNull { it.obj() } ?: emptyList()
 }
+
+/**
+ * Applying to join with no link and no account (onboarding/apply-form; Belfry 8b0331d `POST
+ * /apply`, no auth): e-mail, why, every current agreement of `GET /charter` ticked. No session
+ * comes back: the answer reaches the applicant by e-mail.
+ */
+object ApplyForm {
+    const val MISSING = "Please give your e-mail and a few words on why you would like to join."
+    const val UNTICKED = "Please tick each agreement of the charter: joining means agreeing to them."
+    const val NETWORK = "No connection to the belfry. Try again."
+    const val BUSY = "Too many requests just now. Try again in a minute."
+    const val OTHER = "Your request didn't go through. Try again."
+
+    fun body(email: String, motivation: String, agreed: List<String>): JsonObject = buildJsonObject {
+        put("email", JsonPrimitive(email.trim().take(200)))
+        put("motivation", JsonPrimitive(motivation.trim().take(4000)))
+        put("agreed", kotlinx.serialization.json.JsonArray(agreed.map { JsonPrimitive(it) }))
+        put("website", JsonPrimitive("")) // the form's honeypot, always empty
+    }
+
+    /**
+     * The line to show for a refused request. `refused` is the register's own words to the
+     * applicant (a bad address…): shown as they come, as plain text, cut to 300 characters. Every
+     * other code has fixed words.
+     */
+    fun error(status: Int, b: JsonObject?): String = when {
+        status == 429 -> BUSY
+        b?.s("error") == "refused" -> b?.s("message")?.trim()?.take(300)?.ifEmpty { null } ?: OTHER
+        b?.s("error") == "unticked" -> UNTICKED
+        b?.s("error") == "missing" || b?.s("error") == "bad_request" -> MISSING
+        else -> OTHER
+    }
+}
+
+/** Sends the application. Throws [ApiException] with [ApplyForm.error]'s words. */
+suspend fun BelfryApi.applyToJoin(email: String, motivation: String, agreed: List<String>) {
+    val (status, b) = try { plainPost(community.apiBase + "/apply", ApplyForm.body(email, motivation, agreed)) } catch (e: ApiException) {
+        throw ApiException(e.code, e.status, if (e.code == "network") ApplyForm.NETWORK else ApplyForm.OTHER)
+    }
+    if (status !in 200..299 || b?.get("ok").bool() != true) throw ApiException(b?.s("error") ?: "http", status, ApplyForm.error(status, b))
+}

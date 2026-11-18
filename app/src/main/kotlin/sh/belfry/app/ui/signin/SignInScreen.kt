@@ -98,7 +98,13 @@ fun openInBrowser(context: Context, url: String) {
  * browser sign-in (the belfry's own page) stays as a second way, and is what an older belfry gets.
  */
 @Composable
-fun SignInScreen(state: AppState, onBack: (() -> Unit)? = null) {
+fun SignInScreen(
+    state: AppState,
+    onBack: (() -> Unit)? = null,
+    /** From a belfry's Welcome (onboarding/no-link): its name in the title, `name@<domain>` as the example, a back arrow to the Welcome. */
+    community: Community? = null,
+    onLeave: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     var address by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -123,10 +129,11 @@ fun SignInScreen(state: AppState, onBack: (() -> Unit)? = null) {
         return
     }
     if (onBack != null) BackHandler(onBack = onBack)
+    if (onLeave != null) BackHandler(onBack = onLeave)
     val browser: suspend () -> Unit = {
         error = null
         val typed = address.trim()
-        val domain = MemberAddress.parse(typed)?.domain ?: Community.cleanDomain(typed).takeIf(Community::isDomain)
+        val domain = MemberAddress.parse(typed)?.domain ?: Community.cleanDomain(typed).takeIf(Community::isDomain) ?: community?.domain
         if (domain == null) {
             error = "Type your address first, like name@belfry.sh."
         } else {
@@ -158,7 +165,11 @@ fun SignInScreen(state: AppState, onBack: (() -> Unit)? = null) {
         onBrowser = browser,
         onDemo = { state.demo() },
         onScan = { scanning = true },
-        onBack = onBack,
+        onBack = onBack ?: onLeave,
+        title = community?.let { "Log in to ${it.name}" },
+        explain = community?.let { "Type your address in ${it.name}. A 6-digit code goes to your e-mail; no password." },
+        placeholder = community?.let { "name@${it.domain}" } ?: "name@belfry.sh",
+        showDemo = community == null,
     )
 }
 
@@ -265,6 +276,10 @@ fun SignInContent(
     onBack: (() -> Unit)? = null,
     /** A fixed line under the explanation (after "Sign in instead" in guest mode). */
     hint: String? = null,
+    title: String? = null,
+    explain: String? = null,
+    placeholder: String = "name@belfry.sh",
+    showDemo: Boolean = true,
 ) {
     val c = Belfry.colors
     val busy = rememberBusy()
@@ -274,10 +289,10 @@ fun SignInContent(
         }
         Logo()
         Spacer(Modifier.height(40.dp))
-        Text(if (onBack != null) "Add an account" else "Sign in to your community", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+        Text(title ?: if (onBack != null) "Add an account" else "Sign in to your community", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
         Spacer(Modifier.height(8.dp))
         Text(
-            if (onBack != null) "Another address in this community, or your address in another one. A 6-digit code goes to your e-mail; no password. The account you are in stays on this device."
+            explain ?: if (onBack != null) "Another address in this community, or your address in another one. A 6-digit code goes to your e-mail; no password. The account you are in stays on this device."
             else "Type your address in your community. A 6-digit code goes to your e-mail; no password.",
             fontSize = 15.sp, color = c.muted,
         )
@@ -296,7 +311,7 @@ fun SignInContent(
             val main = if (offerBrowser) onBrowser else onContinue
             BelfryTextField(
                 address, onAddress, Modifier.fillMaxWidth(),
-                label = "Your address", placeholder = "name@belfry.sh", error = error,
+                label = "Your address", placeholder = placeholder, error = error,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Email, imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { if (address.isNotBlank()) busy.run(block = main) }),
             )
@@ -309,7 +324,7 @@ fun SignInContent(
             ActionGroup {
                 if (!offerBrowser) BusyRow("Sign in with the browser instead", onClick = onBrowser, icon = BelfryIcons.Globe, sub = "On your community’s own sign-in page")
                 if (onScan != null) ActionRow("Scan an invitation", onClick = onScan, icon = BelfryIcons.Qr, sub = "The QR code of a guest link", modifier = Modifier.testTag("signin-scan"))
-                BusyRow("Try the demo", onClick = onDemo, icon = BelfryIcons.Users, sub = "A made-up community. Everything in it stays on this device.")
+                if (showDemo) BusyRow("Try the demo", onClick = onDemo, icon = BelfryIcons.Users, sub = "A made-up community. Everything in it stays on this device.")
             }
         }
     }
