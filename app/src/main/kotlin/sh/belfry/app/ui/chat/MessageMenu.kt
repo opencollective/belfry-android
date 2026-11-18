@@ -135,7 +135,7 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
     if (pending == null) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             for (e in top) EmojiButton(e, e in mine, reacting) {
-                session.toggleReaction(groupId, m.id, m.pubkey, e)
+                session.toggleReaction(groupId, m.id, m.pubkey, e, m.ev.kind)
                 close()
             }
             Box(
@@ -148,7 +148,7 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
             Spacer(Modifier.height(10.dp))
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (e in Actions.MORE_EMOJIS) EmojiButton(e, e in mine, reacting, small = true) {
-                    session.toggleReaction(groupId, m.id, m.pubkey, e)
+                    session.toggleReaction(groupId, m.id, m.pubkey, e, m.ev.kind)
                     close()
                 }
             }

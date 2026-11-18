@@ -149,8 +149,9 @@ object Actions {
 
     // ---- reactions ----
 
-    fun react(groupId: String, messageId: String, author: String, emoji: String): Draft =
-        Draft(Target.GROUPS, 7, emoji, listOf(listOf("h", groupId), listOf("e", messageId), listOf("p", author), listOf("k", "9")))
+    /** A reaction: `k` = the target's kind ("9" a message, "1111" a thread reply); readers key on `e`, never on `k`. */
+    fun react(groupId: String, messageId: String, author: String, emoji: String, kind: Int = 9): Draft =
+        Draft(Target.GROUPS, 7, emoji, listOf(listOf("h", groupId), listOf("e", messageId), listOf("p", author), listOf("k", kind.toString())))
 
     fun unreact(groupId: String, reactionId: String): Draft =
         Draft(Target.GROUPS, 5, tags = listOf(listOf("h", groupId), listOf("e", reactionId), listOf("k", "7")))
@@ -159,8 +160,8 @@ object Actions {
      * One tap adds, a second removes. Null when there is nothing to send: my reaction is still in
      * the outbox ([minePending]), so there is nothing to take back on the relay.
      */
-    fun toggleReaction(groupId: String, messageId: String, author: String, emoji: String, mine: Event?, minePending: Boolean): Draft? =
-        if (mine != null) (if (minePending) null else unreact(groupId, mine.id)) else react(groupId, messageId, author, emoji)
+    fun toggleReaction(groupId: String, messageId: String, author: String, emoji: String, mine: Event?, minePending: Boolean, kind: Int = 9): Draft? =
+        if (mine != null) (if (minePending) null else unreact(groupId, mine.id)) else react(groupId, messageId, author, emoji, kind)
 
     /** My most used emojis ([usage]: emoji → times), topped up with the defaults. */
     fun topEmojis(usage: Map<String, Int>, n: Int = 6): List<String> =

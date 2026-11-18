@@ -180,4 +180,20 @@ class Round6Test {
         assertEquals("public", both["visibility"].s()); assertEquals("event", both["posts"].s())
         assertEquals(listOf(listOf<Long?>(1000, null)), periods(both["periods"]))
     }
+
+    /** Reactions on thread replies (channels/thread): k = the target's kind; readers key on e and never filter on k. */
+    @Test fun reactionsOnThreadReplies() {
+        val d = Actions.react("general", "f".repeat(64), ben, "🙏", kind = 1111)
+        assertEquals(listOf(listOf("h", "general"), listOf("e", "f".repeat(64)), listOf("p", ben), listOf("k", "1111")), d.tags)
+        assertEquals(listOf("k", "9"), Actions.react("general", "f".repeat(64), ben, "🙏").tags.last())
+        val root = ev(ben, 9, 100, listOf(listOf("h", "general")), "Who has a ladder?")
+        val reply = ev(emma, 1111, 110, listOf(listOf("h", "general"), listOf("E", root.id, "", root.pubkey), listOf("K", "9"), listOf("e", root.id), listOf("k", "9")), "I do")
+        val r1 = ev(me, 7, 120, listOf(listOf("h", "general"), listOf("e", reply.id), listOf("p", emma), listOf("k", "1111")), "🙏")
+        val r2 = ev(ben, 7, 121, listOf(listOf("h", "general"), listOf("e", reply.id), listOf("p", emma)), "🙏") // no k at all: still counts
+        val w = world(channel("general", "general", listOf(emma), listOf(me, ben, emma)) + listOf(root, reply, r1, r2))
+        val rs = w.reactionsOf("general", reply.id)
+        assertEquals(1, rs.size)
+        assertEquals(setOf(me, ben), rs[0].who)
+        assertNotNull(rs[0].mine)
+    }
 }

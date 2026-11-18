@@ -234,7 +234,7 @@ private fun Reactions(groupId: String, m: Message, reactions: List<Reaction>, ch
                     .background(if (mine) c.surface2 else c.surface)
                     .border(1.dp, if (mine) c.text else c.line, shape)
                     .clickable(enabled = !busy.busy, role = Role.Button, onClickLabel = "React with ${r.emoji}") {
-                        busy.run { session.toggleReaction(groupId, m.id, m.pubkey, r.emoji) }
+                        busy.run { session.toggleReaction(groupId, m.id, m.pubkey, r.emoji, m.ev.kind) }
                     }
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,

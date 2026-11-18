@@ -1053,11 +1053,11 @@ class Session(
     }
 
     /** Adds my reaction, or takes it back when I reacted with this emoji already. */
-    suspend fun toggleReaction(groupId: String, messageId: String, author: String, emoji: String) {
+    suspend fun toggleReaction(groupId: String, messageId: String, author: String, emoji: String, kind: Int = 9) {
         val w = _world.value
         val mine = w.reactionsOf(groupId, messageId).firstOrNull { it.emoji == emoji }?.mine
         if (mine != null && w.isPending(mine.id)) { discard(mine.id); return }
-        Actions.toggleReaction(groupId, messageId, author, emoji, mine, false)?.let { send(it) }
+        Actions.toggleReaction(groupId, messageId, author, emoji, mine, false, kind)?.let { send(it) }
     }
 
     /** Opening a channel tells the others I was there, at most every 6 hours per channel (SPEC 11). */
