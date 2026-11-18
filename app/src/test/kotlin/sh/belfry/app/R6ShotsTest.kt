@@ -149,4 +149,12 @@ class R6ShotsTest : DemoShots() {
         compose.onNodeWithTag("about-version").assertExists()
         compose.onNodeWithTag("about-join").assertExists()
     }
+
+    /** channels/composer-mention: a picked @mention and #channel marked in the box; the rest plain. */
+    @Test fun composerPicks() {
+        val st = sh.belfry.app.ui.chat.ComposerState().apply {
+            set("Thanks @Maya Okafor, see #kitchen for the list", listOf("Maya Okafor" to Demo.maya.pubkey), listOf("#kitchen" to "nostr:naddr1demo"))
+        }
+        demoShot("composer-picks") { ChannelScreen(Demo.GENERAL, onMenu = {}, composer = st) }
+    }
 }
