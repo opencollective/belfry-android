@@ -11,6 +11,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -450,28 +453,10 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
             is FeedItem.Activity -> {
                 val key = item.key
                 val open = chat.openThreads.containsKey(key)
-                // proposal A (web 2026-11-11): the message it answers as one grey quote line,
-                // then who replied, when, and the reply without its leading @mention
-                Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { openThread(item.root.id) }.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
-                    Avatar(world.face(item.last.pubkey), size = 28.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.width(2.dp).height(16.dp).background(c.line))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "↳ ${world.displayName(item.root.pubkey)}: ${unmarked(world.activitySnippet(item.root))}",
-                                fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                            Text(world.displayName(item.last.pubkey), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1)
-                            Spacer(Modifier.width(6.dp))
-                            Text(ChatFormat.time(world, item.at), fontSize = 12.sp, color = c.faint)
-                        }
-                        if (!open) Text(replyPreview(unmarked(world.activityReply(item.last))).ifEmpty { "a photo" }, fontSize = 15.sp, color = c.text, maxLines = 3)
-                    }
-                }
+                // channels/reply-row (web aa4a9a5, as on iOS): the message it answers on one grey line
+                // with an elbow (opens the thread), then the reply as a normal message with its own menu
+                ReplyQuote(item.root, open) { openThread(item.root.id) }
+                MessageRow(groupId, item.last, true, chat)
                 if (open) {
                     InlineThread(groupId, item.root, chat, focus = chat.openThreads[key] == true, onHide = { chat.openThreads.remove(key) }, onOpen = { openThread(item.root.id) })
                 }
@@ -552,4 +537,33 @@ private fun rememberFeedWorld(live: World, groupId: String): World {
     val held = remember(groupId) { arrayOf<Any>(live, key) }
     if (held[1] != key) { held[0] = live; held[1] = key }
     return held[0] as World
+}
+
+/** The answered message on one grey line: an elbow, its author's face and name, the start of its text. A tap opens the thread. */
+@Composable
+private fun ReplyQuote(root: Message, open: Boolean, onOpen: () -> Unit) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val text = unmarked(world.activitySnippet(root)).replace(Regex("\\s+"), " ").trim().ifEmpty { if (root.media.isNotEmpty()) "a photo" else "" }
+    Row(
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 6.dp).clip(RoundedCornerShape(8.dp))
+            .background(if (open) c.surface else Color.Transparent)
+            .clickable(role = Role.Button, onClickLabel = "Open the thread") { onOpen() }
+            .padding(start = 22.dp, end = 4.dp, top = 2.dp).heightIn(min = 24.dp).testTag("reply-quote"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // the elbow: a line down from above, turning right towards the quote
+        val line = c.line
+        Box(Modifier.width(22.dp).height(12.dp).padding(top = 4.dp).drawBehind {
+            val w = 2.dp.toPx()
+            drawLine(line, androidx.compose.ui.geometry.Offset(w / 2, size.height), androidx.compose.ui.geometry.Offset(w / 2, w / 2), strokeWidth = w)
+            drawLine(line, androidx.compose.ui.geometry.Offset(w / 2, w / 2), androidx.compose.ui.geometry.Offset(size.width, w / 2), strokeWidth = w)
+        })
+        Spacer(Modifier.width(4.dp))
+        Avatar(world.face(root.pubkey), size = 18.dp)
+        Spacer(Modifier.width(6.dp))
+        Text(world.displayName(root.pubkey), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 140.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text.take(120), fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+    }
 }
