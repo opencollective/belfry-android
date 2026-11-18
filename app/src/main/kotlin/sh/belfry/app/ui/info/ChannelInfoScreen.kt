@@ -58,7 +58,7 @@ object InfoTab {
     const val TODOS = 2
     const val FILES = 3
     const val LOG = 4
-    val LABELS = listOf("About", "Members", "Todos", "Files", "Log")
+    val LABELS = listOf("About", "Members", "To-dos", "Files", "Log")
 
     /** The names a link uses (`Routes.channelInfo(id, "todos")`; the web's `c/<id>/todos`…). */
     const val KEY_MEMBERS = "members"

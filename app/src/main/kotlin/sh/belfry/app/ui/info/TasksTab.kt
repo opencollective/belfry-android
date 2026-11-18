@@ -39,7 +39,7 @@ fun TasksTab(groupId: String) {
     var title by remember { mutableStateOf("") }
 
     Row(verticalAlignment = Alignment.Bottom) {
-        BelfryTextField(title, { title = it }, Modifier.weight(1f).testTag("todo-field"), placeholder = "Add a todo…")
+        BelfryTextField(title, { title = it }, Modifier.weight(1f).testTag("todo-field"), placeholder = "Add a to-do…")
         Spacer(Modifier.width(8.dp))
         BusyButton(
             "Add",
@@ -59,7 +59,7 @@ fun TasksTab(groupId: String) {
     Hint("${todo.size} open · ${done.size} done")
     Spacer(Modifier.height(8.dp))
     if (tasks.isEmpty()) {
-        EmptyState("No todos yet.", icon = BelfryIcons.Check)
+        EmptyState("No to-dos yet.", icon = BelfryIcons.Check)
     } else {
         ActionGroup {
             // tick box · title · ›: the row opens the to-do (claim, assign, discuss: TodoScreen)

@@ -27,9 +27,9 @@ object ChannelLog {
         "done" to "closed a mail", "open" to "reopened a mail",
     )
     private val TASK_WORDS = mapOf(
-        "claim" to "took a todo", "unclaim" to "let go of a todo", "done" to "marked a todo done",
-        "undone" to "reopened a todo", "delete" to "deleted a todo",
-        "assign" to "gave a todo to someone", "unassign" to "took someone off a todo",
+        "claim" to "took a to-do", "unclaim" to "let go of a to-do", "done" to "marked a to-do done",
+        "undone" to "reopened a to-do", "delete" to "deleted a to-do",
+        "assign" to "gave a to-do to someone", "unassign" to "took someone off a to-do",
     )
     private val SPACES = Regex("\\s+")
 
@@ -61,12 +61,12 @@ object ChannelLog {
             1010 -> LogItem(e, "✏️", "edited a message", short(e.content, 200), toMessage)
             7 -> LogItem(e, if (e.content.isNotEmpty() && e.content.length <= 4 && e.content != "+") e.content else "👍", "reacted", go = toMessage)
             5, 9005 -> LogItem(e, "🗑", if (t("k") == "7") "took back a reaction" else "deleted something")
-            2100 -> LogItem(e, "☑️", "made a todo", short(t("title")?.ifEmpty { null } ?: e.content, 200), LogGo.Todos)
+            2100 -> LogItem(e, "☑️", "made a to-do", short(t("title")?.ifEmpty { null } ?: e.content, 200), LogGo.Todos)
             2101 -> {
                 val w = TASK_WORDS[t("action") ?: ""] ?: return null
                 LogItem(e, if (t("action") == "done") "✅" else "☑️", w, titles[t("e") ?: ""], LogGo.Todos)
             }
-            2103 -> LogItem(e, "💬", "commented on a todo", short(e.content, 200), LogGo.Todos)
+            2103 -> LogItem(e, "💬", "commented on a to-do", short(e.content, 200), LogGo.Todos)
             9000 -> LogItem(
                 e, "👋", if (e.tags.any { it.size >= 3 && it[0] == "p" && it[2] == "admin" }) "made someone an admin" else "added someone",
                 t("p")?.let(name), LogGo.Members,

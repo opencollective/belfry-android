@@ -526,7 +526,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
             )
             Muted(
                 if (old != null) "Everyone who RSVPed sees the change."
-                else "It gets its own chat, photos and todos." + if (where != null) " Its URL goes in #${where.name}’s message box, ready to send." else " Send its URL in a channel to show it there.",
+                else "It gets its own chat, photos and to-dos." + if (where != null) " Its URL goes in #${where.name}’s message box, ready to send." else " Send its URL in a channel to show it there.",
             )
         }
     }

@@ -403,7 +403,7 @@ fun ChannelScreen(
     )
     if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false }, onTodo = { chat.newTodo = true }, onRecord = { chat.recorderOpen = true })
     if (chat.recorderOpen) RecorderSheet(groupId, onClose = { chat.recorderOpen = false })
-    if (chat.newTodo) BelfrySheet(onDismiss = { chat.newTodo = false }, title = "New todo") { NewTodoContent(groupId, onDone = { chat.newTodo = false }) }
+    if (chat.newTodo) BelfrySheet(onDismiss = { chat.newTodo = false }, title = "New to-do") { NewTodoContent(groupId, onDone = { chat.newTodo = false }) }
     chat.viewer?.let { ImageViewer(it) { chat.viewer = null } }
 }
 
@@ -506,7 +506,7 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
             ActionRow("Meeting", onClick = { onClose(); go(Routes.createMeeting(groupId)) }, icon = BelfryIcons.Users, sub = "Members only: a topic, people, a time", modifier = Modifier.testTag("plus-meeting"))
         }
         if (onTodo != null) {
-            ActionRow("Todo", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
+            ActionRow("To-do", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
         }
         ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = "A text to discuss and vote on")
         ActionRow("Group", onClick = { onClose(); go(Routes.createPod(groupId)) }, icon = BelfryIcons.Pod, sub = "A working group with its own channel")

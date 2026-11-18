@@ -43,7 +43,7 @@ class ChatState(val groupId: String) {
 
     /** The pull-down's three levels, as the web's handle steps through them. */
     fun closeLine() { lineOpen = false; lineFull = false }
-    /** Straight to "all the way" ("More", "All todos"). */
+    /** Straight to "all the way" ("More", "All to-dos"). */
     fun fullLine() { lineOpen = true; lineFull = true }
     /** A tap on the name or the line: open, or closed again. */
     fun toggleLine() { if (lineOpen) closeLine() else lineOpen = true }

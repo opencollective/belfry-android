@@ -276,7 +276,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
             }
         }
         if (f.todosAll > 0) {
-            PullTitle("To do", f.todosDone, of = f.todosAll)
+            PullTitle("To-dos", f.todosDone, of = f.todosAll)
             // a to-do opens its thread (the message it was made from), like the web; pulled all the
             // way: the latest 20, the done ones after the open ones
             val shown = if (full) latestTasks(f.allTasks) else f.todos.take(4)
@@ -309,7 +309,7 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             LinkText("All members") { go(Routes.channelInfo(groupId, InfoTab.KEY_MEMBERS)) }
             if (f.files > 0) LinkText("${f.files} ${if (f.files == 1) "file" else "files"}") { go(Routes.files(groupId)) }
-            if (f.todosAll > 0) LinkText("Todos") { go(Routes.channelInfo(groupId, InfoTab.KEY_TODOS)) }
+            if (f.todosAll > 0) LinkText("To-dos") { go(Routes.channelInfo(groupId, InfoTab.KEY_TODOS)) }
             LinkText("Log") { go(Routes.channelInfo(groupId, InfoTab.KEY_LOG)) }
             if (!full) LinkText("More", Modifier.testTag("pull-more")) { chat.fullLine() }
         }
@@ -340,13 +340,13 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
     if (settings) ChannelSettingsSheet(g) { settings = false }
 }
 
-/** "Add a todo…" under the list pulled all the way. */
+/** "Add a to-do…" under the list pulled all the way. */
 @Composable
 private fun NewTodoRow(groupId: String) {
     val session = LocalSession.current
     var title by remember { mutableStateOf("") }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
-        BelfryTextField(title, { title = it.take(300) }, Modifier.weight(1f).testTag("pull-todo-field"), placeholder = "Add a todo…")
+        BelfryTextField(title, { title = it.take(300) }, Modifier.weight(1f).testTag("pull-todo-field"), placeholder = "Add a to-do…")
         Spacer(Modifier.width(8.dp))
         BusyButton(
             "Add",
