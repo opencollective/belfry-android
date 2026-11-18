@@ -1,6 +1,10 @@
 package sh.belfry.app.ui.people
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
+import sh.belfry.app.ui.kit.shareText
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -104,49 +108,60 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
             }
         },
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // a contact card (board home/profile, web c3fcaab): face, name and address centred, then
+        // Message · E-mail · Share; Role right below; then In <group>; Channels in common last
+        val nip05 = p?.nip05?.takeIf { it.contains('@') }
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Avatar(world.face(pubkey), size = 88.dp)
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(name, fontSize = 22.sp, lineHeight = 27.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                val nip05 = p?.nip05
-                if (!nip05.isNullOrEmpty()) Text(nip05, fontSize = 14.sp, color = c.muted)
-                val chip = guest?.chip
-                if (admin || chip != null || owner != null) {
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (admin) Chip(sh.belfry.core.model.PlaceNames.STEWARD, icon = BelfryIcons.Shield)
-                        if (owner != null) Chip("agent")
-                        if (chip != null) Chip(chip)
-                    }
-                }
-                if (owner != null) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "agent of " + if (owner == world.me) "you" else world.displayName(owner), fontSize = 13.sp, color = c.muted,
-                        modifier = Modifier.clickable(role = Role.Button) { nav.go(Routes.profile(owner)) }.testTag("agent-owner"),
-                    )
-                }
-                val by = guest?.by
-                if (guest != null && !by.isNullOrEmpty()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "invited by ${world.displayName(by)}", fontSize = 13.sp, color = c.muted,
-                        modifier = Modifier.clickable(role = Role.Button) { nav.go(Routes.profile(by)) },
-                    )
+            Spacer(Modifier.height(10.dp))
+            Text(name, fontSize = 24.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            if (nip05 != null) Text(nip05, fontSize = 15.sp, color = c.muted)
+            val chip = guest?.chip
+            if (chip != null || owner != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (owner != null) Chip("agent")
+                    if (chip != null) Chip(chip)
                 }
             }
-        }
-        val place = x?.place
-        if (place != null) {
+            if (owner != null) {
+                Text(
+                    "agent of " + if (owner == world.me) "you" else world.displayName(owner), fontSize = 13.sp, color = c.muted,
+                    modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.profile(owner)) }.testTag("agent-owner"),
+                )
+            }
+            val by = guest?.by
+            if (guest != null && !by.isNullOrEmpty()) {
+                Text(
+                    "invited by ${world.displayName(by)}", fontSize = 13.sp, color = c.muted,
+                    modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.profile(by)) },
+                )
+            }
             Spacer(Modifier.height(14.dp))
+            val context = androidx.compose.ui.platform.LocalContext.current
+            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                if (!mine && guest == null) CardAction(BelfryIcons.Thread, "Message", "profile-message") { nav.go(Routes.conversation("n:$pubkey")) }
+                if (!mine && nip05 != null) CardAction(BelfryIcons.Mail, "E-mail", "profile-email") {
+                    try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:" + nip05)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
+                }
+                // their address (else their key, handed to the share sheet, never shown)
+                CardAction(BelfryIcons.Share, "Share", "profile-share") { shareText(context, nip05 ?: npubOf(pubkey), name) }
+            }
+        }
+        // the belfry's role right below (Steward · Member · Guest and its own roles)
+        if (owner == null) RoleSection(pubkey)
+        // opened from a channel's, group's or event's people: the role there (SPEC 19.29)
+        if (group != null) InGroupSection(pubkey, group)
+        val place = x?.place
+        if (place != null || about.isNotEmpty() || (x != null && x.tags.isNotEmpty()) || mine) Spacer(Modifier.height(14.dp))
+        if (place != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(BelfryIcons.MapPin, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 Text(People.placeLabel(place), fontSize = 15.sp, color = c.text)
             }
+            Spacer(Modifier.height(10.dp))
         }
-        Spacer(Modifier.height(14.dp))
         if (about.isNotEmpty()) {
             MarkdownText(about, rich = false)
         } else if (mine) {
@@ -158,12 +173,8 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
                 x.tags.forEach { Chip("#$it") }
             }
         }
-        if (!mine && guest == null) {
-            Spacer(Modifier.height(16.dp))
-            BusyButton("Message", onClick = { nav.go(Routes.conversation("n:$pubkey")) }, modifier = Modifier.fillMaxWidth(), icon = BelfryIcons.Mail)
-        }
         if (shared.isNotEmpty()) {
-            SectionTitle(if (mine) "Your channels" else "In")
+            SectionTitle(if (mine) "Your channels" else "Channels in common")
             ActionGroup {
                 shared.forEach { g ->
                     ActionRow(g.name, onClick = { nav.openChannel(g.id) }, icon = g.glyph().icon(), chevron = true)
@@ -192,10 +203,6 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
             }
             ErrorLine(agentError)
         }
-        // opened from a channel's, group's or event's people: the role there (SPEC 19.29)
-        if (group != null) InGroupSection(pubkey, group)
-        // the belfry's role (Steward · Member · Guest and its own roles) instead of the admin switch
-        if (owner == null) RoleSection(pubkey)
         if (mine) MyAgentSection()
     }
     if (dropping) {
@@ -239,5 +246,21 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
             },
             danger = admin,
         )
+    }
+}
+
+/** One of the contact card's three actions: a rounded square with its icon, the word under it. */
+@Composable
+private fun CardAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tag: String, onClick: () -> Unit) {
+    val c = Belfry.colors
+    Column(
+        Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 6.dp, vertical = 4.dp).testTag(tag),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(width = 56.dp, height = 40.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).background(c.surface), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(label, fontSize = 13.sp, color = c.text)
     }
 }
