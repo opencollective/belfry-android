@@ -62,7 +62,15 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /** A tiny relay on MockWebServer: stores events, answers REQ / EVENT / AUTH; can play the remote signer. */
-class FakeRelay(private val requireAuth: Boolean = false) : WebSocketListener() {
+class FakeRelay(
+    private val requireAuth: Boolean = false,
+    /** Before AUTH, a REQ is answered with only these events (a relay that shows anyone its public part); null: CLOSED auth-required. */
+    private val publicBeforeAuth: ((Event) -> Boolean)? = null,
+    /** The AUTH challenge comes only after the first REQ was answered (the web's 458704e case). */
+    private val lateAuth: Boolean = false,
+) : WebSocketListener() {
+    /** False: this relay never asks for AUTH (it stays public-only). */
+    @Volatile var sendAuth = true
     val server = MockWebServer()
     val challenge = "challenge-1234"
     val reqs = CopyOnWriteArrayList<String>()
@@ -97,7 +105,17 @@ class FakeRelay(private val requireAuth: Boolean = false) : WebSocketListener() 
         opens++
         authedAs = null
         sockets.add(webSocket)
-        if (requireAuth) send(webSocket, "AUTH", challenge)
+        if (requireAuth && !lateAuth && sendAuth) send(webSocket, "AUTH", challenge)
+    }
+
+    private fun answer(ws: WebSocket, sub: String, filters: List<JsonObject>, pick: (Event) -> Boolean) {
+        // by kinds and since only (enough for the engine's catch-up)
+        for (e in stored) if (pick(e) && filters.any { f ->
+                val kinds = f["kinds"].arr()?.mapNotNull { it.int() }
+                val since = (f["since"] as? JsonPrimitive)?.content?.toLongOrNull()
+                (kinds == null || e.kind in kinds) && (since == null || e.createdAt >= since)
+            }) send(ws, "EVENT", sub, e)
+        send(ws, "EOSE", sub)
     }
 
     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -110,14 +128,15 @@ class FakeRelay(private val requireAuth: Boolean = false) : WebSocketListener() 
             "REQ" -> {
                 val sub = arr[1].str()!!
                 reqs.add(sub)
+                val filters = arr.drop(2).mapNotNull { it as? JsonObject }
                 if (requireAuth && authedAs == null) {
-                    send(webSocket, "CLOSED", sub, "auth-required: sign in first")
+                    val pub = publicBeforeAuth
+                    if (pub == null) { send(webSocket, "CLOSED", sub, "auth-required: sign in first"); return }
+                    answer(webSocket, sub, filters, pub)
+                    if (lateAuth && sendAuth) send(webSocket, "AUTH", challenge)
                     return
                 }
-                // every filter of the REQ counts (by kinds only)
-                val kindSets = arr.drop(2).mapNotNull { it as? JsonObject }.map { f -> f["kinds"].arr()?.mapNotNull { it.int() } }
-                for (e in stored) if (kindSets.any { it == null || e.kind in it }) send(webSocket, "EVENT", sub, e)
-                send(webSocket, "EOSE", sub)
+                answer(webSocket, sub, filters) { true }
             }
             "EVENT" -> {
                 val ev = Event.fromJson(arr[1])!!

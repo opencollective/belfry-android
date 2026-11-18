@@ -281,7 +281,8 @@ class Session(
 
     private sealed interface Incoming {
         class Ev(val e: Event) : Incoming
-        class Eose(val target: Target) : Incoming
+        /** [authed]: the relay had accepted our NIP-42 (or asks for none) when it said EOSE. */
+        class Eose(val target: Target, val authed: Boolean = true) : Incoming
     }
     private val incoming = Channel<Incoming>(Channel.UNLIMITED)
     private val dirty = Channel<Unit>(Channel.CONFLATED)
@@ -443,15 +444,24 @@ class Session(
             val batch = arrayListOf(first)
             while (batch.size < 1000) batch.add(incoming.tryReceive().getOrNull() ?: break)
             addToLog(batch.filterIsInstance<Incoming.Ev>().map { it.e })
-            if (batch.any { it is Incoming.Eose && it.target == Target.GROUPS }) onGroupsEose()
+            val groupsEose = batch.filterIsInstance<Incoming.Eose>().filter { it.target == Target.GROUPS }
+            if (groupsEose.isNotEmpty()) onGroupsEose(groupsEose.any { it.authed })
             if (batch.any { it is Incoming.Eose && it.target == Target.MAIN }) readSync.relayAnswered()
         }
     }
 
-    private suspend fun onGroupsEose() {
+    private suspend fun onGroupsEose(authed: Boolean) {
         setStatus { it.copy(access = AccessState.IN) }
-        if (groupsFullAsked) { groupsFullAsked = false; store.set(K_GROUPS_FULL, "1") }
-        launchSafely { checkPresence() }
+        // Only an answer given after NIP-42 is the member's whole view (chat 458704e): an earlier one
+        // holds only public events, and taking its newest as "caught up" left out every older
+        // members-only event (other channels' 39000s, an old agreement) on the next catch-up.
+        if (authed) {
+            if (groupsFullAsked) { groupsFullAsked = false; store.set(K_GROUPS_FULL, "1") }
+            val kinds = KINDS_GROUPS.toSet()
+            store.set(K_GROUPS_MARK, latest { it.kind in kinds }.toString())
+            // absence counts only against the member's whole view, never a public-only answer
+            launchSafely { checkPresence() }
+        }
         // A new belfry's groups relay has no channel yet: the first member in opens #general. Once.
         // (Not a guest in guest mode: reading leaves no trace.)
         if (firstChannelTried || reading) return
@@ -524,7 +534,7 @@ class Session(
             val r = relay(t) ?: continue
             r.authSigner = signer
             r.onEvent = { _, e -> incoming.trySend(Incoming.Ev(e)) }
-            r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t)) } }
+            r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t, r.isAuthenticated || r.authSigner == null || localOnly)) } }
             r.onClosed = { sub, reason ->
                 if (t == Target.GROUPS) noteRefusal(reason)
                 if (sub == SUB) reopen(t, reason)
@@ -633,7 +643,10 @@ class Session(
             // the relay showed them only their own channels) asks for everything once
             val full = !localOnly && _guest.value == null && store.get(K_GROUPS_FULL) == null
             if (full) groupsFullAsked = true
-            return GroupFilters.of(KINDS_GROUPS, latest { it.kind in kinds }, full)
+            // catch up from the newest event of the last answer given after NIP-42, never from the
+            // log's newest (a public answer before AUTH would move it past what was never asked)
+            val mark = store.get(K_GROUPS_MARK)?.toLongOrNull() ?: 0L
+            return GroupFilters.of(KINDS_GROUPS, if (localOnly) latest { it.kind in kinds } else mark, full)
         }
         val kinds = KINDS_MAIN.toSet()
         val since = maxOf(0, latest { it.kind in kinds } - 3600)
@@ -1456,6 +1469,7 @@ class Session(
         setGuest(null)
         _joinAsked.value = false
         store.remove(K_GROUPS_FULL)
+        store.remove(K_GROUPS_MARK)
         rebuild()
         if (becameMemberTold) return
         becameMemberTold = true
@@ -1593,6 +1607,8 @@ class Session(
         const val K_GROUPS_KEY = "groups-key"
         /** Set once the groups relay sent everything it shows a member (see [GroupFilters]). */
         const val K_GROUPS_FULL = "groups-full-1"
+        /** The groups relay's catch-up mark: the newest event this device had at an authenticated EOSE. */
+        const val K_GROUPS_MARK = "groups-mark"
         const val K_ADMINS = "extra-admins"
         const val K_ABSENT = "groups-absent"
         const val ARCHIVED_TEXT = "This group is archived or deleted: nothing can be posted in it."
