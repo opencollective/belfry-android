@@ -32,8 +32,9 @@ import sh.belfry.core.model.InboxThread
 import sh.belfry.core.model.plainRefs
 
 /**
- * One row per e-mail thread of a shared inbox, where its latest activity is (SPEC 19.33): sender,
- * subject, a line of the latest e-mail, the state, who has it, the counts. A tap opens the thread.
+ * One row per e-mail thread of a shared inbox, where its latest activity is (SPEC 19.33; round 6,
+ * board channels/mail-row): shaped like a message — the sender's initials, name, "guest, by
+ * e-mail", time; the subject; a line of the latest e-mail; the state, who has it, the counts.
  */
 @Composable
 fun MailThreadRow(t: InboxThread, onOpen: () -> Unit) {
@@ -41,34 +42,33 @@ fun MailThreadRow(t: InboxThread, onOpen: () -> Unit) {
     val world = LocalWorld.current
     val latest = t.latest
     val who = t.name.ifEmpty { t.address }
-    val line = latest?.let { (if (it.incoming) "" else "You answered: ") + world.plainRefs(it.m.text).replace('\n', ' ') } ?: ""
-    val state = when (t.state.status) {
-        CardStatus.OPEN -> "Open"
-        CardStatus.WAITING -> "Answered"
-        CardStatus.CLOSED -> "Closed"
-    }
+    val line = latest?.let { (if (it.incoming) "" else "You answered: ") + world.plainRefs(it.m.text.removePrefix("**${it.subject}**").trimStart()).replace('\n', ' ') } ?: ""
     val has = t.state.assignee?.let { if (it == world.me) "you have it" else world.displayName(it) + " has it" }
     val counts = listOfNotNull(
         "${t.mails.size} ${if (t.mails.size == 1) "e-mail" else "e-mails"}",
-        if (t.replies > 0) "${t.replies} ${if (t.replies == 1) "reply" else "replies"}" else null,
+        if (t.replies > 0) "${t.replies} ${if (t.replies == 1) "comment" else "comments"}" else null,
     ).joinToString(" · ")
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(10.dp))
-            .border(1.dp, c.line, RoundedCornerShape(10.dp)).background(c.surface)
-            .clickable(role = Role.Button, onClick = onOpen).padding(12.dp).testTag("mail-row"),
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen).padding(horizontal = 12.dp, vertical = 6.dp).testTag("mail-row"),
         verticalAlignment = Alignment.Top,
     ) {
-        Icon(BelfryIcons.Mail, contentDescription = null, tint = c.orange, modifier = Modifier.size(20.dp))
+        sh.belfry.app.ui.cards.MailFace(who)
         Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(who, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(who.split(' ').first(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(6.dp))
-                Text(ChatFormat.time(world, t.last), fontSize = 12.sp, color = c.faint)
+                NameTag(BelfryIcons.Mail, "guest, by e-mail")
+                Spacer(Modifier.width(8.dp))
+                Text(ChatFormat.time(world, t.last), fontSize = 12.sp, color = c.faint, maxLines = 1)
             }
-            Text(t.subject.ifEmpty { "(no subject)" }, fontSize = 15.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (line.isNotEmpty()) Text(line, fontSize = 14.sp, color = c.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(listOfNotNull(state, has, counts).joinToString(" · "), fontSize = 13.sp, color = if (t.state.status == CardStatus.OPEN) c.text else c.muted, maxLines = 1)
+            Text(t.subject.ifEmpty { "(no subject)" }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (line.isNotEmpty()) Text(line, fontSize = 15.sp, color = c.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                sh.belfry.app.ui.cards.StatePill(t.state.status)
+                Spacer(Modifier.width(8.dp))
+                Text(listOfNotNull(has, counts).joinToString(" · "), fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

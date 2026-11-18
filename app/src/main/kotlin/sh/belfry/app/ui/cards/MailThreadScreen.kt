@@ -1,6 +1,27 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package sh.belfry.app.ui.cards
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import sh.belfry.app.ui.chat.NameTag
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -64,15 +85,20 @@ import sh.belfry.core.model.MailItem
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.isLocked
 
+/** An e-mail thread's two modes' colours (round 6): blue for an e-mail, yellow for a comment. */
+internal val MAIL_BLUE = Color(0xFF2563EB)
+internal val NOTE_YELLOW = Color(0xFFFACC15)
+
 /**
- * A shared inbox's e-mail thread (SPEC 19.33): its e-mails in frames (received light, sent solid,
- * "unverified sender", Full e-mail), the team's replies between them, the state with Take / Close
- * for the channel's admins, and ONE composer with a line above it saying who receives what is
- * written: the thread (a NIP-22 reply under the root) or, for the channel's admins while the inbox
- * is on, the sender by e-mail (8 s to undo, from the channel's plain alias).
+ * A shared inbox's e-mail thread (SPEC 19.33; round 6, boards channels/mail-reply and
+ * channels/mail-comment): every entry is a message row — the outsider's e-mails with "guest, by
+ * e-mail", what went out with "sent as <alias>@", the team's replies with "team only" — under the
+ * sender's line and the state (Take / Close for the channel's admins). The composer has two modes:
+ * "Reply to <name>" (an e-mail, blue, 8 s to undo, from the channel's plain alias) and "Comment"
+ * (a NIP-22 reply only members see, yellow). Who may not answer by e-mail only comments.
  */
 @Composable
-fun MailThreadScreen(groupId: String, t: InboxThread, onClose: (() -> Unit)? = null) {
+fun MailThreadScreen(groupId: String, t: InboxThread, onClose: (() -> Unit)? = null, startWithComment: Boolean = false) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -82,7 +108,7 @@ fun MailThreadScreen(groupId: String, t: InboxThread, onClose: (() -> Unit)? = n
     val g = world.group(groupId)
     val admin = world.canAdmin(g)
     val canMail = admin && world.isInbox(g) && t.lastIn != null && !world.isLocked(groupId)
-    var byMail by remember(t.id) { mutableStateOf(false) }
+    var byMail by remember(t.id, canMail) { mutableStateOf(canMail && !startWithComment) }
     var full by remember { mutableStateOf<MailItem?>(null) }
     val replies = world.mailThreadReplies(groupId, t)
     val list = rememberLazyListState()
@@ -90,11 +116,15 @@ fun MailThreadScreen(groupId: String, t: InboxThread, onClose: (() -> Unit)? = n
     LaunchedEffect(flow.size) { if (flow.isNotEmpty()) list.scrollToItem(flow.size + 1) }
     // the Undo countdown lives under the bar; leaving the thread sends at once
     DisposableEffect(Unit) { onDispose { ReplyQueue.pending?.let { ReplyQueue.fire(session, it) } } }
-    val first = t.name.split(' ').firstOrNull { it.isNotEmpty() } ?: t.address
+    val who = t.lastIn?.name?.ifEmpty { null } ?: t.name.ifEmpty { t.address }
+    val first = who.split(' ').firstOrNull { it.isNotEmpty() && '@' !in it } ?: t.address
+    val alias = world.mailLocal(groupId)
+    val label = sh.belfry.app.ui.info.channelLabel(g, groupId)
+    val now = session.now()
 
     Column(Modifier.fillMaxSize().background(c.bg).imePadding().testTag("mail-thread")) {
         TopBar(
-            t.subject.ifEmpty { "(no subject)" }, subtitle = t.name.ifEmpty { t.address },
+            t.subject.ifEmpty { "(no subject)" }, subtitle = "in $label",
             navigation = if (onClose == null) ({ BackButton { nav.back() } }) else null,
             actions = { if (onClose != null) IconAction(BelfryIcons.Close, "Close the thread", onClose) },
         )
@@ -102,46 +132,48 @@ fun MailThreadScreen(groupId: String, t: InboxThread, onClose: (() -> Unit)? = n
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(vertical = 8.dp)) {
             item(key = "<state>") { StateLine(groupId, t, admin) }
             for ((i, x) in flow.withIndex()) {
+                val prevAt = flow.getOrNull(i - 1)?.first
+                val day = ChatFormat.day(world, x.first, now)
+                if (prevAt == null || ChatFormat.day(world, prevAt, now) != day) item(key = "<day>$i") { DayLine(day) }
                 when (val v = x.second) {
-                    is MailItem -> item(key = v.m.id) { MailFrame(world, v, onFull = { full = v }) }
+                    is MailItem -> item(key = v.m.id) { MailEntry(world, v, alias, onFull = { full = v }) }
                     is Message -> item(key = v.id) {
-                        val prev = flow.getOrNull(i - 1)?.second as? Message
-                        MessageRow(groupId, v, prev == null || prev.pubkey != v.pubkey || v.at - prev.at > 300, chat)
+                        MessageRow(groupId, v, true, chat, tag = BelfryIcons.Lock to "team only")
                     }
                 }
-            }
-            item(key = "<team>") {
-                Text("Team only: ${t.name.ifEmpty { t.address }} sees only what is sent by e-mail.", fontSize = 13.sp, color = c.muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             }
         }
         if (world.isLocked(groupId)) return@Column
         Hairline()
-        // who receives what is written
-        Column(Modifier.fillMaxWidth().background(if (byMail) c.surface else c.bg).padding(horizontal = 16.dp, vertical = 6.dp).testTag("send-to")) {
-            if (byMail) {
-                Text("This will be sent to ${t.name.ifEmpty { t.address }} by e-mail", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                Text("From ${world.mailAddress(groupId)} · Re: ${t.lastIn?.let { MailThreads.baseSubject(it.subject) } ?: t.subject}", fontSize = 13.sp, color = c.muted)
-                Text("Only send in this thread instead", fontSize = 14.sp, color = c.text, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.clickable(role = Role.Button) { byMail = false }.padding(vertical = 4.dp).testTag("send-thread"))
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Message will be sent in this thread", fontSize = 13.sp, color = c.muted, modifier = Modifier.weight(1f))
-                    if (canMail) {
-                        Text("Reply by e-mail instead", fontSize = 14.sp, color = c.text, fontWeight = FontWeight.Medium,
-                            modifier = Modifier.clickable(role = Role.Button) { byMail = true }.padding(vertical = 4.dp).testTag("send-mail"))
-                    }
-                }
+        if (canMail) {
+            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ModeButton("Reply to $first", BelfryIcons.Mail, byMail, MAIL_BLUE, Color.White, Modifier.weight(1f).testTag("mode-reply")) { byMail = true }
+                ModeButton("Comment", BelfryIcons.Lock, !byMail, NOTE_YELLOW, Color(0xFF111111), Modifier.weight(1f).testTag("mode-comment")) { byMail = false }
             }
         }
+        Text(
+            buildAnnotatedString {
+                if (byMail) {
+                    append("An e-mail from ")
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(world.mailAddress(groupId)) }
+                    append(" to $first")
+                } else {
+                    append("Only members of $label see this. ")
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append("$first does not.") }
+                }
+            },
+            fontSize = 14.sp, color = c.muted,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("send-to"),
+        )
         Composer(
             composer,
-            placeholder = if (byMail) "Write to $first" else "Reply in the thread",
+            placeholder = if (byMail) "Write your e-mail to $first" else "Write a comment for the team",
             onSend = { text, files, picked, _ ->
                 val last = t.lastIn
                 if (byMail && last != null) {
+                    // after an e-mail the thread stays in reply mode
                     ReplyQueue.queue(session, PendingReply(groupId, last.address, first, "Re: " + MailThreads.baseSubject(last.subject).ifEmpty { "(no subject)" },
                         text.trim(), last.messageId, last.m.id, t.refs))
-                    byMail = false
                 } else {
                     val root = t.root ?: return@Composer
                     session.replyInThread(groupId, root.ev, text, files, picked)
@@ -151,58 +183,131 @@ fun MailThreadScreen(groupId: String, t: InboxThread, onClose: (() -> Unit)? = n
             draftKey = ComposerDraft.thread(t.id),
             photos = !byMail,
             groupId = groupId,
+            tint = if (byMail) MAIL_BLUE else NOTE_YELLOW,
+            onTint = if (byMail) Color.White else Color(0xFF111111),
         )
     }
     full?.let { m -> m.original?.let { FullMailSheet(m.subject, it) { full = null } } }
 }
 
+/** One of the composer's two modes: the chosen one filled (its colour), the other outlined. */
+@Composable
+private fun ModeButton(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, on: Boolean, color: Color, onColor: Color, modifier: Modifier, onClick: () -> Unit) {
+    val c = Belfry.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier.heightIn(min = 44.dp).clip(shape)
+            .then(if (on) Modifier.background(color) else Modifier.border(1.dp, c.line, shape))
+            .semantics { selected = on }
+            .clickable(role = Role.Tab, onClick = onClick).padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (on) onColor else c.text, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text, fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, color = if (on) onColor else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun DayLine(day: String) {
+    val c = Belfry.colors
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.weight(1f).height(1.dp).background(c.line))
+        Text(day, fontSize = 12.sp, color = c.muted, modifier = Modifier.padding(horizontal = 10.dp))
+        Box(Modifier.weight(1f).height(1.dp).background(c.line))
+    }
+}
+
+/** The sender, the state, and for the channel's admins: take it / let go, close / reopen. */
 @Composable
 private fun StateLine(groupId: String, t: InboxThread, admin: Boolean) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
-    val state = when (t.state.status) { CardStatus.OPEN -> "Open"; CardStatus.WAITING -> "Answered"; CardStatus.CLOSED -> "Closed" }
-    val who = t.state.assignee?.let { if (it == world.me) "You have it" else world.displayName(it) + " has it" } ?: "Nobody has it"
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("$state · $who", fontSize = 14.sp, color = c.text, modifier = Modifier.weight(1f).testTag("mail-state"))
-        if (admin && !world.isLocked(groupId)) {
-            val mine = t.state.assignee == world.me
-            BusyButton(if (mine) "Let go" else "Take", onClick = { session.send(Actions.assignCard(groupId, t.id, if (mine) "" else world.me)) }, kind = ButtonKind.Ghost, small = true)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(BelfryIcons.Mail, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            val closed = t.state.status == CardStatus.CLOSED
-            BusyButton(if (closed) "Reopen" else "Close", onClick = { session.send(Actions.setCardStatus(groupId, t.id, !closed)) }, kind = ButtonKind.Ghost, small = true)
+            val name = t.name.ifEmpty { null }
+            Text(if (name != null) "$name <${t.address}>" else t.address, fontSize = 15.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatePill(t.state.status, Modifier.testTag("mail-state"))
+            val mine = t.state.assignee == world.me
+            val has = t.state.assignee?.let { if (it == world.me) "You have it" else world.displayName(it) + " has it" }
+            val locked = !admin || world.isLocked(groupId)
+            when {
+                locked -> Text(has ?: "Nobody yet", fontSize = 14.sp, color = c.muted)
+                else -> BusyButton(
+                    when { mine -> "You have it · let go"; has != null -> "$has · take it"; else -> "Nobody yet · take it" },
+                    onClick = { session.send(Actions.assignCard(groupId, t.id, if (mine) "" else world.me)) },
+                    kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("mail-take"),
+                )
+            }
+            if (!locked) {
+                val closed = t.state.status == CardStatus.CLOSED
+                BusyButton(if (closed) "Reopen" else "Close", onClick = { session.send(Actions.setCardStatus(groupId, t.id, !closed)) }, kind = ButtonKind.Ghost, small = true)
+            }
         }
     }
 }
 
-/** One e-mail in its frame: received light, sent solid. */
+/** Open / Answered / Closed as a small pill: words first, colour second (e-ink). */
 @Composable
-private fun MailFrame(world: sh.belfry.core.model.World, m: MailItem, onFull: () -> Unit) {
+internal fun StatePill(status: CardStatus, modifier: Modifier = Modifier) {
     val c = Belfry.colors
-    val shape = RoundedCornerShape(14.dp)
-    val bg = if (m.incoming) c.surface else c.accent
-    val fg = if (m.incoming) c.text else c.onAccent
-    Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
-        Column(
-            Modifier.fillMaxWidth().clip(shape).border(1.dp, c.line, shape).background(bg).padding(12.dp).testTag(if (m.incoming) "mail-frame-in" else "mail-frame-out"),
+    val (text, open) = when (status) { CardStatus.OPEN -> "Open" to true; CardStatus.WAITING -> "Answered" to false; CardStatus.CLOSED -> "Closed" to false }
+    val shape = RoundedCornerShape(50)
+    Text(
+        text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (open) c.orange else c.muted,
+        modifier = modifier.clip(shape).border(1.dp, if (open) c.orange else c.line, shape).background(if (open) c.orange.copy(alpha = 0.12f) else c.surface).padding(horizontal = 10.dp, vertical = 3.dp),
+    )
+}
+
+/** An outsider's initials on grey: guests by e-mail have no profile. */
+@Composable
+internal fun MailFace(name: String, size: androidx.compose.ui.unit.Dp = 36.dp) {
+    val c = Belfry.colors
+    val letters = name.split(' ', '.', '@').filter { it.isNotEmpty() }.let { w ->
+        val one = w.firstOrNull() ?: "?"
+        one.take(1).uppercase() + (one.drop(1).firstOrNull { it.isLetter() }?.toString() ?: "")
+    }
+    Box(Modifier.size(size).clip(CircleShape).background(c.surface2), contentAlignment = Alignment.Center) {
+        Text(letters, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+    }
+}
+
+/** One e-mail as a message row: received = the sender's initials and "guest, by e-mail"; sent = the member, "sent as <alias>@". */
+@Composable
+private fun MailEntry(world: sh.belfry.core.model.World, m: MailItem, alias: String, onFull: () -> Unit) {
+    val c = Belfry.colors
+    val clipboard = LocalClipboardManager.current
+    var menu by remember { mutableStateOf(false) }
+    val text = m.m.text.removePrefix("**${m.subject}**").trimStart()
+    Box {
+        Row(
+            Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { menu = true }).padding(horizontal = 12.dp, vertical = 6.dp)
+                .testTag(if (m.incoming) "mail-in" else "mail-out"),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.MailOutline, contentDescription = null, tint = fg, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                val who = if (m.incoming) m.name.ifEmpty { m.address } else "To " + m.address + (m.by?.let { " · by " + world.displayName(it) } ?: "")
-                Text(who, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = fg, modifier = Modifier.weight(1f))
-                Text(ChatFormat.time(world, m.m.at), fontSize = 12.sp, color = fg)
+            if (m.incoming || m.by == null) MailFace(m.name.ifEmpty { m.address }) else sh.belfry.app.ui.kit.Avatar(world.face(m.by!!), size = 36.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val name = if (m.incoming) m.name.ifEmpty { m.address }.split(' ').first() else m.by?.let { if (it == world.me) "You" else world.displayName(it) } ?: alias
+                    Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    Spacer(Modifier.width(6.dp))
+                    if (m.incoming) NameTag(BelfryIcons.Mail, "guest, by e-mail") else NameTag(BelfryIcons.Send, "sent as $alias@", MAIL_BLUE)
+                    Spacer(Modifier.width(8.dp))
+                    Text(ChatFormat.time(world, m.m.at), fontSize = 12.sp, color = c.faint, maxLines = 1)
+                }
+                if (m.incoming && !m.verified) Text("Unverified sender", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.danger)
+                MarkdownText(text.ifEmpty { "(no text)" }, fontSize = 16.sp)
             }
-            if (m.incoming && !m.verified) Text("Unverified sender", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.danger, modifier = Modifier.padding(top = 2.dp))
-            if (m.subject.isNotEmpty()) Text(m.subject, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = fg, modifier = Modifier.padding(top = 6.dp))
-            Spacer(Modifier.size(4.dp))
-            // the bridge's text may start with the subject in bold: it is shown once, above
-            val text = m.m.text.removePrefix("**${m.subject}**").trimStart()
-            MarkdownText(text.ifEmpty { "(no text)" }, fontSize = 16.sp, color = fg)
-            if (m.original != null) {
-                Text("Full e-mail", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = fg,
-                    modifier = Modifier.padding(top = 6.dp).clickable(role = Role.Button, onClick = onFull).padding(vertical = 4.dp).testTag("mail-full"))
-            }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = c.bg) {
+            if (m.original != null) DropdownMenuItem(text = { Text("Full e-mail") }, onClick = { menu = false; onFull() }, leadingIcon = { Icon(BelfryIcons.Mail, null) }, modifier = Modifier.testTag("mail-full"))
+            DropdownMenuItem(text = { Text("Copy text") }, onClick = { menu = false; clipboard.setText(AnnotatedString(text)) }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) })
         }
     }
 }

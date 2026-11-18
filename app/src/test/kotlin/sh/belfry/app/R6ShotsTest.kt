@@ -95,5 +95,11 @@ class R6ShotsTest : DemoShots() {
         assertFalse(world.needsJoinBar(g))
         assertFalse(world.readOnlyClosed(g))
     }
-}
 
+    /** channels/mail-comment: the same thread in Comment mode (yellow). channels/mail-row and mail-reply are mail-feed / mail-thread. */
+    @Test fun mailComment() {
+        val t = world.mailThreads(Demo.HELLO).list.first()
+        demoShot("mail-comment") { sh.belfry.app.ui.cards.MailThreadScreen(Demo.HELLO, t, startWithComment = true) }
+        compose.onNodeWithTag("mode-comment").assertExists()
+    }
+}

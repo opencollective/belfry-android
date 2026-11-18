@@ -109,6 +109,8 @@ fun MessageRow(
     pinned: Boolean = false,
     /** The to-do made from this message: shows the mark that ticks it off. */
     todo: Task? = null,
+    /** A small tag after the name (an e-mail thread's "team only"), with its icon. */
+    tag: Pair<androidx.compose.ui.graphics.vector.ImageVector?, String>? = null,
 ) {
     val c = Belfry.colors
     val world = LocalWorld.current
@@ -150,6 +152,10 @@ fun MessageRow(
                         author, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.hasProfile(), role = Role.Button) { nav.go(Routes.profile(m.pubkey)) },
                     )
+                    if (tag != null) {
+                        Spacer(Modifier.width(6.dp))
+                        NameTag(tag.first, tag.second)
+                    }
                     Spacer(Modifier.width(8.dp))
                     Text(ChatFormat.time(world, m.at), fontSize = 12.sp, color = c.faint, maxLines = 1)
                     if (m.edited != null) {
@@ -369,5 +375,17 @@ private fun PhotoBox(ratio: Float, name: String?, onClick: () -> Unit, content: 
     ) {
         Icon(BelfryIcons.Image, contentDescription = name ?: "Photo", tint = c.faint, modifier = Modifier.size(28.dp))
         content()
+    }
+}
+
+/** The small tag after a name in an e-mail thread ("guest, by e-mail", "sent as hello@", "team only"). */
+@Composable
+fun NameTag(icon: androidx.compose.ui.graphics.vector.ImageVector?, text: String, color: Color = Belfry.colors.muted) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(13.dp))
+            Spacer(Modifier.width(3.dp))
+        }
+        Text(text, fontSize = 12.sp, color = color, maxLines = 1)
     }
 }

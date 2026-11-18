@@ -147,6 +147,9 @@ fun Composer(
     draftKey: String? = null,
     /** True while the box holds something else than a new message (an edit): the draft is left alone. Read in a snapshot. */
     draftPaused: () -> Boolean = { false },
+    /** A mode's colour (an e-mail thread: blue for an e-mail, yellow for a comment): the field's border and Send. */
+    tint: androidx.compose.ui.graphics.Color? = null,
+    onTint: androidx.compose.ui.graphics.Color? = null,
 ) {
     val c = Belfry.colors
     if (draftKey != null) ComposerDraftKeeper(state, draftKey, draftPaused)
@@ -262,7 +265,7 @@ fun Composer(
             }
             val shape = RoundedCornerShape(10.dp)
             Box(
-                Modifier.weight(1f).heightIn(min = 40.dp).clip(shape).border(1.dp, c.line, shape).background(c.bg).padding(horizontal = 12.dp, vertical = 9.dp),
+                Modifier.weight(1f).heightIn(min = 40.dp).clip(shape).border(if (tint != null) 2.dp else 1.dp, tint ?: c.line, shape).background(c.bg).padding(horizontal = 12.dp, vertical = 9.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 if (v.text.isEmpty()) Text(placeholder, fontSize = 16.sp, color = c.faint, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -277,7 +280,7 @@ fun Composer(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            Box(Modifier.size(40.dp).clip(shape).background(if (canSend || busy.busy) c.accent else c.surface2), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(40.dp).clip(shape).background(if (canSend || busy.busy) (tint ?: c.accent) else c.surface2), contentAlignment = Alignment.Center) {
                 BusyIconButton(
                     BelfryIcons.Send, "Send",
                     onClick = {
@@ -290,7 +293,7 @@ fun Composer(
                     },
                     modifier = Modifier.testTag("composer-send"),
                     enabled = canSend,
-                    tint = if (canSend || busy.busy) c.onAccent else c.faint,
+                    tint = if (canSend || busy.busy) (onTint ?: c.onAccent) else c.faint,
                     busy = busy,
                     // the text, photos and picks stay in the box (cleared only after onSend returned)
                     onError = { state.error = (it as? ActionException)?.message ?: "Not saved on this phone. Try again." },
