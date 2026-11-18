@@ -1979,3 +1979,42 @@ there), until the web reads it too.
   field. Editing a to-do's title has no event in the protocol: not offered.
 - Tests: `core/.../model/TodoAssignTest.kt`.
 
+
+### 19.41 Who reads a channel, closed channels, a channel's notifications (round 6; = iOS SPEC 19.38, web c0a1cc2 / chat 8d31c30; `vectors/visibility.json`)
+
+Taken as the iPhone app wrote it (belfry-ios 8cc6e78, SPEC 19.38; read it there for every word).
+In short: Settings → "Who can read it" = Members only / Public (asks first: "Make #<name> public?")
+/ Closed (never #general; for a group also its question and Requests are accepted: by its
+stewards or when 1–5 members vouch). Public / members only = the whole web-settings object
+written back with `visibility`, `slug`, `on` (true when going public) and `periods`
+(`[[from, to | null]]`, never retroactive); closed / open = the 9002's `closed` + `prompt` or
+`open` (going closed from public writes both, members only first). Reading: public wins over
+closed, else members only. A closed channel I'm not in and don't run (not a belfry admin): read
+only, the bar "People ask to join this channel." + Ask to join (a 9021 with the answer), then
+"Pending · The channel's stewards will answer." The pull-down's Notifications row opens ONE sheet
+"Notify me about #<name>": Everything (`all`) / When it's for me (`default`; `mentions` shows
+here too; "(the default here)" after a stored `default`) / Nothing (`off`), applied at once; and
+"Also e-mail me its announcements" (follow `asap` / `stop`; `monthly` shows on).
+- Android: `core/model/Round6.kt` (`PublicPeriod`, `ChannelAccess`, `World.webContent /
+  publicPeriods / channelAccess / needsJoinBar / readOnlyClosed`, `mayClose`,
+  `Actions.webPage / setVisibility`, `NotifyChoice`), tests `Round6Test`. The old "Threads from
+  the web" switch and page address left Settings, as on iOS.
+
+### 19.42 A proposal at the top of its chat (round 6; = iOS SPEC 19.39)
+
+As iOS 19.39: the event screen's three levels (opens at half; a proposal's card opens it at
+full; the keyboard folds it): half = status, "Proposal by <name> · version N", title, the start
+of the summary, "Read the full proposal", the vote buttons (the poll's own `option` tags, with
+counts, mine filled), "You haven't voted yet · X of Y members have" (X = votes on the current
+poll, Y = the chat's members ∪ the voters); full = the whole text, Change the status, New
+version; up = one bar with title, status, tally ("12 yes · 2 no · 1 abstain") and Vote / "Voted
+<option>". Tabs Chat · Versions (once a version 2 exists: version 1 = the card, then each "📝
+Version N" kind 9 with `version` ≥ 2 and `a` = the proposal) · Votes (once someone voted).
+- Android: `Poll.options`, `Proposal.options`, `World.voteTurnout / votesByOption /
+  proposalVersions` (core `Round6.kt`); `ui/cards/ProposalTop.kt`, in `ChannelScreen` for a
+  proposal's chat.
+
+E-mail threads in round 6 (iOS 19.33's round-6 bullet, boards channels/mail-*): every entry a
+message row ("guest, by e-mail" / "sent as <alias>@" / "team only"), the composer's two modes
+Reply to <first name> (blue, an e-mail) / Comment (yellow, a NIP-22 reply), the line under them;
+the feed row shaped like a message. Android: `ui/cards/MailThreadScreen.kt`, `ui/chat/MailRows.kt`.

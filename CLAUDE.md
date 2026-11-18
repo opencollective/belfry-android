@@ -191,6 +191,14 @@ minSdk 26, JDK 17.
   HTTP calls (`path` + `body`, `Session.queueApi`); `World.failedSettings` drives the header's
   error mark (`SettingsFailedMark`). The pull-down's rows hide by `ChannelCounts.showsRow`.
 
+- Round 6 (2026-11-18, SPEC 19.41 / 19.42): `core/model/Round6.kt` (visibility with periods,
+  closed channels, `NotifyChoice`, proposal options / turnout / versions); `ui/info/NotifySheet.kt`
+  (the pull-down's one row that opens a sheet); `ChannelSettingsForm` = Who can read it;
+  `JoinBar` / `ApplySheet` for closed channels too (`needsJoinBar`, `readOnlyClosed`);
+  `MailThreadScreen` with Reply / Comment (`Composer(tint =)`, `MessageRow(tag =)`);
+  `ui/cards/ProposalTop.kt` inside `ChannelScreen` for proposal chats (`proposalStart`).
+  Screenshots `R6ShotsTest`. Demo: closed `Demo.TOOLS`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

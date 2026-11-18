@@ -11,6 +11,16 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
+## Round 6 (Android branch `r6`, 2026-11-18; canvas "Belfry app" boards channels/*; SPEC 19.41 / 19.42)
+
+| Board | Status | Notes |
+|---|---|---|
+| channels/notifications: one sheet, Everything / When it's for me / Nothing, "Also e-mail me its announcements" | done, never run on a device | `ui/info/NotifySheet.kt`; applied at once with a light haptic; the chosen row has a thick border and a filled circle (e-ink). The old Follow screen stays reachable from Me. |
+| channels/settings, channels/make-public: Who can read it (Members only / Public, asks first / Closed) | done, never run live | `vectors/visibility.json` passes (`Round6Test`). Saved on Save through the outbox, like iOS (the web saves when Public is confirmed). Posts and Forward e-mails are web only (not built). |
+| channels/closed-ask: read only + Ask to join / Pending | done, never run live | Demo: a closed #Tool library (Tomás its steward, Lena asking); a belfry admin or a steward sees no bar. Stewards by role can't accept (SERVER-NEEDS of iOS 15). |
+| channels/mail-row, mail-reply, mail-comment | done, never run live | Reply to <name> (blue) / Comment (yellow); "Full e-mail" and Copy on a long press of an e-mail. |
+| channels/proposal-top, proposal-folded | done, never run on a device | Header levels like the event screen; Versions / Votes tabs only when they have something. Website version preview not shown. |
+
 ## Member links (Android branch `memberlink`, 2026-11-18; SPEC 19.39)
 
 | Area | Status | Notes |
