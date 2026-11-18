@@ -204,9 +204,7 @@ fun InviteScreen(
         }
         InvitePanel.MAIN -> InfoPage(if (toCommunity) "Invite to $community" else "Invite to $label") {
             if (!toCommunity) {
-                Hint("Invite someone already in the community")
-                Spacer(Modifier.height(6.dp))
-                InviteSomeone(id, invite)
+                InviteSomeone(id, invite) // its field says "Invite someone already in the community"
                 Hint("They get the link to $label as a direct message. A guest of another channel is added here as a guest.", Modifier.padding(top = 6.dp))
                 Spacer(Modifier.height(16.dp))
                 ActionGroup {
