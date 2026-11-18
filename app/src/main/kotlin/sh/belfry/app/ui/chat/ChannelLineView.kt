@@ -3,6 +3,8 @@ package sh.belfry.app.ui.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -491,6 +493,6 @@ private fun TodoRow(groupId: String, t: Task, onOpen: () -> Unit) {
             Text(t.title, fontSize = 14.sp, color = if (t.pending || t.done) c.muted else c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(if (t.done) "Done" else world.todoWho(t, now), fontSize = 12.sp, color = c.muted)
         }
-        Icon(androidx.compose.material.icons.Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.faint, modifier = Modifier.clickable(role = Role.Button, onClick = onOpen))
+        Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.faint, modifier = Modifier.clickable(role = Role.Button, onClick = onOpen))
     }
 }
