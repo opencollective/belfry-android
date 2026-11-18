@@ -236,7 +236,8 @@ fun ChannelScreen(
             actions = { IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) }) },
             titleMark = if (g != null && world.failedSettings(groupId).isNotEmpty()) ({ SettingsFailedMark(groupId) }) else null,
         )
-        if (!embedded && g != null && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
+        // a proposal's chat: its header says what the line would (round 6)
+        if (!embedded && g != null && !g.isProposal && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
             SummaryLine(groupId, chat, now, attentionOnly = true)
             Hairline()
         }

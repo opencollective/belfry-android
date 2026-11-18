@@ -295,7 +295,7 @@ private fun MailEntry(world: sh.belfry.core.model.World, m: MailItem, alias: Str
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val name = if (m.incoming) m.name.ifEmpty { m.address }.split(' ').first() else m.by?.let { if (it == world.me) "You" else world.displayName(it) } ?: alias
+                    val name = if (m.incoming) m.name.ifEmpty { m.address } else m.by?.let { if (it == world.me) "You" else world.displayName(it) } ?: alias
                     Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                     Spacer(Modifier.width(6.dp))
                     if (m.incoming) NameTag(BelfryIcons.Mail, "guest, by e-mail") else NameTag(BelfryIcons.Send, "sent as $alias@", MAIL_BLUE)

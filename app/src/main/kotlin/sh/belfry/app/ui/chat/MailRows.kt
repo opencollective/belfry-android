@@ -56,7 +56,7 @@ fun MailThreadRow(t: InboxThread, onOpen: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(who.split(' ').first(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Text(who, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(6.dp))
                 NameTag(BelfryIcons.Mail, "guest, by e-mail")
                 Spacer(Modifier.width(8.dp))

@@ -45,7 +45,7 @@ import sh.belfry.core.model.mayArchive
 fun channelSubtitle(world: World, groupId: String, now: Long): String {
     val n = world.channelCounts(groupId, now)
     return listOfNotNull(
-        if (n.isPublic) "Public" else "Members only",
+        when { n.isPublic -> "Public"; world.group(groupId)?.closed == true -> "Closed"; else -> "Members only" },
         "${n.active} active",
         if (n.photos > 0) "${n.photos} ${if (n.photos == 1) "photo" else "photos"}" else null,
         if (n.groups > 0) "${n.groups} ${if (n.groups == 1) "group" else "groups"}" else null,
