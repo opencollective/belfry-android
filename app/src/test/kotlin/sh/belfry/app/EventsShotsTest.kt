@@ -9,7 +9,7 @@ import sh.belfry.app.ui.cards.CheckInScreen
 import sh.belfry.app.ui.cards.EventScreen
 import sh.belfry.core.engine.Demo
 
-/** The event screen redesign (2026-11-18; boards events/*). */
+/** The event screen redesign (2026-11-18; the events boards). */
 class EventsShotsTest : DemoShots() {
     private val repair get() = world.eventByLink(Demo.REPAIR_D)!!
 
