@@ -62,7 +62,7 @@ fun NoAccessScreen() {
         known = session.members.myEmail()?.also { email = it }
         if (agreements == null) load()
     }
-    val logOut: () -> Unit = { signOut()?.let { openInBrowser(context, it) } }
+    val logOut: suspend () -> Unit = { signOut()?.let { openInBrowser(context, it) } }
     if (sent) {
         SignedOutPage {
             Column(Modifier.fillMaxWidth().padding(top = 100.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -97,9 +97,7 @@ fun NoAccessScreen() {
             Column(Modifier.fillMaxWidth()) {
                 BusyButton("I’ve been let in: check again", onClick = { session.wake() }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().testTag("noaccess-check"))
                 Spacer(Modifier.height(6.dp))
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    androidx.compose.material3.TextButton(onClick = logOut) { Text("Log out", fontSize = 16.sp, color = c.text, fontWeight = FontWeight.SemiBold) }
-                }
+                BusyButton("Log out", onClick = logOut, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth())
             }
         },
     )
