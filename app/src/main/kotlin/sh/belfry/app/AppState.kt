@@ -271,6 +271,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         // one account is live at a time: the one that was open stops
         val old = _session.value
         if (old != null && old !== s) try { old.stop() } catch (e: Exception) { }
+        s.onBecameMember = { channel -> reopenAsMember(s, channel) }
         s.start()
         s.setOnline(online)
         _session.value = s
@@ -298,6 +299,34 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
                 withContext(Dispatchers.Default) { accountsNow().onDomain(ev.domain).firstOrNull() }?.let { switchTo(it.id) }
             }
         }
+    }
+
+    /**
+     * This guest became a member (a member link's code, a link used with the account, the
+     * register): the account opens again, as the web reloads, so the relays see a member's key and
+     * send every channel; CHANNEL opens once it is in.
+     */
+    private fun reopenAsMember(s: Session, channel: String?) {
+        scope.launch {
+            if (_session.value !== s) return@launch
+            if (!channel.isNullOrEmpty()) _openAfter.value = s.community.domain to channel
+            val next = try { onboarding.resume(s.accountId) } catch (e: Exception) { null } ?: return@launch
+            if (_session.value === s) enter(next)
+        }
+    }
+
+    /**
+     * A member link's invitation, "Log in instead", after the link was opened on this device: the
+     * placeholder guest goes (its session revoked), the sign-in starts, and the link waits to be
+     * used with the account once signed in (the "Join with your account?" sheet).
+     */
+    suspend fun logInForInvite() {
+        val s = _session.value ?: return
+        val link = s.guest.value?.invite?.let { InviteLink(s.community.domain, it) }
+        prefill = null
+        signOut(revoke = true)
+        if (link != null) withContext(Dispatchers.Default) { try { onboarding.pendingInvite = link } catch (e: Exception) { } }
+        if (_session.value != null) _adding.value = Adding.SignIn
     }
 
     fun clearMessage() { _message.value = null }
@@ -410,7 +439,10 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         val address = sh.belfry.core.model.GuestMode.signInPrefill(email, domain, nip05)
         prefill = SignInPrefill(address ?: "", if (address == null) "Sign in with your address here (name@$domain), or with the browser using the e-mail you typed." else null)
         if (channel.isNotEmpty()) _openAfter.value = domain to channel
+        // a member link: once signed in, the account uses it (the "Join with your account?" sheet)
+        val memberLink = s.guest.value?.invite?.let { InviteLink(domain, it) }
         signOut(revoke = !moved)
+        if (memberLink != null) withContext(Dispatchers.Default) { try { onboarding.pendingInvite = memberLink } catch (e: Exception) { } }
         if (_session.value != null) _adding.value = Adding.SignIn
     }
 

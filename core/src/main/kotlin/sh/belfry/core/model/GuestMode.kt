@@ -47,6 +47,56 @@ object GuestMode {
         else -> "That did not work. Try again."
     }
 
+    // ---- member links (collective-belfry roles.py "member links"; the web's GuestJoin.tsx) ----------
+
+    /** What `/guest/save/verify` leads to. */
+    enum class AfterVerify {
+        /** A member link: a member now. The guest state goes everywhere; the application form never shows. */
+        MEMBER,
+        /** Out of guest mode with a name: the composer is there (a guest). */
+        JOINED,
+        /** A guest with a name saved their e-mail. */
+        SAVED,
+    }
+
+    /** ANSWER_MEMBER: the answer's `"member": true`; JOINED: its `joined`. */
+    fun afterVerify(answerMember: Boolean, joined: Boolean): AfterVerify = when {
+        answerMember -> AfterVerify.MEMBER
+        joined -> AfterVerify.JOINED
+        else -> AfterVerify.SAVED
+    }
+
+    /**
+     * Whether "Become a member" (the guest's application, guestapply.py) may show. Never to
+     * someone the app knows is a member: the register said so ([registerKind] `member` / `agent`),
+     * or this device has no guest record and no guest join of mine is in the channels.
+     */
+    fun mayApply(amGuest: Boolean, reading: Boolean, registerKind: String?): Boolean =
+        registerKind != "member" && registerKind != "agent" && (amGuest || reading)
+
+    /** "as a member", "as Host": the plain role reads as a member. */
+    fun asWho(label: String): String = if (label.trim().lowercase() == "member") "a member" else label.trim()
+
+    /** The one screen a member link opens (no channel behind it). */
+    fun memberInviteTitle(community: String, label: String): String =
+        "You’re invited to join ${community.trim().ifEmpty { "this belfry" }} as ${asWho(label)}"
+
+    /** Under the title: what happens, and how long the membership is. */
+    fun memberInviteLine(membership: String): String =
+        "Sign up with your name and e-mail address" +
+            (when (membership) { "year" -> " and you are a member for a year"; "month" -> " and you are a member for a month"; else -> "" }) +
+            ", or log in if you have an account here already."
+
+    /** The sign-up step of a member link (the web's Join sheet for a member link). */
+    fun memberWhoLine(community: String, membership: String): String =
+        "Your name and e-mail address, and you are a member of ${community.trim().ifEmpty { "this belfry" }}" +
+            (when (membership) { "year" -> " for a year"; "month" -> " for a month"; else -> "" }) +
+            ". We’ll send a 6-digit code to your e-mail to confirm it."
+
+    /** An application refused with `not_guest` by someone the register knows as a member. */
+    const val ALREADY_MEMBER = "member_already"
+    const val ALREADY_MEMBER_TEXT = "You are a member already."
+
     /** A name as it is sent: trimmed, inner spaces folded, at most 100 characters. */
     fun cleanName(name: String): String = name.trim().replace(Regex("\\s+"), " ").take(100)
 

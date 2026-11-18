@@ -56,6 +56,13 @@ fun ApplyScreen() {
     val nav = LocalNav.current
     val apply by session.members.apply.collectAsState()
     val rules by session.members.publicCharter.collectAsState()
+    val guest by session.guest.collectAsState()
+    val world = LocalWorld.current
+    // never to a member (a member link, an admin's decision): the belfry is theirs already
+    if (!world.mayApply(guest?.reading == true)) {
+        LaunchedEffect(Unit) { nav.back() }
+        return
+    }
     LaunchedEffect(Unit) {
         try { session.members.refreshPublicCharter() } catch (e: Exception) { }
         try { session.members.refreshApply() } catch (e: Exception) { }
@@ -86,7 +93,12 @@ fun ApplyScreen() {
             error?.let { Text(it, color = c.danger, fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp)) }
             Spacer(Modifier.height(16.dp))
             BusyButton("Send my request", onClick = {
-                try { session.members.guestApply(answer, ticked.toList()); error = null } catch (e: ActionException) { error = e.message }
+                try {
+                    session.members.guestApply(answer, ticked.toList()); error = null
+                } catch (e: ActionException) {
+                    // `not_guest` from a member: no error, the belfry opens again as theirs
+                    if (e.code == sh.belfry.core.model.GuestMode.ALREADY_MEMBER) { error = null; nav.back() } else error = e.message
+                }
             }, enabled = answer.isNotBlank(), modifier = Modifier.fillMaxWidth().testTag("apply-send"))
         }
     }

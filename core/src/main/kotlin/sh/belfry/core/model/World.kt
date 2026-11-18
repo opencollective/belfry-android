@@ -691,7 +691,17 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     private val allGuestJoins: List<GuestJoin> by lazy { groups.flatMap { guestJoins(it.id) }.filter { !it.member } }
 
     /** Am I (still) a guest here, and not a member. */
-    val amGuest: Boolean by lazy { allGuestJoins.any { it.pubkey == me } || groups.any { me in it.reading } }
+    val amGuest: Boolean by lazy {
+        // the register's word first: a member (a member link, an admin) is never a guest here,
+        // whatever old guest events of mine the channels still hold
+        when (ctx.kinds[me]) {
+            "member", "agent" -> false
+            else -> allGuestJoins.any { it.pubkey == me } || groups.any { me in it.reading }
+        }
+    }
+
+    /** Whether "Become a member" may show to me (never to a member: GuestMode.mayApply). READING: this device's guest record. */
+    fun mayApply(reading: Boolean): Boolean = GuestMode.mayApply(amGuest, reading, ctx.kinds[me])
 
     /** Keys that are reading somewhere (guest mode) and in no channel otherwise: nobody to mention or list. */
     val readingOnly: Set<String> by lazy {

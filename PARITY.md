@@ -11,6 +11,16 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
+## Member links (Android branch `memberlink`, 2026-11-18; SPEC 19.39)
+
+| Area | Status | Notes |
+|---|---|---|
+| Member link, no account here: one screen "You’re invited to join … as …", Sign up / Log in, no channel behind it | done, never run live | The web (2e9a76b) does the same. Sign up uses the link in guest mode under the hood; the member page stands in for the channel until the code. |
+| `/guest/save/verify` `member: true` → a member: guest state cleared, account opened again | done, never run live | Also on `join` with an account (`member: true`) and when whois says `member` for a device with a guest record. |
+| Application form never for a member; `not_guest` → a member, no error | done | `World.mayApply`. |
+| Groups relay: metadata without `since`, a member's first full catch-up | done | Fixes "only #general" after a member link and channels named by their id. |
+| Member link used with an account (signed in) | done | The join sheet says "join <community> as <role>" to a guest of this belfry; a member just gets the channel. A guest without an e-mail (`email_needed`) still has to save it from the bar. |
+
 ## Round 5 (Android branch `r5`, 2026-11-17)
 
 | Area (SPEC) | Status | Notes |

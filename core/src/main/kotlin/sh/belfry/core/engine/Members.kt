@@ -24,6 +24,7 @@ import sh.belfry.core.model.charter
 import sh.belfry.core.model.charterGroup
 import sh.belfry.core.model.groupMeta
 import sh.belfry.core.model.isAgent
+import sh.belfry.core.model.GuestMode
 import sh.belfry.core.model.isGuest
 import sh.belfry.core.model.mayModerate
 import sh.belfry.core.model.townChannels
@@ -226,7 +227,16 @@ class MembersService internal constructor(private val s: Session) {
         val st = if (demo) {
             s.checkWrite(); delay(300)
             ApplyStatus(MyApplication(1, "new", 0, if (_membership.value.accept == "vouches") _membership.value.vouches else 0, emptyList()), null, _membership.value.accept)
-        } else api { it.guestApply(answer, agreed) }
+        } else try {
+            api { it.guestApply(answer, agreed) }
+        } catch (e: ActionException) {
+            // `not_guest`: this key holds no guest pass. Unless the register says I am a guest
+            // or nobody at all, that is a member (a member link, an admin): no error, the belfry opens
+            if (e.code != "not_guest") throw e
+            if (s.registerSaysMember() == false) throw ActionException("gone", MembersApi.APPLY_ERRORS.getValue("gone"))
+            s.becameMember(null)
+            throw ActionException(GuestMode.ALREADY_MEMBER, GuestMode.ALREADY_MEMBER_TEXT)
+        }
         keepApply(st)
         return st
     }

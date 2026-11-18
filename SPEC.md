@@ -1904,3 +1904,51 @@ first two minutes after this device made them. The question is `{"kinds":[39000]
 and names #general counts (no answer = unknown = the normal screen); a 39000, 9007 or 9002 for
 the id means it is there. (Android) `core/model/Archive.kt` `presenceAskable`, `presenceAfter`;
 `Relay.queryUntilEose`.
+
+### 19.39 Member links, and a guest who becomes a member (Android, 2026-11-18)
+
+(collective-belfry `guests.py` / `roles.py` "member links"; web `core/auth.ts` `memberLinkOf`,
+`core/guestjoin.ts` `becameMember`.) A member link is `https://chat.<domain>/join/<token>` like a
+guest link; only the belfry's answers tell them apart.
+
+- **Which kind.** `GET <api.channel_invites>/<token>` answers `"as": "member" | "guest"`, and for
+  a member link `member_role`, `member_role_label` (cut to 40; empty → "Member") and `membership`
+  (`month` | `year`, anything else = permanent). The join answer (`POST …/join`) carries the
+  same fields and `"email_needed": true`. A member link is **never** kept as a co-host token: it
+  needs no second use.
+- **Opened with no account here.** The info is read first (at most 6 s; no answer → the guest
+  link flow of 19.26, unchanged). A member link that is open shows one screen, nothing behind
+  it: "You’re invited to join <community> as <a member | Role>" (+ "<inviter> invited you.",
+  "Sign up with your name and e-mail address [and you are a member for a year | month], or log in
+  if you have an account here already."), **Sign up**, **Log in**, Close. Log in: the sign-in
+  starts and the link waits; once signed in the "Join with your account?" sheet uses it with the
+  account. Sign up: the link is used as in 19.26 (`{}` → a reading guest; the device keeps
+  `member` and the token with its guest record), but instead of the channel the app shows the
+  member page: the same title, the Join form with "Your name and e-mail address, and you are a
+  member of <community>[ for a year | for a month]. We’ll send a 6-digit code…", the code step,
+  and "I have an account: log in" (drops the placeholder guest, revokes its session, keeps the
+  link pending). The channel is never drawn while the guest record says `member` + `reading`.
+- **The code.** `POST /guest/save/verify` → `{"saved": true, "joined", "member": true, "role"}`
+  when the link made them a member. Then, and also when an account's `POST …/join` answers
+  `"member": true`, or `whois` says `member` for a device that still keeps a guest record: the
+  guest record goes, the register's answer for me becomes `member` at once (so `amGuest` is
+  false), the groups relay is asked for everything once (below), and the account is opened
+  again (the web reloads), landing in the link's channel. `member: false` (the belfry could not
+  make them a member): a saved guest, as before.
+- **Never an application from a member.** "Become a member" (guestapply.py) shows only when
+  `World.mayApply`: not when whois says `member` / `agent`, else when I am a guest here. A
+  `409 not_guest` to `POST /applications {"apply": …}` asks whois about me: `false` (a guest, or
+  no pass at all: 401/403) → "You are no longer a guest here."; otherwise it is a member: the
+  member path above runs and the form closes without an error.
+- **The groups relay subscription** (the cause of "a new member sees only #general" and of a
+  channel named by its id, "#issues-5fce"). Two filters: the groups' metadata kinds 39000–39003
+  **without `since`** (limit 1000; replaceable, one per group, usually older than anything
+  else), and every other kind since the newest event here less an hour (limit 2000). A device
+  whose store never had a member's view (store key `groups-full-1` missing: a fresh sign-in, or
+  a guest who just became a member) asks the second filter from 0 once; the key is set at that
+  subscription's EOSE. A member's channel list is every live, non-archived channel from the
+  metadata (open or closed, like the web's `townCategories`), not the relay's 39002 lists; a
+  guest's is the channels they are in. A channel known only from its messages is named by its id
+  until its 39000 arrives (a non-everyday event: the next snapshot is built anew).
+- Tests: `core/.../model/MemberLinkTest.kt`.
+

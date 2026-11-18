@@ -44,6 +44,7 @@ import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalSignOut
 import sh.belfry.app.ui.nav.LocalStatus
+import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.SessionScope
 import sh.belfry.app.ui.shell.ShellState
 import sh.belfry.app.ui.signin.JoinScreen
@@ -130,8 +131,16 @@ private fun SignedIn(state: AppState, session: Session) {
     }
     CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts) {
         SessionScope(session, nav) {
+            val guestNow by session.guest.collectAsState()
             if (opening != null) {
                 // under the loading screen: nothing is drawn (no empty channel, no home)
+            } else if (guestNow?.memberInvite == true) {
+                // a member link opened (SPEC 19.39): its own page until they are a member, no channel behind it
+                sh.belfry.app.ui.people.MemberJoinPage(
+                    session,
+                    onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) },
+                    onLogIn = { state.logInForInvite() },
+                )
             } else if (LocalStatus.current.access == AccessState.REFUSED) {
                 NoAccessScreen()
             } else {
@@ -248,10 +257,14 @@ private fun JoinOffer(state: AppState) {
     }
     BelfrySheet(onDismiss = { state.forgetInvite() }, title = "Join with your account?") {
         val info = invitation?.info
+        val amGuest = LocalWorld.current.amGuest
         val text = when {
             !sameCommunity -> "This invite is for another community."
             info == null -> if (error == null) "Opening the invite…" else ""
             info.closedMessage != null -> info.closedMessage ?: ""
+            // a member link used by a guest of this belfry makes them a member; a member just gets the channel
+            info.memberLink != null && amGuest ->
+                "${info.inviter.ifEmpty { "A member" }} invited you to join ${info.community.ifEmpty { session.community.name }} as ${sh.belfry.core.model.GuestMode.asWho(info.memberLink?.label ?: "member")}. You join as yourself: no new account."
             else -> "${info.inviter.ifEmpty { "A member" }} invited you to # ${info.channelName}. You join as yourself: no new account."
         }
         if (text.isNotEmpty()) Text(text, fontSize = 15.sp, color = c.muted)

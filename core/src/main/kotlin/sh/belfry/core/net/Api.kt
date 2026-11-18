@@ -66,6 +66,8 @@ data class InviteInfo(
     /** open | used | expired | revoked */
     val state: String,
     val days: Int,
+    /** A member link (roles.py): using it makes the person a member with this role; null = a guest link. */
+    val memberLink: MemberLink? = null,
 ) {
     val isOpen: Boolean get() = state == "open"
 
@@ -78,6 +80,23 @@ data class InviteInfo(
     }
 }
 
+/**
+ * What a member link gives (collective-belfry roles.py, docs/roles.md): the role (id and label)
+ * and how long the membership lasts. Read from the invite's info and from the join answer
+ * (`"as": "member"`, `member_role`, `member_role_label`, `membership`); the web's `memberLinkOf`.
+ */
+data class MemberLink(val role: String, val label: String, val membership: String) {
+    companion object {
+        /** Null unless the answer says `"as": "member"`. Fixed values only; the label is cut to 40. */
+        fun of(b: JsonObject?): MemberLink? {
+            if (b == null || b.s("as") != "member") return null
+            val m = b.s("membership")
+            val label = b.s("member_role_label")?.trim()?.take(40)?.takeIf { it.isNotEmpty() } ?: "Member"
+            return MemberLink(b.s("member_role") ?: "member", label, if (m == "month" || m == "year") m else "permanent")
+        }
+    }
+}
+
 /** A new guest account: its NIP-46 session (bound to the key that signed the request). */
 data class JoinedNew(
     val bunkerUrl: String,
@@ -87,13 +106,21 @@ data class JoinedNew(
     val emailNeeded: Boolean = false,
     /** Guest mode (SPEC 19.26): a nameless guest who reads until they join with a name and an e-mail. */
     val reading: Boolean = false,
+    /** A member link: saving the e-mail (name, e-mail, code) makes them a member. */
+    val member: MemberLink? = null,
 )
 
-/** What `POST /guest/save/verify` did: the account is saved; [joined]: they were in guest mode until now. */
-data class GuestSaved(val joined: Boolean)
+/**
+ * What `POST /guest/save/verify` did: the account is saved; [joined]: they were in guest mode
+ * until now; [member]: the link they came with was a member link and they are a member now.
+ */
+data class GuestSaved(val joined: Boolean, val member: Boolean = false)
 
-/** An existing account used a guest link. */
-data class JoinedAccount(val channel: String, val already: Boolean, val guest: Boolean)
+/**
+ * An existing account used a guest link. [member]: a member link made this guest a member;
+ * [emailNeeded]: a member link used by a guest without an e-mail (saving it makes them a member).
+ */
+data class JoinedAccount(val channel: String, val already: Boolean, val guest: Boolean, val member: Boolean = false, val emailNeeded: Boolean = false)
 
 data class Place(
     val id: String? = null,
@@ -346,6 +373,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             inviter = (b.s("inviter") ?: "").take(100),
             state = b.s("state") ?: "used",
             days = b["days"].int() ?: 30,
+            memberLink = MemberLink.of(b),
         )
     }
 
@@ -375,7 +403,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         // guest mode unless the belfry says it named them (an older belfry answers without `reading`
         // only to a name, so a request without one is in guest mode)
         val reading = b["reading"].bool() ?: (name == null)
-        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey), b["email_needed"].bool() ?: false, reading)
+        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey), b["email_needed"].bool() ?: false, reading, MemberLink.of(b))
     }
 
     /** Someone signed in uses a guest link: their account gets the channel (no second account). */
@@ -386,7 +414,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         if (!a.ok || b == null || channel == null) {
             fail(a, JOIN_ERRORS + ("name_needed" to "This account can’t use invites."), "The invite could not be used just now.")
         }
-        return JoinedAccount(channel, b["already"].bool() ?: false, b["guest"].bool() ?: false)
+        return JoinedAccount(channel, b["already"].bool() ?: false, b["guest"].bool() ?: false, b["member"].bool() == true, b["email_needed"].bool() == true)
     }
 
     /**
@@ -421,7 +449,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             if (a.error == "wrong_code") throw ApiException("wrong_code", a.status, GUEST_ERRORS.getValue("wrong_code"), triesLeft = a.body?.get("tries_left").int())
             fail(a, GUEST_ERRORS, "That did not work. Try again.")
         }
-        return GuestSaved(a.body?.get("joined").bool() == true)
+        return GuestSaved(a.body?.get("joined").bool() == true, a.body?.get("member").bool() == true)
     }
 
     // ---- places (places.py) -----------------------------------------------------------------------

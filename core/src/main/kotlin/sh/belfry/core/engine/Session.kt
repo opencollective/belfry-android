@@ -146,7 +146,17 @@ data class GuestInfo(
      * until they join with a name, an e-mail and the code mailed to it.
      */
     val reading: Boolean = false,
-)
+    /**
+     * A member link (roles.py): joining with a name, an e-mail and the code makes them a member
+     * with this role. While [reading], the app shows only the member invitation (no channel).
+     */
+    val member: sh.belfry.core.net.MemberLink? = null,
+    /** The member link's token, kept so that "Log in instead" can use it with an account. */
+    val invite: String? = null,
+) {
+    /** A member link opened and not joined yet: the app shows the invitation, never the channel behind it. */
+    val memberInvite: Boolean get() = member != null && reading
+}
 
 /** A photo or file to send with a message. */
 class NewAttachment(val name: String, val mime: String, val bytes: ByteArray, val width: Int? = null, val height: Int? = null)
@@ -236,6 +246,14 @@ class Session(
     /** Guest mode (SPEC 19.26): reading only; every write is refused here and opens the Join sheet. */
     val reading: Boolean get() = _guest.value?.reading == true
 
+    /**
+     * Told once when this guest became a member (a member link's code, a link used with the
+     * account, the register saying so). The app opens the account again, as the web reloads: the
+     * relays then see a member's key and send every channel. CHANNEL: where to land, when known.
+     */
+    @Volatile var onBecameMember: ((channel: String?) -> Unit)? = null
+    @Volatile private var becameMemberTold = false
+
     private val _joinAsked = MutableStateFlow(false)
     /** Something that writes was tried in guest mode (or Join was tapped): the Join sheet is open. */
     val joinAsked: StateFlow<Boolean> = _joinAsked
@@ -284,6 +302,8 @@ class Session(
     /** An old belfry without `/whois` (404): join and label events decide. */
     @Volatile private var noWhois = false
     @Volatile private var lastRecheck = 0L
+    /** The live groups subscription asked for the whole history ([K_GROUPS_FULL] is set at its EOSE). */
+    @Volatile private var groupsFullAsked = false
 
     private val uploaded = HashMap<String, String>() // blobKey → URL, so a retry does not upload twice
     private val demoFollows = HashMap<String, String>()
@@ -365,6 +385,9 @@ class Session(
             if (v == null) { if (kinds.remove(k) != null) changed = true } else if (kinds.put(k, v) != v) changed = true
         }
         if (changed) markDirty()
+        // the register says this guest of the device is a member now (a member link, an admin's
+        // decision, an accepted request): the guest state goes
+        if (kinds[me] == "member" && _guest.value != null) becameMember(null)
     }
 
     /**
@@ -427,6 +450,7 @@ class Session(
 
     private suspend fun onGroupsEose() {
         setStatus { it.copy(access = AccessState.IN) }
+        if (groupsFullAsked) { groupsFullAsked = false; store.set(K_GROUPS_FULL, "1") }
         launchSafely { checkPresence() }
         // A new belfry's groups relay has no channel yet: the first member in opens #general. Once.
         // (Not a guest in guest mode: reading leaves no trace.)
@@ -521,6 +545,8 @@ class Session(
             }
         }
         launchSafely { refreshCommunity() }
+        // a guest on this device: is that still so? (a member link, an admin, an accepted request)
+        if (_guest.value != null) launchSafely { refreshWhois(listOf(me)) }
         requestFlush()
     }
 
@@ -603,7 +629,11 @@ class Session(
     private fun filters(t: Target): List<JsonObject> {
         if (t == Target.GROUPS) {
             val kinds = KINDS_GROUPS.toSet()
-            return listOf(Filters.of(kinds = KINDS_GROUPS, since = maxOf(0, latest { it.kind in kinds } - 3600), limit = 2000))
+            // a member who has never had the whole groups relay on this device (a guest until now:
+            // the relay showed them only their own channels) asks for everything once
+            val full = !localOnly && _guest.value == null && store.get(K_GROUPS_FULL) == null
+            if (full) groupsFullAsked = true
+            return GroupFilters.of(KINDS_GROUPS, latest { it.kind in kinds }, full)
         }
         val kinds = KINDS_MAIN.toSet()
         val since = maxOf(0, latest { it.kind in kinds } - 3600)
@@ -1369,6 +1399,7 @@ class Session(
     suspend fun joinWithAccount(token: String): JoinedAccount {
         if (localOnly) return JoinedAccount("general", true, false)
         val joined = call { it.joinWithAccount(signer, token) }
+        if (joined.member) { becameMember(joined.channel); return joined }
         if (joined.guest && _guest.value == null) setGuest(GuestInfo(joined.channel, false))
         relay(Target.GROUPS)?.let { it.subscribe(SUB, filters(Target.GROUPS)) } // the new channel's history
         return joined
@@ -1399,8 +1430,11 @@ class Session(
             if (email.trim().lowercase() == GuestMode.DEMO_TAKEN) throw GuestJoinException("taken", moved = true, nip05 = "ana@${community.domain}")
             if (code != GuestMode.DEMO_CODE) throw GuestJoinException("wrong_code", triesLeft = 4)
             if (g?.reading == true && n != null) addToLog(GuestMode.demoJoined(g.channel, me, n, clock()))
+            if (g?.member != null) { becameMember(g.channel); return }
         } else {
-            guestCall { it.guestVerify(signer, email.trim(), code.trim(), n) }
+            val saved = guestCall { it.guestVerify(signer, email.trim(), code.trim(), n) }
+            // a member link: a member now (`"member": true`). Never a guest any more on this device
+            if (GuestMode.afterVerify(saved.member, saved.joined) == GuestMode.AfterVerify.MEMBER) { becameMember(g?.channel); return }
         }
         if (g == null) return
         setGuest(g.copy(saved = true, reading = false))
@@ -1410,6 +1444,41 @@ class Session(
         val token = g.coHost ?: return
         joinWithAccount(token)
         _guest.value?.let { setGuest(it.copy(coHost = null)) }
+    }
+
+    /**
+     * This device's guest became a member: no guest record, the register's answer for me is
+     * "member" (so [World.amGuest] is false at once), the whole groups relay is asked for again,
+     * and the app is told (once) to open the account anew.
+     */
+    internal fun becameMember(channel: String?) {
+        kinds[me] = "member"
+        setGuest(null)
+        _joinAsked.value = false
+        store.remove(K_GROUPS_FULL)
+        rebuild()
+        if (becameMemberTold) return
+        becameMemberTold = true
+        try { onBecameMember?.invoke(channel) } catch (e: Exception) { }
+    }
+
+    /**
+     * Asks the register what I am. True: a member (or a member's agent); false: it answered and I
+     * am a guest or hold no pass; null: no answer (offline, an old belfry, refused).
+     */
+    internal suspend fun registerSaysMember(): Boolean? {
+        if (localOnly) return _guest.value == null && !_world.value.amGuest
+        val got = try {
+            api().whois(signer, listOf(me))
+        } catch (e: ApiException) {
+            // refused: this key holds no active pass at all (not a member)
+            return if (e.status == 401 || e.status == 403) false else null
+        } catch (e: Exception) {
+            return null
+        }
+        val k = got[me]
+        if (k != null) kinds[me] = k else kinds.remove(me)
+        return k == "member" || k == "agent"
     }
 
     private suspend fun <T> guestCall(block: suspend (BelfryApi) -> T): T = withContext(Dispatchers.Default) {
@@ -1522,6 +1591,8 @@ class Session(
         const val LOCAL_BLOB = "https://blob.local/"
         const val K_BRIDGE = "bridge-key"
         const val K_GROUPS_KEY = "groups-key"
+        /** Set once the groups relay sent everything it shows a member (see [GroupFilters]). */
+        const val K_GROUPS_FULL = "groups-full-1"
         const val K_ADMINS = "extra-admins"
         const val K_ABSENT = "groups-absent"
         const val ARCHIVED_TEXT = "This group is archived or deleted: nothing can be posted in it."

@@ -105,6 +105,35 @@ private enum class Step { WHO, CODE, TAKEN }
 
 private const val RESEND_SECONDS = 30
 
+/** Where a join (or a save) is: the step and what was typed, kept across a rotation. */
+private class JoinFlow(
+    stepState: androidx.compose.runtime.MutableState<Step>,
+    nameState: androidx.compose.runtime.MutableState<String>,
+    emailState: androidx.compose.runtime.MutableState<String>,
+    sentToState: androidx.compose.runtime.MutableState<String>,
+    movedState: androidx.compose.runtime.MutableState<Boolean>,
+    nip05State: androidx.compose.runtime.MutableState<String?>,
+    val busy: sh.belfry.app.ui.kit.BusyState,
+) {
+    var step by stepState
+    var name by nameState
+    var email by emailState
+    var sentTo by sentToState // what was typed, as it was when the code went out
+    var moved by movedState
+    var nip05 by nip05State
+}
+
+@Composable
+private fun rememberJoinFlow(): JoinFlow = JoinFlow(
+    rememberSaveable { mutableStateOf(Step.WHO) },
+    rememberSaveable { mutableStateOf("") },
+    rememberSaveable { mutableStateOf("") },
+    rememberSaveable { mutableStateOf("") },
+    rememberSaveable { mutableStateOf(false) },
+    rememberSaveable { mutableStateOf<String?>(null) },
+    rememberBusy(),
+)
+
 /**
  * Join (guest mode: name + e-mail) or save the account ([saveOnly]: a guest who has a name
  * already, the e-mail alone), then the code step, which says where the code went.
@@ -118,57 +147,112 @@ fun JoinSheet(
     onSaved: (email: String) -> Unit = {},
 ) {
     val guest by session.guest.collectAsState()
-    val channel = guest?.channel ?: ""
-    val label = channelLabel(channel)
-    var step by rememberSaveable { mutableStateOf(Step.WHO) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var email by rememberSaveable { mutableStateOf("") }
-    var sentTo by rememberSaveable { mutableStateOf("") } // what was typed, as it was when the code went out
-    var moved by rememberSaveable { mutableStateOf(false) }
-    var nip05 by rememberSaveable { mutableStateOf<String?>(null) }
-    val busy = rememberBusy()
-    val title = when (step) {
+    val label = channelLabel(guest?.channel ?: "")
+    val flow = rememberJoinFlow()
+    val title = when (flow.step) {
         Step.CODE -> "Check your e-mail"
         Step.TAKEN -> "You have an account here"
         Step.WHO -> if (saveOnly) "Save your account" else "Join $label"
     }
-    BelfrySheet(onDismiss = { if (!busy.busy) onClose() }, title = title, modifier = Modifier.testTag("join-sheet")) {
-        when (step) {
-            Step.WHO -> WhoStep(
-                saveOnly = saveOnly, name = name, onName = { name = it }, email = email, onEmail = { email = it },
-                domain = session.community.domain,
-                send = {
-                    session.guestSave(email, if (saveOnly) null else name)
-                    sentTo = email.trim()
-                    step = Step.CODE
-                },
-                onTaken = { m, n -> sentTo = email.trim(); moved = m; nip05 = n; step = Step.TAKEN },
-            )
-            Step.CODE -> CodeStep(
-                to = sentTo,
-                resend = { session.guestSave(sentTo, if (saveOnly) null else name) },
-                verify = { code ->
-                    session.guestVerify(sentTo, code, if (saveOnly) null else name)
-                    onSaved(sentTo)
-                    onClose()
-                },
-                onTaken = { m, n -> moved = m; nip05 = n; step = Step.TAKEN },
-                onAnother = { step = Step.WHO },
-            )
-            Step.TAKEN -> TakenStep(
-                to = sentTo, domain = session.community.domain, label = label, moved = moved,
-                signIn = { onSignIn?.invoke(sentTo, channel, moved, nip05) },
-                onAnother = { step = Step.WHO },
-                busy = busy,
-            )
-        }
+    BelfrySheet(onDismiss = { if (!flow.busy.busy) onClose() }, title = title, modifier = Modifier.testTag("join-sheet")) {
+        JoinFlowBody(flow, session, saveOnly, whoLine = null, onClose = onClose, onSignIn = onSignIn, onSaved = onSaved)
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * A member link opened on this device (SPEC 19.39): the invitation's own page, never the channel
+ * behind it. Sign up = name and e-mail, then the code; the right code makes them a member and the
+ * belfry opens ([Session.onBecameMember]). [onLogIn]: they have an account here.
+ */
+@Composable
+fun MemberJoinPage(
+    session: Session,
+    onSignIn: suspend (email: String, channel: String, moved: Boolean, nip05: String?) -> Unit,
+    onLogIn: suspend () -> Unit,
+) {
+    val c = Belfry.colors
+    val guest by session.guest.collectAsState()
+    val link = guest?.member ?: return
+    val flow = rememberJoinFlow()
+    val community = session.community.name
+    androidx.compose.foundation.layout.Box(Modifier.testTag("member-join")) {
+        sh.belfry.app.ui.signin.SignedOutPage {
+            sh.belfry.app.ui.signin.Logo()
+            Spacer(Modifier.height(32.dp))
+            Text(
+                when (flow.step) {
+                    Step.CODE -> "Check your e-mail"
+                    Step.TAKEN -> "You have an account here"
+                    Step.WHO -> GuestMode.memberInviteTitle(community, link.label)
+                },
+                fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                modifier = Modifier.testTag("member-join-title"),
+            )
+            Spacer(Modifier.height(12.dp))
+            JoinFlowBody(
+                flow, session, saveOnly = false, whoLine = GuestMode.memberWhoLine(community, link.membership),
+                onClose = {}, onSignIn = onSignIn, onSaved = {},
+            )
+            if (flow.step == Step.WHO) {
+                Spacer(Modifier.height(12.dp))
+                BusyButton(
+                    "I have an account: log in", onClick = { onLogIn() }, modifier = Modifier.fillMaxWidth().testTag("member-join-login"),
+                    kind = ButtonKind.Ghost, icon = BelfryIcons.User,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun JoinFlowBody(
+    flow: JoinFlow,
+    session: Session,
+    saveOnly: Boolean,
+    whoLine: String?,
+    onClose: () -> Unit,
+    onSignIn: (suspend (email: String, channel: String, moved: Boolean, nip05: String?) -> Unit)?,
+    onSaved: (email: String) -> Unit,
+) {
+    val guest by session.guest.collectAsState()
+    val channel = guest?.channel ?: ""
+    val label = channelLabel(channel)
+    when (flow.step) {
+        Step.WHO -> WhoStep(
+            saveOnly = saveOnly, whoLine = whoLine, name = flow.name, onName = { flow.name = it }, email = flow.email, onEmail = { flow.email = it },
+            domain = session.community.domain,
+            send = {
+                session.guestSave(flow.email, if (saveOnly) null else flow.name)
+                flow.sentTo = flow.email.trim()
+                flow.step = Step.CODE
+            },
+            onTaken = { m, n -> flow.sentTo = flow.email.trim(); flow.moved = m; flow.nip05 = n; flow.step = Step.TAKEN },
+        )
+        Step.CODE -> CodeStep(
+            to = flow.sentTo,
+            resend = { session.guestSave(flow.sentTo, if (saveOnly) null else flow.name) },
+            verify = { code ->
+                session.guestVerify(flow.sentTo, code, if (saveOnly) null else flow.name)
+                onSaved(flow.sentTo)
+                onClose()
+            },
+            onTaken = { m, n -> flow.moved = m; flow.nip05 = n; flow.step = Step.TAKEN },
+            onAnother = { flow.step = Step.WHO },
+        )
+        Step.TAKEN -> TakenStep(
+            to = flow.sentTo, domain = session.community.domain, label = label, moved = flow.moved,
+            signIn = { onSignIn?.invoke(flow.sentTo, channel, flow.moved, flow.nip05) },
+            onAnother = { flow.step = Step.WHO },
+            busy = flow.busy,
+        )
     }
 }
 
 @Composable
 private fun WhoStep(
     saveOnly: Boolean,
+    whoLine: String?,
     name: String, onName: (String) -> Unit,
     email: String, onEmail: (String) -> Unit,
     domain: String,
@@ -178,7 +262,7 @@ private fun WhoStep(
     val c = Belfry.colors
     var error by remember { mutableStateOf<String?>(null) }
     Text(
-        if (saveOnly) "Add your e-mail address to come back from any device. We’ll send a 6-digit code to it."
+        whoLine ?: if (saveOnly) "Add your e-mail address to come back from any device. We’ll send a 6-digit code to it."
         else "Your name and e-mail address, and you can write here. We’ll send a 6-digit code to your e-mail to confirm it.",
         fontSize = 15.sp, lineHeight = 21.sp, color = c.muted,
     )
@@ -206,7 +290,7 @@ private fun WhoStep(
             if (f?.code == "taken") onTaken(f.moved, f.nip05) else error = e.shown()
         },
     )
-    if (!saveOnly) {
+    if (!saveOnly && whoLine == null) {
         Spacer(Modifier.height(12.dp))
         Hint("Already have an account on $domain? Use its e-mail address.")
     }
