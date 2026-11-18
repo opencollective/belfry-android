@@ -143,7 +143,10 @@ class MemberLinkTest {
     @Test fun groupsMetadataIsAlwaysAskedForWhole() {
         val kinds = listOf(39000, 9, 9000)
         val normal = GroupFilters.of(kinds, newest = t0, full = false)
-        assertEquals(2, normal.size)
+        assertEquals(3, normal.size)
+        // the charter, whole and apart: no agreement falls outside the newest events
+        assertNull(normal[2]["since"])
+        assertEquals(listOf(2100L, 2101L), normal[2]["kinds"]!!.jsonArray.map { it.jsonPrimitive.long })
         val meta = normal[0]
         assertNull(meta["since"])
         assertEquals(GroupFilters.META_KINDS.map { it.toLong() }, meta["kinds"]!!.jsonArray.map { it.jsonPrimitive.long })

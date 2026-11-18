@@ -270,8 +270,7 @@ fun ApplyContent(
                         ) { if (on) Icon(BelfryIcons.Check, contentDescription = "Ticked", tint = c.bg, modifier = Modifier.size(16.dp)) }
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(a.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                            if (a.about.isNotEmpty()) Text(a.about, fontSize = 14.sp, color = c.muted)
+                            AgreementText(a.title, a.about)
                         }
                     }
                 }

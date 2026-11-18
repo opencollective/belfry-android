@@ -128,7 +128,7 @@ fun HomePlace(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> Unit)?
             val toAgree = world.charterToAgree()
             if (toAgree.isNotEmpty()) item(key = "<charter>") {
                 val n = toAgree.size
-                PlaceCard { NavRow(Icons.Outlined.Description, "$n new ${if (n == 1) "agreement" else "agreements"} to read", "Charter: " + toAgree.first().title, { nav.go(Routes.CHARTER) }, badge = n) }
+                PlaceCard { NavRow(Icons.Outlined.Description, "$n new ${if (n == 1) "agreement" else "agreements"} to read", toAgree.first().title, { nav.go(Routes.CHARTER) }, badge = n, subLines = 2) }
             }
             val coming = world.comingUp(now)
             item(key = "<coming-title>") { PlaceSection("Coming up", "Calendar") { shell?.place = ShellState.Place.CALENDAR } }
