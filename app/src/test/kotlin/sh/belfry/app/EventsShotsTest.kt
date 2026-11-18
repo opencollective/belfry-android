@@ -9,6 +9,10 @@ import sh.belfry.app.ui.cards.CheckInScreen
 import sh.belfry.app.ui.cards.EventScreen
 import sh.belfry.core.engine.Demo
 import sh.belfry.core.model.eventByLink
+import sh.belfry.core.model.eventPeople
+import sh.belfry.core.model.Prices
+import sh.belfry.core.model.Ticket
+import sh.belfry.app.ui.cards.TakeSheet
 
 /** The event screen redesign (2026-11-18; the events boards). */
 class EventsShotsTest : DemoShots() {
@@ -42,5 +46,21 @@ class EventsShotsTest : DemoShots() {
             compose.waitUntil(5_000) { compose.onAllNodesWithTag("check-undo").fetchSemanticsNodes().isNotEmpty() }
         }) { CheckInScreen(repair.coord) }
         assertTrue(compose.onAllNodesWithTag("check-result").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    /** events/get-tickets: free, priced with VAT and a date, by application, not on sale now; and the payment note. */
+    @Test fun getTickets() {
+        val e = repair
+        val d = e.d
+        val now = System.currentTimeMillis() / 1000
+        val jan1 = java.time.LocalDate.now(java.time.ZoneOffset.UTC).plusMonths(2).withDayOfMonth(1).atStartOfDay(java.time.ZoneOffset.UTC).toEpochSecond()
+        val tickets = listOf(
+            Ticket("$d:seat", "seat", "Workshop seat", quantity = 6, position = 1),
+            Ticket("$d:supporter", "supporter", "Supporter", position = 2, cost = Prices.of(listOf(listOf("price_at", "50", "EUR", "", jan1.toString()), listOf("vat", "21")), now)),
+            Ticket("$d:volunteer", "volunteer", "Volunteer", closed = true, prompt = "What would you like to do?", position = 3),
+            Ticket("$d:early", "early", "Early bird", position = 4, cost = Prices.of(listOf(listOf("price_at", "30", "EUR", "", "1000")), now)),
+        )
+        demoScreenShot("event-get-tickets") { TakeSheet(e, tickets, world.eventPeople(e), null, onPick = {}, onDismiss = {}) }
+        compose.onNodeWithTag("payment-note").assertExists()
     }
 }
