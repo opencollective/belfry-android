@@ -17,7 +17,7 @@ class NoLinkShotsTest : Shots() {
     private val charter = listOf(
         PublicAgreement("a".repeat(64), "We look after each other", "Kind words, good faith.", 1, 0, 0),
         PublicAgreement("b".repeat(64), "Shared things come back", "Return tools within a week.", 2, 0, 0),
-        PublicAgreement("c".repeat(64), "Quiet hours after 22:00", "In the hall and the garden.", 3, 0, 0),
+        PublicAgreement("c".repeat(64), "Leave it better than you found it", "Tidy the hall and the kitchen after use, take your rubbish home, put the chairs back, and tell a steward when something is broken or running out.", 3, 0, 0),
     )
 
     @Test fun find() = shot("nolink-find") { FindContent("", {}, null, {}, {}, {}) }
@@ -30,6 +30,8 @@ class NoLinkShotsTest : Shots() {
                 charter, listOf(charter[0].id, charter[1].id), {}, null, null, {}, {}, {})
         }
         compose.onNodeWithTag("apply-send").assertIsNotEnabled()
+        // two lines of an agreement's explanation, then "more" (Xavier, 2026-11-18)
+        compose.onNodeWithTag("agreement-more").assertExists()
     }
 
     @Test fun applyRefused() = shot("nolink-apply-error") {

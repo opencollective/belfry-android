@@ -161,8 +161,7 @@ private fun AgreementRow(
             } else Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f).padding(top = 10.dp)) {
                 if (marker != null) Text(marker, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.text)
-                Text(a.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                if (a.about.isNotEmpty()) Text(a.about, fontSize = 15.sp, color = c.muted, modifier = Modifier.padding(top = 2.dp))
+                sh.belfry.app.ui.kit.AgreementText(a.title, a.about, titleSize = 17, aboutSize = 15)
                 if (!readOnly) {
                     val count = "${a.agreed.keys.count { it in world.charterPeople() || it == world.me }} of $members members"
                     Text(count, fontSize = 13.sp, color = c.muted, modifier = Modifier.padding(top = 4.dp).then(if (steward) Modifier.clickable(role = Role.Button, onClick = onWho) else Modifier))

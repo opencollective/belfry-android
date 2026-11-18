@@ -110,8 +110,7 @@ private fun TickRow(a: Agreement, on: Boolean, onTick: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
         Checkbox(on, onTick, colors = CheckboxDefaults.colors(checkedColor = c.accent, checkmarkColor = c.onAccent))
         Column(Modifier.weight(1f).padding(top = 10.dp)) {
-            Text(a.title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            if (a.about.isNotEmpty()) Text(a.about, fontSize = 14.sp, color = c.muted)
+            sh.belfry.app.ui.kit.AgreementText(a.title, a.about)
         }
     }
 }
