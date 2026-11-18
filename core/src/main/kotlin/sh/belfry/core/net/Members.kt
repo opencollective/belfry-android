@@ -524,3 +524,38 @@ suspend fun BelfryApi.applyToJoin(email: String, motivation: String, agreed: Lis
     }
     if (status !in 200..299 || b?.get("ok").bool() != true) throw ApiException(b?.s("error") ?: "http", status, ApplyForm.error(status, b))
 }
+
+/** A channel's "Forward all e-mails to" (collective-belfry docs/mail.md "Forwarding"): the belfry's setting, never an event. */
+data class MailForward(val address: String, val on: Boolean, val setBy: String, val since: Long, val sameDomainSkipped: Boolean)
+
+object MailForwards {
+    val ERRORS = mapOf(
+        "not_allowed" to "Only the channel\u2019s admins can change this.",
+        "unknown_channel" to "This channel doesn\u2019t exist on the belfry.",
+        "invalid" to "That is not an e-mail address.",
+        "own_domain" to "Forward to an address outside this belfry.",
+        "archived" to "This channel is archived. Unarchive it first.",
+        "not_pending" to "Nothing is waiting for a confirmation.",
+        "too_many" to "Three confirmation e-mails were sent this hour. Try again later.",
+        "no_mail" to "This belfry can\u2019t send e-mail yet: set up its mail provider first.",
+        "unsupported" to "This belfry can\u2019t forward e-mails yet.",
+        "network" to "No connection to the belfry. Try again.",
+        "http" to "This belfry can\u2019t forward e-mails yet.",
+    )
+
+    fun parse(b: JsonObject?): MailForward? {
+        val f = b?.get("forward")?.obj() ?: return null
+        val address = f.s("address")?.takeIf { it.contains('@') }?.take(200) ?: return null
+        return MailForward(address, f.s("state") == "on", f.s("set_by") ?: "", (f["since"] as? JsonPrimitive)?.content?.toDoubleOrNull()?.toLong() ?: 0, f["same_domain_skipped"].bool() ?: false)
+    }
+}
+
+/** `POST /mail-forward`: BODY {channel} reads it, + address (set / null off) or resend. Throws [ApiException] with fixed words. */
+suspend fun BelfryApi.mailForward(signer: Signer, body: JsonObject): MailForward? {
+    val (status, b) = signedFetch(signer, community.apiBase + "/mail-forward", "POST", body)
+    if (status !in 200..299) {
+        val code = b?.s("error") ?: "http"
+        throw ApiException(code, status, MailForwards.ERRORS[code] ?: "That did not work. Try again.")
+    }
+    return MailForwards.parse(b)
+}

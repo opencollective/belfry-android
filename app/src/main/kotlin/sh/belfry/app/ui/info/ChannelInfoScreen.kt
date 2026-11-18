@@ -20,6 +20,8 @@ import sh.belfry.core.model.ChannelType
 import sh.belfry.core.model.channelAccess
 import sh.belfry.core.model.mayClose
 import sh.belfry.core.model.setVisibility
+import sh.belfry.core.model.webSettings
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -327,6 +329,9 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
     val wasAccess = remember(g.id) { world.channelAccess(g) }
     var access by remember(g.id) { mutableStateOf(wasAccess) }
     var askPublic by remember(g.id) { mutableStateOf(askPublicAtOnce) }
+    // Posts (channels/settings): anything, or one type only
+    val wasPosts = remember(g.id) { world.webPage(g)?.posts }
+    var posts by remember(g.id) { mutableStateOf(wasPosts) }
     val busy = rememberBusy()
     val kind = if (g.isPod) "group" else "channel"
 
@@ -375,6 +380,23 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
             )
         }
     }
+    if (g.type == ChannelType.CHANNEL) {
+        Spacer(Modifier.height(14.dp))
+        Hint("Posts")
+        Spacer(Modifier.height(6.dp))
+        val choices = listOf(null to "Anything", "thread" to "Threads", "event" to "Events", "proposal" to "Proposals")
+        Segmented(choices.map { it.second }, choices.indexOfFirst { it.first == posts }.coerceAtLeast(0), { posts = choices[it].first }, enabled = !busy.busy, modifier = Modifier.testTag("settings-posts"))
+        Hint(
+            when (posts) {
+                "thread" -> "Every post has a title; talk goes in its thread."
+                "event" -> "The composer becomes \u201cNew event\u201d."
+                "proposal" -> "Proposals to discuss and vote on."
+                "request" -> "Requests from the web; members turn them into proposals."
+                else -> "Messages, threads, events, proposals."
+            },
+            Modifier.padding(top = 6.dp),
+        )
+    }
     Spacer(Modifier.height(14.dp))
     Hint("E-mail · ${world.shownMailAddress(g)}")
     Spacer(Modifier.height(6.dp))
@@ -384,6 +406,7 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
             sub = if (openMail) "Mail from outside lands here as cards; admins answer as the $kind." else "Off: only members can e-mail it",
         )
     }
+    if (g.type == ChannelType.CHANNEL) MailForwardRow(g.id)
     Spacer(Modifier.height(16.dp))
     BusyButton(
         "Save",
@@ -392,7 +415,8 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
             val a = about.trim()
             if (g.type == ChannelType.CHANNEL || g.isPod) {
                 // public / members only first, then closed (going closed from public writes both)
-                Actions.setVisibility(g, access == ChannelAccess.PUBLIC, world, session.now())?.let { session.send(it) }
+                // one web-settings event for who reads it and its type of post
+                Actions.webSettings(g, world, session.now(), access == ChannelAccess.PUBLIC, if (g.type == ChannelType.CHANNEL) posts else wasPosts)?.let { session.send(it) }
             }
             val closed = access == ChannelAccess.CLOSED
             val closedChanged = (g.type == ChannelType.CHANNEL || g.isPod) && closed != g.closed
@@ -428,4 +452,77 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
             modifier = Modifier.testTag("make-public-dialog"),
         )
     }
+}
+
+/**
+ * "Forward all e-mails to" (channels/settings; collective-belfry docs/mail.md "Forwarding"): the
+ * belfry's own setting, asked and saved at once through the API (never an event: every member
+ * would read the address). Nothing is forwarded until the outside address confirms.
+ */
+@Composable
+private fun MailForwardRow(channel: String) {
+    val c = Belfry.colors
+    val session = LocalSession.current
+    var loaded by remember(channel) { mutableStateOf(false) }
+    var fwd by remember(channel) { mutableStateOf<sh.belfry.core.net.MailForward?>(null) }
+    var on by remember(channel) { mutableStateOf(false) }
+    var address by remember(channel) { mutableStateOf("") }
+    var note by remember(channel) { mutableStateOf<String?>(null) }
+    var error by remember(channel) { mutableStateOf<String?>(null) }
+    var saving by remember(channel) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    fun failed(e: Exception) { error = (e as? sh.belfry.core.engine.ActionException)?.message ?: "That did not work. Try again." }
+    LaunchedEffect(channel) {
+        try { fwd = session.members.mailForward(channel); on = fwd != null; address = fwd?.address ?: "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { failed(e) }
+        loaded = true
+    }
+    ActionGroup(Modifier.padding(top = 10.dp)) {
+        SwitchRow(
+            "Forward all e-mails to", on, { want ->
+                error = null; note = null
+                if (want) on = true
+                else {
+                    saving = true
+                    scope.launch {
+                        try { fwd = session.members.setMailForward(channel, null); on = false; address = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { failed(e) }
+                        saving = false
+                    }
+                }
+            },
+            icon = BelfryIcons.Mail, sub = "E-mails still show up here. A copy goes to this address.", enabled = loaded, busy = saving,
+            modifier = Modifier.testTag("settings-forward"),
+        )
+    }
+    if (on) {
+        val f = fwd
+        if (f != null) Text(
+            if (f.on) "Forwarding to ${f.address}" else "Waiting for ${f.address} to confirm",
+            fontSize = 14.sp, color = c.text, modifier = Modifier.padding(top = 8.dp).testTag("forward-state"),
+        )
+        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            BelfryTextField(
+                address, { address = it.take(200); error = null; note = null }, Modifier.weight(1f).testTag("forward-address"), placeholder = "name@example.org",
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Email),
+            )
+            Spacer(Modifier.width(8.dp))
+            BusyButton("Save", onClick = {
+                error = null; note = null
+                try {
+                    val n = session.members.setMailForward(channel, address.trim())
+                    fwd = n
+                    if (n != null && !n.on) note = "We sent a confirmation e-mail. Forwarding starts once it is confirmed."
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { failed(e) }
+            }, small = true, enabled = address.isNotBlank() && !address.trim().equals(f?.address ?: "", ignoreCase = true), modifier = Modifier.testTag("forward-save"))
+        }
+        if (f != null && !f.on) {
+            BusyButton("Send the confirmation again", onClick = {
+                error = null
+                try { fwd = session.members.resendMailForward(channel); note = "Sent again." } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { failed(e) }
+            }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.padding(top = 6.dp))
+        }
+        val dom = f?.address?.substringAfter('@', "").orEmpty()
+        if (f != null && f.sameDomainSkipped && dom.isNotEmpty()) Hint("E-mails sent from @$dom addresses are not forwarded.", Modifier.padding(top = 6.dp))
+        note?.let { Hint(it, Modifier.padding(top = 6.dp)) }
+    }
+    error?.let { ErrorLine(it, Modifier.padding(top = 6.dp)) }
 }

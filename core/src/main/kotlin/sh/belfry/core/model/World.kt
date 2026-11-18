@@ -881,7 +881,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val c = parseJsonOrNull(own.content.ifEmpty { "{}" }).obj() ?: return null
         val vis = c["visibility"]?.str()
         val members = vis == "members" || (vis == null && c["list"]?.str() == "own")
-        val posts = c["posts"]?.str()?.takeIf { it in setOf("proposal", "event", "request") }
+        val posts = c["posts"]?.str()?.takeIf { it in setOf("thread", "proposal", "event", "request") }
         return WebPage(c["on"]?.let { truthy(it) } == true, c["slug"]?.str().orEmpty(), if (members) "members" else "public", posts)
     }
 
