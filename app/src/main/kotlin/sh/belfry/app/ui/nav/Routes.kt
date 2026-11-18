@@ -81,6 +81,8 @@ object Routes {
     /** A person; GROUP: opened from that channel's, group's or event's people (their role there shows). */
     fun profile(pubkey: String, group: String? = null) = "profile/${enc(pubkey)}" + if (group != null) "?group=${enc(group)}" else ""
     const val ME = "me"
+    /** The account switcher's "About Belfry": version, updates, belfry.sh, the belfry of Belfry. */
+    const val ABOUT = "about"
     const val SESSIONS = "sessions"
     /** Me → Notifications (push). */
     const val NOTIFICATIONS = "notifications"

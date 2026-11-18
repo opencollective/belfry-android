@@ -82,7 +82,8 @@ fun SignedOutFlow(state: AppState) {
         is NoLinkStep.LogIn -> SignInScreen(state, community = s.c, onLeave = { step = NoLinkStep.Welcome(s.c) })
         is NoLinkStep.Apply -> {
             BackHandler { step = NoLinkStep.Welcome(s.c) }
-            ApplyScreen(state, s.c, onBack = { step = NoLinkStep.Welcome(s.c) }, onLogIn = { step = NoLinkStep.LogIn(s.c) }, onSent = { step = NoLinkStep.Sent(s.c) })
+            ApplyFlow(s.c, charter = { state.publicCharter(s.c) }, apply = { e, w, a -> state.applyToJoin(s.c, e, w, a) },
+                onBack = { step = NoLinkStep.Welcome(s.c) }, onLogIn = { step = NoLinkStep.LogIn(s.c) }, onSent = { step = NoLinkStep.Sent(s.c) })
         }
         is NoLinkStep.Sent -> {
             BackHandler { step = NoLinkStep.Welcome(s.c) }
@@ -194,8 +195,14 @@ private fun InviteCodeSheet(c: Community, onLink: (InviteLink) -> Unit, onScan: 
     }
 }
 
+/** The apply form for community C with its charter: the no-link flow, and About → the belfry of Belfry. */
 @Composable
-private fun ApplyScreen(state: AppState, c: Community, onBack: () -> Unit, onLogIn: () -> Unit, onSent: () -> Unit) {
+fun ApplyFlow(
+    c: Community,
+    charter: suspend () -> List<PublicAgreement>,
+    apply: suspend (email: String, why: String, agreed: List<String>) -> Unit,
+    onBack: () -> Unit, onLogIn: () -> Unit, onSent: () -> Unit,
+) {
     var agreements by remember(c.domain) { mutableStateOf<List<PublicAgreement>?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var email by rememberSaveable { mutableStateOf("") }
@@ -204,7 +211,7 @@ private fun ApplyScreen(state: AppState, c: Community, onBack: () -> Unit, onLog
     var error by remember { mutableStateOf<String?>(null) }
     suspend fun load() {
         loadError = null
-        try { agreements = state.publicCharter(c).sortedBy { it.order ?: Int.MAX_VALUE } } catch (e: CancellationException) { throw e } catch (e: Exception) {
+        try { agreements = charter().sortedBy { it.order ?: Int.MAX_VALUE } } catch (e: CancellationException) { throw e } catch (e: Exception) {
             loadError = (e as? ApiException)?.takeIf { it.code != "network" }?.message ?: ApplyForm.NETWORK
         }
     }
@@ -217,7 +224,7 @@ private fun ApplyScreen(state: AppState, c: Community, onBack: () -> Unit, onLog
             error = null
             val list = agreements ?: return@ApplyContent
             if (email.isBlank() || why.isBlank()) { error = ApplyForm.MISSING; return@ApplyContent }
-            try { state.applyToJoin(c, email, why, list.map { it.id }); onSent() } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            try { apply(email, why, list.map { it.id }); onSent() } catch (e: CancellationException) { throw e } catch (e: Exception) {
                 error = (e as? ApiException)?.message ?: ApplyForm.OTHER
             }
         },

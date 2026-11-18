@@ -113,6 +113,9 @@ private fun SignedIn(state: AppState, session: Session) {
             unread = view.unread,
             switchTo = { state.switchTo(it) },
             add = { state.addAccount() },
+            discover = { state.discover(it) },
+            charterOf = { state.publicCharter(it) },
+            applyTo = { c, e, w, a -> state.applyToJoin(c, e, w, a) },
         )
     }
     // The channel that was open last time (not when a channel waits to be opened after signing in).

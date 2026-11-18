@@ -134,18 +134,7 @@ fun ChannelDrawer(shell: ShellState, actions: DrawerActions, modifier: Modifier 
                     modifier = Modifier.fillMaxWidth().height(96.dp),
                 )
             }
-            // a laptop / tablet list has no search field (web cbc57a3): search is in each channel's header
-            if (!wide) item(key = "<search>") {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).clip(RoundedCornerShape(24.dp)).background(c.surface)
-                        .clickable(role = Role.Button) { actions.go(Routes.search(null)) }.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Outlined.Search, contentDescription = null, tint = c.muted, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Search the town", fontSize = 16.sp, color = c.muted)
-                }
-            }
+            // no search field in the drawer (Xavier, 2026-11-18): search is in each channel's header
             item(key = "<today>") {
                 PlaceRow(Icons.Outlined.WbSunny, PlaceNames.TODAY, on = onHome, badge = counts.home(guest), tag = "drawer-today", onClick = actions.today)
             }

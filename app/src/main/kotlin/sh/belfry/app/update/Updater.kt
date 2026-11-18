@@ -77,7 +77,21 @@ object Updater {
             return _available.value
         }
         _available.value = latest?.takeIf { AppUpdate.isNewer(it.version, BuildConfig.VERSION_NAME) }
+        // a newer version: download it now on a connection that isn't metered, so Update installs at once
+        _available.value?.let { r -> if (!metered(c)) prefetch(c, r) }
         return _available.value
+    }
+
+    /** The APK of a newer version, downloaded and checked ahead of the tap (null: not yet). */
+    private var ready: Pair<String, File>? = null
+
+    private fun metered(c: Context): Boolean = try {
+        (c.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).isActiveNetworkMetered
+    } catch (e: Exception) { true }
+
+    private suspend fun prefetch(c: Context, r: Release) {
+        if (ready?.first == r.version && ready?.second?.exists() == true) return
+        try { ready = r.version to withContext(Dispatchers.IO) { download(c, r) } } catch (e: Exception) { ready = null }
     }
 
     /** Download RELEASE and open the system's install screen. */
@@ -88,9 +102,10 @@ object Updater {
             c.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${c.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             return
         }
-        _state.value = State.Downloading
         try {
-            val file = withContext(Dispatchers.IO) { download(c, release) }
+            // downloaded ahead when the check found it; else now
+            val file = ready?.takeIf { it.first == release.version && it.second.exists() }?.second
+                ?: run { _state.value = State.Downloading; withContext(Dispatchers.IO) { download(c, release) } }
             _state.value = State.Installing
             withContext(Dispatchers.IO) { commit(c, file) }
         } catch (e: Exception) {

@@ -204,6 +204,12 @@ minSdk 26, JDK 17.
   `plainPost` (core `net/Members.kt`), `Onboarding.charterFor / applyTo`. Closed requests:
   `Session.members.decideGroupRequest` (`POST /group-requests/decide`; the demo writes 9000 / 9001).
 
+- About Belfry (2026-11-18): the account switcher's last row → `ui/shell/AboutScreen.kt` (version,
+  `UpdateRows`, belfry.sh, the belfry of Belfry: switch to an account there, else `ApplyFlow` for
+  belfry.sh through `AccountsUi.discover / charterOf / applyTo`). The updater downloads a newer APK
+  ahead on an unmetered connection (`Updater.prefetch`), so Update opens the installer at once. The
+  drawer has no search field (search is in each channel's header).
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

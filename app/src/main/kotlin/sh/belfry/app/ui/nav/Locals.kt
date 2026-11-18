@@ -60,6 +60,10 @@ class AccountsUi(
     val unread: Set<String> = emptySet(),
     val switchTo: suspend (id: String) -> Unit = {},
     val add: () -> Unit = {},
+    /** A belfry from its domain, its public charter and applying to it with no account (About → the belfry of Belfry). */
+    val discover: suspend (domain: String) -> sh.belfry.core.net.Community = { throw IllegalStateException("no app") },
+    val charterOf: suspend (sh.belfry.core.net.Community) -> List<sh.belfry.core.net.PublicAgreement> = { emptyList() },
+    val applyTo: suspend (sh.belfry.core.net.Community, email: String, why: String, agreed: List<String>) -> Unit = { _, _, _, _ -> },
 )
 
 val LocalAccounts = staticCompositionLocalOf { AccountsUi() }

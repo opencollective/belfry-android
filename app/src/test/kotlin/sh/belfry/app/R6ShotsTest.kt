@@ -142,4 +142,11 @@ class R6ShotsTest : DemoShots() {
         }) { ChannelPlaceScreen(Demo.GARDEN, ChannelPlaceKey.SETTINGS) }
         compose.onNodeWithTag("settings-posts").assertExists()
     }
+
+    /** The account switcher's About Belfry: the version, updates (release builds), belfry.sh, the belfry of Belfry. */
+    @Test fun about() {
+        demoShot("about-belfry") { sh.belfry.app.ui.shell.AboutScreen() }
+        compose.onNodeWithTag("about-version").assertExists()
+        compose.onNodeWithTag("about-join").assertExists()
+    }
 }

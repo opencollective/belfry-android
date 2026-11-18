@@ -134,6 +134,11 @@ fun AccountsList(accounts: AccountsUi, onDismiss: () -> Unit, go: (String) -> Un
                 sub = "Your profile, notifications, sessions, sign out", chevron = true, enabled = !busy.busy,
                 modifier = Modifier.testTag("account-me"),
             )
+            ActionRow(
+                "About Belfry", onClick = { onDismiss(); go(Routes.ABOUT) }, icon = BelfryIcons.Shield,
+                sub = "Version ${sh.belfry.app.BuildConfig.VERSION_NAME}" + (sh.belfry.app.update.Updater.available.value?.let { " · ${it.version} is out" } ?: ""),
+                chevron = true, enabled = !busy.busy, modifier = Modifier.testTag("account-about"),
+            )
         }
     }
 }
