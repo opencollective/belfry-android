@@ -172,7 +172,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     fun displayName(pubkey: String): String {
         if (pubkey == me) return "You"
-        return realName(pubkey).ifEmpty { shortKey(pubkey) }
+        // never a key as a name (Xavier, 2026-11-18)
+        return realName(pubkey).ifEmpty { UNKNOWN }
     }
 
     /** The name over a message: "Drop box" for an upload through a drop link by a key without a profile. */
@@ -336,8 +337,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val all = map.values.filter { it.id !in gone }
             .sortedWith(compareBy<G> { if (it.id == "general") 0 else 1 }.thenByDescending { it.lastActivity })
             .map {
+                // never the id as a name (Xavier, 2026-11-18): until its metadata arrives, the kind's word
+                val named = it.rawName.isNotEmpty() || it.name != it.id
                 Group(
-                    id = it.id, name = it.name, about = it.about, picture = it.picture, createdAt = it.createdAt,
+                    id = it.id, name = if (named) it.name else kindWord(typeOfId(it.id)), named = named, about = it.about, picture = it.picture, createdAt = it.createdAt,
                     lastActivity = it.lastActivity, members = it.members, admins = it.admins, type = typeOfId(it.id),
                     parent = it.parent, closed = it.closed, prompt = it.prompt, applications = it.applications, pending = it.pending,
                     reading = it.reading, archived = it.archived, vouches = it.vouches, rawName = it.rawName,
@@ -1460,6 +1463,15 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         fun rootOf(e: Event): String? = e.t("E")
         /** The task list id of a channel (tasklist.sh; same derivation as the web chat). */
         fun listIdFor(groupId: String): String = sha256Hex("osv-village:$groupId").substring(0, 16)
+
+        /** Someone whose name this device doesn't know (never their key). */
+        const val UNKNOWN = "unknown"
+
+        /** A group's word while its name hasn't arrived (SPEC 19.39). */
+        fun kindWord(t: ChannelType): String = when (t) { ChannelType.POD -> "Group"; ChannelType.EVENT -> "Event"; ChannelType.PROPOSAL -> "Proposal"; else -> "Channel" }
+
+        /** The same inside a sentence: "this channel", "this group"… */
+        fun kindPhrase(t: ChannelType): String = "this " + kindWord(t).lowercase()
 
         /** First 12 characters of the npub + "…". */
         fun shortKey(pubkey: String): String = try { Bech32.npub(pubkey).take(12) + "…" } catch (e: Exception) { pubkey.take(12) + "…" }

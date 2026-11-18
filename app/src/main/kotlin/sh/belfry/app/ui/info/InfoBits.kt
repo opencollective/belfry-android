@@ -31,7 +31,7 @@ import java.util.Locale
 
 /** A channel's name as titles show it: `#garden`, or the plain name of a pod, event or proposal. */
 fun channelLabel(g: Group?, id: String): String = when {
-    g == null -> "#$id"
+    g == null -> "this channel" // never the id (SPEC 19.39)
     g.isPod || g.isEvent || g.isProposal -> g.name
     else -> "#" + g.name
 }

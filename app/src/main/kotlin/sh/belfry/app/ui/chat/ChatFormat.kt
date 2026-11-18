@@ -44,7 +44,7 @@ fun World.face(pubkey: String): Face = Face(pubkey, realName(pubkey).ifEmpty { d
  */
 fun World.authorName(groupId: String, m: Message): String = when (val s = m.special) {
     is Special.InboxCard -> s.name.ifEmpty { s.from }
-    is Special.SentAsChannel -> group(groupId)?.name ?: groupId
+    is Special.SentAsChannel -> group(groupId)?.name ?: "Channel"
     else -> nameOver(m)
 }
 

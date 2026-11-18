@@ -122,7 +122,7 @@ fun RecorderSheet(groupId: String, resumeOf: RecMeta? = null, onClose: () -> Uni
                 else -> rec.notice?.text
             },
             events = if (view == RecView.WHERE) Recordings.candidates(world.calendar, at) else emptyList(),
-            channelName = world.group(stopped?.groupId ?: groupId)?.name ?: (stopped?.groupId ?: groupId),
+            channelName = world.group(stopped?.groupId ?: groupId)?.name ?: "this channel",
             eventLine = { e -> ChatFormat.day(world, e.start, session.now()) + " · " + ChatFormat.time(world, e.start) + (e.location?.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: "") },
             onStart = {
                 error = null

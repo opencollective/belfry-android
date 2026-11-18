@@ -172,7 +172,7 @@ class ModelTest {
         assertEquals("Hi", w.aboutOf(bob))
         assertEquals("Zoë Müller", w.realName(bob))
         assertEquals("You", w.displayName(alice))
-        assertEquals(Bech32.npub(carol).take(12) + "…", w.displayName(carol))
+        assertEquals("unknown", w.displayName(carol))
     }
 
     @Test

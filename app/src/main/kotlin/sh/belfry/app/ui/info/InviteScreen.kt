@@ -199,7 +199,7 @@ fun InviteScreen(
             },
         )
         Spacer(Modifier.height(20.dp))
-        Text("Or someone who is here already", fontSize = 15.sp, color = c.muted)
+        Text("Or someone already in the community", fontSize = 15.sp, color = c.muted)
         Spacer(Modifier.height(8.dp))
         InviteSomeone(id, invite)
         Spacer(Modifier.height(24.dp))
@@ -236,7 +236,7 @@ private fun InviteSomeone(id: String, invite: (suspend (String) -> Session.Invit
     var error by remember { mutableStateOf<String?>(null) }
     val found = world.inviteCandidates(q)
     BelfryTextField(
-        q, { q = it; error = null }, label = "Invite someone who is here already", placeholder = "Type a name",
+        q, { q = it; error = null }, label = "Invite someone already in the community", placeholder = "Type a name",
         modifier = Modifier.fillMaxWidth().testTag("invite-search"),
     )
     if (found.isNotEmpty()) {

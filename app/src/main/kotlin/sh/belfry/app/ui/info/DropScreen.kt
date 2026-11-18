@@ -46,7 +46,7 @@ fun DropScreen(id: String, made: String? = null) {
             Text(
                 buildAnnotatedString {
                     append("People with the link upload photos and files to ")
-                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(g?.name ?: id) }
+                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(g?.name ?: "this channel") }
                     append(". They can add their name afterwards, or sign in to post as themselves.")
                 },
                 fontSize = 15.sp, lineHeight = 21.sp,

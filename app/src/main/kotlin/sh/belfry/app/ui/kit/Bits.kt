@@ -54,6 +54,8 @@ fun TopBar(
     actions: @Composable RowScope.() -> Unit = {},
     /** Right after the title (a channel's "settings not saved" mark). */
     titleMark: (@Composable () -> Unit)? = null,
+    /** The name hasn't arrived: a grey bar instead of the title (SPEC 19.39). */
+    titleLoading: Boolean = false,
 ) {
     val c = Belfry.colors
     Column(modifier.fillMaxWidth().background(c.bg).windowInsetsPadding(WindowInsets.statusBars)) {
@@ -62,7 +64,9 @@ fun TopBar(
             if (navigation != null) navigation() else Spacer(Modifier.width(12.dp))
             val click = if (onTitleClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onTitleClick) else Modifier
             Column(Modifier.weight(1f).then(click).padding(horizontal = 4.dp, vertical = 4.dp)) {
-                if (titleMark == null) {
+                if (titleLoading) {
+                    NameSkeleton(Modifier.padding(vertical = 4.dp), fraction = 0.45f, height = 16.dp)
+                } else if (titleMark == null) {
                     Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {

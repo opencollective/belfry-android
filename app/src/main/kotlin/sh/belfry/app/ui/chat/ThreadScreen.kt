@@ -79,7 +79,7 @@ fun ThreadScreen(
 
     Column(Modifier.fillMaxSize().background(c.bg).imePadding()) {
         if (onClose != null) {
-            TopBar("Thread", subtitle = g?.name ?: groupId, actions = { IconAction(BelfryIcons.Close, "Close the thread", onClose) })
+            TopBar("Thread", subtitle = g?.name ?: "Channel", actions = { IconAction(BelfryIcons.Close, "Close the thread", onClose) })
         } else {
             TopBar("Thread", subtitle = g?.name ?: groupId, navigation = { BackButton { nav.back() } })
         }

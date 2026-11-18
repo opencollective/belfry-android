@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import sh.belfry.app.ui.kit.BelfryTextField
 import sh.belfry.app.ui.kit.MoreIcons
+import sh.belfry.app.ui.kit.rememberNameLoading
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
 import sh.belfry.core.model.ComposerDraft
@@ -224,7 +225,7 @@ fun ChannelScreen(
 
     Column(modifier.fillMaxSize().background(c.bg).imePadding()) {
         if (!embedded) TopBar(
-            title = g?.name ?: groupId,
+            title = g?.name ?: "Channel", // never the id (SPEC 19.39)
             subtitle = if (g != null) channelSubtitle(world, groupId, now) else null,
             onTitleClick = { chat.toggleLine() },
             navigation = when {
@@ -235,6 +236,7 @@ fun ChannelScreen(
             // the header's right side is search only; the bell is the pull-down's Notifications row
             actions = { IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) }) },
             titleMark = if (g != null && world.failedSettings(groupId).isNotEmpty()) ({ SettingsFailedMark(groupId) }) else null,
+            titleLoading = g != null && rememberNameLoading(g.named),
         )
         // a proposal's chat: its header says what the line would (round 6)
         if (!embedded && g != null && !g.isProposal && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
@@ -269,7 +271,7 @@ fun ChannelScreen(
                     EmptyState("No messages here yet.", icon = BelfryIcons.Hash)
                 } else {
                     EmptyState(
-                        "${g?.name ?: groupId} is new",
+                        "${g?.name ?: "This channel"} is new",
                         text = "No messages yet. Bring the people who belong here, then say hi.",
                         icon = BelfryIcons.Hash,
                         action = { BusyButton("Invite people", onClick = { nav.go(Routes.invite(groupId)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Users, small = true) },
@@ -358,7 +360,7 @@ fun ChannelScreen(
                     editing != null -> "Edit your message"
                     composer.announce || chat.topic == Topics.ANNOUNCE -> "Announcement"
                     chat.topic != null -> "Message #${chat.topic}"
-                    else -> "Message ${g?.name ?: groupId}"
+                    else -> "Message ${g?.name ?: "this channel"}"
                 },
                 onSend = { text, files, picked, announce ->
                     if (editing != null) {

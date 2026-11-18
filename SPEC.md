@@ -2018,3 +2018,19 @@ E-mail threads in round 6 (iOS 19.33's round-6 bullet, boards channels/mail-*): 
 message row ("guest, by e-mail" / "sent as <alias>@" / "team only"), the composer's two modes
 Reply to <first name> (blue, an e-mail) / Comment (yellow, a NIP-22 reply), the line under them;
 the feed row shaped like a message. Android: `ui/cards/MailThreadScreen.kt`, `ui/chat/MailRows.kt`.
+
+### 19.43 Names, never ids (Xavier, 2026-11-18; the three platforms' shared rule — iOS / web SPEC 19.39)
+
+- Never show an npub, a group id or an event's `d` as text: names only. Someone whose name isn't
+  known is "unknown" (several: "and one other").
+- A channel's / group's / event's / proposal's name that hasn't arrived: (a) in a list row or a
+  header no text but a plain grey bar where the name will be (~40% of the row, the text's height,
+  "Loading" for screen readers; static on e-ink), with the kind's icon as usual; (b) inside a
+  sentence or title the neutral words "this channel" / "this group" / "this event" / "this
+  proposal"; (c) never any part of the id; (d) re-drawn the moment the metadata arrives; still
+  unknown after ~5 s, the bar becomes "Channel" / "Group" / "Event" / "Proposal".
+- My own key is copied for other apps ("Your key"), not shown.
+- Every event link the app builds or shares uses the event's custom slug when it has one
+  (`CalEvent.link`).
+- Android: `Group.named` + `World.kindWord / kindPhrase / UNKNOWN` (core), `NameSkeleton` /
+  `rememberNameLoading` (kit), `TopBar(titleLoading =)`; tests `NamesTest`.

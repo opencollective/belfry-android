@@ -132,7 +132,7 @@ fun MembersScreen() {
     }
 }
 
-private fun name(world: World, m: DirMember): String = world.realName(m.pubkey).ifEmpty { m.name }.ifEmpty { World.shortKey(m.pubkey) }
+private fun name(world: World, m: DirMember): String = world.realName(m.pubkey).ifEmpty { m.name }.ifEmpty { World.UNKNOWN }
 
 @Composable
 private fun MemberRow(world: World, m: DirMember, roles: sh.belfry.core.net.RolesInfo, open: (String) -> Unit) {
@@ -186,7 +186,7 @@ fun RequestSections() {
             Header("Asking to join ${session.community.name} · ${people.size}")
             for (p in people) {
                 val line = listOfNotNull(
-                    if (p.isGuest) guestLine(p) else null,
+                    if (p.isGuest) guestLine(world, p) else null,
                     if (admin) p.email else null,
                     if (vouching) "${p.vouches} of ${membership.vouches} ${if (membership.vouches == 1) "vouch" else "vouches"}" else null,
                 ).joinToString(" · ")
@@ -226,9 +226,10 @@ fun RequestSections() {
 }
 
 /** "Guest in #garden since 2026-11-12, invited by Ana" (guestapply.py's card for stewards). */
-private fun guestLine(p: sh.belfry.core.net.BelfryRequest): String {
+private fun guestLine(world: World, p: sh.belfry.core.net.BelfryRequest): String {
     var s = "Guest"
-    if (p.channels.isNotEmpty()) s += " in " + p.channels.joinToString(", ") { "#$it" }
+    // channel names, never their ids (SPEC 19.39)
+    if (p.channels.isNotEmpty()) s += " in " + p.channels.joinToString(", ") { id -> world.group(id)?.takeIf { it.named }?.let { "#" + it.name } ?: "a channel" }
     if (p.since.length >= 10) s += " since " + p.since.take(10)
     if (p.inviter.isNotEmpty()) s += ", invited by " + p.inviter
     return s

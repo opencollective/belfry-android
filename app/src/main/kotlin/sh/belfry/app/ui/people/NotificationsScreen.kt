@@ -177,7 +177,7 @@ fun NotificationsScreen(
     }
     levelOf?.let { id ->
         val s = settings ?: return@let
-        BelfrySheet(onDismiss = { levelOf = null }, title = "Push from ${world.group(id)?.name ?: id}") {
+        BelfrySheet(onDismiss = { levelOf = null }, title = "Push from ${world.group(id)?.name ?: "this channel"}") {
             PushLevelRows(s.level(id), onPick = { level -> apply(NotificationSettings.setLevel(id, level)); levelOf = null })
         }
     }

@@ -110,9 +110,10 @@ fun MeScreen() {
                 ActionRow("Username", onClick = { renaming = true }, icon = BelfryIcons.At, sub = "Your address here: $address", value = "Change")
             }
             ActionRow(
-                shortNpub(me),
+                // the key itself is never shown as text (Xavier, 2026-11-18): copied for other apps
+                "Your key",
                 onClick = { copyText(context, npubOf(me), "Your key"); copied = true },
-                icon = BelfryIcons.Copy, sub = "Your key",
+                icon = BelfryIcons.Copy, sub = "To use this account in another Nostr app",
                 value = if (copied) "Copied" else "Copy",
                 modifier = Modifier.testTag("me-key"),
             )

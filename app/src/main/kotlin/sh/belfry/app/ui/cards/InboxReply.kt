@@ -217,7 +217,7 @@ internal fun ReplySheet(groupId: String, m: Message, card: Special.InboxCard, on
     val who = if (card.name.isNotEmpty()) "${card.name} <${card.from}>" else card.from
     val first = card.name.split(' ').firstOrNull { it.isNotEmpty() } ?: card.from
     val subject = if (card.subject.startsWith("re:", ignoreCase = true)) card.subject else "Re: " + card.subject.ifEmpty { "(no subject)" }
-    val channelName = world.group(groupId)?.name ?: groupId
+    val channelName = world.group(groupId)?.name ?: "this channel"
     val myName = world.realName(world.me)
     var text by remember(m.id) { mutableStateOf(ReplyQueue.drafts[m.id] ?: "") }
 

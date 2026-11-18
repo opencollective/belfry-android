@@ -114,7 +114,7 @@ fun SessionsContent(
         SectionTitle("Your key", Modifier.padding(top = 0.dp))
         ActionGroup {
             ActionRow(
-                shortNpub(me), onClick = { copyText(context, npubOf(me), "Your key"); copied = true }, icon = BelfryIcons.Copy,
+                "Copy your key", onClick = { copyText(context, npubOf(me), "Your key"); copied = true }, icon = BelfryIcons.Copy,
                 sub = if (demo) "Demo key, kept on this device only." else "$community keeps this key for you. The sessions below sign with it.",
                 value = if (copied) "Copied" else "Copy",
             )

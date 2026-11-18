@@ -360,7 +360,9 @@ private fun ChannelRow(world: World, g: Group, on: Boolean, unread: Int, onClick
         Icon(g.glyph(world).icon(), contentDescription = null, tint = c.muted, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(16.dp))
         // unread (SPEC 19.27): the name stands out and a quiet count follows
-        Text(g.name, fontSize = 16.sp, fontWeight = if (on || unread > 0) FontWeight.SemiBold else FontWeight.Normal, color = c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // a name not arrived: a grey bar for a few seconds, then the kind's word (SPEC 19.39)
+        if (sh.belfry.app.ui.kit.rememberNameLoading(g.named)) Box(Modifier.weight(1f)) { sh.belfry.app.ui.kit.NameSkeleton() }
+        else Text(g.name, fontSize = 16.sp, fontWeight = if (on || unread > 0) FontWeight.SemiBold else FontWeight.Normal, color = c.text, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (moving) Icon(Icons.Outlined.DragHandle, contentDescription = null, tint = c.muted, modifier = Modifier.size(20.dp))
         else if (unread > 0) CountBadge(unread, color = c.surface2, onColor = c.muted)
     }

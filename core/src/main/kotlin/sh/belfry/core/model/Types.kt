@@ -75,6 +75,8 @@ data class Group(
     val relayAdmins: Set<String> = emptySet(),
     /** The author of its first 9007 (an event's host). */
     val creator: String? = null,
+    /** Its name arrived (39000 / 9002 / a place name); false = [name] is only the kind's word (SPEC 19.39). */
+    val named: Boolean = true,
 ) {
     val isEvent get() = type == ChannelType.EVENT
     val isPod get() = type == ChannelType.POD
