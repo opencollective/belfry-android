@@ -44,7 +44,8 @@ object ChannelRefs {
         val noKeys = NPUB_LOOSE.replace(text) { npub }
         return NADDR.replace(noKeys) { m ->
             val id = groupOf(m.groupValues[1])
-            if (id == null) m.value else "#" + (nameOf(id) ?: id)
+            // a channel whose name isn't known: the kind's word, never its id (SPEC 19.43)
+            if (id == null) m.value else "#" + (nameOf(id) ?: "channel")
         }
     }
 }

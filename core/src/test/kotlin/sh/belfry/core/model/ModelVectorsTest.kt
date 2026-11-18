@@ -145,7 +145,7 @@ class ModelVectorsTest {
                 val d = Actions.react(c["group"].sOrNull()!!, x["target"].sOrNull()!!, x["author"].sOrNull()!!, x["emoji"].sOrNull()!!, x["target_kind"].long()!!.toInt())
                 assertEquals(7, d.kind)
                 assertEquals(x["emoji"].sOrNull(), d.content)
-                assertEquals(x["tags"].list().map { t -> t.list().map { (it as JsonPrimitive).content } }, d.tags)
+                assertEquals((x.o()["tags"] as kotlinx.serialization.json.JsonArray).map { t -> (t as kotlinx.serialization.json.JsonArray).map { (it as JsonPrimitive).content } }, d.tags)
             }
         }
     }
