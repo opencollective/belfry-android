@@ -235,14 +235,30 @@ fun InviteScreen(
                 // (Member by default); a member the belfry lets invite members: a member link, no
                 // switch; anyone else: a guest link. Never offer what the server will refuse.
                 val steward = world.isCommunityAdmin
-                if (steward) {
-                    val isSteward = (w as? JoinsAs.Member)?.role == Role.ADMIN
+                // canvas v48: radio rows, only the roles the viewer may give; one role = no rows
+                val term = (w as? JoinsAs.Member)?.membership ?: "permanent"
+                val mayAgent = (mine?.limit ?: 0) > 0 && (room > 0 || w == JoinsAs.Agent)
+                val asRows = buildList {
+                    if (mayMembers) add(Triple("Member", "Joins open channels, invites guests, votes.", JoinsAs.Member(roles.defaultRole, term)))
+                    if (steward) add(Triple("Steward", "Runs the belfry: settings, roles, the charter.", JoinsAs.Member(Role.ADMIN, term)))
+                    if (mayAgent) add(Triple("Agent", "Your agent, a member while you are one.", JoinsAs.Agent))
+                }
+                if (asRows.size > 1) {
                     Hint("Invite as")
                     Spacer(Modifier.height(6.dp))
-                    Segmented(listOf("Member", "Steward"), if (isSteward) 1 else if (w is JoinsAs.Member) 0 else -1, { k ->
-                        val term = (w as? JoinsAs.Member)?.membership ?: "permanent"
-                        if (k == 1) { people = 1; pick(JoinsAs.Member(Role.ADMIN, term)) } else pick(JoinsAs.Member(roles.defaultRole, term))
-                    }, enabled = !busy, modifier = Modifier.testTag("invite-as"))
+                    ActionGroup(Modifier.testTag("invite-as")) {
+                        for ((title, line, x) in asRows) {
+                            val on = when (x) {
+                                is JoinsAs.Member -> w is JoinsAs.Member && (w.role == Role.ADMIN) == (x.role == Role.ADMIN)
+                                else -> w == x
+                            }
+                            ChoiceRow(title, line, on, if (x == JoinsAs.Agent) BelfryIcons.Shield else BelfryIcons.Users, enabled = !busy, tag = "invite-as-" + title.lowercase()) {
+                                if (x is JoinsAs.Member && x.role == Role.ADMIN) people = 1
+                                if (x == JoinsAs.Agent) people = 1
+                                pick(x)
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(10.dp))
                 }
                 // one line that always says what the link does now, then Edit
@@ -338,7 +354,7 @@ private fun InviteSomeone(id: String, invite: (suspend (String) -> Session.Invit
                 val here = world.inChannel(g, pk)
                 val guestHere = world.isGuest(pk)
                 val state = (world.kindLabel(pk)?.let { "$it · " } ?: "") +
-                    if (here) (if (g?.closed == true || guestHere) "Already in" else "Can already open it") else "Not in this channel"
+                    if (here) (if (g?.closed == true || guestHere) "Already in" else "Already a member") else "Not in this channel"
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).testTag("invite-row"), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(world.face(pk), size = 28.dp)
                     Spacer(Modifier.width(10.dp))
