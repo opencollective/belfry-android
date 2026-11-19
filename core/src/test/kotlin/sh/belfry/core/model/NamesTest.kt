@@ -25,8 +25,8 @@ class NamesTest {
         assertEquals("this group", World.kindPhrase(ChannelType.POD))
     }
 
-    @Test fun someoneWithoutAProfileIsUnknown() {
-        assertEquals("unknown", world(emptyList()).displayName(ben))
+    @Test fun someoneWithoutAProfileIsSomebody() {
+        assertEquals("Somebody", world(emptyList()).displayName(ben))
         assertEquals("You", world(emptyList()).displayName(me))
     }
 }

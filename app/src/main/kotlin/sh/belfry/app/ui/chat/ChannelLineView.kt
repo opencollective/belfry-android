@@ -1,6 +1,5 @@
 package sh.belfry.app.ui.chat
 
-import sh.belfry.core.model.ChannelLine
 import sh.belfry.core.model.todoParts
 import sh.belfry.app.ui.kit.TodoTextField
 import sh.belfry.core.model.TodoLimit
