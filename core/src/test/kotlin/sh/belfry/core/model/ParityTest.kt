@@ -254,7 +254,7 @@ class ParityTest {
         // a claimer whose latest step is idle (agents send it on 2101) is not in progress
         val idle = w(base + task2 + ev(OTHER, 2101, 400, Actions.taskAction("garden", task2.id, "claim").tags) +
             ev(OTHER, 2101, 450, Actions.taskAction("garden", task2.id, "idle").tags))
-        assertNull(idle.attentionLine("garden", 1000), "claimed and idle: no part")
+        assertEquals("1 unclaimed", idle.attentionLine("garden", 1000)?.text, "claimed and idle: back to up next, unclaimed while that part is off")
         val back = w(base + task2 + ev(OTHER, 2101, 400, Actions.taskAction("garden", task2.id, "claim").tags) +
             ev(OTHER, 2101, 450, Actions.taskAction("garden", task2.id, "idle").tags) + ev(OTHER, 2101, 460, Actions.taskAction("garden", task2.id, "working").tags))
         assertEquals("1 in progress", back.attentionLine("garden", 1000)?.text)

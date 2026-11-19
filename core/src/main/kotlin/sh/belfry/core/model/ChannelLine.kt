@@ -334,7 +334,7 @@ val Task.inProgress: Boolean
  * DRAFT): until then [UP_NEXT_PART] is off and such a to-do counts as unclaimed.
  */
 val Task.upNext: Boolean
-    get() = !done && assignee != null && history.none { it.who == assignee && it.what in setOf("claim", "working", "idle") }
+    get() = !done && assignee != null && !inProgress // assigned and not started, or claimed and idle again (the lead: idle = back to up next)
 
 const val UP_NEXT_PART = false
 
@@ -368,7 +368,6 @@ fun World.todoParts(groupId: String, now: Long): TodoParts? {
     val p = TodoParts(
         unclaimed = all.count { !it.done && (it.assignee == null || (it.upNext && !UP_NEXT_PART)) },
         upNext = if (UP_NEXT_PART) all.count { it.upNext } else 0,
-        // claimed but its claimer said idle last: neither unclaimed nor in progress (the board's rule)
         inProgress = all.count { it.inProgress },
         closedToday = all.count { t -> t.done && (t.history.lastOrNull { it.what == "done" }?.at ?: 0) >= midnight },
     )
