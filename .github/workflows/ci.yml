@@ -67,7 +67,7 @@ jobs:
         run: ./gradlew :app:assembleMinified --stacktrace
       - name: Screenshots (Robolectric + Roborazzi, demo mode)
         run: ./gradlew :app:recordRoborazziDebug --stacktrace
-      - name: Upload the app's test report (on failure: which test and why)
+      - name: Upload the app's test report when a test failed
         if: failure()
         uses: actions/upload-artifact@v4
         with:
