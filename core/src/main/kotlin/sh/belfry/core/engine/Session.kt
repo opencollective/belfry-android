@@ -59,6 +59,8 @@ import sh.belfry.core.model.eventTagsFor
 import sh.belfry.core.model.ComposerDraft
 import sh.belfry.core.model.FormDrafts
 import sh.belfry.core.model.GuestMode
+import sh.belfry.core.net.GuestSignIn
+import sh.belfry.core.nostr.LocalSigner
 import sh.belfry.core.net.Branding
 import sh.belfry.core.net.Access
 import sh.belfry.core.net.ApiException
@@ -1516,7 +1518,12 @@ class Session(
      * name: the channel then gets the join line). Guest mode ends. Throws [GuestJoinException]
      * (`taken` with [GuestJoinException.moved]: sign in with that address instead).
      */
-    suspend fun guestVerify(email: String, code: String, name: String? = null) {
+    /**
+     * The guest's code. Returns a [GuestSignIn] when the address is another account's here and the
+     * belfry opened a session for it on this phone's new key (canvas onboarding/guest-code v41):
+     * the caller swaps this guest for that account. Null otherwise (saved, or a member now).
+     */
+    suspend fun guestVerify(email: String, code: String, name: String? = null): GuestSignIn? {
         val n = name?.let(GuestMode::cleanName)?.takeIf { it.isNotEmpty() }
         val g = _guest.value
         if (localOnly) { // demo: what the belfry would do
@@ -1524,20 +1531,31 @@ class Session(
             if (email.trim().lowercase() == GuestMode.DEMO_TAKEN) throw GuestJoinException("taken", moved = true, nip05 = "ana@${community.domain}")
             if (code != GuestMode.DEMO_CODE) throw GuestJoinException("wrong_code", triesLeft = 4)
             if (g?.reading == true && n != null) addToLog(GuestMode.demoJoined(g.channel, me, n, clock()))
-            if (g?.member != null) { becameMember(g.channel); return }
+            if (g?.member != null) { becameMember(g.channel); return null }
         } else {
-            val saved = guestCall { it.guestVerify(signer, email.trim(), code.trim(), n) }
+            // a guest of this device: a new session key, the one an account's session would be bound to
+            var key = if (g != null) LocalSigner.random() else null
+            val saved = try {
+                guestCall { it.guestVerify(signer, email.trim(), code.trim(), n, key?.pubkey) }
+            } catch (e: GuestJoinException) {
+                // 422 invalid with a session key: the key was refused, the code is not spent: another key, the same code
+                if (key == null || e.code != "invalid") throw e
+                key = LocalSigner.random()
+                guestCall { it.guestVerify(signer, email.trim(), code.trim(), n, key.pubkey) }
+            }
+            saved.signedIn?.let { return it.copy(secret = key!!.secretHex) }
             // a member link: a member now (`"member": true`). Never a guest any more on this device
-            if (GuestMode.afterVerify(saved.member, saved.joined) == GuestMode.AfterVerify.MEMBER) { becameMember(g?.channel); return }
+            if (GuestMode.afterVerify(saved.member, saved.joined) == GuestMode.AfterVerify.MEMBER) { becameMember(g?.channel); return null }
         }
-        if (g == null) return
+        if (g == null) return null
         setGuest(g.copy(saved = true, reading = false))
         _joinAsked.value = false
         rebuild()
         // the co-host link waiting for this: now it makes them a host of the event
-        val token = g.coHost ?: return
+        val token = g.coHost ?: return null
         joinWithAccount(token)
         _guest.value?.let { setGuest(it.copy(coHost = null)) }
+        return null
     }
 
     /**

@@ -320,6 +320,11 @@ class Onboarding(
         s
     }
 
+    /** The guest's code signed an existing account in (canvas onboarding/guest-code v41): its session, opened with the key the phone made. */
+    suspend fun openGuestSignIn(community: Community, s: sh.belfry.core.net.GuestSignIn): Session = withContext(Dispatchers.Default) {
+        open(community, s.bunkerUrl, s.secret, null, null, expect = s.pubkey)
+    }
+
     private fun SessionException.toOnboarding() =
         OnboardingException(if (failure == SessionFailure.UNSUPPORTED) "browser" else failure.name.lowercase(), display)
 

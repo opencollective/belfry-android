@@ -123,6 +123,9 @@ private class JoinFlow(
     var nip05 by nip05State
 }
 
+/** The app's way to swap this guest for the account the code signed in (AppState.guestSignedIn). */
+val LocalGuestSignedIn = androidx.compose.runtime.staticCompositionLocalOf<(suspend (sh.belfry.core.net.GuestSignIn, String) -> Unit)?> { null }
+
 @Composable
 private fun rememberJoinFlow(): JoinFlow = JoinFlow(
     rememberSaveable { mutableStateOf(Step.WHO) },
@@ -215,6 +218,7 @@ private fun JoinFlowBody(
     onSignIn: (suspend (email: String, channel: String, moved: Boolean, nip05: String?) -> Unit)?,
     onSaved: (email: String) -> Unit,
 ) {
+    val guestSignedIn = LocalGuestSignedIn.current
     val guest by session.guest.collectAsState()
     val channel = guest?.channel ?: ""
     val label = channelLabel(channel)
@@ -233,9 +237,15 @@ private fun JoinFlowBody(
             to = flow.sentTo,
             resend = { session.guestSave(flow.sentTo, if (saveOnly) null else flow.name) },
             verify = { code ->
-                session.guestVerify(flow.sentTo, code, if (saveOnly) null else flow.name)
-                onSaved(flow.sentTo)
-                onClose()
+                val signedIn = session.guestVerify(flow.sentTo, code, if (saveOnly) null else flow.name)
+                // the address is an account here: signed straight in as it (canvas onboarding/guest-code v41)
+                if (signedIn != null && guestSignedIn != null) {
+                    onClose()
+                    guestSignedIn(signedIn, flow.sentTo)
+                } else {
+                    onSaved(flow.sentTo)
+                    onClose()
+                }
             },
             onTaken = { m, n -> flow.moved = m; flow.nip05 = n; flow.step = Step.TAKEN },
             onAnother = { flow.step = Step.WHO },

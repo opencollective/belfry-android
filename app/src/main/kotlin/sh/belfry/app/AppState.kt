@@ -333,6 +333,36 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
 
     fun clearMessage() { _message.value = null }
 
+    /** A short note shown once over everything ("Signed in as …"), then cleared. */
+    private val _notice = MutableStateFlow<String?>(null)
+    val notice: StateFlow<String?> = _notice
+    fun clearNotice() { _notice.value = null }
+
+    /**
+     * Guest mode: the right code for an address that is an account here signed that account in on
+     * this phone (canvas onboarding/guest-code v41). Never a second address or code: the account's
+     * session opens, the guest goes from this device, the channel opens as the member, and
+     * "Signed in as <address>" shows. When the account's signer can't be reached: "Sign in instead".
+     */
+    suspend fun guestSignedIn(signIn: sh.belfry.core.net.GuestSignIn, address: String) {
+        val guest = _session.value ?: return
+        val community = guest.community
+        val next = try {
+            onboarding.openGuestSignIn(community, signIn)
+        } catch (e: Exception) {
+            signInInstead(address, signIn.channel ?: "", signIn.moved, signIn.nip05)
+            return
+        }
+        // the guest account goes from this device (the belfry closed it when it moved the channel)
+        withContext(Dispatchers.Default) {
+            try { beforeSignOut?.invoke(guest) } catch (e: Exception) { }
+            try { onboarding.signOut(guest, revoke = !signIn.moved) } catch (e: Exception) { }
+        }
+        if (!signIn.channel.isNullOrEmpty()) _openAfter.value = community.domain to signIn.channel
+        enter(next, fresh = true)
+        _notice.value = "Signed in as " + sh.belfry.core.model.GuestSignInRule.addressToSay(signIn.nip05, address, community.domain)
+    }
+
     /** The community at this address. Throws [OnboardingException] with a fixed message. */
     suspend fun discover(domain: String): Community = onboarding.discover(domain)
 

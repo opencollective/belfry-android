@@ -67,6 +67,11 @@ fun AppRoot(state: AppState) {
     val phase by state.phase.collectAsState()
     val adding by state.adding.collectAsState()
     val opening by state.opening.collectAsState()
+    val notice by state.notice.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(notice) {
+        notice?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show(); state.clearNotice() }
+    }
     Box(Modifier.fillMaxSize()) {
         Phases(state, phase, adding)
         // A guest link being opened (SPEC 19.26): one loading screen over everything, from the link
@@ -134,7 +139,7 @@ private fun SignedIn(state: AppState, session: Session) {
         else { kotlinx.coroutines.delay(10_000); state.doneOpening() }
     }
     var refusalSetAside by remember(session) { mutableStateOf(false) }
-    CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts) {
+    CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts, sh.belfry.app.ui.people.LocalGuestSignedIn provides { s, a -> state.guestSignedIn(s, a) }) {
         SessionScope(session, nav) {
             val guestNow by session.guest.collectAsState()
             if (opening != null) {

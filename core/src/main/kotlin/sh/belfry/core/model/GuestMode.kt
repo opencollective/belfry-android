@@ -23,7 +23,7 @@ object GuestMode {
     const val REFUSED_TEXT = "Join to do this: you are reading as a guest."
 
     /** The codes [message] knows (the web's JoinError). */
-    val CODES = setOf("invalid", "name_needed", "too_many", "wrong_code", "expired", "taken", "not_guest", "offline", "failed")
+    val CODES = setOf("invalid", "name_needed", "too_many", "wrong_code", "expired", "taken", "not_guest", "offline", "failed", "key_taken", "signer")
 
     /** Fixed words for each answer (never the server's text, never a URL's). TRIES_LEFT: with `wrong_code`, when the belfry said. */
     fun message(code: String, triesLeft: Int? = null): String = when {
@@ -42,6 +42,7 @@ object GuestMode {
         "wrong_code" -> "That code is not right. Check the e-mail and try again."
         "expired" -> "That code has expired. Send a new one."
         "taken" -> "This address already has an account here."
+        "key_taken", "signer" -> "That did not work. Send a new code."
         "not_guest" -> "This guest access has ended. Ask for a new invite."
         "offline" -> "No connection. Try again."
         else -> "That did not work. Try again."
@@ -148,3 +149,52 @@ object GuestMode {
         )
     }
 }
+
+/**
+ * The right code for an address that is an account here (canvas onboarding/guest-code v41;
+ * collective-belfry docs/guests.md, last section; `vectors/guest-signin.json` from belfry-ios).
+ */
+object GuestSignInRule {
+    enum class Next { SIGNED_IN, SAVED, SIGN_IN_INSTEAD, SAME_CODE, NEW_KEY_NEW_CODE, NEW_CODE, WRONG_CODE, EXPIRED, FAILED }
+
+    data class Outcome(val next: Next, val address: String? = null, val open: String? = null, val moved: Boolean? = null)
+
+    private val BUNKER = Regex("^bunker://[0-9a-f]{64}(\\?.*)?$")
+    private val KEY = Regex("^[0-9a-f]{64}$")
+
+    /** The body of POST /guest/save/verify: trimmed, the name cleaned and only when asked for. */
+    fun body(email: String, code: String, name: String?, sessionKey: String, client: String): Map<String, String> = buildMap {
+        put("email", email.trim())
+        put("code", code.trim())
+        name?.let(GuestMode::cleanName)?.takeIf { it.isNotEmpty() }?.let { put("name", it) }
+        put("session_key", sessionKey.lowercase())
+        put("client", client)
+    }
+
+    /** The address said in "Signed in as …": the nip05 only when it is name@DOMAIN, else the e-mail typed. */
+    fun addressToSay(nip05: String?, typed: String, domain: String): String =
+        nip05?.trim()?.lowercase()?.takeIf { it.endsWith("@$domain") && it.count { c -> c == '@' } == 1 && it.substringBefore('@').isNotEmpty() } ?: typed.trim()
+
+    /** What the app does with an answer (BODY null = no JSON). */
+    fun next(status: Int, body: Map<String, Any?>?, typed: String, domain: String): Outcome {
+        if (status == 200 && body != null) {
+            if (body["signed_in"] == true) {
+                val bunker = body["bunker_url"] as? String
+                val pubkey = body["pubkey"] as? String
+                if (bunker == null || !BUNKER.matches(bunker) || pubkey == null || !KEY.matches(pubkey)) return Outcome(Next.FAILED)
+                return Outcome(Next.SIGNED_IN, addressToSay(body["nip05"] as? String, typed, domain), (body["channel"] as? String)?.takeIf { it.isNotEmpty() }, body["moved"] == true)
+            }
+            return Outcome(Next.SAVED)
+        }
+        return when (body?.get("error") as? String) {
+            "taken" -> Outcome(Next.SIGN_IN_INSTEAD, moved = body?.get("moved") == true)
+            "invalid" -> Outcome(Next.SAME_CODE)
+            "key_taken" -> Outcome(Next.NEW_KEY_NEW_CODE)
+            "signer" -> Outcome(Next.NEW_CODE)
+            "wrong_code" -> Outcome(Next.WRONG_CODE)
+            "expired" -> Outcome(Next.EXPIRED)
+            else -> Outcome(Next.FAILED)
+        }
+    }
+}
+

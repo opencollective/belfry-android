@@ -114,7 +114,14 @@ data class JoinedNew(
  * What `POST /guest/save/verify` did: the account is saved; [joined]: they were in guest mode
  * until now; [member]: the link they came with was a member link and they are a member now.
  */
-data class GuestSaved(val joined: Boolean, val member: Boolean = false)
+data class GuestSaved(val joined: Boolean, val member: Boolean = false, val signedIn: GuestSignIn? = null)
+
+/**
+ * The right code for an address that is another account's here (canvas onboarding/guest-code v41;
+ * collective-belfry docs/guests.md, last section): a new session on that account's signer, bound
+ * to the session key this phone sent. [secret] is that key (set by the caller, never sent).
+ */
+data class GuestSignIn(val bunkerUrl: String, val pubkey: String, val nip05: String?, val channel: String?, val moved: Boolean, val secret: String = "")
 
 /**
  * An existing account used a guest link. [member]: a member link made this guest a member;
@@ -441,11 +448,13 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
      * `taken` (then [ApiException.moved]: the belfry gave that account the channel and closed this
      * guest).
      */
-    suspend fun guestVerify(signer: Signer, email: String, code: String, name: String? = null): GuestSaved {
+    suspend fun guestVerify(signer: Signer, email: String, code: String, name: String? = null, sessionKey: String? = null): GuestSaved {
         val a = signed(signer, "$base/guest/save/verify", "POST", buildJsonObject {
             put("email", JsonPrimitive(email.trim()))
             put("code", JsonPrimitive(code.trim()))
             if (name != null) put("name", JsonPrimitive(name))
+            // guest mode: an address with an account signs straight in, on a new session for this key
+            if (sessionKey != null) { put("session_key", JsonPrimitive(sessionKey)); put("client", JsonPrimitive("belfry-android")) }
         })
         if (!a.ok) {
             if (a.error == "taken") throw ApiException(
@@ -455,7 +464,16 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             if (a.error == "wrong_code") throw ApiException("wrong_code", a.status, GUEST_ERRORS.getValue("wrong_code"), triesLeft = a.body?.get("tries_left").int())
             fail(a, GUEST_ERRORS, "That did not work. Try again.")
         }
-        return GuestSaved(a.body?.get("joined").bool() == true, a.body?.get("member").bool() == true)
+        val b = a.body
+        if (b?.get("signed_in").bool() == true) {
+            val bunker = b.s("bunker_url")?.takeIf { BunkerUrl.parse(it) != null }
+            val pubkey = b.s("pubkey")?.lowercase()?.takeIf(Hex::isKey)
+            if (bunker != null && pubkey != null) {
+                return GuestSaved(joined = false, member = true, signedIn = GuestSignIn(bunker, pubkey, b.s("nip05")?.take(320), b.s("channel")?.take(120), b.get("moved").bool() == true))
+            }
+            throw ApiException("signer", a.status, GUEST_ERRORS.getValue("signer"))
+        }
+        return GuestSaved(b?.get("joined").bool() == true, b?.get("member").bool() == true)
     }
 
     // ---- places (places.py) -----------------------------------------------------------------------
@@ -655,6 +673,8 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         )
         /** The web's JOIN_ERRORS (core/guestjoin.ts): fixed words by code, never the server's text. */
         internal val GUEST_ERRORS = mapOf(
+            "key_taken" to "That did not work. Send a new code.",
+            "signer" to "The belfry's signer did not answer. Send a new code.",
             "invalid" to "That doesn’t look like an e-mail address.",
             "name_needed" to "Your name is needed to join.",
             "too_many" to "Too many codes for now. Try again in half an hour.",
