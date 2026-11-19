@@ -125,7 +125,12 @@ internal object ReplyQueue {
 
     /** Tests start clean. */
     fun reset() {
-        pending = null; sent = null; failed = null; reopen = null; hosts = 0; drafts.clear()
+        // in a snapshot of its own, applied at once: written straight into the global snapshot
+        // before anything was composed in a fresh JVM, the change stayed pending for ever and Compose
+        // never went idle (the AppNotIdleException of CardsShotsTest, CI 2026-11-18 / 19)
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            pending = null; sent = null; failed = null; reopen = null; hosts = 0; drafts.clear()
+        }
     }
 }
 
