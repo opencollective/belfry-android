@@ -320,9 +320,10 @@ internal fun apiPrice(x: kotlinx.serialization.json.JsonObject): sh.belfry.core.
     fun long(o: kotlinx.serialization.json.JsonObject?, k: String) = str(o, k)?.toDoubleOrNull()?.toLong()
     val p = x["price"] as? kotlinx.serialization.json.JsonObject
     val price = p?.let { o ->
-        val amount = str(o, "amount") ?: return@let null
-        val cur = str(o, "currency") ?: return@let null
-        sh.belfry.core.model.Price(amount.take(12), cur.take(12), str(o, "vat")?.take(6), str(o, "vat_included") == "true", long(o, "until"))
+        // an unreadable price comes with an empty amount: priced, "Paid" (never "€" alone)
+        val amount = str(o, "amount")?.takeIf { it.isNotEmpty() } ?: return@let null
+        val cur = str(o, "currency")?.takeIf { it.isNotEmpty() } ?: return@let null
+        sh.belfry.core.model.Price(amount.take(12), cur.take(12), str(o, "vat")?.takeIf { it.isNotEmpty() }?.take(6), str(o, "vat_included") == "true", long(o, "until"))
     }
     val rows = (x["prices"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { r ->
         val o = r as? kotlinx.serialization.json.JsonObject ?: return@mapNotNull null
