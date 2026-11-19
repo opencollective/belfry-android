@@ -368,6 +368,20 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
 
     /** No link (onboarding/no-link): a belfry's charter for someone with no account, and applying to join it. */
     suspend fun publicCharter(c: Community) = onboarding.charterFor(c)
+
+    // ---- the way in (membership.md 2026-11-19) ----
+    fun wayIn(c: Community): sh.belfry.core.net.WayInApi = onboarding.wayIn(c)
+
+    /** A request waiting at this belfry (its domain), shown again when the app opens signed out. */
+    fun pendingApplication(): String? = try { onboarding.pendingApplication } catch (e: Exception) { null }
+    fun setPendingApplication(domain: String?) { try { onboarding.pendingApplication = domain } catch (e: Exception) { } }
+
+    /** Signed in by the way in: the session (bound to the applicant key) is saved and opened; the key is let go after the signer answered. */
+    suspend fun finishWayIn(c: Community, signed: sh.belfry.core.model.WayIn.Signed) {
+        val s = onboarding.openWayIn(c, signed)
+        withContext(Dispatchers.Default) { try { onboarding.forgetApplicant(c.domain) } catch (e: Exception) { } }
+        enter(s, fresh = true)
+    }
     suspend fun applyToJoin(c: Community, email: String, motivation: String, agreed: List<String>) = onboarding.applyTo(c, email, motivation, agreed)
 
     /** Starts a sign-in; returns the address to open in a Custom Tab. */

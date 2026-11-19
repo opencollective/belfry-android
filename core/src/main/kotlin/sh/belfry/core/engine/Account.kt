@@ -321,6 +321,39 @@ class Onboarding(
     }
 
     /** The guest's code signed an existing account in (canvas onboarding/guest-code v41): its session, opened with the key the phone made. */
+    // ---- the way in (membership.md 2026-11-19; vectors/way-in.json) -------------------------------
+
+    /**
+     * This phone's applicant key for the belfry at DOMAIN (made once, kept in the vault): it signs
+     * every way-in call and becomes the session's client key once signed in. Let go only after the
+     * saved session answered its relay ([forgetApplicant]).
+     */
+    fun applicantSecret(domain: String): String {
+        val k = "$V_APPLICANT:$domain"
+        vault.get(k)?.takeIf { sh.belfry.core.crypto.Hex.isKey(it) }?.let { return it }
+        val fresh = sh.belfry.core.crypto.Keys.generateSecretHex()
+        vault.set(k, fresh)
+        return fresh
+    }
+
+    fun forgetApplicant(domain: String) {
+        vault.remove("$V_APPLICANT:$domain")
+        if (pendingApplication == domain) pendingApplication = null
+    }
+
+    /** A request waiting at this belfry (only its domain is kept): shown again on open. */
+    var pendingApplication: String?
+        get() = vault.get(V_APPLY_PENDING)?.takeIf { Community.isDomain(it) }
+        set(v) { if (v == null) vault.remove(V_APPLY_PENDING) else vault.set(V_APPLY_PENDING, v) }
+
+    fun wayIn(community: Community): sh.belfry.core.net.WayInApi =
+        sh.belfry.core.net.WayInApi(community, http, applicantSecret(community.domain), clock)
+
+    /** Signed in by the way in: the session on the account, its client key = the applicant key. */
+    suspend fun openWayIn(community: Community, s: sh.belfry.core.model.WayIn.Signed): Session = withContext(Dispatchers.Default) {
+        open(community, s.bunkerUrl, applicantSecret(community.domain), null, null, expect = s.pubkey)
+    }
+
     suspend fun openGuestSignIn(community: Community, s: sh.belfry.core.net.GuestSignIn): Session = withContext(Dispatchers.Default) {
         open(community, s.bunkerUrl, s.secret, null, null, expect = s.pubkey)
     }
@@ -536,6 +569,8 @@ class Onboarding(
         const val V_INVITE = "pending-invite"
         const val V_JOIN_KEY = "join-key"
         const val V_NATIVE = "native-signin"
+        const val V_APPLICANT = "applicant"
+        const val V_APPLY_PENDING = "apply-pending"
         /** The belfry keeps a request for 15 minutes (a code for 10): after that, screen 1 again. */
         const val CODE_SECONDS = 900L
         private val ENDS_THE_REQUEST = setOf(

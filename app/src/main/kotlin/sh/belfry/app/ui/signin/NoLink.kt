@@ -49,6 +49,11 @@ sealed interface NoLinkStep {
     data class LogIn(val c: Community) : NoLinkStep
     data class Apply(val c: Community) : NoLinkStep
     data class Sent(val c: Community) : NoLinkStep
+    /** The older ways, for a belfry without the new calls (409 unsupported, 404). */
+    data class NativeLogIn(val c: Community) : NoLinkStep
+    data class OldApply(val c: Community) : NoLinkStep
+    /** A request waiting at this belfry, shown again on open. */
+    data class Pending(val c: Community) : NoLinkStep
 }
 
 /**
@@ -63,6 +68,12 @@ fun SignedOutFlow(state: AppState) {
     val pending by state.pendingCode.collectAsState()
     val finishing by state.finishing.collectAsState()
     var step by remember { mutableStateOf<NoLinkStep>(NoLinkStep.Find) }
+    // a request waiting at a belfry: its pending screen again (only the domain was kept)
+    LaunchedEffect(Unit) {
+        val d = state.pendingApplication() ?: return@LaunchedEffect
+        val c = try { state.discover(d) } catch (e: Exception) { null } ?: return@LaunchedEffect
+        if (step == NoLinkStep.Find) step = NoLinkStep.Pending(c)
+    }
     var scanning by rememberSaveable { mutableStateOf(false) }
     // "Sign in instead" from guest mode, a code on its way, a sign-in finishing: the sign-in screen as before
     val prefilled = remember { state.hasPrefill() }
@@ -79,8 +90,30 @@ fun SignedOutFlow(state: AppState) {
             WelcomeContent(s.c, onBack = { step = NoLinkStep.Find }, onLogIn = { step = NoLinkStep.LogIn(s.c) }, onApply = { step = NoLinkStep.Apply(s.c) }, onInviteCode = { inviting = true })
             if (inviting) InviteCodeSheet(s.c, onLink = { inviting = false; state.onInviteLink(it) }, onScan = { inviting = false; scanning = true }, onDismiss = { inviting = false })
         }
-        is NoLinkStep.LogIn -> SignInScreen(state, community = s.c, onLeave = { step = NoLinkStep.Welcome(s.c) })
-        is NoLinkStep.Apply -> {
+        // the web's way in (membership.md 2026-11-19): e-mail → code → the chat, pending, or apply with the proof
+        is NoLinkStep.LogIn, is NoLinkStep.Pending -> {
+            val c = if (s is NoLinkStep.LogIn) s.c else (s as NoLinkStep.Pending).c
+            WayInFlow(
+                c, if (s is NoLinkStep.Pending) WayInStart.PENDING else WayInStart.LOGIN, remember(c.domain) { state.wayIn(c) },
+                charter = { state.publicCharter(c) },
+                onSigned = { signed -> state.finishWayIn(c, signed) },
+                onOlder = { step = NoLinkStep.NativeLogIn(c) },
+                onSignInInstead = { step = NoLinkStep.NativeLogIn(c) },
+                onPending = { on -> state.setPendingApplication(if (on) c.domain else null) },
+                onBack = { step = NoLinkStep.Welcome(c) },
+            )
+        }
+        is NoLinkStep.NativeLogIn -> SignInScreen(state, community = s.c, onLeave = { step = NoLinkStep.Welcome(s.c) })
+        is NoLinkStep.Apply -> WayInFlow(
+            s.c, WayInStart.APPLY, remember(s.c.domain) { state.wayIn(s.c) },
+            charter = { state.publicCharter(s.c) },
+            onSigned = { signed -> state.finishWayIn(s.c, signed) },
+            onOlder = { step = NoLinkStep.OldApply(s.c) },
+            onSignInInstead = { step = NoLinkStep.NativeLogIn(s.c) },
+            onPending = { on -> state.setPendingApplication(if (on) s.c.domain else null) },
+            onBack = { step = NoLinkStep.Welcome(s.c) },
+        )
+        is NoLinkStep.OldApply -> {
             BackHandler { step = NoLinkStep.Welcome(s.c) }
             ApplyFlow(s.c, charter = { state.publicCharter(s.c) }, apply = { e, w, a -> state.applyToJoin(s.c, e, w, a) },
                 onBack = { step = NoLinkStep.Welcome(s.c) }, onLogIn = { step = NoLinkStep.LogIn(s.c) }, onSent = { step = NoLinkStep.Sent(s.c) })
