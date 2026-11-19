@@ -2035,23 +2035,6 @@ the feed row shaped like a message. Android: `ui/cards/MailThreadScreen.kt`, `ui
 - Android: `Group.named` + `World.kindWord / kindPhrase / UNKNOWN` (core), `NameSkeleton` /
   `rememberNameLoading` (kit), `TopBar(titleLoading =)`; tests `NamesTest`.
 
-<<<<<<< HEAD
-### 19.45 Reactions to direct messages (canvas home/conversation, Xavier's to-dos 2026-11-19; the web's dm.ts; `vectors/dm-reactions.json`)
-
-A reaction to a direct message is an unsigned kind 7 rumor, content = the emoji, tags
-`["e", <the kind 14 rumor's id>, "", <its author>]`, `["p", <its author>]`, `["k", "14"]`, then
-`["p", …]` for the other participants, gift-wrapped (NIP-59) to every participant and to
-yourself. Taking it back: a kind 5 rumor `["e", <the reaction rumor's id>]`, `["k", "7"]`,
-`["p", …]` for the others, wrapped the same way. It counts only from the reaction's author, and
-also when it is read before the reaction (wraps are back-dated at random and read newest first).
-Readers key on the last `e` tag; one per person per emoji; `+` or empty = 👍; more than 16 UTF-16
-units = ignored. A reaction never moves a conversation or its unread count. Never on e-mail
-(1301). The chips sit under the bubble on its side, the same as in channels: tap = add / take back
-mine; a long-press on a bubble opens the menu with the reactions row. The header of a
-one-to-one conversation shows the person's face and name; a tap opens their profile.
-(Android: `DmReaction.apply`, `DmSnapshot.reactionsOf`, `DirectMessages.react`,
-`ui/people/DmReactions.kt`.)
-=======
 ### 19.44 References in a message: a name inside the text, a box at the end (2026-11-19; the lead's rule; canvas channels/link-preview-end + -inline, to-do c92a9f45; `vectors/references.json`, reference implementation `tools/vectors/references.mjs`)
 
 A **reference** is this belfry's chat link `https://chat.<domain>/#/c/<id>` (also
@@ -2079,4 +2062,18 @@ proposal's chat `prop-…` (shown as the proposal).
   links); readers never depend on it, they parse the text.
 - (Android: `core/model/References.kt` — `References.parts / endBox`, `World.refSeen`;
   `ui/kit/RefBox.kt`, `MarkdownText` for the names.)
->>>>>>> 8dbd8e3 (References in a message (SPEC 19.44, canvas channels/link-preview-end + -inline, to-do c92a9f45): the name inside the text, a preview box at the end; grey bar then the kind's word, a lock when I can't open it, grey words when deleted. vectors/references.json + tools/vectors/references.mjs (the reference implementation); an a tag for event / proposal naddrs on send.)
+### 19.45 Reactions to direct messages (canvas home/conversation, Xavier's to-dos 2026-11-19; the web's dm.ts; `vectors/dm-reactions.json`)
+
+A reaction to a direct message is an unsigned kind 7 rumor, content = the emoji, tags
+`["e", <the kind 14 rumor's id>, "", <its author>]`, `["p", <its author>]`, `["k", "14"]`, then
+`["p", …]` for the other participants, gift-wrapped (NIP-59) to every participant and to
+yourself. Taking it back: a kind 5 rumor `["e", <the reaction rumor's id>]`, `["k", "7"]`,
+`["p", …]` for the others, wrapped the same way. It counts only from the reaction's author, and
+also when it is read before the reaction (wraps are back-dated at random and read newest first).
+Readers key on the last `e` tag; one per person per emoji; `+` or empty = 👍; more than 16 UTF-16
+units = ignored. A reaction never moves a conversation or its unread count. Never on e-mail
+(1301). The chips sit under the bubble on its side, the same as in channels: tap = add / take back
+mine; a long-press on a bubble opens the menu with the reactions row. The header of a
+one-to-one conversation shows the person's face and name; a tap opens their profile.
+(Android: `DmReaction.apply`, `DmSnapshot.reactionsOf`, `DirectMessages.react`,
+`ui/people/DmReactions.kt`.)
