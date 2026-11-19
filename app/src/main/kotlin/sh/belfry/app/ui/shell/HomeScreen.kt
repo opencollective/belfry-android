@@ -173,7 +173,7 @@ private fun PlaceBody(shell: ShellState, onMenu: (() -> Unit)?, counts: PlaceCou
                 val thread = shell.thread
                 Row(Modifier.fillMaxSize()) {
                     ChannelScreen(
-                        shell.channel, modifier = Modifier.weight(1f), focusMessage = shell.focusMessage, onFocusDone = { shell.focusMessage = null },
+                        shell.channel, modifier = Modifier.weight(1f), focusMessage = shell.focusMessage, onFocusDone = { shell.focusMessage = null }, newestTick = shell.newestTick,
                         // another thread replaces the open one (no history entry per thread)
                         onOpenThread = if (three) ({ shell.thread = it }) else null,
                     )
@@ -191,6 +191,7 @@ private fun PlaceBody(shell: ShellState, onMenu: (() -> Unit)?, counts: PlaceCou
                     menuBadge = counts.town,
                     focusMessage = shell.focusMessage,
                     onFocusDone = { shell.focusMessage = null },
+                    newestTick = shell.newestTick,
                 )
             }
         }
@@ -238,7 +239,7 @@ private fun androidx.compose.foundation.layout.RowScope.PlaceItem(
     val on = shell.place == place
     NavigationBarItem(
         selected = on,
-        onClick = { shell.place = place },
+        onClick = { if (place == ShellState.Place.TOWN) shell.townTapped() else shell.place = place },
         icon = {
             // a count, not a dot: colour alone says nothing on an e-ink screen
             BadgedBox(badge = { if (badge > 0) Badge(containerColor = Belfry.colors.badge, contentColor = Belfry.colors.onBadge) { Text(if (badge > 99) "99+" else badge.toString()) } }) {

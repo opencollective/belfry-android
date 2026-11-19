@@ -52,6 +52,9 @@ abstract class Shots {
 
     private fun set(content: @Composable () -> Unit) {
         dark = false
+        // state written outside composition (this flag, a test's @Before resetting a shared queue)
+        // is applied now: left pending in the global snapshot, Compose never reports idle
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
         compose.setContent {
             BelfryTheme(dark = dark) {
                 Box(Modifier.fillMaxSize().background(Belfry.colors.bg)) { content() }

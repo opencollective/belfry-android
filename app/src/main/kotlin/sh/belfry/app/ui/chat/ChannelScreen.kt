@@ -133,6 +133,8 @@ fun ChannelScreen(
     embedded: Boolean = false,
     focusMessage: String? = null,
     onFocusDone: () -> Unit = {},
+    /** Bumped by a second tap on Town: scroll to the newest message. */
+    newestTick: Int = 0,
     chat: ChatState = rememberChatState(groupId),
     composer: ComposerState = rememberComposerState(groupId),
     /** A large screen: threads open beside the channel instead of on their own screen. */
@@ -212,6 +214,7 @@ fun ChannelScreen(
             }
         }
     }
+    LaunchedEffect(newestTick) { if (newestTick > 0 && rows.isNotEmpty()) list.animateScrollToItem(0) }
     // What I just wrote shows at once: go to the end.
     val lastKey = rows.lastOrNull()?.item?.key
     LaunchedEffect(lastKey) {

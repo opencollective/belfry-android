@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.shell
 
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,19 @@ class ShellState(initialChannel: String = "general") {
         focusMessage = messageId
     }
 
+    /** Bumped by a second tap on Town in the main channel: it scrolls to the newest message. */
+    var newestTick by mutableIntStateOf(0)
+        private set
+
+    /**
+     * The Town tab (Xavier, 19 Nov): it always opens the belfry's main channel (group `general`),
+     * never the last open one; a second tap there goes to the newest message.
+     */
+    fun townTapped() {
+        if (place == Place.TOWN && channel == MAIN_CHANNEL && thread == null) { newestTick++; return }
+        open(MAIN_CHANNEL)
+    }
+
     /** The channel open last time, loaded from the store at start. */
     fun restore(id: String) {
         if (!touched) channel = id
@@ -40,6 +54,7 @@ class ShellState(initialChannel: String = "general") {
 
     companion object {
         const val K_LAST_CHANNEL = "ui:last-channel"
+        const val MAIN_CHANNEL = "general"
     }
 }
 
