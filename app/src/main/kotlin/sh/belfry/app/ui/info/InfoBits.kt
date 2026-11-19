@@ -137,7 +137,8 @@ fun LinkBox(
         BusyButton(
             if (copied) "Copied" else "Copy link",
             onClick = { copyText(context, url, shareTitle); copied = true },
-            modifier = Modifier.weight(1f).testTag("link-copy"), enabled = !waiting, icon = BelfryIcons.Copy,
+            // both secondary (canvas v48)
+            modifier = Modifier.weight(1f).testTag("link-copy"), kind = ButtonKind.Ghost, enabled = !waiting, icon = BelfryIcons.Copy,
         )
         BusyButton(
             "Share…", onClick = { shareText(context, url, shareTitle) },
