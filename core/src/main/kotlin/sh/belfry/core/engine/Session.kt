@@ -104,7 +104,12 @@ import java.io.IOException
 import java.time.ZoneId
 
 /** Does the groups relay let this key in (SPEC 4)? */
-enum class AccessState { UNKNOWN, IN, REFUSED }
+/**
+ * REFUSED = the belfry's register confirms I am no member, guest or agent (POST /whois): the
+ * full screen. RELAY_REFUSED = only the relay said no (a restart, an AUTH race, a whitelist lag
+ * after a role change): a line, the channels on this device stay (the lead's rule, 2026-11-19).
+ */
+enum class AccessState { UNKNOWN, IN, REFUSED, RELAY_REFUSED }
 
 /** Connection and outbox state, for the banner and the settings screen. */
 data class Status(
@@ -128,6 +133,7 @@ data class Status(
     val banner: String? get() = when {
         localOnly -> null
         access == AccessState.REFUSED -> "This belfry does not let you in (yet)."
+        access == AccessState.RELAY_REFUSED -> "The belfry didn't let this phone in just now · showing what is on this device"
         !online -> if (queued > 0) "Offline · $queued waiting to be sent" else "Offline · showing what is on this device"
         !connected -> if (queued > 0) "Connecting… · $queued waiting to be sent" else "Connecting…"
         signerTrouble -> "Your signer is not answering. Messages wait on this device."
@@ -631,8 +637,23 @@ class Session(
         withContext(Dispatchers.IO) { store.wipe() }
     }
 
+    /** The relay's refusal alone never locks a member out: the register has the last word. */
     private fun noteRefusal(reason: String) {
-        if (Access.isRefusal(reason)) setStatus { it.copy(access = AccessState.REFUSED) }
+        if (!Access.isRefusal(reason) || _status.value.access == AccessState.REFUSED) return
+        setStatus { it.copy(access = AccessState.RELAY_REFUSED) }
+        launchSafely { confirmRefusal() }
+    }
+
+    private suspend fun confirmRefusal() {
+        val member = registerSaysMember()
+        if (member == false && _status.value.access == AccessState.RELAY_REFUSED) setStatus { it.copy(access = AccessState.REFUSED) }
+    }
+
+    /** "Check again": reconnect, and ask the register again (a member let in since, or a wrong reading). */
+    suspend fun checkAccess() {
+        val member = registerSaysMember()
+        if (member != false && _status.value.access == AccessState.REFUSED) setStatus { it.copy(access = AccessState.RELAY_REFUSED) }
+        wake()
     }
 
     /**

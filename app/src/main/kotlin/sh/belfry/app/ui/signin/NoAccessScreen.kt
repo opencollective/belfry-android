@@ -38,7 +38,10 @@ import sh.belfry.app.ui.theme.Belfry
  * e-mail the belfry knows for this account filled in and locked; then Thank you.
  */
 @Composable
-fun NoAccessScreen() {
+fun NoAccessScreen(
+    /** Back to the channels on this device (when it has some): the screen never locks anyone out. */
+    onBack: (() -> Unit)? = null,
+) {
     val c = Belfry.colors
     val session = LocalSession.current
     val signOut = LocalSignOut.current
@@ -70,7 +73,7 @@ fun NoAccessScreen() {
                 Spacer(Modifier.height(10.dp))
                 Text("Your request is in. You get a confirmation by e-mail now, and the answer by e-mail too.", fontSize = 16.sp, lineHeight = 22.sp, color = c.muted, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(24.dp))
-                BusyButton("I’ve been let in: check again", onClick = { session.wake() }, modifier = Modifier.fillMaxWidth())
+                BusyButton("I’ve been let in: check again", onClick = { session.checkAccess() }, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
                 BusyButton("Log out", onClick = logOut, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth())
             }
@@ -95,8 +98,12 @@ fun NoAccessScreen() {
         emailLocked = known != null,
         footer = {
             Column(Modifier.fillMaxWidth()) {
-                BusyButton("I’ve been let in: check again", onClick = { session.wake() }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().testTag("noaccess-check"))
+                BusyButton("I’ve been let in: check again", onClick = { session.checkAccess() }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().testTag("noaccess-check"))
                 Spacer(Modifier.height(6.dp))
+                if (onBack != null) {
+                    BusyButton("Back to the channels on this phone", onClick = { onBack() }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().testTag("noaccess-back"))
+                    Spacer(Modifier.height(6.dp))
+                }
                 BusyButton("Log out", onClick = logOut, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth())
             }
         },

@@ -133,6 +133,7 @@ private fun SignedIn(state: AppState, session: Session) {
         if (session.localOnly || status.access != AccessState.UNKNOWN) state.doneOpening()
         else { kotlinx.coroutines.delay(10_000); state.doneOpening() }
     }
+    var refusalSetAside by remember(session) { mutableStateOf(false) }
     CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts) {
         SessionScope(session, nav) {
             val guestNow by session.guest.collectAsState()
@@ -145,8 +146,9 @@ private fun SignedIn(state: AppState, session: Session) {
                     onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) },
                     onLogIn = { state.logInForInvite() },
                 )
-            } else if (LocalStatus.current.access == AccessState.REFUSED) {
-                NoAccessScreen()
+            } else if (LocalStatus.current.access == AccessState.REFUSED && !refusalSetAside) {
+                // only when the register confirms it; always a way back to what is on this device
+                NoAccessScreen(onBack = if (session.world.collectAsState().value.groups.isNotEmpty()) ({ refusalSetAside = true }) else null)
             } else {
                 AppNav(controller, shell)
                 GuestJoinHost(onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) })

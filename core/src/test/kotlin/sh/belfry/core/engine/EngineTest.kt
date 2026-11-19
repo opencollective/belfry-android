@@ -207,8 +207,11 @@ class EngineTest {
         until("in") { s.status.value.access == AccessState.IN && g.published.any { it.kind == 9002 } }
         g.refuse["R"] = "restricted: members only, get a pass"
         s.postMessage("general", "R")
-        until("refused") { s.status.value.access == AccessState.REFUSED }
+        // the relay's word alone (the register didn't confirm: no answer here) never locks a member out
+        until("refused by the relay") { s.status.value.access == AccessState.RELAY_REFUSED }
         assertNotNull(s.status.value.banner)
+        Thread.sleep(500)
+        assertEquals(AccessState.RELAY_REFUSED, s.status.value.access, "not the full screen without the register's no")
     }
 
     @Test
