@@ -35,7 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
-import sh.belfry.app.ui.cards.CardBits
+import sh.belfry.app.ui.cards.CardFormat
 import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalWorld
@@ -83,7 +83,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             when (seen) {
                 is RefSeen.EventSeen -> {
-                    val z = CardBits.zoned(world, seen.event.start)
+                    val z = CardFormat.zoned(world, seen.event.start)
                     Column(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(c.bg), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         Text(z.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH).uppercase(), fontSize = 10.sp, lineHeight = 11.sp, fontWeight = FontWeight.SemiBold, color = c.danger)
                         Text(z.dayOfMonth.toString(), fontSize = 17.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = c.text)
@@ -105,7 +105,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                     is RefSeen.EventSeen -> {
                         val e = seen.event
                         Title(e.title)
-                        Line(CardBits.dayAndWhen(world, e, now) + (e.location?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""))
+                        Line(CardFormat.dayAndWhen(world, e, now) + (e.location?.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""))
                     }
                     is RefSeen.ProposalSeen -> {
                         val p = seen.proposal
@@ -115,7 +115,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                     }
                     is RefSeen.Locked -> {
                         Text(lockedWords(seen.kind).replaceFirstChar { it.uppercase() }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.muted)
-                        Line("Only members of ${world.community.name.ifEmpty { "this belfry" }} can open it")
+                        Line("Only members of ${world.ctx.communityName.ifEmpty { "this belfry" }} can open it")
                     }
                     is RefSeen.Deleted -> Text(deletedWords(seen.kind).replaceFirstChar { it.uppercase() }, fontSize = 15.sp, color = c.muted)
                     is RefSeen.Loading -> if (waited) {
