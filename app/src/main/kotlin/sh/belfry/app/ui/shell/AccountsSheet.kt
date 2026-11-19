@@ -102,6 +102,13 @@ fun AccountsList(accounts: AccountsUi, onDismiss: () -> Unit, go: (String) -> Un
     val session = LocalSession.current
     val busy = rememberBusy()
     val me = world.profiles[world.me]
+    // "Link a phone or tablet" (canvas home/accounts + home/link-device): the open account's login link
+    val loginLink = world.myAddress
+        ?.takeIf { !session.localOnly && !world.amGuest && it.endsWith("@" + session.community.domain) }
+        ?.substringBefore('@')?.let { "https://chat.${session.community.domain}/login/$it" }
+        ?.takeIf { sh.belfry.core.net.LoginLink.parse(it) != null }
+    var linking by remember { mutableStateOf(false) }
+    if (linking && loginLink != null) LinkDeviceSheet(loginLink, world.myAddress!!, onDismiss = { linking = false })
     Column {
         ActionGroup {
             AccountRow(
@@ -126,6 +133,11 @@ fun AccountsList(accounts: AccountsUi, onDismiss: () -> Unit, go: (String) -> Un
                 sub = "Another identity here, or your account in another community", enabled = !busy.busy,
                 modifier = Modifier.testTag("account-add"),
             )
+            if (loginLink != null) ActionRow(
+                "Link a phone or tablet", onClick = { linking = true }, icon = BelfryIcons.Qr,
+                sub = "Scan a QR code there to log in as ${world.myAddress}", enabled = !busy.busy,
+                modifier = Modifier.testTag("account-link-device"),
+            )
         }
         Spacer(Modifier.height(12.dp))
         ActionGroup {
@@ -139,6 +151,29 @@ fun AccountsList(accounts: AccountsUi, onDismiss: () -> Unit, go: (String) -> Un
                 sub = "Version ${sh.belfry.app.BuildConfig.VERSION_NAME}" + (sh.belfry.app.update.Updater.available.value?.let { " · ${it.version} is out" } ?: ""),
                 chevron = true, enabled = !busy.busy, modifier = Modifier.testTag("account-about"),
             )
+        }
+    }
+}
+
+/**
+ * canvas home/link-device (the web's home/link-phone): a QR of `https://chat.<domain>/login/<username>`
+ * for the open account. No secret in it: the other device confirms with the code mailed to the
+ * person's own e-mail (onboarding/scan-login).
+ */
+@Composable
+internal fun LinkDeviceSheet(link: String, address: String, onDismiss: () -> Unit) {
+    val c = sh.belfry.app.ui.theme.Belfry.colors
+    BelfrySheet(onDismiss = onDismiss, title = "Link a phone or tablet") {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+            sh.belfry.app.ui.kit.QrCode(link, Modifier.testTag("link-device-qr"))
+            Spacer(Modifier.height(14.dp))
+            androidx.compose.material3.Text(
+                "Open the Belfry app on the other device and scan this code. It logs in as $address after a 6-digit code sent to your e-mail.",
+                fontSize = 15.sp, lineHeight = 21.sp, color = c.text, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.material3.Text(link, fontSize = 13.sp, color = c.muted, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
