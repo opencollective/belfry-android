@@ -84,6 +84,8 @@ object Routes {
     const val ME = "me"
     /** The account switcher's "About Belfry": version, updates, belfry.sh, the belfry of Belfry. */
     const val ABOUT = "about"
+    /** canvas home/link-device: the open account's login QR, for another phone or tablet. */
+    const val LINK_DEVICE = "link-device"
     const val SESSIONS = "sessions"
     /** Me → Notifications (push). */
     const val NOTIFICATIONS = "notifications"
