@@ -110,15 +110,20 @@ internal object ReplyQueue {
     fun fire(session: Session, p: PendingReply) {
         if (pending === p) pending = null
         scope.launch {
-            try {
-                val id = session.sendAsChannel(p.channel, p.to, p.subject, p.text, p.inReplyTo, p.cardId, p.references)
-                drafts.remove(p.cardId)
-                sent = id to p.first
+            // the send off the main thread; the queue's state (Compose state) written on it: a write
+            // from a background thread after its screen had gone kept the next test's Compose from
+            // ever going idle (CardsShotsTest after undoSendBar, CI 2026-11-18 / 19)
+            val result: Pair<String?, String?> = try {
+                session.sendAsChannel(p.channel, p.to, p.subject, p.text, p.inReplyTo, p.cardId, p.references) to null
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // ActionException carries a fixed, displayable message; anything else gets ours
-                failed = p to ((e as? sh.belfry.core.engine.ActionException)?.message ?: "The e-mail could not be sent. Try again.")
+                null to ((e as? sh.belfry.core.engine.ActionException)?.message ?: "The e-mail could not be sent. Try again.")
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                val id = result.first
+                if (id != null) { drafts.remove(p.cardId); sent = id to p.first } else failed = p to (result.second ?: "The e-mail could not be sent. Try again.")
             }
         }
     }
