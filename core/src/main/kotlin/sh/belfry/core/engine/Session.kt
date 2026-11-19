@@ -1243,6 +1243,27 @@ class Session(
     @Volatile var lastDmSentMs: Long = 0L
         private set
 
+    // ---- a member link's last step: the name and username (POST /welcome, membership.md 2026-11-19) ----
+
+    /** The name-and-username screen is due (a member link was just used on this device). */
+    fun nameDue(): Boolean = !localOnly && store.get(K_NAME_DUE) == "1"
+    fun clearNameDue() = store.remove(K_NAME_DUE)
+
+    /** POST /welcome signed by my own key; SIGNED_IN (set, or nothing to pick) = to the chat. */
+    suspend fun welcome(name: String, username: String): sh.belfry.core.model.WayIn.Outcome = withContext(Dispatchers.Default) {
+        val body = buildJsonObject { put("name", JsonPrimitive(name.trim().take(100))); put("username", JsonPrimitive(username.trim().lowercase())) }
+        val (status, obj) = try { api().signedFetch(signer, community.apiBase + "/welcome", "POST", body) } catch (e: Exception) {
+            return@withContext sh.belfry.core.model.WayIn.Outcome(sh.belfry.core.model.WayIn.Screen.STAY, "No connection. Try again.")
+        }
+        sh.belfry.core.model.WayIn.next("welcome", status, obj, community.domain)
+    }
+
+    /** POST /username/check signed by my key: the line under "Pick a username:" and up to three suggestions. */
+    suspend fun usernameCheck(username: String): Pair<String, List<String>>? = withContext(Dispatchers.Default) {
+        val (status, obj) = try { api().signedFetch(signer, community.apiBase + "/username/check", "POST", buildJsonObject { put("username", JsonPrimitive(username.trim())) }) } catch (e: Exception) { return@withContext null }
+        if (status != 200 || obj == null) null else sh.belfry.core.model.WayIn.usernameLine(obj, community.domain) to sh.belfry.core.model.WayIn.usernameOffers(obj)
+    }
+
     /** A chip's tap under a direct message: add EMOJI, or take mine back (canvas home/conversation). */
     suspend fun toggleDmReaction(d: sh.belfry.core.dm.Dm, emoji: String) { lastDmSentMs = System.currentTimeMillis(); dmCall { dm.toggleReaction(d, emoji) } }
 
@@ -1545,7 +1566,11 @@ class Session(
             }
             saved.signedIn?.let { return it.copy(secret = key!!.secretHex) }
             // a member link: a member now (`"member": true`). Never a guest any more on this device
-            if (GuestMode.afterVerify(saved.member, saved.joined) == GuestMode.AfterVerify.MEMBER) { becameMember(g?.channel); return null }
+            if (GuestMode.afterVerify(saved.member, saved.joined) == GuestMode.AfterVerify.MEMBER) {
+                // a member link (canvas onboarding/member-link-name): the name and username come next, once
+                store.set(K_NAME_DUE, "1")
+                becameMember(g?.channel); return null
+            }
         }
         if (g == null) return null
         setGuest(g.copy(saved = true, reading = false))
@@ -1709,6 +1734,7 @@ class Session(
         const val K_GROUPS_FULL = "groups-full-1"
         /** The groups relay's catch-up mark: the newest event this device had at an authenticated EOSE. */
         const val K_GROUPS_MARK = "groups-mark"
+        const val K_NAME_DUE = "welcome-name-due"
         const val K_GROUPS_SEEN = "groups-seen"
         const val K_ADMINS = "extra-admins"
         const val K_ABSENT = "groups-absent"

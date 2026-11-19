@@ -363,3 +363,49 @@ internal fun WayInDeclined(c: Community, onDone: () -> Unit) {
         BusyButton("OK", onClick = { onDone() }, modifier = Modifier.fillMaxWidth().testTag("wayin-declined"))
     }
 }
+
+/**
+ * canvas onboarding/member-link-name: after a member link's code, once: the name and the username
+ * (POST /welcome, signed by the new member's own key), then the chat. Nothing to pick (set already,
+ * own key) also goes to the chat.
+ */
+@Composable
+fun MemberNameScreen(
+    communityName: String, domain: String, email: String?,
+    check: suspend (String) -> Pair<String, List<String>>?,
+    welcome: suspend (name: String, username: String) -> WayIn.Outcome,
+    onDone: () -> Unit,
+) {
+    val col = Belfry.colors
+    var name by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var edited by remember { mutableStateOf(false) }
+    var line by remember { mutableStateOf<String?>(null) }
+    var offers by remember { mutableStateOf(listOf<String>()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(name) { if (!edited) username = name.trim().split(Regex("\\s+")).firstOrNull().orEmpty().lowercase().filter { it in 'a'..'z' || it in '0'..'9' || it == '-' }.take(30) }
+    LaunchedEffect(username) {
+        offers = emptyList()
+        if (username.isEmpty()) { line = null; return@LaunchedEffect }
+        line = "Checking…"
+        delay(400)
+        val got = check(username)
+        line = got?.first
+        offers = got?.second ?: emptyList()
+    }
+    SignedOutPage {
+        Heading("Welcome to $communityName", (email?.let { "$it is confirmed. " } ?: "") + "One last thing: how people will know you here.")
+        BelfryTextField(name, { name = it.take(100) }, Modifier.fillMaxWidth().testTag("welcome-name-field"), label = "Your name", placeholder = "Lina Moreau",
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
+        Spacer(Modifier.height(14.dp))
+        UsernameField(username, { edited = true; username = it.lowercase().take(30) }, domain, line, offers) { pick -> edited = true; username = pick }
+        ErrorBox(error)
+        Spacer(Modifier.height(20.dp))
+        BusyButton("Go to the chat", onClick = {
+            error = null
+            val o = welcome(name, username)
+            if (o.screen == WayIn.Screen.SIGNED_IN) onDone() else { error = o.message; if (o.suggestions.isNotEmpty()) offers = o.suggestions }
+        }, enabled = name.isNotBlank() && WayIn.isUsername(username), modifier = Modifier.fillMaxWidth().testTag("welcome-go"))
+        Text("", color = col.muted)
+    }
+}

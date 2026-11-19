@@ -35,5 +35,7 @@ class WayInShotsTest : Shots() {
         WayInPending(riverside, mapOf("name" to "Lina Moreau", "username" to "lina", "email" to "lina.moreau@example.org", "motivation" to "I run a repair café in Ghent."))
     }
     @Test fun declined() = shot("wayin-declined") { WayInDeclined(riverside, {}) }
+    @Test fun memberName() = shot("wayin-member-link-name") {
+        sh.belfry.app.ui.signin.MemberNameScreen("Riverside Commons", "belfry.example", "lina.moreau@example.org", { null }, { _, _ -> sh.belfry.core.model.WayIn.Outcome(sh.belfry.core.model.WayIn.Screen.SIGNED_IN) }, {})
+    }
 }
-

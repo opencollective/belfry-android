@@ -139,6 +139,8 @@ private fun SignedIn(state: AppState, session: Session) {
         else { kotlinx.coroutines.delay(10_000); state.doneOpening() }
     }
     var refusalSetAside by remember(session) { mutableStateOf(false) }
+    // a member link just used: the name and username, once (canvas onboarding/member-link-name)
+    var nameDue by remember(session) { mutableStateOf(session.nameDue()) }
     CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts, sh.belfry.app.ui.people.LocalGuestSignedIn provides { s, a -> state.guestSignedIn(s, a) }) {
         SessionScope(session, nav) {
             val guestNow by session.guest.collectAsState()
@@ -150,6 +152,13 @@ private fun SignedIn(state: AppState, session: Session) {
                     session,
                     onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) },
                     onLogIn = { state.logInForInvite() },
+                )
+            } else if (nameDue) {
+                sh.belfry.app.ui.signin.MemberNameScreen(
+                    session.community.name, session.community.domain, null,
+                    check = { session.usernameCheck(it) },
+                    welcome = { n, u -> session.welcome(n, u) },
+                    onDone = { session.clearNameDue(); nameDue = false },
                 )
             } else if (LocalStatus.current.access == AccessState.REFUSED && !refusalSetAside) {
                 // only when the register confirms it; always a way back to what is on this device
