@@ -100,7 +100,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                         val g = seen.group
                         Title(g.name)
                         Line((if (g.isPod) "Group" else "Channel") + " · ${g.members.size} member${if (g.members.size == 1) "" else "s"}")
-                        if (g.about.isNotBlank()) About(g.about.trim().lineSequence().first())
+                        if (g.about.isNotBlank()) About(sh.belfry.core.markdown.Markdown.text(sh.belfry.core.markdown.Markdown.inline(g.about.trim().lineSequence().first())))
                     }
                     is RefSeen.EventSeen -> {
                         val e = seen.event
