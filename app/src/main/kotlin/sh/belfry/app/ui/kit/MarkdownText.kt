@@ -1,5 +1,16 @@
 package sh.belfry.app.ui.kit
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import sh.belfry.app.ui.nav.Nav
+import sh.belfry.core.model.RefKind
+import sh.belfry.core.model.RefSeen
+import sh.belfry.core.model.RefTarget
+import sh.belfry.core.model.References
+import sh.belfry.core.model.canOpenRef
+import sh.belfry.core.model.refSeen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,6 +65,30 @@ import sh.belfry.core.model.World
  */
 val LocalNetworkImages = staticCompositionLocalOf { true }
 
+internal fun lockedWords(k: RefKind): String = when (k) {
+    RefKind.CHANNEL -> "a members-only channel"
+    RefKind.GROUP -> "a closed group"
+    RefKind.EVENT -> "a members-only event"
+    RefKind.PROPOSAL -> "a members-only proposal"
+}
+
+internal fun deletedWords(k: RefKind): String = when (k) {
+    RefKind.CHANNEL -> "a deleted channel"
+    RefKind.GROUP -> "a deleted group"
+    RefKind.EVENT -> "a deleted event"
+    RefKind.PROPOSAL -> "a deleted proposal"
+}
+
+/** Opens what a reference points to. */
+internal fun openRef(nav: Nav, seen: RefSeen) {
+    when (seen) {
+        is RefSeen.GroupSeen -> nav.openChannel(seen.group.id)
+        is RefSeen.EventSeen -> nav.go(Routes.event(seen.event.coord))
+        is RefSeen.ProposalSeen -> nav.go(Routes.proposal(seen.proposal.groupId))
+        else -> {}
+    }
+}
+
 private class MdContext(
     val c: BelfryColors,
     val world: World?,
@@ -61,6 +96,10 @@ private class MdContext(
     val onTopic: ((String) -> Unit)?,
     val onLink: (String) -> Unit,
     val onChannel: (String) -> Unit,
+    /** References (SPEC 19.44): open what one points to. */
+    val onRef: (RefSeen) -> Unit = {},
+    /** 5 s passed without a reference's name: the kind's word instead of the grey bar. */
+    val waited: Boolean = false,
 )
 
 /**
@@ -87,12 +126,19 @@ fun MarkdownText(
     val nav = LocalNav.current
     val openLink = rememberOpenLink()
     val blocks = remember(text, rich) { Markdown.parse(text, if (rich) Markdown.rich else Markdown.asIs) }
+    // a reference's name that hasn't come: a grey bar, the kind's word after 5 s (SPEC 19.43 / 19.44)
+    var waited by remember { mutableStateOf(false) }
+    if (rich && (text.contains("naddr1") || text.contains("/#/c/") || text.contains("/events/"))) {
+        LaunchedEffect(Unit) { kotlinx.coroutines.delay(5_000); waited = true }
+    }
     val ctx = MdContext(
         c, world,
         onMention = onMention ?: { pk -> nav.go(Routes.profile(pk)) },
         onTopic = onTopic,
         onLink = openLink,
         onChannel = { id -> nav.openChannel(id) },
+        onRef = { seen -> openRef(nav, seen) },
+        waited = waited,
     )
     val line = (fontSize.value * 1.4f).sp
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -124,6 +170,30 @@ fun MarkdownText(
     }
 }
 
+/**
+ * A reference inside the text (SPEC 19.44, canvas channels/link-preview-inline): its name,
+ * tappable ("#" + name for a channel or group, 📅 an event, 📝 a proposal), never its id; a grey
+ * bar while the name hasn't come, then the kind's word; grey words, not tappable, when I can't
+ * open it or it is deleted.
+ */
+private fun AnnotatedString.Builder.appendRef(seen: RefSeen, ctx: MdContext) {
+    val c = ctx.c
+    val style = SpanStyle(fontWeight = FontWeight.Medium, background = c.surface2)
+    fun link(label: String) = withLink(LinkAnnotation.Clickable("ref", TextLinkStyles(style)) { ctx.onRef(seen) }) { append(label) }
+    when (seen) {
+        is RefSeen.GroupSeen -> link(seen.group.icon + seen.group.name)
+        is RefSeen.EventSeen -> link("📅 " + seen.event.title)
+        is RefSeen.ProposalSeen -> link("📝 " + seen.proposal.title)
+        is RefSeen.Locked -> withStyle(SpanStyle(color = c.muted)) { append(lockedWords(seen.kind)) }
+        is RefSeen.Deleted -> withStyle(SpanStyle(color = c.muted)) { append(deletedWords(seen.kind)) }
+        is RefSeen.Loading -> if (ctx.waited) {
+            withStyle(SpanStyle(color = c.muted)) { append(if (seen.kind == RefKind.CHANNEL) "#channel" else seen.kind.word) }
+        } else {
+            withStyle(SpanStyle(background = c.surface2, color = c.surface2)) { append("\u2007".repeat(9)) }
+        }
+    }
+}
+
 /** Only these open; anything else stays text (SPEC 15). */
 fun isSafeLink(href: String): Boolean {
     val h = href.lowercase()
@@ -147,7 +217,12 @@ private fun AnnotatedString.Builder.add(nodes: List<Inline>, ctx: MdContext) {
             is Inline.Strike -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { add(n.children, ctx) }
             is Inline.Code -> withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = c.surface2)) { append(n.text) }
             is Inline.Link -> {
-                if (isSafeLink(n.href)) {
+                val bare = (n.children.singleOrNull() as? Inline.Text)?.text == n.href
+                val ref = if (bare) References.target(n.href, ctx.world?.ctx?.domain.orEmpty()) else null
+                val w = ctx.world
+                if (ref != null && w != null) {
+                    appendRef(w.refSeen(ref), ctx)
+                } else if (isSafeLink(n.href)) {
                     withLink(LinkAnnotation.Clickable("link", TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))) { ctx.onLink(n.href) }) { add(n.children, ctx) }
                 } else {
                     add(n.children, ctx)
@@ -175,7 +250,11 @@ private fun AnnotatedString.Builder.add(nodes: List<Inline>, ctx: MdContext) {
             }
             is Inline.ChannelRef -> {
                 val g = ctx.world?.channelOfRef(n.naddr)
-                if (g != null) {
+                val ref = References.target("nostr:" + n.naddr, "")
+                val w = ctx.world
+                if (ref != null && w != null && (ref !is RefTarget.Group || g == null || !w.canOpenRef(g))) {
+                    appendRef(w.refSeen(ref), ctx)
+                } else if (g != null) {
                     val style = SpanStyle(fontWeight = FontWeight.Medium, background = c.surface2)
                     withLink(LinkAnnotation.Clickable("channel", TextLinkStyles(style)) { ctx.onChannel(g.id) }) { append(g.icon + g.name) }
                 } else {
