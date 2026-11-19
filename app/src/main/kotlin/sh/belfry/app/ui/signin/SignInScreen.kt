@@ -119,7 +119,7 @@ fun SignInScreen(
     LaunchedEffect(Unit) { state.takePrefill()?.let { p -> if (p.address.isNotEmpty()) address = p.address; hint = p.hint } }
     if (scanning) {
         // a valid invitation goes where a link the app is opened with goes: the guest-join flow
-        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false })
+        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false }, onLogin = { scanning = false; state.onLoginLink(it) })
         return
     }
     // reopened while a code was on its way: the address comes back with it
@@ -202,9 +202,12 @@ private fun CodeScreen(state: AppState, pending: PendingCode) {
             state.verifyCode(code)
         }
     }
+    // "Link your phone" (canvas onboarding/scan-login): the community, "Log in as …", the line to confirm
+    val login by state.loginCommunity.collectAsState()
     CodeContent(
         to = pending.to,
         address = pending.address,
+        linked = login?.takeIf { pending.address.lowercase().endsWith("@" + it.domain) },
         digits = digits,
         onDigits = { raw ->
             val d = NativeSignIn.digits(raw)
@@ -348,16 +351,36 @@ fun CodeContent(
     onRetry: (() -> Unit)?,
     onResend: suspend () -> Unit,
     onBack: () -> Unit,
+    /** Opened from a "Link your phone" QR or link: its community's logo and name head the screen. */
+    linked: sh.belfry.core.net.Community? = null,
 ) {
     val c = Belfry.colors
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { try { focus.requestFocus() } catch (e: Exception) { } }
     SignedOutPage {
+        if (linked != null) {
+            val logo = linked.brandLogo?.takeIf { it.startsWith("https://") }
+            if (logo != null && sh.belfry.app.ui.kit.LocalNetworkImages.current) {
+                coil.compose.AsyncImage(model = logo, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Fit, modifier = Modifier.size(64.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp)))
+            } else BelfryMark(56)
+            Spacer(Modifier.height(12.dp))
+            Text(linked.name, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold, color = c.text, modifier = Modifier.testTag("login-community"))
+            Spacer(Modifier.height(4.dp))
+            Text("Log in as $address", fontSize = 16.sp, color = c.text, modifier = Modifier.testTag("login-as"))
+            Spacer(Modifier.height(16.dp))
+            // highlighted: the mailed code is the proof that it is them
+            Text(
+                "Please confirm the 6-digit code sent to your e-mail" + (to?.let { " ($it)" } ?: "") + ".",
+                fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                modifier = Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).background(c.surface).border(1.dp, c.text, androidx.compose.foundation.shape.RoundedCornerShape(12.dp)).padding(12.dp).testTag("login-confirm"),
+            )
+        } else {
         Logo()
         Spacer(Modifier.height(40.dp))
         Text("Enter the code", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold, color = c.text)
         Spacer(Modifier.height(8.dp))
         Text("We sent a 6-digit code to ${to ?: "your e-mail address"} to sign in as $address. It works for 10 minutes.", fontSize = 15.sp, color = c.muted)
+        }
         Spacer(Modifier.height(24.dp))
         CodeBoxes(digits, onDigits, enabled = !verifying, error = error != null, focus = focus)
         Spacer(Modifier.height(12.dp))

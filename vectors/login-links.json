@@ -1,0 +1,125 @@
+{
+  "about": "\"Link your phone\" (the web chat's Accounts screen, Xavier 2026-11-19): a QR of https://chat.<domain>/login/<username> that the iPhone or Android app scans (or the phone's camera opens as a universal / app link) to log in as <username>@<domain> on that phone. Nothing secret is in the link: the app starts the ordinary e-mail-code sign-in for that address at once and shows \"Please confirm the 6-digit code sent to your e-mail\". A login link is exactly: scheme https; host chat.<domain> where <domain> is a hostname (the host is read in lower case); path /login/<username> and nothing after it (one trailing slash is fine); no query, no fragment, no user or port; <username> by the server's rule: lower-case letters and digits, with . _ - allowed inside (not first, not last), 1 to 30 characters, written in lower case. Anything else is not a link we know: the scanner says so and nothing is asked of any server. address = <username>@<domain>.",
+  "cases": [
+    {
+      "url": "https://chat.riverside.example/login/sam",
+      "valid": true,
+      "address": "sam@riverside.example"
+    },
+    {
+      "url": "https://chat.belfry.sh/login/xavier.damman",
+      "valid": true,
+      "address": "xavier.damman@belfry.sh"
+    },
+    {
+      "url": "https://chat.riverside.example/login/a",
+      "valid": true,
+      "address": "a@riverside.example"
+    },
+    {
+      "url": "https://chat.riverside.example/login/sam_r-2/",
+      "valid": true,
+      "address": "sam_r-2@riverside.example"
+    },
+    {
+      "url": "https://CHAT.Riverside.Example/login/sam",
+      "valid": true,
+      "address": "sam@riverside.example"
+    },
+    {
+      "url": "https://chat.riverside.example/login/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true,
+      "address": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@riverside.example"
+    },
+    {
+      "url": "https://chat.riverside.example/login/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": false,
+      "why": "31 characters"
+    },
+    {
+      "url": "https://chat.riverside.example/login/Sam",
+      "valid": false,
+      "why": "an upper-case letter"
+    },
+    {
+      "url": "https://chat.riverside.example/login/.sam",
+      "valid": false,
+      "why": "starts with a dot"
+    },
+    {
+      "url": "https://chat.riverside.example/login/sam-",
+      "valid": false,
+      "why": "ends with a hyphen"
+    },
+    {
+      "url": "https://chat.riverside.example/login/sam%20rivera",
+      "valid": false,
+      "why": "a space"
+    },
+    {
+      "url": "https://chat.riverside.example/login/sam@riverside.example",
+      "valid": false,
+      "why": "an address, not a username"
+    },
+    {
+      "url": "https://chat.riverside.example/login/",
+      "valid": false,
+      "why": "no username"
+    },
+    {
+      "url": "https://chat.riverside.example/login/sam/extra",
+      "valid": false,
+      "why": "more after the username"
+    },
+    {
+      "url": "https://chat.riverside.example/login/sam?next=/admin",
+      "valid": false,
+      "why": "a query"
+    },
+    {
+      "url": "https://chat.riverside.example/login/sam#x",
+      "valid": false,
+      "why": "a fragment"
+    },
+    {
+      "url": "http://chat.riverside.example/login/sam",
+      "valid": false,
+      "why": "not https"
+    },
+    {
+      "url": "https://riverside.example/login/sam",
+      "valid": false,
+      "why": "not the chat host"
+    },
+    {
+      "url": "https://chat.riverside.example:8443/login/sam",
+      "valid": false,
+      "why": "a port"
+    },
+    {
+      "url": "https://user@chat.riverside.example/login/sam",
+      "valid": false,
+      "why": "a user in the address"
+    },
+    {
+      "url": "https://chat.riverside.example/join/demoinvite0123456789abcd",
+      "valid": false,
+      "why": "an invitation, not a login link"
+    },
+    {
+      "url": "https://chat.riverside.example/#/login/sam",
+      "valid": false,
+      "why": "the path in the fragment"
+    },
+    {
+      "url": "https://chat.localhost/login/sam",
+      "valid": false,
+      "why": "not a hostname with a dot after chat."
+    },
+    {
+      "url": "belfry://login/sam",
+      "valid": false,
+      "why": "another scheme"
+    }
+  ]
+}

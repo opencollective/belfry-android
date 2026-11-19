@@ -68,7 +68,7 @@ fun SignedOutFlow(state: AppState) {
     val prefilled = remember { state.hasPrefill() }
     if (pending != null || finishing || prefilled) { SignInScreen(state); return }
     if (scanning) {
-        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false })
+        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false }, onLogin = { scanning = false; state.onLoginLink(it) })
         return
     }
     when (val s = step) {
@@ -322,7 +322,7 @@ fun SentContent(onDone: () -> Unit) {
 
 /** The Belfry shield, as the boards show it above a belfry's name. */
 @Composable
-private fun BelfryMark(size: Int = 52) {
+internal fun BelfryMark(size: Int = 52) {
     val c = Belfry.colors
     Box(Modifier.size(size.dp).clip(RoundedCornerShape((size / 4).dp)).background(c.accent), contentAlignment = Alignment.Center) {
         Icon(BelfryIcons.Shield, contentDescription = null, tint = c.onAccent, modifier = Modifier.size((size * 0.55f).dp))

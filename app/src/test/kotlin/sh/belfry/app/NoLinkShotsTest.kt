@@ -39,4 +39,9 @@ class NoLinkShotsTest : Shots() {
     }
 
     @Test fun sent() = shot("nolink-sent") { SentContent {} }
+
+    /** canvas onboarding/scan-login: the code screen of a "Link your phone" QR. */
+    @Test fun scanLogin() = shot("scan-login") {
+        sh.belfry.app.ui.signin.CodeContent("s•••@example.org", "sam@belfry.example", "", {}, false, null, null, 30, null, {}, {}, linked = riverside)
+    }
 }

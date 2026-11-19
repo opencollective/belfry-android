@@ -88,7 +88,12 @@ internal fun cameraGranted(context: Context): Boolean =
  * the scanner opens, never before. CameraX + ZXing: works without Google Play services.
  */
 @Composable
-fun ScanScreen(onInvite: (InviteLink) -> Unit, onClose: () -> Unit) {
+fun ScanScreen(
+    onInvite: (InviteLink) -> Unit,
+    onClose: () -> Unit,
+    /** "Link your phone": the web chat's login QR (canvas onboarding/scan-login). */
+    onLogin: ((sh.belfry.core.net.LoginLink) -> Unit)? = null,
+) {
     val context = LocalContext.current
     var ui by remember {
         mutableStateOf(
@@ -126,7 +131,8 @@ fun ScanScreen(onInvite: (InviteLink) -> Unit, onClose: () -> Unit) {
             onText = { text ->
                 if (!found) {
                     val link = InviteScan.read(text)
-                    if (link != null) { found = true; onInvite(link) } else badAt = System.nanoTime()
+                    val login = if (link == null && onLogin != null) sh.belfry.core.net.LoginLink.parse(text.trim()) else null
+                    if (link != null) { found = true; onInvite(link) } else if (login != null) { found = true; onLogin!!(login) } else badAt = System.nanoTime()
                 }
             },
             onFailed = { ui = ScanUi.FAILED },

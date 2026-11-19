@@ -46,7 +46,9 @@ class MainActivity : ComponentActivity() {
             state.onConnectCallback(q("code"), q("state"), q("error"))
         } else if (uri.scheme == "https") {
             val url = uri.toString()
-            InviteLink.parse(url)?.let { state.onInviteLink(it) } ?: EventLink.parse(url)?.let { state.onEventLink(it) }
+            InviteLink.parse(url)?.let { state.onInviteLink(it) }
+                ?: sh.belfry.core.net.LoginLink.parse(url)?.let { state.onLoginLink(it) }
+                ?: EventLink.parse(url)?.let { state.onEventLink(it) }
         }
     }
 }

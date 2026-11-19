@@ -253,6 +253,30 @@ data class EventLink(val domain: String, val link: String, /** A ticket's code (
     }
 }
 
+/**
+ * "Link your phone" (the web chat's Accounts → QR; canvas home/link-phone, onboarding/scan-login):
+ * `https://chat.<domain>/login/<username>` — exactly https, the host read in lower case, no
+ * query, fragment, user or port, one trailing slash at most; `<username>` = lower-case letters and
+ * digits, `.` `_` `-` inside, 1–30 characters, as written (`vectors/login-links.json`). No secret
+ * in it: the code mailed to that address is the proof.
+ */
+data class LoginLink(val domain: String, val username: String) {
+    val address: String get() = "$username@$domain"
+
+    companion object {
+        private val LINK = Regex("^https://([A-Za-z0-9.-]+)/login/([a-z0-9](?:[a-z0-9._-]{0,28}[a-z0-9])?)/?$")
+
+        fun parse(url: String): LoginLink? {
+            val m = LINK.matchEntire(url) ?: return null
+            val host = m.groupValues[1].lowercase()
+            if (!host.startsWith("chat.")) return null
+            val domain = host.removePrefix("chat.")
+            if (!Community.isDomain(domain)) return null
+            return LoginLink(domain, m.groupValues[2])
+        }
+    }
+}
+
 data class InviteLink(val domain: String, val token: String) {
     companion object {
         private val LINK = Regex("^https://chat\\.([a-z0-9.-]+)/(?:#/)?join/([A-Za-z0-9_-]{20,})/?$")

@@ -398,6 +398,37 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
      * [pendingCode] opens screen 2. Throws [OnboardingException] with a fixed message (code
      * `browser`: an older belfry, offer the browser).
      */
+    /** The community of a "Link your phone" link being signed in to (its code screen shows it). */
+    private val _loginCommunity = MutableStateFlow<sh.belfry.core.net.Community?>(null)
+    val loginCommunity: StateFlow<sh.belfry.core.net.Community?> = _loginCommunity
+
+    /**
+     * "Link your phone" (canvas onboarding/scan-login; vectors/login-links.json): the web's QR or
+     * link `https://chat.<domain>/login/<username>`. That account already on the phone: switched
+     * to, no code. Else the native sign-in starts at once for that address (the code is mailed now)
+     * and the code screen names the community; a new account is added beside the others.
+     */
+    fun onLoginLink(link: sh.belfry.core.net.LoginLink) {
+        scope.launch {
+            val here = withContext(Dispatchers.Default) { accountsNow() }.accounts.firstOrNull { !it.demo && !it.guest && it.domain == link.domain && it.address.lowercase() == link.address }
+            if (here != null) {
+                val open = _session.value?.accountId == here.id
+                if (switchTo(here.id)) _notice.value = if (open) "You're logged in as ${link.address}" else "Switched to ${link.address}"
+                return@launch
+            }
+            _message.value = null
+            _loginCommunity.value = try { withContext(Dispatchers.Default) { onboarding.discover(link.domain) } } catch (e: Exception) { null }
+            if (_phase.value is Phase.SignedIn) _adding.value = Adding.SignIn else if (_phase.value !is Phase.Loading) _phase.value = Phase.SignedOut
+            try {
+                requestCode(link.address)
+            } catch (e: OnboardingException) {
+                _message.value = e.message
+            } catch (e: Exception) {
+                _message.value = "The code could not be sent. Try again."
+            }
+        }
+    }
+
     suspend fun requestCode(address: String) {
         _message.value = null
         _pendingCode.value = onboarding.requestCode(address)
