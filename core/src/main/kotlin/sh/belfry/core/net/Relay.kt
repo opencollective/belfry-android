@@ -90,6 +90,8 @@ class Relay(
     @Volatile var authSigner: Signer? = null
     /** Drop events whose id or signature does not check out (SPEC 15). */
     @Volatile var verifySignatures: Boolean = true
+    /** An event of the live subscriptions this device holds already: skipped before its signature is checked (a replay costs little). */
+    @Volatile var known: ((String) -> Boolean)? = null
 
     @Volatile var onEvent: ((sub: String, event: Event) -> Unit)? = null
     @Volatile var onEose: ((sub: String) -> Unit)? = null
@@ -423,8 +425,9 @@ class Relay(
             "EVENT" -> {
                 val sub = arr.getOrNull(1).str() ?: return
                 val ev = arr.getOrNull(2)?.let { Event.fromJson(it) } ?: return
-                if (verifySignatures && !ev.isValid()) return
                 val q = synchronized(lock) { queries[sub] }
+                if (q == null && known?.invoke(ev.id) == true) return
+                if (verifySignatures && !ev.isValid()) return
                 if (q != null) q.add(ev) else onEvent?.invoke(sub, ev)
             }
             "EOSE" -> {

@@ -222,6 +222,8 @@ class Session(
     private val logLock = Any()
     private val rebuildLock = Any()
     private val log = ArrayList<Event>()
+    /** The ids in [log] (under [logLock]): the relays skip these before checking a signature. */
+    private val logIds = HashSet<String>()
     @Volatile private var extraAdmins: Set<String> = emptySet()
     @Volatile private var bridge: String? = null
     @Volatile private var groupsKey: String? = null
@@ -312,6 +314,7 @@ class Session(
     init {
         val all = store.allEvents()
         log.addAll(all)
+        all.mapTo(logIds) { it.id }
         extraAdmins = parseJsonOrNull(store.get(K_ADMINS) ?: "").arr()?.mapNotNull { it.str() }?.filter(Hex::isKey)?.toSet() ?: emptySet()
         bridge = store.get(K_BRIDGE)?.takeIf(Hex::isKey)
         groupsKey = store.get(K_GROUPS_KEY)?.takeIf(Hex::isKey)
@@ -425,7 +428,7 @@ class Session(
         if (events.isEmpty()) return
         val fresh = store.addEvents(events)
         if (fresh.isEmpty()) return
-        synchronized(logLock) { log.addAll(fresh) }
+        synchronized(logLock) { log.addAll(fresh); fresh.mapTo(logIds) { it.id } }
         dm.offer(fresh)
         readSync.offer(fresh)
         markDirty()
@@ -461,6 +464,7 @@ class Session(
             store.set(K_GROUPS_MARK, latest { it.kind in kinds }.toString())
             // absence counts only against the member's whole view, never a public-only answer
             launchSafely { checkPresence() }
+            launchSafely { catchUpNewGroups() }
         }
         // A new belfry's groups relay has no channel yet: the first member in opens #general. Once.
         // (Not a guest in guest mode: reading leaves no trace.)
@@ -534,6 +538,7 @@ class Session(
             val r = relay(t) ?: continue
             r.authSigner = signer
             r.onEvent = { _, e -> incoming.trySend(Incoming.Ev(e)) }
+            r.known = { id -> synchronized(logLock) { id in logIds } }
             r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t, r.isAuthenticated || r.authSigner == null || localOnly)) } }
             r.onClosed = { sub, reason ->
                 if (t == Target.GROUPS) noteRefusal(reason)
@@ -628,6 +633,26 @@ class Session(
 
     private fun noteRefusal(reason: String) {
         if (Access.isRefusal(reason)) setStatus { it.copy(access = AccessState.REFUSED) }
+    }
+
+    /**
+     * A group this device learns of after its first whole answer (admitted to a closed one, a new
+     * channel) has history older than the catch-up mark: asked once on its own, from 0 (the lead's
+     * rule of 2026-11-19, from iOS to-do 587ba310). Marked as caught up only once its answer came.
+     */
+    private suspend fun catchUpNewGroups() {
+        val r = groupsRelay ?: return
+        val present = synchronized(logLock) { log.filter { it.kind == 39000 }.mapNotNull { it.tag("d") }.toSet() }
+        val seen = store.get(K_GROUPS_SEEN)?.split(',')?.filter { it.isNotEmpty() }?.toMutableSet()
+        if (seen == null) { store.set(K_GROUPS_SEEN, present.joinToString(",")); return }
+        for (id in present - seen) {
+            val got = r.query(listOf(Filters.of(kinds = KINDS_GROUPS, limit = 2000, tags = mapOf("h" to listOf(id)))), 10_000)
+            // nothing back: maybe no answer in time; asked again after the next whole answer
+            if (!r.isAuthenticated || got.isEmpty()) continue
+            addToLog(got)
+            seen.add(id)
+            store.set(K_GROUPS_SEEN, seen.joinToString(","))
+        }
     }
 
     private fun latest(pred: (Event) -> Boolean): Long = synchronized(logLock) {
@@ -1470,6 +1495,7 @@ class Session(
         _joinAsked.value = false
         store.remove(K_GROUPS_FULL)
         store.remove(K_GROUPS_MARK)
+        store.remove(K_GROUPS_SEEN)
         rebuild()
         if (becameMemberTold) return
         becameMemberTold = true
@@ -1609,6 +1635,7 @@ class Session(
         const val K_GROUPS_FULL = "groups-full-1"
         /** The groups relay's catch-up mark: the newest event this device had at an authenticated EOSE. */
         const val K_GROUPS_MARK = "groups-mark"
+        const val K_GROUPS_SEEN = "groups-seen"
         const val K_ADMINS = "extra-admins"
         const val K_ABSENT = "groups-absent"
         const val ARCHIVED_TEXT = "This group is archived or deleted: nothing can be posted in it."
