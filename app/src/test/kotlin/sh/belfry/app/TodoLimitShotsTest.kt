@@ -35,11 +35,11 @@ class TodoLimitShotsTest : DemoShots() {
 
     /** Near: "n of 300" under the field on the right; Add on. */
     @Test fun near() {
-        val text = board.take(268)
+        val text = board.take(269)
         demoShot("todo-limit-near") {
             Column(Modifier.padding(16.dp)) { NewTodoContent(Demo.GARDEN, onDone = {}, initial = text) }
         }
-        compose.onNodeWithText("268 of 300").assertExists()
+        compose.onNodeWithText("269 of 300").assertExists()
         compose.onNodeWithTag("todo-add-button").assertIsEnabled()
     }
 }
