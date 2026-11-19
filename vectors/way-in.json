@@ -1,5 +1,5 @@
 {
-  "about": "The way in (collective-belfry docs/membership.md \"Applying from the chat (verified)\" and \"A name and a username\"): a belfry's start screen is Log in and a smaller Apply to join. The app makes a key (the applicant key) and signs every call with it (NIP-98, belfry.<domain>/api/v1/…). cases: an answer of `call` (status + body) and `screen`, what the app shows next: code (the six boxes), signed_in (store the session bound to the applicant key like any sign-in; `nip05` = the address said, only when it is name@<domain>), pending (\"Your request is pending\"; `pending` = what /apply/status gives back), unknown (\"No account here yet\" → Apply to join, sent with `proof`), declined, start (the belfry's start screen), log_in (Log in with the address filled in), sign_in_instead (the account holds its own key: the older sign-in with its address), without_proof (ask /apply/start again without the proof: a code is mailed), stay (the refusal `message` on the screen that asked; `clears_code`: the digits typed are of no use), older (this belfry lacks these calls: the native sign-in and the unproven form). `message` is the app's own fixed words, never the server's text. A signed_in whose bunker_url is not a bunker address or whose pubkey is not 64 hex is never stored. Suggestions are kept only when they are usernames by the server's rule, three at most. username_check: the line under \"Pick a username:\" for an answer of POST /username/check.",
+  "about": "The way in (collective-belfry docs/membership.md \"Applying from the chat (verified)\" and \"A name and a username\"): a belfry's start screen is Log in and a smaller Apply to join. The app makes a key (the applicant key) and signs every call with it (NIP-98, belfry.<domain>/api/v1/…). cases: an answer of `call` (status + body) and `screen`, what the app shows next: code (the six boxes), signed_in (store the session bound to the applicant key like any sign-in; `nip05` = the address said, only when it is name@<domain>), pending (\"Your request is pending\"; `pending` = what /apply/status gives back), unknown (\"No account here yet\" → Apply to join, sent with `proof`), declined, start (the belfry's start screen), log_in (Log in with the address filled in), sign_in_instead (the account holds its own key: the older sign-in with its address), without_proof (ask /apply/start again without the proof: a code is mailed), stay (the refusal `message` on the screen that asked; `clears_code`: the digits typed are of no use), older (this belfry lacks these calls: the native sign-in and the unproven form). `message` is the app's own fixed words, never the server's text. /welcome answering already_set, own_key, not_member or unverified means there is nothing for this person to pick: the chat, no message (signed_in). An /apply/status state we do not know is read as none (start): that call runs on its own, so it never shows an error. A signed_in whose bunker_url is not a bunker address or whose pubkey is not 64 hex is never stored. Suggestions are kept only when they are usernames by the server's rule, three at most. username_check: the line under \"Pick a username:\" for an answer of POST /username/check. A taken username offers up to three suggestions, in the server's order, each one tap (`offers`); the line names them: \"Try a\", \"Try a or b\", \"Try a, b or c\".",
   "domain": "riverside.example",
   "cases": [
     {
@@ -391,8 +391,7 @@
       "body": {
         "state": "archived"
       },
-      "screen": "stay",
-      "message": "That did not work. Try again."
+      "screen": "start"
     },
     {
       "name": "the name and username are set",
@@ -429,8 +428,7 @@
       "body": {
         "error": "already_set"
       },
-      "screen": "stay",
-      "message": "Your username is set already. You change it from your profile."
+      "screen": "signed_in"
     },
     {
       "name": "a guest",
@@ -439,8 +437,7 @@
       "body": {
         "error": "not_member"
       },
-      "screen": "stay",
-      "message": "Only members pick a username here."
+      "screen": "signed_in"
     },
     {
       "name": "the server broke",
@@ -449,6 +446,15 @@
       "body": null,
       "screen": "stay",
       "message": "That did not work. Try again."
+    },
+    {
+      "name": "the account holds its own key: nothing to pick",
+      "call": "welcome",
+      "status": 409,
+      "body": {
+        "error": "own_key"
+      },
+      "screen": "signed_in"
     }
   ],
   "username_check": [
@@ -462,7 +468,7 @@
       "line": "lina@riverside.example is available"
     },
     {
-      "name": "taken, with a suggestion",
+      "name": "taken, two suggestions",
       "body": {
         "username": "lina",
         "state": "taken",
@@ -471,7 +477,40 @@
           "lina-2"
         ]
       },
-      "line": "Taken. Try lina-moreau"
+      "line": "Taken. Try lina-moreau or lina-2"
+    },
+    {
+      "name": "taken, one suggestion",
+      "body": {
+        "username": "lina",
+        "state": "taken",
+        "suggestions": [
+          "lina-moreau"
+        ]
+      },
+      "line": "Taken. Try lina-moreau",
+      "offers": [
+        "lina-moreau"
+      ]
+    },
+    {
+      "name": "taken, three suggestions (never more)",
+      "body": {
+        "username": "lina",
+        "state": "taken",
+        "suggestions": [
+          "lina-moreau",
+          "lina-2",
+          "lina-3",
+          "lina-4"
+        ]
+      },
+      "line": "Taken. Try lina-moreau, lina-2 or lina-3",
+      "offers": [
+        "lina-moreau",
+        "lina-2",
+        "lina-3"
+      ]
     },
     {
       "name": "taken, nothing to suggest",

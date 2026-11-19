@@ -79,9 +79,12 @@ object WayIn {
                 "unknown" -> body.str("proof")?.takeIf { it.isNotEmpty() }?.let { Outcome(Screen.UNKNOWN, proof = it) } ?: Outcome(Screen.STAY, TRY_AGAIN)
                 "none" -> Outcome(Screen.START)
                 "declined" -> Outcome(Screen.DECLINED)
-                else -> Outcome(Screen.STAY, TRY_AGAIN)
+                // a state we don't know: as none (the lead), the applicant key kept, asked again on the next open
+                else -> if (call == "apply/status") Outcome(Screen.START) else Outcome(Screen.STAY, TRY_AGAIN)
             }
         }
+        // the lead's ruling: nothing to pick (set already, own key, not a member, not proven) = straight to the chat
+        if (call == "welcome" && error in setOf("already_set", "own_key", "not_member", "unverified")) return Outcome(Screen.SIGNED_IN)
         return when (error) {
             "unsupported" -> Outcome(Screen.OLDER)
             "invalid" -> Outcome(Screen.STAY, "That doesn’t look like an e-mail address.")
@@ -113,12 +116,24 @@ object WayIn {
     /** The line under "Pick a username:" for an answer of POST /username/check. */
     fun usernameLine(body: JsonObject, domain: String): String {
         val name = body.str("username") ?: ""
-        val first = suggestions(body).firstOrNull()
+        val offers = usernameOffers(body)
+        val tries = when (offers.size) {
+            0 -> null
+            1 -> offers[0]
+            else -> offers.dropLast(1).joinToString(", ") + " or " + offers.last()
+        }
         return when (body.str("state")) {
             "available" -> "$name@$domain is available"
-            "taken" -> if (first != null) "Taken. Try $first" else "Taken. Try another one."
-            "invalid" -> if (body.str("reason") == "reserved") RESERVED + (first?.let { " Try $it" } ?: "") else CHARS
+            "taken" -> if (tries != null) "Taken. Try $tries" else "Taken. Try another one."
+            "invalid" -> if (body.str("reason") == "reserved") RESERVED + (tries?.let { " Try $it" } ?: "") else CHARS
             else -> ""
         }
+    }
+
+    /** The suggestions shown as one-tap chips: up to three, in the server's order (taken or reserved only). */
+    fun usernameOffers(body: JsonObject): List<String> = when {
+        body.str("state") == "taken" -> suggestions(body)
+        body.str("state") == "invalid" && body.str("reason") == "reserved" -> suggestions(body)
+        else -> emptyList()
     }
 }

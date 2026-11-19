@@ -19,7 +19,7 @@ class WayInVectorsTest {
 
     @Test fun cases() {
         val cases = (v["cases"] as JsonArray).map { it as JsonObject }
-        assertTrue(cases.size >= 40)
+        assertTrue(cases.size >= 41)
         for (c in cases) {
             val name = c.s("name")
             val o = WayIn.next(c.s("call")!!, c["status"]!!.jsonPrimitive.content.toInt(), c["body"] as? JsonObject, domain)
@@ -36,6 +36,7 @@ class WayInVectorsTest {
     @Test fun usernameLines() {
         for (c in (v["username_check"] as JsonArray).map { it as JsonObject }) {
             assertEquals(c.s("line"), WayIn.usernameLine(c["body"] as JsonObject, domain), c.s("name"))
+            if (c.containsKey("offers")) assertEquals((c["offers"] as JsonArray).map { it.jsonPrimitive.content }, WayIn.usernameOffers(c["body"] as JsonObject), "${c.s("name")}: offers")
         }
     }
 }
