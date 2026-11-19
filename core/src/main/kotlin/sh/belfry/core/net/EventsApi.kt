@@ -46,7 +46,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
         if (status == 403) throw ApiException("members_only", 403, ERRORS.getValue("members_only"))
         if (status == 404) throw ApiException("not_found", 404, ERRORS.getValue("not_found"))
         if (status !in 200..299 || body == null) fail(status, body, "The event could not be read just now.")
-        return parse(body) ?: throw ApiException("http", status, "The event could not be read just now.")
+        return parse(body, api.community.domain) ?: throw ApiException("http", status, "The event could not be read just now.")
     }
 
     /** Is that custom URL free? EVENT: the event it is for (its own name counts as free). */
@@ -234,7 +234,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
         )
 
         /** The API's answer, or null when it is not an event. Text fields are cut to sane lengths. */
-        fun parse(o: JsonObject): ApiEvent? {
+        fun parse(o: JsonObject, domain: String = ""): ApiEvent? {
             val d = o.s("d") ?: return null
             val coord = o.s("coord") ?: return null
             val group = o.s("group") ?: return null
@@ -278,7 +278,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
                             x["quantity"].int(), x["left"].int(), x["closed"].bool() ?: false, (x.s("prompt") ?: "").take(500),
                             x["members"].bool() ?: false, x["position"].int() ?: 0, x["implicit"].bool() ?: false,
                             cost = apiPrice(x),
-                            checkoutUrl = if (x["can_pay"].bool() == true) sh.belfry.core.model.checkoutUrlOf(x.s("checkout_url"), api.community.domain) else null,
+                            checkoutUrl = if (x["can_pay"].bool() == true) sh.belfry.core.model.checkoutUrlOf(x.s("checkout_url"), domain) else null,
                         )
                     }
                 } ?: emptyList(),

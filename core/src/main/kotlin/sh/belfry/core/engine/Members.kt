@@ -320,7 +320,7 @@ class MembersService internal constructor(private val s: Session) {
 
     suspend fun refreshPublicEvents(): List<ApiEvent> {
         if (demo) return _publicEvents.value
-        val list = s.apiCall(write = false) { it.publicEvents(s.now() - 86400) }.mapNotNull { EventsApi.parse(it) }
+        val list = s.apiCall(write = false) { it.publicEvents(s.now() - 86400) }.mapNotNull { EventsApi.parse(it, s.community.domain) }
         _publicEvents.value = list
         return list
     }
