@@ -358,7 +358,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
             try { beforeSignOut?.invoke(guest) } catch (e: Exception) { }
             try { onboarding.signOut(guest, revoke = !signIn.moved) } catch (e: Exception) { }
         }
-        if (!signIn.channel.isNullOrEmpty()) _openAfter.value = community.domain to signIn.channel
+        signIn.channel?.takeIf { it.isNotEmpty() }?.let { _openAfter.value = community.domain to it }
         enter(next, fresh = true)
         _notice.value = "Signed in as " + sh.belfry.core.model.GuestSignInRule.addressToSay(signIn.nip05, address, community.domain)
     }

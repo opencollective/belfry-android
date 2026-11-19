@@ -10,6 +10,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -573,7 +576,12 @@ class EngineTest {
         srv.takeRequest()
         assertTrue(s.reading)
         s.guestVerify("ana@example.org", "123456", "Ana Lima")
-        assertEquals("""{"email":"ana@example.org","code":"123456","name":"Ana Lima"}""", srv.takeRequest().body.readUtf8())
+        // guest mode: a new session key goes with the code (canvas onboarding/guest-code v41)
+        val verify = Json.parseToJsonElement(srv.takeRequest().body.readUtf8()).jsonObject
+        assertEquals(listOf("email", "code", "name", "session_key", "client"), verify.keys.toList())
+        assertEquals("123456", verify["code"]!!.jsonPrimitive.content)
+        assertTrue(sh.belfry.core.crypto.Hex.isKey(verify["session_key"]!!.jsonPrimitive.content))
+        assertEquals("belfry-android", verify["client"]!!.jsonPrimitive.content)
         assertFalse(s.reading)
         assertEquals(true, s.guest.value?.saved)
         assertEquals(false, record?.reading) // the app saves it with the session
