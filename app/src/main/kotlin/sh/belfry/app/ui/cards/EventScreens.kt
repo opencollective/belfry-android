@@ -1,5 +1,7 @@
 package sh.belfry.app.ui.cards
 
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
+import androidx.compose.material.icons.Icons
 import sh.belfry.core.model.Prices
 import sh.belfry.core.model.waitingForPayment
 import sh.belfry.core.model.mayCheckIn
@@ -586,7 +588,16 @@ internal fun TicketRow(t: Ticket, p: EventPeople, onPick: (() -> Unit)? = null, 
                 ?: listOfNotNull(if (t.members) "Members only" else null, if (left != null) "$left left" else null).joinToString(" · "))
             if (t.summary.isNotEmpty()) Muted(t.summary)
         }
-        if (onPick != null) {
+        val checkout = t.checkoutUrl
+        val uri = androidx.compose.ui.platform.LocalUriHandler.current
+        if (onPick != null && checkout != null && left != 0) {
+            GapW(8)
+            // bought on the community's checkout page, in the browser (canvas events/get-tickets v38)
+            BusyButton(
+                "Buy", onClick = { try { uri.openUri(checkout) } catch (e: Exception) { } }, small = true,
+                icon = Icons.AutoMirrored.Outlined.OpenInNew, modifier = Modifier.testTag("ticket-buy-" + t.id),
+            )
+        } else if (onPick != null) {
             GapW(8)
             // a priced ticket is asked for, never taken; not on sale now: the button is off
             BusyButton(

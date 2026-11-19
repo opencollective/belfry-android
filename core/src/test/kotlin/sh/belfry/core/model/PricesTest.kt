@@ -47,4 +47,16 @@ class PricesTest {
         assertTrue(t.asks)
         assertFalse(Ticket("ev:seat", "seat", "Seat").asks)
     }
+
+    /** docs/sales.md §10: only https on the belfry's own domain (or a subdomain) is opened. */
+    @Test fun checkoutAddresses() {
+        assertEquals("https://belfry.example/tickets?event=x&ticket=y", checkoutUrlOf("https://belfry.example/tickets?event=x&ticket=y", "belfry.example"))
+        assertEquals("https://shop.belfry.example/t", checkoutUrlOf("https://shop.belfry.example/t", "belfry.example"))
+        assertNull(checkoutUrlOf("http://belfry.example/t", "belfry.example"))
+        assertNull(checkoutUrlOf("https://evil.example/t", "belfry.example"))
+        assertNull(checkoutUrlOf("https://belfry.example.evil.example/t", "belfry.example"))
+        assertNull(checkoutUrlOf("https://user@belfry.example/t", "belfry.example"))
+        assertNull(checkoutUrlOf("https://belfry.example:8443/t", "belfry.example"))
+        assertNull(checkoutUrlOf(null, "belfry.example"))
+    }
 }

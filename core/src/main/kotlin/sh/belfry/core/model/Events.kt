@@ -60,6 +60,8 @@ data class Ticket(
     val apiLeft: Int? = null,
     /** Its price now (docs/checkin.md "Ticket prices"); free by default. */
     val cost: TicketPrice = TicketPrice.FREE,
+    /** Bought on the community's own checkout page (GET /events: `can_pay` + `checkout_url`, docs/sales.md §10); checked: https on the belfry's domain. */
+    val checkoutUrl: String? = null,
 ) {
     /** People ask for it (an application, a price) instead of taking it in one tap. */
     val asks: Boolean get() = closed || cost.priced
@@ -111,8 +113,22 @@ data class ApiTicket(
     val d: String, val id: String, val title: String, val summary: String, val quantity: Int?, val left: Int?,
     val closed: Boolean, val prompt: String, val members: Boolean, val position: Int, val implicit: Boolean,
     val cost: TicketPrice = TicketPrice.FREE,
+    val checkoutUrl: String? = null,
 ) {
-    fun ticket(): Ticket = Ticket(d, id, title, summary, quantity, closed, prompt, members, position, implicit, null, left, cost)
+    fun ticket(): Ticket = Ticket(d, id, title, summary, quantity, closed, prompt, members, position, implicit, null, left, cost, checkoutUrl)
+}
+
+/**
+ * A checkout address the app may open: `https`, on DOMAIN or a subdomain of it, no user info,
+ * no port, at most 500 characters (docs/sales.md §10 "Where people buy tickets"). Null otherwise.
+ */
+fun checkoutUrlOf(raw: String?, domain: String): String? {
+    val u = raw?.trim()?.takeIf { it.length in 1..500 && domain.isNotEmpty() } ?: return null
+    val uri = try { java.net.URI(u) } catch (e: Exception) { return null }
+    if (uri.scheme != "https" || uri.rawUserInfo != null || uri.port != -1 || uri.rawFragment != null) return null
+    val host = uri.host?.lowercase() ?: return null
+    if (host != domain && !host.endsWith(".$domain")) return null
+    return u
 }
 
 data class ApiMe(

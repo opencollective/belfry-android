@@ -278,6 +278,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
                             x["quantity"].int(), x["left"].int(), x["closed"].bool() ?: false, (x.s("prompt") ?: "").take(500),
                             x["members"].bool() ?: false, x["position"].int() ?: 0, x["implicit"].bool() ?: false,
                             cost = apiPrice(x),
+                            checkoutUrl = if (x["can_pay"].bool() == true) sh.belfry.core.model.checkoutUrlOf(x.s("checkout_url"), api.community.domain) else null,
                         )
                     }
                 } ?: emptyList(),
