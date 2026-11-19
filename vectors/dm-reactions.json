@@ -1,0 +1,537 @@
+{
+  "about": "Reactions to direct messages (canvas home/conversation; the web's dm.ts). A reaction is an unsigned kind 7 rumor, content = the emoji, tags [\"e\", <the kind 14 rumor's id>, \"\", <its author>], [\"p\", <its author>], [\"k\", \"14\"], then [\"p\", …] for the other participants, gift-wrapped (NIP-59) to every participant and to yourself. Taking it back: a kind 5 rumor [\"e\", <the reaction rumor's id>], [\"k\", \"7\"], [\"p\", …] for the others, wrapped the same way; it counts only from the reaction's author, and also when it is read before the reaction. Readers key on the last e tag; one per person per emoji; \"+\" or empty = 👍; more than 16 UTF-16 units = ignored. chips: by count, most first (ties: first given first); who in the order they first gave it; mine = the viewer gave it. Never on e-mail (1301).",
+  "people": {
+    "me": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+    "ana": "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd",
+    "ben": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+  },
+  "message": {
+    "id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "kind": 14,
+    "pubkey": "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd",
+    "tags": [
+      [
+        "p",
+        "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27"
+      ],
+      [
+        "p",
+        "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+      ]
+    ]
+  },
+  "send": {
+    "add": {
+      "by": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "emoji": "👍",
+      "rumor": {
+        "kind": 7,
+        "pubkey": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+        "content": "👍",
+        "tags": [
+          [
+            "e",
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            "",
+            "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+          ],
+          [
+            "p",
+            "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+          ],
+          [
+            "k",
+            "14"
+          ],
+          [
+            "p",
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+          ]
+        ]
+      },
+      "wrapped_to": [
+        "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd",
+        "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27"
+      ]
+    },
+    "remove": {
+      "by": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "reaction": "7777777777777777777777777777777777777777777777777777777777777777",
+      "rumor": {
+        "kind": 5,
+        "pubkey": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+        "content": "",
+        "tags": [
+          [
+            "e",
+            "7777777777777777777777777777777777777777777777777777777777777777"
+          ],
+          [
+            "k",
+            "7"
+          ],
+          [
+            "p",
+            "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+          ],
+          [
+            "p",
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+          ]
+        ]
+      },
+      "wrapped_to": [
+        "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd",
+        "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+        "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27"
+      ]
+    }
+  },
+  "read": [
+    {
+      "name": "one reaction",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        }
+      ],
+      "chips": [
+        {
+          "emoji": "👍",
+          "who": [
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+          ],
+          "mine": false
+        }
+      ]
+    },
+    {
+      "name": "two people, one emoji: one chip of 2; most given first",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "🎉",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        },
+        {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 101,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        },
+        {
+          "id": "3333333333333333333333333333333333333333333333333333333333333333",
+          "kind": 7,
+          "pubkey": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+          "created_at": 102,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        }
+      ],
+      "chips": [
+        {
+          "emoji": "👍",
+          "who": [
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+            "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27"
+          ],
+          "mine": true
+        },
+        {
+          "emoji": "🎉",
+          "who": [
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+          ],
+          "mine": false
+        }
+      ]
+    },
+    {
+      "name": "the same person and emoji twice counts once",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        },
+        {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 105,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        }
+      ],
+      "chips": [
+        {
+          "emoji": "👍",
+          "who": [
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+          ],
+          "mine": false
+        }
+      ]
+    },
+    {
+      "name": "+ and empty content read as 👍",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "+",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        },
+        {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "kind": 7,
+          "pubkey": "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd",
+          "created_at": 101,
+          "content": "",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        }
+      ],
+      "chips": [
+        {
+          "emoji": "👍",
+          "who": [
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+            "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+          ],
+          "mine": false
+        }
+      ]
+    },
+    {
+      "name": "taken back by its author",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        },
+        {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "kind": 5,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 110,
+          "content": "",
+          "tags": [
+            [
+              "e",
+              "1111111111111111111111111111111111111111111111111111111111111111"
+            ],
+            [
+              "k",
+              "7"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ]
+          ]
+        }
+      ],
+      "chips": []
+    },
+    {
+      "name": "a kind 5 from someone else changes nothing",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        },
+        {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "kind": 5,
+          "pubkey": "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd",
+          "created_at": 110,
+          "content": "",
+          "tags": [
+            [
+              "e",
+              "1111111111111111111111111111111111111111111111111111111111111111"
+            ],
+            [
+              "k",
+              "7"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ]
+          ]
+        }
+      ],
+      "chips": [
+        {
+          "emoji": "👍",
+          "who": [
+            "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+          ],
+          "mine": false
+        }
+      ]
+    },
+    {
+      "name": "the kind 5 read first (wraps come in any order) still wins",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222",
+          "kind": 5,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 110,
+          "content": "",
+          "tags": [
+            [
+              "e",
+              "1111111111111111111111111111111111111111111111111111111111111111"
+            ],
+            [
+              "k",
+              "7"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ]
+          ]
+        },
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "👍",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        }
+      ],
+      "chips": []
+    },
+    {
+      "name": "longer than 16 UTF-16 units is ignored",
+      "viewer": "a2aaecacffe6376d9826d889e5e2985381edab77924eeec51b8e2c25373a5d27",
+      "rumors": [
+        {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "kind": 7,
+          "pubkey": "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d",
+          "created_at": 100,
+          "content": "xxxxxxxxxxxxxxxxx",
+          "tags": [
+            [
+              "e",
+              "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "p",
+              "959c24202b2b46602cf8614c4d930f571518551fbf121930b371a2ca321beddd"
+            ],
+            [
+              "k",
+              "14"
+            ]
+          ]
+        }
+      ],
+      "chips": []
+    }
+  ]
+}

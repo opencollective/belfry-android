@@ -163,9 +163,29 @@ data class DmReaction(val rid: String, val target: String, val from: String, val
     }
 
     companion object {
-        fun fromJson(o: JsonObject): DmReaction? = DmReaction(
-            o.s("rid") ?: return null, o.s("target") ?: return null, o.s("from") ?: return null, o.s("emoji") ?: return null, o["at"].long() ?: 0,
-        )
+        fun fromJson(o: JsonObject): DmReaction? {
+            return DmReaction(o.s("rid") ?: return null, o.s("target") ?: return null, o.s("from") ?: return null, o.s("emoji") ?: return null, o["at"].long() ?: 0)
+        }
+
+        /**
+         * Reads a kind 7 (a reaction) or kind 5 (one taken back: only by its author) rumor into
+         * REACTS (by reaction id) and GONE (taken back: id → author; a kind 5 may come first).
+         */
+        fun apply(reacts: MutableMap<String, DmReaction>, gone: MutableMap<String, String>, r: Event) {
+            if (r.kind == 7) {
+                val x = of(r) ?: return
+                if (gone[x.rid] == x.from) return
+                reacts[x.rid] = x
+                return
+            }
+            if (r.kind != 5) return
+            for (t in r.tags) {
+                if (t.size < 2 || t[0] != "e") continue
+                val had = reacts[t[1]]
+                if (had == null) gone[t[1]] = r.pubkey
+                else if (had.from == r.pubkey) { reacts.remove(t[1]); gone[t[1]] = r.pubkey }
+            }
+        }
 
         /** A kind 7 rumor as a reaction (null when it isn't one we show). */
         fun of(rumor: Event): DmReaction? {
@@ -173,7 +193,7 @@ data class DmReaction(val rid: String, val target: String, val from: String, val
             val target = rumor.tags.lastOrNull { it.size >= 2 && it[0] == "e" }?.get(1) ?: return null
             val raw = rumor.content.trim()
             val emoji = if (raw.isEmpty() || raw == "+") "👍" else raw
-            if (emoji == "-" || emoji.length > 16) return null
+            if (emoji.length > 16) return null
             return DmReaction(rumor.id.ifEmpty { rumor.computedId() }, target, rumor.pubkey, emoji, rumor.createdAt)
         }
     }
@@ -522,21 +542,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         return DmReader.fromRumor(rumor, host.me, host.bridgeKey(), host.blossom, known(), raw)
     }
 
-    /** A kind 7 (a reaction) or kind 5 (one taken back: only by its author) rumor. Holds the lock. */
-    private fun reactionRumor(r: Event) {
-        if (r.kind == 7) {
-            val x = DmReaction.of(r) ?: return
-            if (gone[x.rid] == x.from) return
-            reacts[x.rid] = x
-            return
-        }
-        for (t in r.tags) {
-            if (t.size < 2 || t[0] != "e") continue
-            val had = reacts[t[1]]
-            if (had == null) gone[t[1]] = r.pubkey
-            else if (had.from == r.pubkey) { reacts.remove(t[1]); gone[t[1]] = r.pubkey }
-        }
-    }
+    /** Holds the lock. */
+    private fun reactionRumor(r: Event) = DmReaction.apply(reacts, gone, r)
 
     private suspend fun readOld(e: Event): Dm {
         val me = host.me
