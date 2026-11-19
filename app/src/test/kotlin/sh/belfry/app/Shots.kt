@@ -36,6 +36,15 @@ import sh.belfry.app.ui.theme.BelfryTheme
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-420dpi")
 abstract class Shots {
+    /**
+     * A screen that never lets Compose go idle (CardsShotsTest.createEvent: "Compose did not get
+     * idle", CI 44568908965) fails its test after 20 s, not 60: a stuck class ends in minutes.
+     */
+    @org.junit.Before
+    fun shortIdleTimeout() {
+        androidx.test.espresso.IdlingPolicies.setMasterPolicyTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+    }
+
     @get:Rule
     val compose: ComposeContentTestRule = createComposeRule()
 
