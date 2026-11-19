@@ -119,7 +119,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                     }
                     is RefSeen.Deleted -> Text(deletedWords(seen.kind).replaceFirstChar { it.uppercase() }, fontSize = 15.sp, color = c.muted)
                     is RefSeen.Loading -> if (waited) {
-                        Text(if (seen.kind == RefKind.CHANNEL) "#channel" else seen.kind.word, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.muted)
+                        Text(seen.kind.word, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.muted)
                     } else {
                         NameSkeleton(Modifier.padding(vertical = 4.dp), fraction = 0.6f, height = 14.dp)
                     }

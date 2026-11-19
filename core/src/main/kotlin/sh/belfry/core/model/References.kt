@@ -98,7 +98,7 @@ object References {
 }
 
 /** The kind's word, shown while a name hasn't come after 5 s (SPEC 19.43 / 19.44). */
-enum class RefKind(val word: String) { CHANNEL("#Channel"), GROUP("#Group"), EVENT("Event"), PROPOSAL("Proposal") }
+enum class RefKind(val word: String) { CHANNEL("#channel"), GROUP("#group"), EVENT("Event"), PROPOSAL("Proposal") }
 
 /** What a reference shows here and now. */
 sealed interface RefSeen {

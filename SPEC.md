@@ -2053,7 +2053,7 @@ proposal's chat `prop-…` (shown as the proposal).
 - **Inside the text**: its name, tappable: "#" + name for a channel or group, a calendar mark for
   an event, a tick or page mark for a proposal. Never the id or the slug.
 - **Not here yet**: a grey bar, then after 5 s the kind's word: "#channel" (as
-  `vectors/channel-refs.json`), "#Group", "Event", "Proposal".
+  `vectors/channel-refs.json`), "#group", "Event", "Proposal" (lower case "#channel" / "#group", as the web).
 - **Can't open it** (a closed group I'm not in, a members-only channel for a guest): no name: a
   lock box at the end ("A members-only channel" / "A closed group", "Only members of <belfry> can
   open it"), grey words inside the text. **Deleted**: "a deleted channel" (group, event,

@@ -187,7 +187,7 @@ private fun AnnotatedString.Builder.appendRef(seen: RefSeen, ctx: MdContext) {
         is RefSeen.Locked -> withStyle(SpanStyle(color = c.muted)) { append(lockedWords(seen.kind)) }
         is RefSeen.Deleted -> withStyle(SpanStyle(color = c.muted)) { append(deletedWords(seen.kind)) }
         is RefSeen.Loading -> if (ctx.waited) {
-            withStyle(SpanStyle(color = c.muted)) { append(if (seen.kind == RefKind.CHANNEL) "#channel" else seen.kind.word) }
+            withStyle(SpanStyle(color = c.muted)) { append(seen.kind.word) }
         } else {
             withStyle(SpanStyle(background = c.surface2, color = c.surface2)) { append("\u2007".repeat(9)) }
         }
