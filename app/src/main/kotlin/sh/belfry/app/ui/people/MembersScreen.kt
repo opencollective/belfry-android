@@ -185,12 +185,18 @@ fun RequestSections() {
         if (people.isNotEmpty()) {
             Header("Asking to join ${session.community.name} · ${people.size}")
             for (p in people) {
+                // canvas home/members-request-name: "@lina · lina.moreau@example.org" over "asks to join"
+                val title = listOfNotNull(
+                    if (p.username.isNotEmpty()) "@" + p.username else p.name.ifEmpty { "Someone" },
+                    if (admin && p.username.isNotEmpty()) p.email?.takeIf { it.isNotEmpty() } else null,
+                ).joinToString(" · ")
                 val line = listOfNotNull(
+                    if (p.username.isNotEmpty()) "asks to join" else null,
                     if (p.isGuest) guestLine(world, p) else null,
-                    if (admin) p.email else null,
+                    if (admin && p.username.isEmpty()) p.email else null,
                     if (vouching) "${p.vouches} of ${membership.vouches} ${if (membership.vouches == 1) "vouch" else "vouches"}" else null,
                 ).joinToString(" · ")
-                RequestCard(p.pubkey, p.name.ifEmpty { "Someone" }, line, p.motivation) {
+                RequestCard(p.pubkey, title, line, p.motivation) {
                     if (admin) {
                         BusyButton("Accept", onClick = { session.members.decide(p, true) }, small = true, onError = onError, modifier = Modifier.testTag("request-accept"))
                         BusyButton("Decline", onClick = { session.members.decide(p, false) }, kind = ButtonKind.Ghost, small = true, onError = onError)

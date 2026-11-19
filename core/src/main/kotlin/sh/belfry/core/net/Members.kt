@@ -168,6 +168,10 @@ data class BelfryRequest(
     val inviter: String = "",
     val pubkey: String? = null,
     val since: String = "",
+    /** The username they asked for (membership.md, 2026-11-19; after the acceptance, the one they got); "" when none. */
+    val username: String = "",
+    /** They proved the address with a code (`/apply/verify` or `/login/verify`). */
+    val verified: Boolean = false,
 ) {
     val isGuest: Boolean get() = kind == "guest"
 }
@@ -449,6 +453,8 @@ class MembersApi(private val api: BelfryApi, private val signer: Signer) {
                 id, (r.s("name") ?: "").take(100), (r.s("motivation") ?: "").take(2000), r.s("created") ?: "", r["vouches"].int() ?: 0,
                 r["vouched"].bool() ?: false, r.s("email"), r.s("kind") ?: "", r["channels"].arr()?.mapNotNull { it.str() } ?: emptyList(),
                 (r.s("inviter") ?: "").take(100), r.s("pubkey")?.takeIf { Hex.isKey(it) }, r.s("since") ?: "",
+                username = r.s("username")?.takeIf { Regex("^[a-z0-9](?:[a-z0-9._-]{0,28}[a-z0-9])?$").matches(it) } ?: "",
+                verified = r["verified"].bool() ?: false,
             )
         } ?: emptyList()
 

@@ -465,6 +465,8 @@ class MembersService internal constructor(private val s: Session) {
         const val K_PUBLIC_CHARTER = "public-charter"
 
         val DEMO_REQUESTS = listOf(
+            // the web's way in (membership.md 2026-11-19): a proven address and the username asked for
+            BelfryRequest(13, "Lina Moreau", "I teach pottery and would like to run a Saturday class in the hall.", "2026-11-19", 0, false, "lina.moreau@example.org", username = "lina", verified = true),
             BelfryRequest(11, "Lena Fischer", "I run the repair café two streets away and would love to bring our tools here.", "2026-11-15", 1, false, null),
             BelfryRequest(12, "Omar", "Ana invited me to the garden: I'd like to stay and help.", "2026-11-16", 0, false, null, kind = "guest", channels = listOf("garden"), inviter = "Ana"),
         )
