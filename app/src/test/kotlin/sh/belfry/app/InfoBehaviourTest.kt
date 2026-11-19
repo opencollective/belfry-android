@@ -81,7 +81,7 @@ class InfoBehaviourTest : DemoShots() {
         compose.onNode(hasSetTextAction()).performTextInput("tom")
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-send").fetchSemanticsNodes().isNotEmpty() }
         // an open channel: every member can open it already, the link is sent as a message
-        compose.onNodeWithText("Can already open it", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Already a member", substring = true).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Send the link").performScrollTo().assertIsDisplayed()
         val send = compose.onAllNodesWithTag("invite-send").onFirst()
         send.performScrollTo()
