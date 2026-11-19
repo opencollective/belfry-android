@@ -36,6 +36,9 @@ class ChatState(val groupId: String) {
     var recorderOpen by mutableStateOf(false)
     /** The "New to-do" sheet. */
     var newTodo by mutableStateOf(false)
+    /** What the "New to-do" sheet starts from: a message too long to become a to-do as it is. */
+    var todoText by mutableStateOf("")
+    var todoFrom by mutableStateOf<String?>(null)
     /** The summary line under the channel's name is pulled down. */
     var lineOpen by mutableStateOf(false)
     /** Pulled all the way (web: the second level): the same summary showing more, over the whole feed. */

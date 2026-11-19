@@ -1,5 +1,7 @@
 package sh.belfry.app.ui.chat
 
+import sh.belfry.app.ui.kit.TodoTextField
+import sh.belfry.core.model.TodoLimit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -346,18 +348,18 @@ private fun NewTodoRow(groupId: String) {
     val session = LocalSession.current
     var title by remember { mutableStateOf("") }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.Bottom) {
-        BelfryTextField(title, { title = it.take(300) }, Modifier.weight(1f).testTag("pull-todo-field"), placeholder = "Add a to-do…")
+        TodoTextField(title, { title = it }, Modifier.weight(1f).testTag("pull-todo-field"), placeholder = "Add a to-do…", maxLines = 4)
         Spacer(Modifier.width(8.dp))
         BusyButton(
             "Add",
             onClick = {
                 val t = title.trim()
-                if (t.isNotEmpty()) {
+                if (TodoLimit.fits(t)) {
                     session.send(Actions.addTask(groupId, t))
                     title = ""
                 }
             },
-            small = true, enabled = title.isNotBlank(), modifier = Modifier.testTag("pull-todo-add"),
+            small = true, enabled = TodoLimit.fits(title), modifier = Modifier.testTag("pull-todo-add"),
         )
     }
 }

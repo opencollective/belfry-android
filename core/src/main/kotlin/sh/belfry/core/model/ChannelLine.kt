@@ -56,7 +56,34 @@ fun World.todosBySource(groupId: String): Map<String, Task> =
 
 /** The title a message gives its to-do: its text without mentions, channels as "#name", on one line, 300 chars. */
 fun World.todoTitle(m: Message): String =
-    plainRefs(m.text, "").replace(Regex("\\s+"), " ").trim().sliceUnits(300)
+    plainRefs(m.text, "").replace(Regex("\\s+"), " ").trim()
+
+/**
+ * A to-do holds 300 characters and is never cut silently (canvas todos/new-todo-limit, Xavier's
+ * to-do 2026-11-19): from 250 the field says "n of 300"; past 300 the extra is tinted, Add is off
+ * and the text stays as typed. Characters = UTF-16 units of the trimmed text, as the web counts.
+ */
+object TodoLimit {
+    const val MAX = 300
+    const val NEAR = 250
+
+    fun count(text: String): Int = text.jsTrim().length
+    fun fits(text: String): Boolean = count(text) in 1..MAX
+    /** "268 of 300", from 250 up to 300; null below or over. */
+    fun counter(text: String): String? = count(text).let { if (it in NEAR..MAX) "$it of $MAX" else null }
+    /** Over the limit: what the field says under it. */
+    fun error(text: String): String? {
+        val over = count(text) - MAX
+        if (over <= 0) return null
+        return "$over character${if (over == 1) "" else "s"} too long. A to-do holds $MAX; put the rest in a comment on it."
+    }
+    /** Where the extra starts in the text as typed (leading spaces aren't counted); null when it fits. */
+    fun overFrom(text: String): Int? {
+        if (count(text) <= MAX) return null
+        val lead = text.length - text.trimStart { it.isWhitespace() || it == '\uFEFF' || it == '\u00A0' }.length
+        return lead + MAX
+    }
+}
 
 /** What a to-do's mark on its message reads. */
 fun World.todoChip(t: Task): String = when {

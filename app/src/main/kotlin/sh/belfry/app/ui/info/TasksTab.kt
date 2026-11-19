@@ -1,5 +1,7 @@
 package sh.belfry.app.ui.info
 
+import sh.belfry.app.ui.kit.TodoTextField
+import sh.belfry.core.model.TodoLimit
 import sh.belfry.app.ui.kit.LinkText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,18 +41,18 @@ fun TasksTab(groupId: String) {
     var title by remember { mutableStateOf("") }
 
     Row(verticalAlignment = Alignment.Bottom) {
-        BelfryTextField(title, { title = it }, Modifier.weight(1f).testTag("todo-field"), placeholder = "Add a to-do…")
+        TodoTextField(title, { title = it }, Modifier.weight(1f).testTag("todo-field"), placeholder = "Add a to-do…", maxLines = 4)
         Spacer(Modifier.width(8.dp))
         BusyButton(
             "Add",
             onClick = {
                 val t = title.trim()
-                if (t.isNotEmpty()) {
+                if (TodoLimit.fits(t)) {
                     session.send(Actions.addTask(groupId, t))
                     title = ""
                 }
             },
-            small = true, enabled = title.isNotBlank(), modifier = Modifier.testTag("todo-add"),
+            small = true, enabled = TodoLimit.fits(title), modifier = Modifier.testTag("todo-add"),
         )
     }
     Spacer(Modifier.height(8.dp))

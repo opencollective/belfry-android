@@ -1,5 +1,7 @@
 package sh.belfry.app.ui.chat
 
+import sh.belfry.app.ui.kit.TodoTextField
+import sh.belfry.core.model.TodoLimit
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -406,7 +408,10 @@ fun ChannelScreen(
     )
     if (chat.plusOpen) PlusSheet(groupId, admin, composer, onClose = { chat.plusOpen = false }, onTodo = { chat.newTodo = true }, onRecord = { chat.recorderOpen = true })
     if (chat.recorderOpen) RecorderSheet(groupId, onClose = { chat.recorderOpen = false })
-    if (chat.newTodo) BelfrySheet(onDismiss = { chat.newTodo = false }, title = "New to-do") { NewTodoContent(groupId, onDone = { chat.newTodo = false }) }
+    if (chat.newTodo) {
+        val close = { chat.newTodo = false; chat.todoText = ""; chat.todoFrom = null }
+        BelfrySheet(onDismiss = close, title = "New to-do") { NewTodoContent(groupId, onDone = close, initial = chat.todoText, from = chat.todoFrom) }
+    }
     chat.viewer?.let { ImageViewer(it) { chat.viewer = null } }
 }
 
@@ -504,22 +509,23 @@ private fun unmarked(text: String): String = Markdown.text(Markdown.inline(text)
 
 /** "New to-do": something to get done, on the channel's list. */
 @Composable
-fun NewTodoContent(groupId: String, onDone: () -> Unit) {
+fun NewTodoContent(groupId: String, onDone: () -> Unit, initial: String = "", from: String? = null) {
     val session = LocalSession.current
-    var title by remember { mutableStateOf("") }
-    // kept on this device until it is added (web 2026-11-11)
-    val draft = rememberFormDraft(FormDrafts.todo(groupId)) { kept -> title = kept["title"] ?: title }
+    var title by remember { mutableStateOf(initial) }
+    // kept on this device until it is added (web 2026-11-11); a message turned into a to-do starts from its text
+    val draft = rememberFormDraft(FormDrafts.todo(groupId)) { kept -> if (initial.isEmpty()) title = kept["title"] ?: title }
     draft.Keep("title" to title)
-    BelfryTextField(title, { title = it.take(300) }, label = "What needs doing?", placeholder = "e.g. Book the room for Friday", modifier = Modifier.fillMaxWidth().testTag("todo-title"))
+    // never cut: past 300 the extra is tinted and Add is off (canvas todos/new-todo-limit)
+    TodoTextField(title, { title = it }, label = "What needs doing?", placeholder = "e.g. Book the room for Friday", modifier = Modifier.fillMaxWidth().testTag("todo-title"))
     Spacer(Modifier.height(12.dp))
     BusyButton(
         "Add to the list",
         onClick = {
-            session.send(Actions.addTask(groupId, title.trim()))
+            session.send(Actions.addTask(groupId, title.trim(), from))
             draft.clear()
             onDone()
         },
-        modifier = Modifier.fillMaxWidth(), enabled = title.isNotBlank(),
+        modifier = Modifier.fillMaxWidth().testTag("todo-add-button"), enabled = TodoLimit.fits(title),
     )
     Spacer(Modifier.height(10.dp))
     Text("Everyone in the channel sees it under the channel's name. Anyone can take it or tick it off.", fontSize = 13.sp, color = Belfry.colors.muted)

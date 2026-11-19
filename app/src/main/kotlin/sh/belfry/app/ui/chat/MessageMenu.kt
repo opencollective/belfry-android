@@ -51,6 +51,7 @@ import sh.belfry.core.model.canPin
 import sh.belfry.core.model.isPinned
 import sh.belfry.core.model.pinMessage
 import sh.belfry.core.model.todoTitle
+import sh.belfry.core.model.TodoLimit
 import sh.belfry.core.model.todosBySource
 import sh.belfry.app.ui.kit.MoreIcons
 import androidx.compose.runtime.LaunchedEffect
@@ -207,7 +208,12 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
         }
         val title = world.todoTitle(m)
         if (title.isNotEmpty() && !world.todosBySource(groupId).containsKey(m.id)) {
-            BusyRow("Turn into a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
+            // too long for a to-do: the New to-do sheet opens with the text, tinted past 300 (never cut)
+            if (TodoLimit.fits(title)) {
+                BusyRow("Turn into a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
+            } else {
+                ActionRow("Turn into a to-do", onClick = { close(); chat.todoText = title; chat.todoFrom = m.id; chat.newTodo = true }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
+            }
         }
         if (m.ev.kind == 9 && world.canPin(groupId)) {
             val pinned = world.isPinned(groupId, m.id)

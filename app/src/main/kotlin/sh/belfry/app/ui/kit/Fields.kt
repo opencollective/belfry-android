@@ -25,7 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sh.belfry.app.ui.theme.Belfry
@@ -50,6 +55,9 @@ fun BelfryTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     trailing: (@Composable () -> Unit)? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    /** Under the field on the right, e.g. "268 of 300". */
+    counter: String? = null,
 ) {
     val c = Belfry.colors
     val interaction = remember { MutableInteractionSource() }
@@ -77,6 +85,7 @@ fun BelfryTextField(
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,
             interactionSource = interaction,
+            visualTransformation = visualTransformation,
             modifier = Modifier.fillMaxWidth(),
             decorationBox = { inner ->
                 Row(
@@ -105,7 +114,10 @@ fun BelfryTextField(
         val below = error ?: hint
         if (below != null) {
             Spacer(Modifier.height(6.dp))
-            Text(below, fontSize = 13.sp, lineHeight = 17.sp, color = if (error != null) c.danger else c.muted)
+            Text(below, fontSize = 13.sp, lineHeight = 17.sp, color = if (error != null) c.danger else c.muted, modifier = Modifier.semantics { if (error != null) liveRegion = LiveRegionMode.Polite })
+        } else if (counter != null) {
+            Spacer(Modifier.height(6.dp))
+            Text(counter, fontSize = 13.sp, lineHeight = 17.sp, color = c.muted, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
         }
     }
 }
