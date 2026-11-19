@@ -1121,7 +1121,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             } else if (e.kind != 2102) {
                 val t = tasks[e.t("e") ?: ""] ?: continue
                 if (e.kind == 2103) t.comments.add(TaskComment(e.pubkey, e.content.sliceUnits(2000), e.createdAt))
-                e.t("action")?.let { a -> if (a in setOf("claim", "working", "done", "undone", "assign", "unassign")) t.history.add(TaskStep(e.createdAt, e.pubkey, a)) }
+                e.t("action")?.let { a -> if (a in setOf("claim", "working", "idle", "done", "undone", "assign", "unassign")) t.history.add(TaskStep(e.createdAt, e.pubkey, a)) }
                 when (e.t("action")) {
                     "claim" -> t.assignee = e.pubkey
                     "unclaim" -> if (t.assignee == e.pubkey) t.assignee = null

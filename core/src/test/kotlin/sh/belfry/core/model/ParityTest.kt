@@ -251,6 +251,13 @@ class ParityTest {
         // done yesterday (the viewer's midnight, UTC here) is not "closed today"
         val old = w(base + task3 + ev(OTHER, 2101, 500, Actions.taskAction("garden", task3.id, "done").tags))
         assertNull(old.attentionLine("garden", 90_000), "all parts at 0: no line")
+        // a claimer whose latest step is idle (agents send it on 2101) is not in progress
+        val idle = w(base + task2 + ev(OTHER, 2101, 400, Actions.taskAction("garden", task2.id, "claim").tags) +
+            ev(OTHER, 2101, 450, Actions.taskAction("garden", task2.id, "idle").tags))
+        assertNull(idle.attentionLine("garden", 1000), "claimed and idle: no part")
+        val back = w(base + task2 + ev(OTHER, 2101, 400, Actions.taskAction("garden", task2.id, "claim").tags) +
+            ev(OTHER, 2101, 450, Actions.taskAction("garden", task2.id, "idle").tags) + ev(OTHER, 2101, 460, Actions.taskAction("garden", task2.id, "working").tags))
+        assertEquals("1 in progress", back.attentionLine("garden", 1000)?.text)
     }
 
     // ---- 19.30 deleted and archived ----

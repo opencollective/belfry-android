@@ -324,6 +324,17 @@ fun World.attentionLine(groupId: String, now: Long, topic: String? = null, hidde
     return null
 }
 
+/** Open, claimed, and its claimer's latest claim / working / idle step isn't "idle". */
+val Task.inProgress: Boolean
+    get() = !done && assignee != null && history.lastOrNull { it.who == assignee && it.what in setOf("claim", "working", "idle", "assign") }?.what != "idle"
+
+/** With a vote waiting, the to-dos' line sits under the vote's (canvas channels/header-todos): at most two lines. */
+fun World.secondAttentionLine(groupId: String, now: Long, topic: String? = null, hiddenPins: Set<String> = emptySet()): ChannelLine? {
+    val first = attentionLine(groupId, now, topic, hiddenPins) ?: return null
+    if (first.icon != LineIcon.PROPOSAL || first.pill != "Vote") return null
+    return todoParts(groupId, now)?.let { p -> ChannelLine(LineIcon.TODO, p.total, p.parts, action = LineAction.Todos, twoLines = true) }
+}
+
 /** A channel's to-dos in parts: the total = the sum; a part at 0 is left out; all at 0 = null. */
 data class TodoParts(val unclaimed: Int, val inProgress: Int, val closedToday: Int) {
     val count: Int get() = unclaimed + inProgress + closedToday
@@ -336,7 +347,8 @@ data class TodoParts(val unclaimed: Int, val inProgress: Int, val closedToday: I
 }
 
 /**
- * Unclaimed = open and nobody on it; in progress = open and claimed; closed today = done since the
+ * Unclaimed = open and nobody on it; in progress = open, claimed, and the claimer's latest
+ * claim / working / idle step isn't idle (agents send idle on 2101); closed today = done since the
  * viewer's midnight (its last "done" step). Null when all three are 0.
  */
 fun World.todoParts(groupId: String, now: Long): TodoParts? {
@@ -344,7 +356,8 @@ fun World.todoParts(groupId: String, now: Long): TodoParts? {
     val all = tasks(groupId)
     val p = TodoParts(
         unclaimed = all.count { !it.done && it.assignee == null },
-        inProgress = all.count { !it.done && it.assignee != null },
+        // claimed but its claimer said idle last: neither unclaimed nor in progress (the board's rule)
+        inProgress = all.count { it.inProgress },
         closedToday = all.count { t -> t.done && (t.history.lastOrNull { it.what == "done" }?.at ?: 0) >= midnight },
     )
     return p.takeIf { it.count > 0 }

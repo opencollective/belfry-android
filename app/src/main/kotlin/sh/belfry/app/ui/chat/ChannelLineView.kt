@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.chat
 
+import sh.belfry.core.model.ChannelLine
 import sh.belfry.core.model.todoParts
 import sh.belfry.app.ui.kit.TodoTextField
 import sh.belfry.core.model.TodoLimit
@@ -101,12 +102,12 @@ import androidx.compose.runtime.setValue
  * dragging it down opens [PullDown] with the same things in full.
  */
 @Composable
-fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier = Modifier, attentionOnly: Boolean = false) {
+fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier = Modifier, attentionOnly: Boolean = false, lineOverride: ChannelLine? = null) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current
     // since 2026-11-17 the line shows only while something asks for attention (iOS / web r3)
-    val line = if (attentionOnly) world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) ?: return
+    val line = lineOverride ?: if (attentionOnly) world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) ?: return
     else world.channelLine(groupId, now, chat.topic, chat.hiddenPins)
     val toggle = { chat.toggleLine() }
     Row(

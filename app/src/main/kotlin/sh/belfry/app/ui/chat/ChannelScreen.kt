@@ -2,6 +2,7 @@ package sh.belfry.app.ui.chat
 
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.first
+import sh.belfry.core.model.secondAttentionLine
 import sh.belfry.app.ui.kit.TodoTextField
 import sh.belfry.core.model.TodoLimit
 import androidx.activity.compose.BackHandler
@@ -267,6 +268,10 @@ fun ChannelScreen(
         if (!embedded && g != null && !g.isProposal && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
             SummaryLine(groupId, chat, now, attentionOnly = true)
             Hairline()
+            world.secondAttentionLine(groupId, now, chat.topic, chat.hiddenPins)?.let { second ->
+                SummaryLine(groupId, chat, now, lineOverride = second)
+                Hairline()
+            }
         }
         if (g != null && g.archived) ArchivedBar(g)
         status.banner?.let { Banner(it, kind = BannerKind.Warning) }
