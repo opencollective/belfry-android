@@ -278,7 +278,7 @@ private fun said(r: Session.Invited): String = when (r) {
     Session.Invited.GUEST -> "Added as a guest"
 }
 
-/** "Invite someone who is here already": a name, then one row per person found. */
+/** "Invite a community member:" (canvas v44): a name, then one row per person found. */
 @Composable
 private fun InviteSomeone(id: String, invite: (suspend (String) -> Session.Invited)?) {
     val c = Belfry.colors
@@ -290,7 +290,7 @@ private fun InviteSomeone(id: String, invite: (suspend (String) -> Session.Invit
     var error by remember { mutableStateOf<String?>(null) }
     val found = world.inviteCandidates(q)
     BelfryTextField(
-        q, { q = it; error = null }, label = "Invite someone already in the community", placeholder = "Type a name",
+        q, { q = it; error = null }, label = "Invite a community member:", placeholder = "Invite a community member",
         modifier = Modifier.fillMaxWidth().testTag("invite-search"),
     )
     if (found.isNotEmpty()) {
