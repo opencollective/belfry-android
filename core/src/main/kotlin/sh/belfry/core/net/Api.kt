@@ -465,7 +465,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             fail(a, GUEST_ERRORS, "That did not work. Try again.")
         }
         val b = a.body
-        if (b?.get("signed_in").bool() == true) {
+        if (b != null && b["signed_in"].bool() == true) {
             val bunker = b.s("bunker_url")?.takeIf { BunkerUrl.parse(it) != null }
             val pubkey = b.s("pubkey")?.lowercase()?.takeIf(Hex::isKey)
             if (bunker != null && pubkey != null) {
