@@ -1,5 +1,7 @@
 package sh.belfry.app.ui.chat
 
+import sh.belfry.core.model.todoParts
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -99,7 +101,7 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         if (n.showsRow("pinned")) MenuRow(Icons.Outlined.PushPin, "Pinned", n.pins, "pd-pinned") { place(ChannelPlaceKey.PINNED) }
         if (!g.isEvent && n.showsRow("events")) MenuRow(BelfryIcons.Calendar, "Events", n.events, "pd-events") { go(Routes.events(groupId)) }
         if (!g.isEvent && !g.isProposal && n.showsRow("decide")) MenuRow(BelfryIcons.Proposal, "To decide", n.proposals, "pd-decide") { place(ChannelPlaceKey.DECIDE) }
-        if (n.showsRow("todos")) MenuRow(MoreIcons.Todo, "To-dos", n.todos - n.todosDone, "pd-todos") { place(ChannelPlaceKey.TODOS) }
+        if (n.showsRow("todos")) MenuRow(MoreIcons.Todo, "To-dos", n.todos - n.todosDone, "pd-todos", sub = world.todoParts(groupId, now)?.parts) { place(ChannelPlaceKey.TODOS) }
         if (n.showsRow("photos")) MenuRow(Icons.Outlined.Image, "Photos", n.photos, "pd-photos") { place(ChannelPlaceKey.PHOTOS) }
         if (n.showsRow("files")) MenuRow(Icons.Outlined.AttachFile, "Files", n.files, "pd-files") { go(Routes.files(groupId)) }
         if (!g.isEvent && !g.isProposal && n.showsRow("groups")) MenuRow(null, "Groups", n.groups, "pd-groups", pod = true) { place(ChannelPlaceKey.GROUPS) }
@@ -113,7 +115,7 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
 }
 
 @Composable
-private fun MenuRow(icon: ImageVector?, title: String, count: Int, tag: String, pod: Boolean = false, onClick: () -> Unit) {
+private fun MenuRow(icon: ImageVector?, title: String, count: Int, tag: String, pod: Boolean = false, sub: String? = null, onClick: () -> Unit) {
     val c = Belfry.colors
     Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(start = 16.dp, end = 12.dp, top = 13.dp, bottom = 13.dp).testTag(tag),
@@ -121,8 +123,12 @@ private fun MenuRow(icon: ImageVector?, title: String, count: Int, tag: String, 
     ) {
         if (pod) PodShape(6, size = 22.dp, color = c.muted) else if (icon != null) Icon(icon, contentDescription = null, tint = c.muted, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(16.dp))
-        Text(title, fontSize = 17.sp, color = c.text, modifier = Modifier.weight(1f))
-        if (count > 0) Text(count.toString(), fontSize = 16.sp, color = c.muted)
+        if (sub == null) Text(title, fontSize = 17.sp, color = c.text, modifier = Modifier.weight(1f))
+        else Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 17.sp, color = c.text)
+            Text(sub, fontSize = 14.sp, lineHeight = 19.sp, color = c.muted)
+        }
+        if (count > 0 && sub == null) Text(count.toString(), fontSize = 16.sp, color = c.muted)
         Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, tint = c.faint)
     }
 }
