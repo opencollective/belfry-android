@@ -50,7 +50,8 @@ data class NewProposal(val title: String, val summary: String = "", val text: St
 object Actions {
     val CLIENT_TAG: Tag = listOf("client", "belfry-android")
     const val DEFAULT_PROMPT = "Why do you want to join, and what would you bring?"
-    val DEFAULT_EMOJIS = listOf("👍", "❤️", "😂", "🎉", "🙏", "👀")
+    // 🔥 after the heart (canvas channels/message-menu, to-do c76b680c)
+    val DEFAULT_EMOJIS = listOf("👍", "❤️", "🔥", "😂", "🎉", "🙏", "👀")
     val MORE_EMOJIS = listOf(
         "👍", "❤️", "😂", "🎉", "🙏", "👀", "🔥", "👏", "😍", "🤔", "😮", "😢",
         "😅", "🙌", "💪", "✅", "❌", "💯", "🚀", "✨", "🌱", "☕", "🍕", "🍻",
