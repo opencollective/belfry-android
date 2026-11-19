@@ -37,7 +37,9 @@ class PricesTest {
         assertEquals("Not on sale now", Prices.line(past, utc))
         // an unreadable price still counts as priced
         assertTrue(Prices.of(listOf(listOf("price", "abc", "EUR")), 0).priced)
-        assertFalse(Prices.of(listOf(listOf("price", "abc", "EUR")), 0).onSale)
+        // the server's price_of: still on sale, read as "Paid" (vectors/ticket-prices.json)
+        assertTrue(Prices.of(listOf(listOf("price", "abc", "EUR")), 0).onSale)
+        assertEquals("Paid", Prices.words(Prices.of(listOf(listOf("price", "abc", "EUR")), 0)))
     }
 
     @Test fun aPricedTicketIsAsked() {
