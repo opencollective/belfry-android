@@ -315,8 +315,12 @@ class EngineTest {
         val chip = b.dms.value.reactionsOf(d.rid).single()
         assertEquals("👍", chip.emoji)
         assertNotNull(chip.mine)
-        until("alice sees bob's reaction") { a.dms.value.reactionsOf(d.rid).any { it.emoji == "👍" && bob.pubkey in it.who } }
-        assertNull(a.dms.value.reactionsOf(d.rid).single().mine)
+        until("bob's wraps are out") { m.published.count { it.kind == 1059 } == 4 }
+        // the fake relay has no live push: alice on a fresh device reads everything
+        val a2 = session(c, MemoryStore(), alice)
+        a2.start()
+        until("alice sees bob's reaction") { a2.dms.value.reactionsOf(d.rid).any { it.emoji == "👍" && bob.pubkey in it.who } }
+        assertNull(a2.dms.value.reactionsOf(d.rid).single().mine)
         // the reaction rumor, as alice opened it: e = the message's rumor id, p = its author, k = 14
         val wrapsToAlice = m.published.filter { it.kind == 1059 && it.tag("p") == alice.pubkey }
         val rumors = wrapsToAlice.mapNotNull { sh.belfry.core.dm.GiftWrap.unwrap(it, alice)?.rumor }
@@ -327,11 +331,15 @@ class EngineTest {
         assertEquals("14", r.tag("k"))
         assertEquals(bob.pubkey, r.pubkey)
         // a reaction never moves the conversation or its unread count
-        assertEquals(1, a.dms.value.thread(conv).size)
+        assertEquals(1, a2.dms.value.thread(conv).size)
         // taken back: a kind 5 naming it
         b.toggleDmReaction(d, "👍")
         assertTrue(b.dms.value.reactionsOf(d.rid).isEmpty())
-        until("alice sees it taken back") { a.dms.value.reactionsOf(d.rid).isEmpty() }
+        until("the kind 5 wraps are out") { m.published.count { it.kind == 1059 } == 6 }
+        val a3 = session(c, MemoryStore(), alice)
+        a3.start()
+        until("alice has the message") { a3.dms.value.threads.isNotEmpty() }
+        until("alice sees it taken back") { a3.dms.value.reactionsOf(d.rid).isEmpty() }
     }
 
     @Test
