@@ -49,6 +49,17 @@ abstract class DemoShots : Shots() {
      * watchdog) running into the next tests of the same JVM, and once the main looper never went
      * idle every later test failed with AppNotIdleException (CI 2026-11-18).
      */
+    /**
+     * The demo session is built before the test sets its screen, never inside the first frame:
+     * the first test of a fresh JVM (CardsShotsTest.createEvent, three times) built it there,
+     * on the main thread, and the main looper never went idle again (AppNotIdleException in every
+     * later test until the job's 45 minutes ran out; CI 2026-11-18 and 2026-11-19).
+     */
+    @org.junit.Before
+    fun buildSession() {
+        session
+    }
+
     @org.junit.After
     fun stopSession() {
         if (sessionLazy.isInitialized()) try { session.stop() } catch (e: Exception) { }
