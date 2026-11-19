@@ -456,6 +456,49 @@ class EngineTest {
     }
 
     /** A belfry answering a guest link in guest mode (SPEC 19.26): by path, as the two calls race. */
+    /** A belfry whose POST /whois answers WHOIS (a status and a body) and nothing else. */
+    private fun whoisBelfry(status: Int, body: String): MockWebServer = server().also { srv ->
+        srv.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse =
+                if (request.path!!.endsWith("/whois")) MockResponse().setResponseCode(status).setBody(body) else MockResponse().setResponseCode(404).setBody("{}")
+        }
+    }
+
+    /** The lead's rule (2026-11-19): when the relay refuses me, only the register's "no role" means the full screen. */
+    @Test
+    fun theRegisterDecidesTheNoAccessScreen() = runBlocking<Unit> {
+        val me = LocalSigner.random()
+        fun answer(status: Int, body: String): RegisterAnswer = runBlocking {
+            val c = community(fake(), fake()).copy(apiBase = whoisBelfry(status, body).url("/api/v1").toString())
+            session(c, MemoryStore(), me).registerAnswer()
+        }
+        assertEquals(RegisterAnswer.NO_ROLE, answer(200, """{"people":{}}"""), "no role at all")
+        assertEquals(RegisterAnswer.NO_ROLE, answer(403, """{"error":"not_allowed"}"""), "403")
+        assertEquals(RegisterAnswer.GUEST, answer(200, """{"people":{"${me.pubkey}":"guest"}}"""))
+        assertEquals(RegisterAnswer.MEMBER, answer(200, """{"people":{"${me.pubkey}":"member"}}"""))
+        assertEquals(RegisterAnswer.NO_ANSWER, answer(500, "{}"), "no answer")
+
+        // the whole way: refused by the relay, the register says no role → the screen
+        val g = fake(); val m = fake()
+        val s = session(community(g, m).copy(apiBase = whoisBelfry(200, """{"people":{}}""").url("/api/v1").toString()), MemoryStore(), me)
+        s.start()
+        until("in") { s.status.value.access == AccessState.IN && g.published.any { it.kind == 9002 } }
+        g.refuse["R"] = "restricted: members only, get a pass"
+        s.postMessage("general", "R")
+        until("the register confirms") { s.status.value.access == AccessState.REFUSED }
+        // a guest refused by the relay: the line, never the screen
+        val g2 = fake(); val m2 = fake()
+        val guest = LocalSigner.random()
+        val t = session(community(g2, m2).copy(apiBase = whoisBelfry(200, """{"people":{"${guest.pubkey}":"guest"}}""").url("/api/v1").toString()), MemoryStore(), guest)
+        t.start()
+        until("in") { t.status.value.access == AccessState.IN && g2.published.any { it.kind == 9002 } }
+        g2.refuse["R"] = "restricted: members only, get a pass"
+        t.postMessage("general", "R")
+        until("the line") { t.status.value.access == AccessState.RELAY_REFUSED }
+        Thread.sleep(800)
+        assertEquals(AccessState.RELAY_REFUSED, t.status.value.access)
+    }
+
     private fun guestModeBelfry(join: MockResponse, state: String = "open"): MockWebServer = server().also { srv ->
         srv.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse = when {

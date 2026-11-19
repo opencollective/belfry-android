@@ -111,6 +111,25 @@ import java.time.ZoneId
  */
 enum class AccessState { UNKNOWN, IN, REFUSED, RELAY_REFUSED }
 
+/**
+ * What POST /whois says of my own key, and what that means when the relay refused me: the full
+ * "Almost in" screen only for NO_ROLE (no role at all, or 401 / 403); a guest is let into their
+ * channels and has "apply to become a member" on Home, so a guest, a member or no answer = the line.
+ */
+enum class RegisterAnswer {
+    NO_ROLE, GUEST, MEMBER, NO_ANSWER;
+
+    companion object {
+        fun of(kind: String?): RegisterAnswer = when (kind) {
+            null -> NO_ROLE
+            "guest" -> GUEST
+            "member", "agent" -> MEMBER
+            else -> NO_ROLE
+        }
+        fun fullScreen(a: RegisterAnswer): Boolean = a == NO_ROLE
+    }
+}
+
 /** Connection and outbox state, for the banner and the settings screen. */
 data class Status(
     val online: Boolean = true,
@@ -645,15 +664,28 @@ class Session(
     }
 
     private suspend fun confirmRefusal() {
-        val member = registerSaysMember()
-        if (member == false && _status.value.access == AccessState.RELAY_REFUSED) setStatus { it.copy(access = AccessState.REFUSED) }
+        val a = registerAnswer()
+        if (RegisterAnswer.fullScreen(a) && _status.value.access == AccessState.RELAY_REFUSED) setStatus { it.copy(access = AccessState.REFUSED) }
     }
 
     /** "Check again": reconnect, and ask the register again (a member let in since, or a wrong reading). */
     suspend fun checkAccess() {
-        val member = registerSaysMember()
-        if (member != false && _status.value.access == AccessState.REFUSED) setStatus { it.copy(access = AccessState.RELAY_REFUSED) }
+        val a = registerAnswer()
+        if (!RegisterAnswer.fullScreen(a) && _status.value.access == AccessState.REFUSED) setStatus { it.copy(access = AccessState.RELAY_REFUSED) }
         wake()
+    }
+
+    /** The register's word on my own key (POST /whois). */
+    internal suspend fun registerAnswer(): RegisterAnswer {
+        if (localOnly) return RegisterAnswer.MEMBER
+        val got = try {
+            api().whois(signer, listOf(me))
+        } catch (e: ApiException) {
+            return if (e.status == 401 || e.status == 403) RegisterAnswer.NO_ROLE else RegisterAnswer.NO_ANSWER
+        } catch (e: Exception) {
+            return RegisterAnswer.NO_ANSWER
+        }
+        return RegisterAnswer.of(got[me])
     }
 
     /**
