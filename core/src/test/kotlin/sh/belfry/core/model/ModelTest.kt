@@ -172,7 +172,7 @@ class ModelTest {
         assertEquals("Hi", w.aboutOf(bob))
         assertEquals("Zoë Müller", w.realName(bob))
         assertEquals("You", w.displayName(alice))
-        assertEquals("unknown", w.displayName(carol))
+        assertEquals("Somebody", w.displayName(carol))
     }
 
     @Test

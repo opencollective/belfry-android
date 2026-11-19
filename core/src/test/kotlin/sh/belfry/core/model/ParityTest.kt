@@ -258,6 +258,9 @@ class ParityTest {
         val back = w(base + task2 + ev(OTHER, 2101, 400, Actions.taskAction("garden", task2.id, "claim").tags) +
             ev(OTHER, 2101, 450, Actions.taskAction("garden", task2.id, "idle").tags) + ev(OTHER, 2101, 460, Actions.taskAction("garden", task2.id, "working").tags))
         assertEquals("1 in progress", back.attentionLine("garden", 1000)?.text)
+        // assigned, not started: unclaimed until "up next" is confirmed (canvas v35)
+        val assigned = w(base + task2 + ev(OTHER, 2101, 400, Actions.assignTask("garden", task2.id, ME, OTHER).tags))
+        assertEquals("1 unclaimed", assigned.attentionLine("garden", 1000)?.text)
     }
 
     // ---- 19.30 deleted and archived ----

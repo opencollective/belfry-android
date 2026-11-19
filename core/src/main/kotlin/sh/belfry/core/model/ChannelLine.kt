@@ -326,7 +326,17 @@ fun World.attentionLine(groupId: String, now: Long, topic: String? = null, hidde
 
 /** Open, claimed, and its claimer's latest claim / working / idle step isn't "idle". */
 val Task.inProgress: Boolean
-    get() = !done && assignee != null && history.lastOrNull { it.who == assignee && it.what in setOf("claim", "working", "idle", "assign") }?.what != "idle"
+    get() = !done && assignee != null && history.lastOrNull { it.who == assignee && it.what in setOf("claim", "working", "idle") }.let { it != null && it.what != "idle" }
+
+/**
+ * Assigned by someone else, not started (no claim / working by the assignee yet). "Up next" is a
+ * part of its own only once Xavier confirms assign = up next (canvas channels/header-todos, v35,
+ * DRAFT): until then [UP_NEXT_PART] is off and such a to-do counts as unclaimed.
+ */
+val Task.upNext: Boolean
+    get() = !done && assignee != null && history.none { it.who == assignee && it.what in setOf("claim", "working", "idle") }
+
+const val UP_NEXT_PART = false
 
 /** With a vote waiting, the to-dos' line sits under the vote's (canvas channels/header-todos): at most two lines. */
 fun World.secondAttentionLine(groupId: String, now: Long, topic: String? = null, hiddenPins: Set<String> = emptySet()): ChannelLine? {
@@ -336,11 +346,12 @@ fun World.secondAttentionLine(groupId: String, now: Long, topic: String? = null,
 }
 
 /** A channel's to-dos in parts: the total = the sum; a part at 0 is left out; all at 0 = null. */
-data class TodoParts(val unclaimed: Int, val inProgress: Int, val closedToday: Int) {
-    val count: Int get() = unclaimed + inProgress + closedToday
+data class TodoParts(val unclaimed: Int, val inProgress: Int, val closedToday: Int, val upNext: Int = 0) {
+    val count: Int get() = unclaimed + upNext + inProgress + closedToday
     val total: String get() = if (count == 1) "1 to-do" else "$count to-dos"
     val parts: String get() = listOfNotNull(
         unclaimed.takeIf { it > 0 }?.let { "$it unclaimed" },
+        upNext.takeIf { it > 0 }?.let { "$it up next" },
         inProgress.takeIf { it > 0 }?.let { "$it in progress" },
         closedToday.takeIf { it > 0 }?.let { "$it closed today" },
     ).joinToString(", ")
@@ -355,7 +366,8 @@ fun World.todoParts(groupId: String, now: Long): TodoParts? {
     val midnight = java.time.Instant.ofEpochSecond(now).atZone(ctx.zone).toLocalDate().atStartOfDay(ctx.zone).toEpochSecond()
     val all = tasks(groupId)
     val p = TodoParts(
-        unclaimed = all.count { !it.done && it.assignee == null },
+        unclaimed = all.count { !it.done && (it.assignee == null || (it.upNext && !UP_NEXT_PART)) },
+        upNext = if (UP_NEXT_PART) all.count { it.upNext } else 0,
         // claimed but its claimer said idle last: neither unclaimed nor in progress (the board's rule)
         inProgress = all.count { it.inProgress },
         closedToday = all.count { t -> t.done && (t.history.lastOrNull { it.what == "done" }?.at ?: 0) >= midnight },

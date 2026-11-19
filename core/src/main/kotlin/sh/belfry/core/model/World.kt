@@ -173,7 +173,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun displayName(pubkey: String): String {
         if (pubkey == me) return "You"
         // never a key as a name (Xavier, 2026-11-18)
-        return realName(pubkey).ifEmpty { UNKNOWN }
+        // no profile: "Somebody", an agent "An agent", never "unknown" (canvas Main, 2026-11-19; web to-do bbd452d5)
+        return realName(pubkey).ifEmpty { if (isAgent(pubkey)) AN_AGENT else SOMEBODY }
     }
 
     /** The name over a message: "Drop box" for an upload through a drop link by a key without a profile. */
@@ -1469,6 +1470,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
         /** Someone whose name this device doesn't know (never their key). */
         const val UNKNOWN = "unknown"
+        const val SOMEBODY = "Somebody"
+        const val AN_AGENT = "An agent"
 
         /** A group's word while its name hasn't arrived (SPEC 19.39). */
         fun kindWord(t: ChannelType): String = when (t) { ChannelType.POD -> "Group"; ChannelType.EVENT -> "Event"; ChannelType.PROPOSAL -> "Proposal"; else -> "Channel" }
