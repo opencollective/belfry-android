@@ -117,7 +117,9 @@ private fun TickRow(a: Agreement, on: Boolean, onTick: (Boolean) -> Unit) {
 
 /**
  * A new member's first minutes (web welcomeDue; SPEC 19.32): Welcome (the belfry's name and
- * description) → each agreement ticked ("4 of 6 agreed") → name and photo, with Skip.
+ * description) → each agreement ticked ("4 of 6 agreed") → the chat. No profile step (canvas
+ * onboarding/welcome-profile v42, Xavier 19 Nov: "the sooner they get to the chat the better"):
+ * the name given when joining stays, the photo is the initial; Edit profile is on their own face.
  */
 @Composable
 fun WelcomeScreen() {
@@ -128,31 +130,33 @@ fun WelcomeScreen() {
     var step by remember { mutableStateOf(0) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val rules = world.charter()
+    // the belfry's first channel, the composer ready
+    val toChat = {
+        val first = world.groups.firstOrNull { !it.isEvent && !it.isProposal && !it.isPod }?.id
+        nav.back()
+        if (first != null) nav.openChannel(first)
+    }
     Column(Modifier.fillMaxSize().background(c.bg).testTag("welcome-$step")) {
-        TopBar(if (step == 0) "Welcome" else if (step == 1) "The charter" else "You", navigation = { BackButton { nav.back() } })
+        TopBar(if (step == 0) "Welcome" else "The charter", navigation = { BackButton { nav.back() } })
         Column(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
             when (step) {
                 0 -> {
                     Text("Welcome to ${session.community.name}", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = c.text)
                     Spacer(Modifier.height(10.dp))
-                    Text("You are a member now. First, the agreements everyone here ticks.", fontSize = 16.sp, color = c.muted, modifier = Modifier.padding(top = 12.dp))
+                    Text(
+                        if (rules.isEmpty()) "You are a member now." else "Next: ${session.community.name}'s charter, ${rules.size} short agreement${if (rules.size == 1) "" else "s"}.",
+                        fontSize = 16.sp, color = c.muted, modifier = Modifier.padding(top = 12.dp),
+                    )
                     Spacer(Modifier.height(24.dp))
-                    BusyButton("Read the charter", onClick = { step = if (rules.isEmpty()) 2 else 1 }, modifier = Modifier.fillMaxWidth().testTag("welcome-next"))
+                    BusyButton("Continue", onClick = { if (rules.isEmpty()) toChat() else step = 1 }, modifier = Modifier.fillMaxWidth().testTag("welcome-next"))
                 }
-                1 -> {
+                else -> {
                     val agreed = rules.count { world.me in it.agreed }
                     Text("$agreed of ${rules.size} agreed", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                     for (a in rules) TickRow(a, world.me in a.agreed) { on -> scope.launch { try { session.members.agree(a, on) } catch (e: Exception) { } } }
                     Spacer(Modifier.height(20.dp))
-                    BusyButton("Next", onClick = { step = 2 }, enabled = agreed == rules.size, modifier = Modifier.fillMaxWidth().testTag("welcome-next"))
-                    BusyButton("Skip", onClick = { step = 2 }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
-                }
-                else -> {
-                    Text("How people see you", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                    Text("Your name and a photo help people recognise you.", fontSize = 16.sp, color = c.muted, modifier = Modifier.padding(top = 6.dp))
-                    Spacer(Modifier.height(20.dp))
-                    BusyButton("Add my name and photo", onClick = { nav.back(); nav.go(Routes.ME) }, modifier = Modifier.fillMaxWidth().testTag("welcome-profile"))
-                    BusyButton("Skip", onClick = { nav.back() }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    BusyButton("Next", onClick = { toChat() }, enabled = agreed == rules.size, modifier = Modifier.fillMaxWidth().testTag("welcome-next"))
+                    BusyButton("Skip", onClick = { toChat() }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
             }
         }
