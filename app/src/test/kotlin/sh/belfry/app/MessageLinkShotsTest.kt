@@ -14,3 +14,13 @@ class MessageLinkShotsTest : DemoShots() {
         compose.onNodeWithTag("message-unavailable").assertExists()
     }
 }
+
+/** canvas channels/message-link: a link to a thread reply opens its thread, the reply centred and flashed. */
+class MessageLinkThreadShotsTest : DemoShots() {
+    @Test fun threadReply() {
+        val w = session.world.value
+        val (groupId, root) = w.groups.firstNotNullOf { g -> w.threadsOf(g.id).entries.firstOrNull { (r, _) -> w.threadReplies(g.id, r).size >= 2 }?.let { g.id to it.key } }
+        val reply = w.threadReplies(groupId, root)[1]
+        demoShot("message-link-thread") { sh.belfry.app.ui.chat.ThreadScreen(groupId, root, focus = reply.id) }
+    }
+}
