@@ -18,7 +18,7 @@ class PricesTest {
         assertTrue(p.priced); assertTrue(p.onSale)
         assertEquals("€50 + 21% VAT", Prices.line(p, utc))
         assertEquals("€50 incl. 21% VAT", Prices.line(Prices.of(listOf(listOf("price", "50", "EUR"), listOf("vat", "21", "included")), 0), utc))
-        assertEquals("€7.50", Prices.label(Price("7.5", "EUR")))
+        assertEquals("€7.50", Prices.words(Prices.of(listOf(listOf("price", "7.5", "EUR")), 0)))
         assertEquals("2 hours", Prices.line(Prices.of(listOf(listOf("price", "2", "HOUR"), listOf("vat", "21")), 0), utc))
         assertEquals("3 tokens", Prices.line(Prices.of(listOf(listOf("price", "3", "tokens")), 0), utc))
     }
