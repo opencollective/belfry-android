@@ -45,4 +45,11 @@ class ReferencesTest {
         assertEquals("Seed talk carries on here", before)
         assertEquals(RefTarget.Group("garden"), box.target)
     }
+
+    @Test
+    fun anATagForEventAndProposalNaddrs() {
+        val ev = "nostr:" + sh.belfry.core.crypto.Nip19.naddr(sh.belfry.core.crypto.Nip19.Addr(31923, "a".repeat(64), "2026-ab12cd"))
+        val tags = Actions.postMessage("g", "Come $ev").tags
+        assertTrue(tags.contains(listOf("a", "31923:${"a".repeat(64)}:2026-ab12cd")))
+    }
 }

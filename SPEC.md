@@ -2035,6 +2035,7 @@ the feed row shaped like a message. Android: `ui/cards/MailThreadScreen.kt`, `ui
 - Android: `Group.named` + `World.kindWord / kindPhrase / UNKNOWN` (core), `NameSkeleton` /
   `rememberNameLoading` (kit), `TopBar(titleLoading =)`; tests `NamesTest`.
 
+<<<<<<< HEAD
 ### 19.45 Reactions to direct messages (canvas home/conversation, Xavier's to-dos 2026-11-19; the web's dm.ts; `vectors/dm-reactions.json`)
 
 A reaction to a direct message is an unsigned kind 7 rumor, content = the emoji, tags
@@ -2050,3 +2051,32 @@ mine; a long-press on a bubble opens the menu with the reactions row. The header
 one-to-one conversation shows the person's face and name; a tap opens their profile.
 (Android: `DmReaction.apply`, `DmSnapshot.reactionsOf`, `DirectMessages.react`,
 `ui/people/DmReactions.kt`.)
+=======
+### 19.44 References in a message: a name inside the text, a box at the end (2026-11-19; the lead's rule; canvas channels/link-preview-end + -inline, to-do c92a9f45; `vectors/references.json`, reference implementation `tools/vectors/references.mjs`)
+
+A **reference** is this belfry's chat link `https://chat.<domain>/#/c/<id>` (also
+`https://<domain>/chat/#/c/<id>`; never with `/m/<event>`), its event pages
+`https://chat.<domain>/events/<link>` and `https://<domain>/events/<slug-or-d>` (not
+`/t/<code>`), or `nostr:naddr1…` of kind 39000 (a group id), 31922 / 31923 (an event coord) or
+30023 (a proposal coord). Another belfry's link, a message link and any other address stay links.
+A group is typed when shown: a channel, a group (pod), an event's chat (shown as the event), a
+proposal's chat `prop-…` (shown as the proposal).
+
+- **At the end**: when the text, trimmed of trailing white space, ends with a reference, the last
+  one comes out of the text (with the white space before it) and shows as a preview box under it;
+  a message that is only a reference shows the box alone. The box: the channel or group (name,
+  "Channel · N members", its about), the event (its card), the proposal (title, "Proposal in
+  #parent"); a tap opens it. Same in direct messages.
+- **Inside the text**: its name, tappable: "#" + name for a channel or group, a calendar mark for
+  an event, a tick or page mark for a proposal. Never the id or the slug.
+- **Not here yet**: a grey bar, then after 5 s the kind's word: "#channel" (as
+  `vectors/channel-refs.json`), "#Group", "Event", "Proposal".
+- **Can't open it** (a closed group I'm not in, a members-only channel for a guest): no name: a
+  lock box at the end ("A members-only channel" / "A closed group", "Only members of <belfry> can
+  open it"), grey words inside the text. **Deleted**: "a deleted channel" (group, event,
+  proposal), grey.
+- **On send**: an `a` tag for each event or proposal coord in the text (as the web does for event
+  links); readers never depend on it, they parse the text.
+- (Android: `core/model/References.kt` — `References.parts / endBox`, `World.refSeen`;
+  `ui/kit/RefBox.kt`, `MarkdownText` for the names.)
+>>>>>>> 8dbd8e3 (References in a message (SPEC 19.44, canvas channels/link-preview-end + -inline, to-do c92a9f45): the name inside the text, a preview box at the end; grey bar then the kind's word, a lock when I can't open it, grey words when deleted. vectors/references.json + tools/vectors/references.mjs (the reference implementation); an a tag for event / proposal naddrs on send.)

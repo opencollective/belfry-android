@@ -113,8 +113,15 @@ object Actions {
         if (!topic.isNullOrEmpty()) topics.add(Topics.norm(topic))
         if (announce) topics.add(Topics.ANNOUNCE)
         topics.addAll(Topics.hashtags(text))
-        return Draft(Target.GROUPS, 9, text, listOf(listOf("h", groupId)) + topics.map { listOf("t", it) } + Mentions.tags(text))
+        return Draft(Target.GROUPS, 9, text, listOf(listOf("h", groupId)) + topics.map { listOf("t", it) } + Mentions.tags(text) + refTags(text))
     }
+
+    /** SPEC 19.44: an `a` tag for each event or proposal naddr in the text (readers parse the text, never need it). */
+    fun refTags(text: String): List<Tag> =
+        References.parts(text, "").mapNotNull { p ->
+            val t = when (p) { is RefPart.Ref -> p.target; is RefPart.Box -> p.target; else -> null }
+            when (t) { is RefTarget.Event -> t.coord; is RefTarget.Proposal -> t.coord; else -> null }
+        }.distinct().map { listOf("a", it) }
 
     /** A reply in the thread of a message (NIP-22 comment, kept in the group by its `h` tag). */
     fun postThreadReply(groupId: String, rootId: String, rootPubkey: String, rootKind: Int, text: String): Draft {

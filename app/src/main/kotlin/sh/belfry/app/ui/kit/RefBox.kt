@@ -57,6 +57,11 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
     val world = LocalWorld.current
     val nav = LocalNav.current
     val now = LocalSession.current.now()
+    // an event: its card as everywhere in the app (date, where, my answer; fetched from the belfry for a guest)
+    if (target is RefTarget.Event && world.refSeen(target) !is RefSeen.Deleted) {
+        sh.belfry.app.ui.cards.EventRefCard(sh.belfry.core.model.EventRef(target.coord, target.link), modifier.padding(top = 6.dp))
+        return
+    }
     val seen = world.refSeen(target)
     var waited by remember { mutableStateOf(false) }
     if (seen is RefSeen.Loading) LaunchedEffect(Unit) { delay(5_000); waited = true }
@@ -140,7 +145,12 @@ private fun iconOf(seen: RefSeen): ImageVector = when (seen) {
 
 /** TEXT shown with its end reference as a box: the Markdown before it (none when it was only the reference), then the box. */
 @Composable
-fun MarkdownWithBox(text: String, domain: String, modifier: Modifier = Modifier, color: androidx.compose.ui.graphics.Color = Belfry.colors.text, rich: Boolean = true, onTopic: ((String) -> Unit)? = null) {
+fun MarkdownWithBox(
+    text: String, domain: String, modifier: Modifier = Modifier, color: androidx.compose.ui.graphics.Color = Belfry.colors.text, rich: Boolean = true,
+    onTopic: ((String) -> Unit)? = null,
+    /** The message shows its event cards under it already (EventCards): an event at the end is not shown twice. */
+    eventCards: Boolean = false,
+) {
     val split = remember(text, domain) { sh.belfry.core.model.References.endBox(text, domain) }
     if (split == null) {
         MarkdownText(text, modifier, rich = rich, color = color, onTopic = onTopic)
@@ -148,6 +158,6 @@ fun MarkdownWithBox(text: String, domain: String, modifier: Modifier = Modifier,
     }
     Column(modifier) {
         if (split.first.isNotBlank()) MarkdownText(split.first, rich = rich, color = color, onTopic = onTopic)
-        RefBox(split.second.target)
+        if (!(eventCards && split.second.target is RefTarget.Event)) RefBox(split.second.target)
     }
 }

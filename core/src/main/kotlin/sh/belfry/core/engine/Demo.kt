@@ -339,6 +339,10 @@ object Demo {
         ), "Version 4 has the new photos of the garden (https://preview.$DOMAIN/p/${Bech32.npub(kofi.pubkey)}@website). Approve it below, or tell me what to change.")
         say(sam, RANDOM, now - 6 * day, "Found a blue bike helmet by the gate. It's on the shelf in the hall.")
         say(tomas, RANDOM, now - 26 * h, "Does anyone want a box of *very* ripe pears?")
+        // references (SPEC 19.44): one inside the text (a name), one at the end (a preview box), one I can't open
+        say(lena, RANDOM, now - 25 * h, "Pear jam ideas go to https://chat.$DOMAIN/#/c/$KITCHEN and recipes are kept by https://chat.$DOMAIN/#/c/$POD_OPEN for now.")
+        say(joris, RANDOM, now - 24 * h, "Seed talk carries on here https://chat.$DOMAIN/#/c/$GARDEN")
+        say(aroha, RANDOM, now - 23 * h, "Stewards, the numbers are in https://chat.$DOMAIN/#/c/$POD_CLOSED")
         say(tomas, TOOLS, now - 2 * day, "The long ladder is back on its hook.")
         say(kofi, TOOLS, now - 5 * h, "Borrowing the drill until Saturday, for the community shelves.")
         raw(lena, now - 3 * h, 9021, listOf(listOf("h", TOOLS)), "I'd like to borrow the sander, and I can lend my bike stand.")

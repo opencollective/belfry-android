@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.chat
 
+import sh.belfry.app.ui.kit.MarkdownWithBox
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -181,7 +182,7 @@ fun MessageRow(
             }
             m.created?.let { Text("Created $it", fontSize = 14.sp, color = c.muted) }
             if (m.special == Special.None) {
-                if (m.text.isNotEmpty()) MarkdownText(m.text, onTopic = { chat.topic = it })
+                if (m.text.isNotEmpty()) MarkdownWithBox(m.text, world.ctx.domain, onTopic = { chat.topic = it }, eventCards = m.eventRefs.isNotEmpty())
             } else {
                 SpecialCard(groupId, m)
             }
