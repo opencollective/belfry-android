@@ -86,6 +86,14 @@ android {
                 it.systemProperty("robolectric.graphicsMode", "NATIVE")
                 it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
                 it.maxHeapSize = "2g"
+                // each test class in its own JVM: something left busy by one class (the
+                // AppNotIdleException that froze every later test until the job's 45 minutes ran
+                // out, CI 2026-11-18 / 19) can then fail that class alone, never the rest
+                it.forkEvery = 1
+                it.testLogging {
+                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                    events("failed")
+                }
             }
         }
     }
