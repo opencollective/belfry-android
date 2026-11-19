@@ -59,7 +59,7 @@ class InfoBehaviourTest : DemoShots() {
         compose.waitForIdle()
         // While the belfry makes the link: nothing to copy, and the choices are locked.
         compose.onNodeWithTag("link-copy").assertIsNotEnabled()
-        compose.onNodeWithTag("invite-joins").assertIsNotEnabled()
+        compose.onNodeWithTag("invite-edit").assertIsNotEnabled()
         compose.onNodeWithText("Making the link…").assertIsDisplayed()
         assertEquals("the guest link was asked more than once", 1, calls)
         gate.complete(Unit)
@@ -133,14 +133,16 @@ class InfoBehaviourTest : DemoShots() {
         // opening the external part makes a guest link for a day; "Joins as" picks my own agent instead
         compose.onNodeWithTag("invite-external").performScrollTo().performClick()
         compose.waitUntil(5_000) { asked.size == 1 }
-        compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-joins").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-edit").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("invite-edit").performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("invite-joins").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-own-agent").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("invite-own-agent").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText(agentUrl).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(listOf(Triple(1, 1, false), Triple(1, 1, true)), asked)
-        compose.onNodeWithText("It works once", substring = true).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("your own agent in, once", substring = true).performScrollTo().assertIsDisplayed()
         // choosing a guest link again asks for a plain guest link
         compose.onNodeWithTag("invite-joins").performScrollTo().performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-guest").fetchSemanticsNodes().isNotEmpty() }

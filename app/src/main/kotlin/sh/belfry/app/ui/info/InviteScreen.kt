@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
@@ -93,6 +94,7 @@ fun InviteScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var rolePicker by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
     val asked = remember { intArrayOf(0) }
 
     fun fetch(w: JoinsAs, n: Int, days: Int) {
@@ -127,7 +129,7 @@ fun InviteScreen(
     var external by remember { mutableStateOf(startAsGuest || toCommunity) }
     var panel by remember { mutableStateOf(InvitePanel.MAIN) }
     LaunchedEffect(external) {
-        if (external && who == null) pick(if (toCommunity && mayMembers) JoinsAs.Member(roles.defaultRole, "permanent") else JoinsAs.Guest(1))
+        if (external && who == null) pick(if (mayMembers) JoinsAs.Member(roles.defaultRole, "permanent") else JoinsAs.Guest(1))
     }
     val community = session.community.name
     val w = who
@@ -229,27 +231,61 @@ fun InviteScreen(
                     onRetry = { if (w != null) fetch(w, people, linkDays) },
                 )
                 Spacer(Modifier.height(12.dp))
-                ActionGroup {
-                    val (title, sub) = w?.line(label, community, roles) ?: ("Guest for a day" to "")
-                    ActionRow("Joins as", onClick = { panel = InvitePanel.JOINS }, value = title, sub = sub.ifEmpty { null }, chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-joins"))
-                    ActionRow("Link", onClick = { panel = InvitePanel.LINK }, value = (if (people == 1) "One person" else "Up to 50") + ", works for $within", chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-link"))
+                // canvas inviting/sheet-external v45/v46: the role first. Stewards: Member | Steward
+                // (Member by default); a member the belfry lets invite members: a member link, no
+                // switch; anyone else: a guest link. Never offer what the server will refuse.
+                val steward = world.isCommunityAdmin
+                if (steward) {
+                    val isSteward = (w as? JoinsAs.Member)?.role == Role.ADMIN
+                    Hint("Invite as")
+                    Spacer(Modifier.height(6.dp))
+                    Segmented(listOf("Member", "Steward"), if (isSteward) 1 else if (w is JoinsAs.Member) 0 else -1, { k ->
+                        val term = (w as? JoinsAs.Member)?.membership ?: "permanent"
+                        if (k == 1) { people = 1; pick(JoinsAs.Member(Role.ADMIN, term)) } else pick(JoinsAs.Member(roles.defaultRole, term))
+                    }, enabled = !busy, modifier = Modifier.testTag("invite-as"))
+                    Spacer(Modifier.height(10.dp))
                 }
-                Spacer(Modifier.height(10.dp))
-                Hint(
-                    when (w) {
-                        JoinsAs.Agent -> "Give this link to your agent, within $within: it reads the instructions there and joins with its own key. It works once."
-                        is JoinsAs.Guest -> "They read $label at once and join with a name and an e-mail address; someone with an account joins with it. Everyone here sees who invited them."
-                        is JoinsAs.Member -> "They join $community as ${roles.roles.firstOrNull { it.id == w.role }?.label ?: "a member"} with their name and e-mail address. Copy and Share stay locked while the link is made; each new choice makes a new link."
-                        null -> ""
-                    },
-                )
-            }
+                // one line that always says what the link does now, then Edit
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(inviteLine(w, people, linkDays, label), fontSize = 15.sp, lineHeight = 21.sp, color = c.text, modifier = Modifier.weight(1f).testTag("invite-line"))
+                    androidx.compose.material3.TextButton(onClick = { editing = !editing }, enabled = !busy, modifier = Modifier.testTag("invite-edit")) {
+                        Text(if (editing) "Done" else "Edit", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                    }
+                }
+                if (!steward && !mayMembers) Hint("Only stewards invite new members here.", Modifier.padding(top = 2.dp))
+                if (editing) {
+                    Spacer(Modifier.height(8.dp))
+                    val single = w is JoinsAs.Agent || (w is JoinsAs.Member && w.role == Role.ADMIN)
+                    ActionGroup {
+                        ActionRow("People", onClick = { panel = InvitePanel.LINK }, value = if (people == 1) "One person" else "Up to 50", sub = if (single) null else "or up to 50", chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-link"))
+                        ActionRow("Works for", onClick = { panel = InvitePanel.LINK }, value = when (linkDays) { 1 -> "24 hours"; 7 -> "A week"; else -> "A month" }, chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-works"))
+                        if (w is JoinsAs.Member) {
+                            ActionRow("Stays", onClick = { panel = InvitePanel.JOINS }, value = JoinsAs.membershipWord(w.membership).replaceFirstChar { it.uppercase() }, chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-stays"))
+                        }
+                        if (!toCommunity && (steward || mayMembers || (mine?.limit ?: 0) > 0)) {
+                            ActionRow("Instead", onClick = { panel = InvitePanel.JOINS }, value = if (w is JoinsAs.Guest) "Guest of $label" else if (w is JoinsAs.Agent) "My own agent" else "Guest of $label only", sub = "for a day, a week, a month", chevron = true, enabled = !busy, modifier = Modifier.testTag("invite-joins"))
+                        }
+                    }
+                }
             Spacer(Modifier.height(24.dp))
         }
     }
 }
 
 private enum class InvitePanel { MAIN, JOINS, LINK }
+
+/**
+ * What the link does now (canvas inviting/sheet-external v45): "This QR code and link work for one
+ * person for 24 hours.", "…let one person join #Garden as a guest for a day.".
+ */
+internal fun inviteLine(w: JoinsAs?, people: Int, linkDays: Int, label: String): String {
+    val who = if (people == 1) "one person" else "up to 50 people"
+    return when (w) {
+        is JoinsAs.Guest -> "This QR code and link let $who join $label as a guest for " + (when (w.days) { 1 -> "a day"; 7 -> "a week"; else -> "a month" }) + "."
+        JoinsAs.Agent -> "This link brings your own agent in, once, within " + (when (linkDays) { 1 -> "24 hours"; 7 -> "a week"; else -> "a month" }) + "."
+        else -> "This QR code and link work for $who for " + (when (linkDays) { 1 -> "24 hours"; 7 -> "a week"; else -> "a month" }) + "."
+    }
+}
 
 /** A choice page inside the invite flow, with its own back arrow (back returns to the invite page, never pushes). */
 @Composable
