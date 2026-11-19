@@ -72,7 +72,7 @@ class PeopleBehaviourTest : DemoShots() {
         compose.setContent { BelfryTheme { InDemo { ProfileScreen(scout) } } }
         compose.onNodeWithTag("agent-make-mine").performClick()
         compose.waitUntil(5_000) { world.agentOwner(scout) == session.me }
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("agent of you").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("your agent").fetchSemanticsNodes().isNotEmpty() }
         // removing asks first, in the app
         compose.onNodeWithTag("agent-remove").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Remove Scout").fetchSemanticsNodes().isNotEmpty() }

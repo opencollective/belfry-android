@@ -34,7 +34,8 @@ fun World.inChannel(g: Group?, pubkey: String): Boolean {
 fun World.kindLabel(pubkey: String): String? {
     val owner = agentOwner(pubkey)
     return when {
-        owner != null -> "${displayName(owner)}'s agent"
+        // the viewer's own agent: "Your agent", never "You's agent" (canvas Main, 2026-11-19)
+        owner != null -> if (owner == me) "Your agent" else "${displayName(owner)}'s agent"
         isGuest(pubkey) -> if (isAgent(pubkey)) "Agent, a guest" else "Guest"
         else -> null
     }

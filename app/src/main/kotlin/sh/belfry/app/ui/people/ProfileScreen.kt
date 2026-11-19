@@ -126,7 +126,7 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
             }
             if (owner != null) {
                 Text(
-                    "agent of " + if (owner == world.me) "you" else world.displayName(owner), fontSize = 13.sp, color = c.muted,
+                    if (owner == world.me) "your agent" else "agent of " + world.displayName(owner), fontSize = 13.sp, color = c.muted,
                     modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.profile(owner)) }.testTag("agent-owner"),
                 )
             }

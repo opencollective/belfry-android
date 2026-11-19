@@ -60,4 +60,11 @@ class AccessTest {
         assertTrue(v.isGuest(wren))
         assertFalse(v.guestJoins("general").first { it.pubkey == wren }.member)
     }
+
+    /** canvas Main (2026-11-19): my own agent reads "Your agent", never "You's agent". */
+    @Test
+    fun myOwnAgentIsYourAgent() {
+        val mine = World(events, emptyList(), WorldContext(me = me, agents = mapOf(wren to me), zone = ZoneOffset.UTC))
+        assertEquals("Your agent", mine.kindLabel(wren))
+    }
 }
