@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.chat
 
+import sh.belfry.core.model.todoParts
 import sh.belfry.app.ui.kit.TodoTextField
 import sh.belfry.core.model.TodoLimit
 import androidx.compose.foundation.background
@@ -126,7 +127,12 @@ fun SummaryLine(groupId: String, chat: ChatState, now: Long, modifier: Modifier 
     ) {
         LineGlyph(line, if (line.quiet) c.faint else c.muted)
         Spacer(Modifier.width(8.dp))
-        Text(
+        if (line.twoLines) {
+            Column(Modifier.weight(1f).testTag("channel-line-text")) {
+                Text(line.bold, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(line.text, fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        } else Text(
             buildAnnotatedString {
                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = c.text)) { append(line.bold) }
                 append(line.text)
@@ -279,6 +285,9 @@ fun PullDown(groupId: String, chat: ChatState, now: Long, onShowMessage: (String
         }
         if (f.todosAll > 0) {
             PullTitle("To-dos", f.todosDone, of = f.todosAll)
+            world.todoParts(groupId, now)?.let { p ->
+                Text(p.parts, fontSize = 13.sp, color = c.muted, modifier = Modifier.padding(horizontal = 16.dp).testTag("pull-todo-parts"))
+            }
             // a to-do opens its thread (the message it was made from), like the web; pulled all the
             // way: the latest 20, the done ones after the open ones
             val shown = if (full) latestTasks(f.allTasks) else f.todos.take(4)

@@ -237,10 +237,20 @@ class ParityTest {
         val free = w(base + task)
         assertEquals(LineIcon.TODO, free.attentionLine("garden", 1000)?.icon)
         assertEquals(LineAction.Todos, free.attentionLine("garden", 1000)?.action)
-        val claimed = w(base + task + ev(OTHER, 2101, 400, Actions.taskAction("garden", task.id, "claim").tags))
-        assertNull(claimed.attentionLine("garden", 1000), "someone else's to-do asks nothing of me")
-        val mine = w(base + task + ev(ME, 2101, 400, Actions.taskAction("garden", task.id, "claim").tags))
-        assertEquals("On you", mine.attentionLine("garden", 1000)?.bold)
+        assertEquals("1 to-do", free.attentionLine("garden", 1000)?.bold)
+        assertEquals("1 unclaimed", free.attentionLine("garden", 1000)?.text)
+        // canvas channels/header-todos: the parts, a part at 0 left out, the total = the sum
+        val task2 = ev(OTHER, 2100, 310, Actions.addTask("garden", "Turn the compost").tags, "Turn the compost")
+        val task3 = ev(OTHER, 2100, 320, Actions.addTask("garden", "Fix the gate").tags, "Fix the gate")
+        val mixed = w(base + task + task2 + task3 + ev(OTHER, 2101, 400, Actions.taskAction("garden", task2.id, "claim").tags) +
+            ev(OTHER, 2101, 500, Actions.taskAction("garden", task3.id, "done").tags))
+        val line = mixed.attentionLine("garden", 1000)!!
+        assertEquals("3 to-dos", line.bold)
+        assertEquals("1 unclaimed, 1 in progress, 1 closed today", line.text)
+        assertTrue(line.twoLines)
+        // done yesterday (the viewer's midnight, UTC here) is not "closed today"
+        val old = w(base + task3 + ev(OTHER, 2101, 500, Actions.taskAction("garden", task3.id, "done").tags))
+        assertNull(old.attentionLine("garden", 90_000), "all parts at 0: no line")
     }
 
     // ---- 19.30 deleted and archived ----

@@ -198,6 +198,8 @@ data class ChannelLine(
     /** Nothing asks for attention: shown muted. */
     val quiet: Boolean = false,
     val counts: List<LineCount> = emptyList(),
+    /** [bold] on its own line, [text] under it (the to-dos' line). */
+    val twoLines: Boolean = false,
     /** Members of the pod, when the icon is its shape. */
     val podMembers: Int = 0,
 )
@@ -317,15 +319,35 @@ fun World.attentionLine(groupId: String, now: Long, topic: String? = null, hidde
         return ChannelLine(LineIcon.EVENT, dayAt(e, now), " · " + e.title, "RSVP", true, LineAction.OpenEvent(e.coord))
     }
     f.pins.firstOrNull { it.id !in hiddenPins }?.let { pin -> return ChannelLine(LineIcon.PIN, "", pinLine(pin)) }
-    val mine = f.todos.filter { it.assignee == me }
-    mine.firstOrNull()?.let { t ->
-        return ChannelLine(LineIcon.TODO, if (mine.size == 1) "On you" else "${mine.size} on you", " · " + t.title, action = LineAction.Todos)
-    }
-    val free = f.todos.filter { it.assignee == null }
-    free.firstOrNull()?.let { t ->
-        return ChannelLine(LineIcon.TODO, if (free.size == 1) "1 to-do" else "${free.size} to-dos", " nobody took · " + t.title, action = LineAction.Todos)
-    }
+    // "6 to-dos" over "3 unclaimed, 2 in progress, 1 closed today" (canvas channels/header-todos, Xavier's to-do 8ec8c3b5)
+    todoParts(groupId, now)?.let { p -> return ChannelLine(LineIcon.TODO, p.total, p.parts, action = LineAction.Todos, twoLines = true) }
     return null
+}
+
+/** A channel's to-dos in parts: the total = the sum; a part at 0 is left out; all at 0 = null. */
+data class TodoParts(val unclaimed: Int, val inProgress: Int, val closedToday: Int) {
+    val count: Int get() = unclaimed + inProgress + closedToday
+    val total: String get() = if (count == 1) "1 to-do" else "$count to-dos"
+    val parts: String get() = listOfNotNull(
+        unclaimed.takeIf { it > 0 }?.let { "$it unclaimed" },
+        inProgress.takeIf { it > 0 }?.let { "$it in progress" },
+        closedToday.takeIf { it > 0 }?.let { "$it closed today" },
+    ).joinToString(", ")
+}
+
+/**
+ * Unclaimed = open and nobody on it; in progress = open and claimed; closed today = done since the
+ * viewer's midnight (its last "done" step). Null when all three are 0.
+ */
+fun World.todoParts(groupId: String, now: Long): TodoParts? {
+    val midnight = java.time.Instant.ofEpochSecond(now).atZone(ctx.zone).toLocalDate().atStartOfDay(ctx.zone).toEpochSecond()
+    val all = tasks(groupId)
+    val p = TodoParts(
+        unclaimed = all.count { !it.done && it.assignee == null },
+        inProgress = all.count { !it.done && it.assignee != null },
+        closedToday = all.count { t -> t.done && (t.history.lastOrNull { it.what == "done" }?.at ?: 0) >= midnight },
+    )
+    return p.takeIf { it.count > 0 }
 }
 
 /** The counts of a channel's header subtitle and its pull-down rows (iOS ChannelCounts). */
