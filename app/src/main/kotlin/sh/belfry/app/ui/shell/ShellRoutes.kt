@@ -18,7 +18,7 @@ fun NavGraphBuilder.shellRoutes(shell: ShellState) {
     composable(Routes.HOME) { HomeScreen(shell) }
     composable(Routes.MENTIONS) { MentionsScreen() }
     composable(Routes.ABOUT) { AboutScreen() }
-    composable(Routes.THREAD) { entry -> ThreadScreen(entry.arg("id"), entry.arg("root")) }
+    composable(Routes.THREAD) { entry -> ThreadScreen(entry.arg("id"), entry.arg("root"), focus = entry.optArg("m")) }
     // a channel pushed over a place (an archived one from its list, a card, a link): a back arrow
     composable(Routes.CHAT, listOf(Routes.optional("m"))) { entry ->
         val nav = sh.belfry.app.ui.nav.LocalNav.current

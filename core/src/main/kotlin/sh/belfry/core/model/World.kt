@@ -507,6 +507,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         inGroupSorted(groupId).filter { it.kind == 1111 && it.id !in deleted }.map(::parse)
     }
 
+    /** The root of thread reply ID (a 1111 here), or null when ID is no reply this device holds. */
+    fun replyRoot(groupId: String, id: String): String? = allReplies(groupId).firstOrNull { it.id == id }?.let { rootOf(it.ev) }
+
     fun threadReplies(groupId: String, rootId: String): List<Message> = allReplies(groupId).filter { rootOf(it.ev) == rootId }
 
     /** The inline thread's window: the latest 3 replies and how many earlier ones are hidden. */

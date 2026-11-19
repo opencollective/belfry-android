@@ -16,6 +16,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import sh.belfry.core.model.ComposerDraft
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +61,8 @@ fun ThreadScreen(
     composer: ComposerState = rememberComposerState(rootId),
     /** Shown as the third column beside its channel (a large screen): a close button, no back arrow. */
     onClose: (() -> Unit)? = null,
+    /** A reply to centre and flash (canvas channels/message-link). */
+    focus: String? = null,
 ) {
     val c = Belfry.colors
     val world = LocalWorld.current
@@ -71,7 +77,17 @@ fun ThreadScreen(
     val root = world.message(groupId, rootId)
     val replies = world.threadReplies(groupId, rootId)
     val list = rememberLazyListState()
-    LaunchedEffect(replies.size) { if (replies.isNotEmpty()) list.scrollToItem(replies.size + 1) }
+    var flash by remember(focus) { mutableStateOf<String?>(null) }
+    LaunchedEffect(replies.size) {
+        val at = if (focus != null) replies.indexOfFirst { it.id == focus } else -1
+        if (at >= 0 && flash == null) {
+            // centred: the reply's row a third of the screen down
+            list.scrollToItem(at + 2, -(list.layoutInfo.viewportSize.height / 3))
+            flash = focus
+            kotlinx.coroutines.delay(2_000)
+            flash = ""
+        } else if (replies.isNotEmpty() && focus == null) list.scrollToItem(replies.size + 1)
+    }
     // read state (SPEC 19.27): a thread on screen is read up to its newest reply
     val started = sh.belfry.app.ui.kit.rememberStarted()
     val newest = replies.lastOrNull()?.ev?.createdAt ?: root?.ev?.createdAt
@@ -111,7 +127,7 @@ fun ThreadScreen(
                 } else {
                     val r = x as sh.belfry.core.model.Message
                     val prev = flow.getOrNull(i - 1) as? sh.belfry.core.model.Message
-                    MessageRow(groupId, r, prev == null || prev.pubkey != r.pubkey || r.at - prev.at > 300, chat)
+                    MessageRow(groupId, r, prev == null || prev.pubkey != r.pubkey || r.at - prev.at > 300, chat, highlight = flash == r.id)
                 }
             }
         }

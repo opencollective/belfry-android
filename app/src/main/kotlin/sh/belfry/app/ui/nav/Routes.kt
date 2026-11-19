@@ -20,8 +20,9 @@ object Routes {
     // ---- shell ----
     /** The drawer + the open channel. Switch channels with `LocalNav.current.openChannel(id)`, not by navigating. */
     const val HOME = "home"
-    const val THREAD = "thread/{id}/{root}"
-    fun thread(channel: String, rootId: String) = "thread/${enc(channel)}/${enc(rootId)}"
+    const val THREAD = "thread/{id}/{root}?m={m}"
+    /** [focus]: a reply to scroll to and flash (a message link to a thread reply). */
+    fun thread(channel: String, rootId: String, focus: String? = null) = "thread/${enc(channel)}/${enc(rootId)}" + if (focus != null) "?m=${enc(focus)}" else ""
     const val KIT = "kit"
     /** A channel pushed over a place (from a card, a link, search): with a back arrow. */
     const val CHAT = "chat/{id}?m={m}"

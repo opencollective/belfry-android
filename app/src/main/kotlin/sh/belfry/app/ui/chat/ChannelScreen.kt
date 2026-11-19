@@ -1,5 +1,7 @@
 package sh.belfry.app.ui.chat
 
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.first
 import sh.belfry.app.ui.kit.TodoTextField
 import sh.belfry.core.model.TodoLimit
 import androidx.activity.compose.BackHandler
@@ -178,10 +180,28 @@ fun ChannelScreen(
     var highlight by remember { mutableStateOf<String?>(null) }
 
     val focus = focusMessage ?: chat.focus
+    // a message link to something not shown here (deleted, unknown, not readable): a grey line (canvas channels/message-link)
+    var unavailable by remember(focusMessage) { mutableStateOf(false) }
+    val rowsNow by androidx.compose.runtime.rememberUpdatedState(reversed)
+    val worldNow by androidx.compose.runtime.rememberUpdatedState(world)
+    LaunchedEffect(focusMessage) {
+        if (focusMessage == null) return@LaunchedEffect
+        delay(3_000)
+        if (rowsNow.none { it.item.key == focusMessage } && worldNow.replyRoot(groupId, focusMessage) == null) { unavailable = true; onFocusDone() }
+    }
+    // it stays at the top until the feed is scrolled
+    LaunchedEffect(unavailable) { if (unavailable) { snapshotFlow { list.isScrollInProgress }.first { it }; unavailable = false } }
     LaunchedEffect(focus, rows.size) {
         if (focus != null) {
             val i = reversed.indexOfFirst { it.item.key == focus }
-            if (i >= 0) {
+            // a thread reply: its thread, the reply centred and flashed
+            val root = if (i < 0) world.replyRoot(groupId, focus) else null
+            if (root != null) {
+                if (focusMessage != null) onFocusDone()
+                chat.focus = null
+                if (onOpenThread != null) onOpenThread(root) else nav.go(Routes.thread(groupId, root, focus))
+            } else if (i >= 0) {
+                unavailable = false
                 list.scrollToItem(i)
                 highlight = focus
                 if (focusMessage != null) onFocusDone()
@@ -283,6 +303,16 @@ fun ChannelScreen(
                     )
                 }
             } else {
+                if (unavailable) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(14.dp)).background(c.surface).padding(horizontal = 14.dp, vertical = 10.dp).testTag("message-unavailable"),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(BelfryIcons.Lock, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("This message isn't available", fontSize = 15.sp, color = c.text)
+                    }
+                }
                 CompositionLocalProvider(LocalWorld provides feedWorld) {
                     LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp)) {
                         items(reversed, key = { it.item.key }, contentType = { it.item::class }) { row ->

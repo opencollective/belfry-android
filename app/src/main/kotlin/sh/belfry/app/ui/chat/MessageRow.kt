@@ -120,7 +120,8 @@ fun MessageRow(
     val author = world.authorName(groupId, m)
     val avatar: Dp = if (compact) 24.dp else 36.dp
     val bg = when {
-        highlight -> c.orange.copy(alpha = 0.16f)
+        // the flash of a message a link opened: yellow (canvas channels/message-link)
+        highlight -> if (c.isDark) Color(0xFF4A3B10) else Color(0xFFFFF1C9)
         announcement -> c.surface
         else -> Color.Transparent
     }

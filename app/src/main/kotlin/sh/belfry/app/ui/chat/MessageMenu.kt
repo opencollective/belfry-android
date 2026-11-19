@@ -195,13 +195,12 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
         if (m.text.isNotEmpty()) {
             ActionRow(if (copied == "text") "Copied" else "Copy text", onClick = { copyText(context, m.text); copied = "text" }, icon = BelfryIcons.Copy)
         }
-        if (!isReply) {
-            ActionRow(
-                if (copied == "link") "Copied" else "Copy link",
-                onClick = { copyText(context, session.community.channelLink(groupId) + "/m/" + m.id); copied = "link" },
-                icon = BelfryIcons.Link,
-            )
-        }
+        // a thread reply's link opens its thread with the reply flashed (canvas channels/message-link)
+        ActionRow(
+            if (copied == "link") "Copied" else "Copy link",
+            onClick = { copyText(context, session.community.channelLink(groupId) + "/m/" + m.id); copied = "link" },
+            icon = BelfryIcons.Link,
+        )
         // #requests (web 2026-11-11): a member turns a request into a proposal in #proposals
         if (m.ev.kind == 9 && !world.amGuest && world.webPage(world.group(groupId))?.posts == "request") {
             ActionRow("Turn into a proposal", onClick = { close(); nav.go(Routes.createProposal("proposals", from = m.id, fromChannel = groupId)) }, icon = BelfryIcons.Proposal, modifier = Modifier.testTag("menu-propose"))
