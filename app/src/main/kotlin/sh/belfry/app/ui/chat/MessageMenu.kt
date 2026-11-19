@@ -60,7 +60,7 @@ import sh.belfry.core.outbox.OutboxStatus
 private val NSITE = Regex("nsite:(npub1[02-9ac-hj-np-z]{58})(?:/([a-z0-9-]{1,13}))?")
 
 /** My most used emojis first (SPEC 8). */
-private fun myTopEmojis(world: World, n: Int): List<String> {
+internal fun myTopEmojis(world: World, n: Int): List<String> {
     val usage = HashMap<String, Int>()
     for (e in world.all) if (e.kind == 7 && e.pubkey == world.me && e.content.isNotEmpty() && e.content != "+") usage[e.content] = (usage[e.content] ?: 0) + 1
     return Actions.topEmojis(usage, n)
@@ -237,7 +237,7 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
 }
 
 @Composable
-private fun EmojiButton(emoji: String, on: Boolean, busy: BusyState, small: Boolean = false, onPick: suspend () -> Unit) {
+internal fun EmojiButton(emoji: String, on: Boolean, busy: BusyState, small: Boolean = false, onPick: suspend () -> Unit) {
     val c = Belfry.colors
     Box(
         Modifier.size(if (small) 42.dp else 46.dp).clip(RoundedCornerShape(12.dp)).background(if (on) c.surface2 else c.surface)

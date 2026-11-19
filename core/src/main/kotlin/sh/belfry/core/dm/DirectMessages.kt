@@ -149,6 +149,39 @@ data class Dm(
     }
 }
 
+/**
+ * A reaction to a direct message (NIP-17, the web's dm.ts of 2026-11-15; canvas home/conversation):
+ * an unsigned kind 7 rumor in its own gift wraps to every participant and to yourself, content =
+ * the emoji, `["e", <the kind 14 rumor's id>, "", <its author>]`, `["p", <its author>]`,
+ * `["k", "14"]`; taking it back = a wrapped kind 5 rumor naming it (`e`, `["k","7"]`). Readers key
+ * on `e`, one per person per emoji. Never on e-mail threads.
+ */
+data class DmReaction(val rid: String, val target: String, val from: String, val emoji: String, val at: Long) {
+    fun toJson(): JsonObject = buildJsonObject {
+        put("rid", JsonPrimitive(rid)); put("target", JsonPrimitive(target)); put("from", JsonPrimitive(from))
+        put("emoji", JsonPrimitive(emoji)); put("at", JsonPrimitive(at))
+    }
+
+    companion object {
+        fun fromJson(o: JsonObject): DmReaction? = DmReaction(
+            o.s("rid") ?: return null, o.s("target") ?: return null, o.s("from") ?: return null, o.s("emoji") ?: return null, o["at"].long() ?: 0,
+        )
+
+        /** A kind 7 rumor as a reaction (null when it isn't one we show). */
+        fun of(rumor: Event): DmReaction? {
+            if (rumor.kind != 7) return null
+            val target = rumor.tags.lastOrNull { it.size >= 2 && it[0] == "e" }?.get(1) ?: return null
+            val raw = rumor.content.trim()
+            val emoji = if (raw.isEmpty() || raw == "+") "👍" else raw
+            if (emoji == "-" || emoji.length > 16) return null
+            return DmReaction(rumor.id.ifEmpty { rumor.computedId() }, target, rumor.pubkey, emoji, rumor.createdAt)
+        }
+    }
+}
+
+/** One emoji's chip under a message: who gave it (→ when), and mine to take back. */
+data class DmChip(val emoji: String, val who: Map<String, Long>, val mine: DmReaction?)
+
 /** A conversation in the Messages list. */
 data class DmThread(val conv: String, val last: Dm, val unread: Int, val count: Int) {
     val isMail: Boolean get() = MailThreads.isMail(conv)
@@ -163,7 +196,21 @@ class DmSnapshot(
     val me: String,
     /** When this snapshot was made (Unix seconds): the 90-day floor of the read state. */
     val now: Long = 0,
+    val reactions: List<DmReaction> = emptyList(),
 ) {
+    private val reactsByTarget: Map<String, List<DmReaction>> by lazy { reactions.groupBy { it.target } }
+
+    /** The reactions to message RID, most given first; one per person per emoji (as the web). */
+    fun reactionsOf(rid: String): List<DmChip> {
+        val by = LinkedHashMap<String, Pair<LinkedHashMap<String, Long>, Array<DmReaction?>>>()
+        for (r in (reactsByTarget[rid] ?: return emptyList()).sortedBy { it.at }) {
+            val c = by.getOrPut(r.emoji) { LinkedHashMap<String, Long>() to arrayOf(null) }
+            c.first[r.from] = r.at
+            if (r.from == me) c.second[0] = r
+        }
+        return by.map { (e, c) -> DmChip(e, c.first, c.second[0]) }.sortedByDescending { it.who.size }
+    }
+
     private val byConv: Map<String, List<Dm>> by lazy { items.groupBy { it.conv }.mapValues { (_, l) -> l.sortedBy { it.at } } }
 
     /** Conversations, the most recent first. */
@@ -334,6 +381,9 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private val items = LinkedHashMap<String, Dm>() // by rid
     private val seen = HashSet<String>() // event ids already read (gift wraps, kind 4)
     private val reports = HashMap<String, Report>() // by email-id
+    private val reacts = LinkedHashMap<String, DmReaction>() // by the reaction rumor's id
+    /** Reactions taken back (rid → its author): wraps come in any order, a kind 5 may come first. */
+    private val gone = HashMap<String, String>()
     /** The per-conversation marks kept here before SPEC 19.27: only read to seed the shared read state. */
     private val legacyRead = HashMap<String, Long>()
     /** The shared read state (Session's [sh.belfry.core.engine.ReadSync]); set with [setReadState]. */
@@ -359,6 +409,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             v.obj()?.let { reports[k] = Report(it.s("status") ?: Report.QUEUED, it.s("details") ?: "") }
         }
         parseJsonOrNull(store.get(K_READ) ?: "").obj()?.forEach { (k, v) -> v.long()?.let { legacyRead[k] = it } }
+        parseJsonOrNull(store.get(K_REACTS) ?: "").arr()?.forEach { el -> el.obj()?.let(DmReaction::fromJson)?.let { reacts[it.rid] = it } }
+        parseJsonOrNull(store.get(K_GONE) ?: "").obj()?.forEach { (k, v) -> v.str()?.let { gone[k] = it } }
         // a message marked pending whose wraps are gone from the outbox is out
         val waiting = host.outbox().mapNotNull { it.dm }.toSet()
         for ((rid, d) in items.toList()) if (d.pending && rid !in waiting) items[rid] = d.copy(pending = false)
@@ -372,8 +424,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 store.set(K_REPORTS, buildJsonObject {
                     for ((k, r) in reports) put(k, buildJsonObject { put("status", JsonPrimitive(r.status)); put("details", JsonPrimitive(r.details)) })
                 }.toString())
+                store.set(K_REACTS, JsonArray(reacts.values.map { it.toJson() }).toString())
+                store.set(K_GONE, buildJsonObject { for ((k, v) in gone) put(k, JsonPrimitive(v)) }.toString())
             }
-            DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now())
+            DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now(), reacts.values.toList())
         }
         _snapshot.value = snap
     }
@@ -455,6 +509,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private suspend fun readWrap(wrap: Event): Dm? {
         val opened = GiftWrap.unwrap(wrap, host.signer) ?: return null
         val rumor = opened.rumor
+        if (rumor.kind == 7 || rumor.kind == 5) {
+            synchronized(lock) { reactionRumor(rumor) }
+            return null
+        }
         var raw: String? = rumor.content
         val x = rumor.tag("x")
         if (rumor.kind == 1301 && rumor.content.isEmpty() && !x.isNullOrEmpty()) {
@@ -462,6 +520,22 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             raw = try { DmReader.decryptLarge(host.fetchBytes(l.url), l) } catch (e: Exception) { null }
         }
         return DmReader.fromRumor(rumor, host.me, host.bridgeKey(), host.blossom, known(), raw)
+    }
+
+    /** A kind 7 (a reaction) or kind 5 (one taken back: only by its author) rumor. Holds the lock. */
+    private fun reactionRumor(r: Event) {
+        if (r.kind == 7) {
+            val x = DmReaction.of(r) ?: return
+            if (gone[x.rid] == x.from) return
+            reacts[x.rid] = x
+            return
+        }
+        for (t in r.tags) {
+            if (t.size < 2 || t[0] != "e") continue
+            val had = reacts[t[1]]
+            if (had == null) gone[t[1]] = r.pubkey
+            else if (had.from == r.pubkey) { reacts.remove(t[1]); gone[t[1]] = r.pubkey }
+        }
     }
 
     private suspend fun readOld(e: Event): Dm {
@@ -612,6 +686,43 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         return emailId
     }
 
+    /**
+     * React to D with EMOJI, or take my reaction back (MINE, from [DmSnapshot.reactionsOf]): sealed
+     * to the conversation's people and to me, as the web does. Not on e-mail.
+     */
+    suspend fun react(d: Dm, emoji: String, mine: DmReaction? = null) {
+        if (d.isMail || MailThreads.isMail(d.conv)) return
+        val me = host.me
+        val to = MailThreads.peers(d.conv)
+        if (mine != null) {
+            val rumor = GiftWrap.rumor(5, me, listOf(listOf("e", mine.rid), listOf("k", "7")) + to.filter { it != me }.map { listOf("p", it) }, "", host.now())
+            synchronized(lock) { reacts.remove(mine.rid); gone[mine.rid] = me }
+            publish()
+            deliver(rumor, to)
+            return
+        }
+        val rumor = GiftWrap.rumor(
+            7, me,
+            listOf(listOf("e", d.rid, "", d.from), listOf("p", d.from), listOf("k", d.kind.toString())) + to.filter { it != me && it != d.from }.map { listOf("p", it) },
+            emoji, host.now(),
+        )
+        synchronized(lock) { reacts[rumor.id] = DmReaction(rumor.id, d.rid, me, emoji, rumor.createdAt) }
+        publish()
+        try {
+            deliver(rumor, to)
+        } catch (e: Exception) {
+            synchronized(lock) { reacts.remove(rumor.id) }
+            publish()
+            throw DmException(if (e is SignerTimeout) "Your signer did not answer. Check your connection and try again." else "The reaction could not be prepared. Try again.")
+        }
+    }
+
+    /** Adds EMOJI to D, or takes mine back when I gave it already (a chip's tap). */
+    suspend fun toggleReaction(d: Dm, emoji: String) {
+        val mine = _snapshot.value.reactionsOf(d.rid).firstOrNull { it.emoji == emoji }?.mine
+        react(d, emoji, mine)
+    }
+
     /** Puts a refused message back in the outbox. */
     suspend fun retry(rid: String) {
         val queued = host.outbox().filter { it.dm == rid }
@@ -733,6 +844,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         const val K_SEEN = "dm-seen"
         const val K_REPORTS = "dm-reports"
         const val K_READ = "dm-read"
+        const val K_REACTS = "dm-reactions"
+        const val K_GONE = "dm-reactions-gone"
         private val ADDRESS = Regex("^([^@\\s]+)@([^@\\s]+\\.[^@\\s]+)$")
     }
 }

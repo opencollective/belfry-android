@@ -56,6 +56,8 @@ fun TopBar(
     titleLoading: Boolean = false,
     /** Right after the title (a channel's "settings not saved" mark). */
     titleMark: (@Composable () -> Unit)? = null,
+    /** Before the title, inside what a tap opens (a person's face in a conversation). */
+    titleLeading: (@Composable () -> Unit)? = null,
 ) {
     val c = Belfry.colors
     Column(modifier.fillMaxWidth().background(c.bg).windowInsetsPadding(WindowInsets.statusBars)) {
@@ -63,7 +65,9 @@ fun TopBar(
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             if (navigation != null) navigation() else Spacer(Modifier.width(12.dp))
             val click = if (onTitleClick != null) Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onTitleClick) else Modifier
-            Column(Modifier.weight(1f).then(click).padding(horizontal = 4.dp, vertical = 4.dp)) {
+            Row(Modifier.weight(1f).then(click).padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (titleLeading != null) { titleLeading(); Spacer(Modifier.width(10.dp)) }
+            Column(Modifier.weight(1f)) {
                 if (titleLoading) {
                     NameSkeleton(Modifier.padding(vertical = 4.dp), fraction = 0.45f, height = 16.dp)
                 } else if (titleMark == null) {
@@ -77,6 +81,7 @@ fun TopBar(
                 if (!subtitle.isNullOrEmpty()) {
                     Text(subtitle, fontSize = 12.sp, lineHeight = 15.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+            }
             }
             actions()
         }

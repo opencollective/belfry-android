@@ -4,6 +4,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import sh.belfry.app.ui.chat.face
+import sh.belfry.app.ui.kit.Avatar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -110,6 +114,10 @@ fun ConversationScreen(conv: String) {
     val composer = rememberComposerState(conv)
     var subject by rememberSaveable(conv) { mutableStateOf("") }
     val now = session.now()
+    // a long-press on a bubble (or its ☺+): the menu with the reactions row
+    var acting by remember(conv) { mutableStateOf<Pair<String, Boolean>?>(null) }
+    // one person: their face and name at the top open their profile (canvas home/conversation)
+    val peer = if (!mail && !toSelf && peers.size == 1) peers[0] else null
 
     LaunchedEffect(conv, list.size) {
         if (list.isNotEmpty()) state.scrollToItem(list.size - 1)
@@ -123,6 +131,8 @@ fun ConversationScreen(conv: String) {
         TopBar(
             title, subtitle = sub.ifEmpty { null },
             navigation = { BackButton { nav.back() } },
+            onTitleClick = peer?.let { p -> { nav.go(Routes.profile(p)) } },
+            titleLeading = peer?.let { p -> { Avatar(world.face(p), size = 34.dp) } },
             actions = {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })
             },
@@ -148,7 +158,7 @@ fun ConversationScreen(conv: String) {
                 itemsIndexed(list, key = { _, d -> d.rid }) { i, d ->
                     val prev = list.getOrNull(i - 1)
                     if (prev == null || world.dayOf(prev.at) != world.dayOf(d.at)) DaySeparator(ChatFormat.day(world, d.at, now))
-                    Bubble(d, dms, world, group = peers.size > 1)
+                    Bubble(d, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = d.rid to emojiOnly })
                 }
             }
         }
@@ -159,6 +169,10 @@ fun ConversationScreen(conv: String) {
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp).testTag("dm-subject"),
             )
+        }
+        acting?.let { (rid, emojiOnly) ->
+            val d = list.firstOrNull { it.rid == rid }
+            if (d == null) acting = null else DmMessageSheet(d, dms.reactionsOf(d.rid), emojiOnly, onClose = { acting = null })
         }
         Composer(
             composer,
@@ -179,22 +193,26 @@ fun ConversationScreen(conv: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean) {
+private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu: (emojiOnly: Boolean) -> Unit) {
     val c = Belfry.colors
     val session = LocalSession.current
     val retry = rememberBusy()
     val shape = RoundedCornerShape(14.dp)
-    Row(
+    val chips = if (d.isMail) emptyList() else dms.reactionsOf(d.rid)
+    Column(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp),
-        horizontalArrangement = if (d.mine) Arrangement.End else Arrangement.Start,
+        horizontalAlignment = if (d.mine) Alignment.End else Alignment.Start,
     ) {
         Column(
             Modifier
                 .widthIn(max = 320.dp)
                 .clip(shape)
                 .background(if (d.mine) c.surface2 else c.surface)
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .combinedClickable(onClickLabel = null, onLongClickLabel = "Message actions", onLongClick = { onMenu(false) }, onClick = {})
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .testTag("dm-bubble"),
         ) {
             if (!d.mine && !d.isMail && group) {
                 Text(world.displayName(d.from), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
@@ -241,6 +259,7 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean) {
                 }
             }
         }
+        if (chips.isNotEmpty()) DmReactionChips(d, chips, onAdd = { onMenu(true) })
     }
 }
 

@@ -297,6 +297,43 @@ class EngineTest {
         assertNull(b.convFor("not an address"))
     }
 
+    /** canvas home/conversation: a reaction to a DM is a wrapped kind 7 rumor (e, p, k=14); taking it back a wrapped kind 5. */
+    @Test
+    fun directMessageReactionRoundTrip() = runBlocking<Unit> {
+        val g = fake(); val m = fake()
+        val alice = LocalSigner.random(); val bob = LocalSigner.random()
+        val c = community(g, m)
+        val a = session(c, MemoryStore(), alice)
+        a.start()
+        val conv = a.sendDm("n:" + bob.pubkey, "Coffee at 9?")
+        until("the message is out") { m.published.count { it.kind == 1059 } == 2 }
+        val b = session(c, MemoryStore(), bob)
+        b.start()
+        until("bob has it") { b.dms.value.threads.isNotEmpty() }
+        val d = b.dms.value.threads.single().last
+        b.toggleDmReaction(d, "👍")
+        val chip = b.dms.value.reactionsOf(d.rid).single()
+        assertEquals("👍", chip.emoji)
+        assertNotNull(chip.mine)
+        until("alice sees bob's reaction") { a.dms.value.reactionsOf(d.rid).any { it.emoji == "👍" && bob.pubkey in it.who } }
+        assertNull(a.dms.value.reactionsOf(d.rid).single().mine)
+        // the reaction rumor, as alice opened it: e = the message's rumor id, p = its author, k = 14
+        val wrapsToAlice = m.published.filter { it.kind == 1059 && it.tag("p") == alice.pubkey }
+        val rumors = wrapsToAlice.mapNotNull { sh.belfry.core.dm.GiftWrap.unwrap(it, alice)?.rumor }
+        val r = rumors.single { it.kind == 7 }
+        assertEquals("👍", r.content)
+        assertEquals(listOf("e", d.rid, "", alice.pubkey), r.tags.first { it[0] == "e" })
+        assertEquals(alice.pubkey, r.tag("p"))
+        assertEquals("14", r.tag("k"))
+        assertEquals(bob.pubkey, r.pubkey)
+        // a reaction never moves the conversation or its unread count
+        assertEquals(1, a.dms.value.thread(conv).size)
+        // taken back: a kind 5 naming it
+        b.toggleDmReaction(d, "👍")
+        assertTrue(b.dms.value.reactionsOf(d.rid).isEmpty())
+        until("alice sees it taken back") { a.dms.value.reactionsOf(d.rid).isEmpty() }
+    }
+
     @Test
     fun emailThreadsRepliesAndDeliveryReports() = runBlocking<Unit> {
         val g = fake(); val m = fake()

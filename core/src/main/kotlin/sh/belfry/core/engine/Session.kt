@@ -1188,6 +1188,9 @@ class Session(
     @Volatile var lastDmSentMs: Long = 0L
         private set
 
+    /** A chip's tap under a direct message: add EMOJI, or take mine back (canvas home/conversation). */
+    suspend fun toggleDmReaction(d: sh.belfry.core.dm.Dm, emoji: String) { lastDmSentMs = System.currentTimeMillis(); dmCall { dm.toggleReaction(d, emoji) } }
+
     /** Puts a refused direct message or e-mail back in the outbox. */
     suspend fun retryDm(rid: String) { lastDmSentMs = System.currentTimeMillis(); dmCall { dm.retry(rid) } }
 
