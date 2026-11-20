@@ -122,6 +122,8 @@ class EncryptionService internal constructor(private val s: Session) {
             ),
             waiting = LockedDevice(Demo.maya.pubkey, DeviceKind.PHONE, now - 40 * 60),
             since = now - 25 * h + 600,
+            // the gate code came the old way after the conversation was sealed (canvas v89)
+            notSealed = setOf(now - 35 * 60),
         )
         val group = ConvSeal(
             others = listOf(

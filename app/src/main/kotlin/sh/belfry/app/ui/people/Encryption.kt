@@ -485,3 +485,31 @@ fun SharedWhyContent(name: String, onClose: () -> Unit) {
         BusyButton("OK", onClick = { onClose() }, modifier = Modifier.fillMaxWidth())
     }
 }
+
+/** canvas v89: open lock + "Not sealed" after the time of a message that came the old way. */
+@Composable
+internal fun NotSealedMark(onClick: () -> Unit) {
+    val c = Belfry.colors
+    Row(
+        Modifier.padding(start = 8.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 2.dp, vertical = 1.dp).testTag("seal-not-sealed"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(BelfryIcons.Unlock, contentDescription = null, tint = c.muted, modifier = Modifier.size(11.dp))
+        Spacer(Modifier.width(3.dp))
+        Text(SealedText.NOT_SEALED, fontSize = 11.sp, color = c.muted)
+    }
+}
+
+@Composable
+internal fun NotSealedSheet(onClose: () -> Unit) {
+    BelfrySheet(onDismiss = onClose) { NotSealedContent(onClose) }
+}
+
+@Composable
+fun NotSealedContent(onClose: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("seal-not-sealed-why")) {
+        Text(SealedText.NOT_SEALED_WHY, fontSize = 16.sp, lineHeight = 22.sp, color = Belfry.colors.text)
+        Spacer(Modifier.height(16.dp))
+        BusyButton("OK", onClick = { onClose() }, modifier = Modifier.fillMaxWidth())
+    }
+}

@@ -18,6 +18,7 @@ import sh.belfry.app.ui.people.AccessAskDialog
 import sh.belfry.app.ui.people.ConversationScreen
 import sh.belfry.app.ui.people.EncryptionScreen
 import sh.belfry.app.ui.people.MessagesScreen
+import sh.belfry.app.ui.people.NotSealedContent
 import sh.belfry.app.ui.people.DevicesScreen
 import sh.belfry.app.ui.people.MeScreen
 import sh.belfry.app.ui.people.ShareHistoryContent
@@ -228,5 +229,16 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-me-devices") { MeScreen() }
         compose.onNodeWithTag("me-devices").assertExists()
         compose.onNodeWithText("Where you're signed in").assertExists()
+    }
+
+    /** canvas v89: "Not sealed" on a message that came the old way after the conversation was sealed. */
+    @Test fun notSealedMark() {
+        demoShot("encryption-not-sealed-mark") { ConversationScreen(maya) }
+        assertEquals(1, compose.onAllNodesWithTag("seal-not-sealed", useUnmergedTree = true).fetchSemanticsNodes().size)
+    }
+
+    @Test fun notSealedWhy() {
+        demoShot("encryption-not-sealed-why") { Column(Modifier.padding(16.dp)) { NotSealedContent {} } }
+        compose.onNodeWithText("This message was not sent with the lock. It may come from an old app version.").assertExists()
     }
 }

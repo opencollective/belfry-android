@@ -61,7 +61,11 @@ data class ConvSeal(
     val since: Long? = null,
     /** History someone shared with this device (sealed.md §8), one block per sharer. */
     val shared: List<SharedBlock> = emptyList(),
-)
+    /** Times of messages that arrived the old, unsealed way after this device saw it sealed (§6, canvas v89). */
+    val notSealed: Set<Long> = emptySet(),
+) {
+    fun isNotSealed(at: Long): Boolean = at in notSealed
+}
 
 /** Messages someone shared with this device, by their times (FROM..TO). Not proven authentic. */
 data class SharedBlock(val by: String, val from: Long, val to: Long) {
@@ -194,6 +198,8 @@ object SealedText {
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."
     const val WRITE_LATER = "You can write here once this device is allowed."
+    const val NOT_SEALED = "Not sealed"
+    const val NOT_SEALED_WHY = "This message was not sent with the lock. It may come from an old app version."
     fun sharedBy(name: String): String = "Shared by $name"
     fun sharedWhy(name: String): String =
         "$name sent you these earlier messages. They come from $name's device, so the app can't check them the way it checks new ones."
