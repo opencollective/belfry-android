@@ -133,6 +133,12 @@ fun AccountsList(accounts: AccountsUi, onDismiss: () -> Unit, go: (String) -> Un
                 sub = "Scan a QR code there to log in as ${world.myAddress}", enabled = !busy.busy,
                 modifier = Modifier.testTag("account-link-device"),
             )
+            // Sign in to another app (SPEC 19.47): members only (a guest or an agent can't)
+            if (!world.amGuest) ActionRow(
+                "Sign in to another app", onClick = { onDismiss(); go(Routes.REMOTE_APPS) }, icon = BelfryIcons.Globe,
+                sub = "Use this account in another Nostr app: scan its code", enabled = !busy.busy,
+                modifier = Modifier.testTag("account-remote-apps"),
+            )
         }
         Spacer(Modifier.height(12.dp))
         ActionGroup {

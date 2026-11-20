@@ -86,6 +86,10 @@ object Routes {
     const val ABOUT = "about"
     /** canvas home/link-device: the open account's login QR, for another phone or tablet. */
     const val LINK_DEVICE = "link-device"
+    /** Sign in to another app (SPEC 19.47): its code scanned or pasted, then Connect. */
+    const val REMOTE_APP_SCAN = "remote-app-scan"
+    /** The apps this account is signed in to through the belfry. */
+    const val REMOTE_APPS = "remote-apps"
     const val SESSIONS = "sessions"
     /** Me → Notifications (push). */
     const val NOTIFICATIONS = "notifications"

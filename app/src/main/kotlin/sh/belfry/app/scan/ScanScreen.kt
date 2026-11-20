@@ -160,12 +160,17 @@ fun ScanContent(
     onAllow: () -> Unit,
     onSettings: () -> Unit,
     onRetry: () -> Unit,
+    /** Another scanner's words (Sign in to an app): its title, and the line under the frame. */
+    title: String = "Scan an invitation",
+    hint: String? = null,
+    /** Under the line while scanning (a "Paste a code" button). */
+    footer: (@Composable () -> Unit)? = null,
     preview: @Composable () -> Unit,
 ) {
     val c = Belfry.colors
     if (ui != ScanUi.SCANNING) {
         Column(Modifier.fillMaxSize().background(c.bg).testTag("scan-$ui")) {
-            TopBar("Scan an invitation", navigation = { BackButton(onClose) })
+            TopBar(title, navigation = { BackButton(onClose) })
             Column(Modifier.widthIn(max = 480.dp).align(Alignment.CenterHorizontally).padding(24.dp)) {
                 Text(ui.title, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                 Spacer(Modifier.height(8.dp))
@@ -210,9 +215,10 @@ fun ScanContent(
                     )
                     Spacer(Modifier.height(10.dp))
                 }
-                Text("Scan an invitation", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                 Spacer(Modifier.height(2.dp))
-                Text(ui.text, fontSize = 15.sp, lineHeight = 20.sp, color = Color.White, textAlign = TextAlign.Center)
+                Text(hint ?: ui.text, fontSize = 15.sp, lineHeight = 20.sp, color = Color.White, textAlign = TextAlign.Center)
+                if (footer != null) { Spacer(Modifier.height(12.dp)); footer() }
             }
         }
     }

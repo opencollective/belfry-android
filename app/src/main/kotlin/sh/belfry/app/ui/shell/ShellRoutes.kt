@@ -19,6 +19,8 @@ fun NavGraphBuilder.shellRoutes(shell: ShellState) {
     composable(Routes.MENTIONS) { MentionsScreen() }
     composable(Routes.ABOUT) { AboutScreen() }
     composable(Routes.LINK_DEVICE) { LinkDeviceScreen() }
+    composable(Routes.REMOTE_APP_SCAN) { SignInToAppScreen() }
+    composable(Routes.REMOTE_APPS) { ConnectedAppsScreen() }
     composable(Routes.THREAD) { entry -> ThreadScreen(entry.arg("id"), entry.arg("root"), focus = entry.optArg("m")) }
     // a channel pushed over a place (an archived one from its list, a card, a link): a back arrow
     composable(Routes.CHAT, listOf(Routes.optional("m"))) { entry ->

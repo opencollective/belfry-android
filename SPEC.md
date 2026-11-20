@@ -2111,3 +2111,27 @@ mine; a long-press on a bubble opens the menu with the reactions row. The header
 one-to-one conversation shows the person's face and name; a tap opens their profile.
 (Android: `DmReaction.apply`, `DmSnapshot.reactionsOf`, `DirectMessages.react`,
 `ui/people/DmReactions.kt`.)
+
+### 19.47 Sign in to another app, the belfry as its remote signer (2026-11-20; the lead's contract, Xavier: Android first; NOT LIVE until the lead says the server is)
+
+The phone only scans and confirms: the belfry's server becomes the NIP-46 remote signer of a
+third-party Nostr app on the app's relays; the phone answers nothing and holds no key for it.
+
+- **The code**: the app's `nostrconnect://…` QR (or pasted). Only the prefix is recognised here;
+  the server validates the rest. It holds a secret: sent as read, never logged, shown or kept.
+  `bunker://` codes are not part of this.
+- **API** (`<api>/remote-apps`, NIP-98 by the account's key): `POST /preview {"uri"}` → `{name, url,
+  host, image, asks: {sign, decrypt}, known}` (the app's own claim, unchecked: the image is never
+  loaded, the host shown as "It says it is …"); `POST / {"uri", "decrypt"}` → 201 `{app}`; `GET /` →
+  `{apps: [{id, name, url, host, image, decrypt, created, used, expires}]}`; `POST /<id>/disconnect`.
+  Errors by code, fixed texts: 422 `invalid_uri` (`reason` bad_scheme | bad_key | no_relay |
+  bad_relay | no_secret), 403 `guest` | `agent`, 409 `own_key` | `key_taken` | `limit` (10) |
+  `unsupported`, 429 `too_many`, 502 `unreachable` ("Couldn't reach the app. Show a new code and
+  try again."), 503 `signer`. A connection ends after 30 days without use and with the membership.
+- **Flow**: account switcher → "Sign in to another app" → Connected apps (the list, each can be
+  disconnected) → "Sign in to an app" → scan (or "Paste a code instead") → the belfry's preview →
+  confirm ("Act as <you>", and a "Read your private messages" switch, on, only when the app asks
+  to decrypt) → Connect → "You're signed in to <app>" → Connected apps. Never shown: a key, an
+  npub, a relay address. Members only (hidden for guests).
+- (Android: `core/net/RemoteApps.kt`, `engine/RemoteApps.kt` `Session.remoteApps`;
+  `ui/shell/RemoteApps.kt`.)
