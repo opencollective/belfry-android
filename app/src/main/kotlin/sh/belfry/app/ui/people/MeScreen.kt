@@ -123,8 +123,10 @@ fun MeScreen() {
             ActionRow("Members", onClick = { nav.go(Routes.MEMBERS) }, icon = BelfryIcons.Users, sub = "Everyone in ${session.community.name}", chevron = true)
             ActionRow("Messages", onClick = { nav.go(Routes.MESSAGES) }, icon = BelfryIcons.Mail, sub = "Direct messages and e-mail", chevron = true)
             ActionRow("Notifications", onClick = { nav.go(Routes.NOTIFICATIONS) }, icon = BelfryIcons.Bell, sub = "On this phone: messages, mentions, announcements", chevron = true, modifier = Modifier.testTag("me-notifications"))
-            // canvas v88: always, every member has a list of where they're signed in
-            ActionRow("Devices", onClick = { nav.go(Routes.DEVICES) }, icon = BelfryIcons.Phone, sub = "Where you're signed in", chevron = true, modifier = Modifier.testTag("me-devices"))
+            // canvas v88 shows it always; until the sealed wiring ships (the lead, 0.7.1) only the demo has it
+            if (session.localOnly) {
+                ActionRow("Devices", onClick = { nav.go(Routes.DEVICES) }, icon = BelfryIcons.Phone, sub = "Where you're signed in", chevron = true, modifier = Modifier.testTag("me-devices"))
+            }
             ActionRow("Signed-in devices", onClick = { nav.go(Routes.SESSIONS) }, icon = BelfryIcons.Lock, sub = "The apps and devices signed in as you", chevron = true)
             if (world.isCommunityAdmin) {
                 ActionRow("Branding", onClick = { nav.go(Routes.BRANDING) }, icon = BelfryIcons.Image, sub = "Logo, cover image and colours of ${session.community.name}", chevron = true, modifier = Modifier.testTag("me-branding"))
