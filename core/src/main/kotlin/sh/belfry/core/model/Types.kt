@@ -162,6 +162,8 @@ data class GuestJoin(
     val unsaved: Boolean,
     /** A member since (an admin made them one): no longer called a guest. */
     val member: Boolean,
+    /** The channel they were let into (its `h`). */
+    val group: String = "",
 ) {
     /** The chip next to their name: "agent", "guest · not saved", "guest"; null once a member. */
     val chip: String? get() = if (member) null else if (agent) "agent" else if (unsaved) "guest · not saved" else "guest"

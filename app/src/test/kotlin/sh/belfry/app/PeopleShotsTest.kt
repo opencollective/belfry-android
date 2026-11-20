@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.test.onNodeWithTag
 import org.junit.Test
 import sh.belfry.app.ui.people.ConversationScreen
 import sh.belfry.app.ui.people.MeScreen
@@ -44,7 +45,15 @@ class PeopleShotsTest : DemoShots() {
     @Test fun profileEdit() = demoShot("profile-edit") { ProfileScreen(session.me, startEditing = true) }
 
     /** A guest who has not saved their account: chips, and the admin switch off with the reason. */
-    @Test fun profileGuest() = demoShot("profile-guest") { ProfileScreen(Demo.marcel.pubkey) }
+    @Test fun profileGuest() {
+        demoShot("profile-guest") { ProfileScreen(Demo.marcel.pubkey) }
+        // canvas v67 / v68: Share only, "Guest in #…" then "invited by …" as its own tap target
+        compose.onNodeWithTag("guest-line").assertExists()
+        compose.onNodeWithTag("guest-invited-by").assertExists()
+        compose.onNodeWithTag("profile-message").assertDoesNotExist()
+        compose.onNodeWithTag("profile-email").assertDoesNotExist()
+        compose.onNodeWithTag("profile-share").assertExists()
+    }
 
     @Test fun profileAgent() = demoShot("profile-agent") { ProfileScreen(Demo.scout.pubkey) }
 

@@ -677,7 +677,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             val isMember = when (ctx.kinds[p]) { "member", "agent" -> true; "guest" -> false; else -> p in member }
             out.add(GuestJoin(
                 id = e.id, pubkey = p, by = e.t("invited-by"), at = e.createdAt, agent = e.t("agent") == "1",
-                unsaved = e.t("unsaved") == "1" && p !in saved && !isMember, member = isMember,
+                unsaved = e.t("unsaved") == "1" && p !in saved && !isMember, member = isMember, group = e.t("h") ?: "",
             ))
         }
         // taken out again without ever writing here (a cleaned-up double sign-up): no line

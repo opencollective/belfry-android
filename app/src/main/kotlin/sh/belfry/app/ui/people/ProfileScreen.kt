@@ -108,21 +108,19 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
             }
         },
     ) {
-        // a contact card (board home/profile, web c3fcaab): face, name and address centred, then
-        // Message · E-mail · Share; Role right below; then In <group>; Channels in common last
+        // a contact card (board home/profile v68, web c3fcaab): face, name and address centred, then
+        // Message · E-mail · Share; Tags; Role; then In <group>; Channels in common last
         val nip05 = p?.nip05?.takeIf { it.contains('@') }
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Avatar(world.face(pubkey), size = 88.dp)
             Spacer(Modifier.height(10.dp))
             Text(name, fontSize = 24.sp, lineHeight = 29.sp, fontWeight = FontWeight.Bold, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             if (nip05 != null) Text(nip05, fontSize = 15.sp, color = c.muted)
-            val chip = guest?.chip
-            if (chip != null || owner != null) {
+            // a guest agent keeps its "agent" chip; a guest's own line says Guest (canvas v68)
+            val agentChip = owner != null || guest?.agent == true
+            if (agentChip) {
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (owner != null) Chip("agent")
-                    if (chip != null) Chip(chip)
-                }
+                Chip("agent")
             }
             if (owner != null) {
                 Text(
@@ -130,22 +128,38 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
                     modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.profile(owner)) }.testTag("agent-owner"),
                 )
             }
-            val by = guest?.by
-            if (guest != null && !by.isNullOrEmpty()) {
-                Text(
-                    "invited by ${world.displayName(by)}", fontSize = 13.sp, color = c.muted,
-                    modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.profile(by)) },
-                )
+            // a guest (canvas home/profile-guest v68): "Guest in #<channel>", then "invited by <name>"
+            // underlined, its own tap target to the inviter's profile; "(not saved)" while unsaved
+            if (guest != null) {
+                val where = world.group(guest.group)?.takeIf { it.named }?.let { " in #${it.name}" } ?: ""
+                Text("Guest$where" + if (guest.unsaved) " (not saved)" else "", fontSize = 15.sp, color = c.muted, modifier = Modifier.padding(top = 2.dp).testTag("guest-line"))
+                val by = guest.by
+                if (!by.isNullOrEmpty()) {
+                    Text(
+                        "invited by " + if (by == world.me) "you" else world.displayName(by), fontSize = 15.sp, color = c.muted,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        modifier = Modifier.padding(top = 2.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                            .clickable(role = Role.Button) { nav.go(Routes.profile(by)) }.padding(horizontal = 6.dp, vertical = 6.dp).testTag("guest-invited-by"),
+                    )
+                }
             }
             Spacer(Modifier.height(14.dp))
             val context = androidx.compose.ui.platform.LocalContext.current
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                // a guest can't get direct messages: Share only (canvas v67)
                 if (!mine && guest == null) CardAction(BelfryIcons.Thread, "Message", "profile-message") { nav.go(Routes.conversation("n:$pubkey")) }
-                if (!mine && nip05 != null) CardAction(BelfryIcons.Mail, "E-mail", "profile-email") {
+                if (!mine && guest == null && nip05 != null) CardAction(BelfryIcons.Mail, "E-mail", "profile-email") {
                     try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:" + nip05)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) { }
                 }
                 // their address (else their key, handed to the share sheet, never shown)
                 CardAction(BelfryIcons.Share, "Share", "profile-share") { shareText(context, nip05 ?: npubOf(pubkey), name) }
+            }
+        }
+        // Tags right under the buttons, above Role, member or guest (canvas v68); read-only here, none = no section
+        if (x != null && x.tags.isNotEmpty()) {
+            SectionTitle("Tags")
+            FlowRow(Modifier.testTag("profile-tags"), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                x.tags.forEach { Chip("#$it") }
             }
         }
         // the belfry's role right below (Steward · Member · Guest and its own roles)
@@ -153,7 +167,7 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
         // opened from a channel's, group's or event's people: the role there (SPEC 19.29)
         if (group != null) InGroupSection(pubkey, group)
         val place = x?.place
-        if (place != null || about.isNotEmpty() || (x != null && x.tags.isNotEmpty()) || mine) Spacer(Modifier.height(14.dp))
+        if (place != null || about.isNotEmpty() || mine) Spacer(Modifier.height(14.dp))
         if (place != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(BelfryIcons.MapPin, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
@@ -166,12 +180,6 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
             MarkdownText(about, rich = false)
         } else if (mine) {
             Hint("Say a few words about yourself: tap Edit.")
-        }
-        if (x != null && x.tags.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                x.tags.forEach { Chip("#$it") }
-            }
         }
         if (shared.isNotEmpty()) {
             SectionTitle(if (mine) "Your channels" else "Channels in common")
