@@ -57,7 +57,16 @@ data class ConvSeal(
     val notices: List<DeviceNotice> = emptyList(),
     /** Set while someone's new device waits for the history (the amber line). */
     val waiting: LockedDevice? = null,
+    /** When it became sealed: earlier messages read as usual, even on a device not yet allowed. */
+    val since: Long? = null,
+    /** History someone shared with this device (sealed.md §8), one block per sharer. */
+    val shared: List<SharedBlock> = emptyList(),
 )
+
+/** Messages someone shared with this device, by their times (FROM..TO). Not proven authentic. */
+data class SharedBlock(val by: String, val from: Long, val to: Long) {
+    fun holds(at: Long): Boolean = at in from..to
+}
 
 /** A new device of mine asking for access, shown on my other devices. */
 data class AccessAsk(val id: String, val device: String, val kind: DeviceKind, val at: Long)
@@ -179,7 +188,15 @@ object SealedText {
     const val MAIL = "E-mails are locked as soon as they arrive. They pass through the belfry's mail server, and the other side's mail provider keeps its own copy."
     const val NOT_HERE = "not on this belfry"
     const val LOCKED_HERE = "Locked on this device"
-    const val BANNER_TITLE = "Earlier messages are locked on this device"
+    /** canvas v84: a device not yet allowed reads no sealed message, old or new. */
+    const val BANNER_TITLE = "Messages are locked on this device"
+    const val LOCKED_BLOCK = "Locked on this device"
+    fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
+        "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."
+    const val WRITE_LATER = "You can write here once this device is allowed."
+    fun sharedBy(name: String): String = "Shared by $name"
+    fun sharedWhy(name: String): String =
+        "$name sent you these earlier messages. They come from $name's device, so the app can't check them the way it checks new ones."
     const val BANNER_TEXT = "Open Belfry on another device of yours to unlock them."
     const val ASK_TEXT = "It will read all your messages, including earlier ones."
     const val ASK_NOT_ME = "Not me removes that device and signs it out."

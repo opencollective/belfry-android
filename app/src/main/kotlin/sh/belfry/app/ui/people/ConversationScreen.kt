@@ -77,6 +77,7 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.dm.Dm
 import sh.belfry.core.dm.DmSnapshot
 import sh.belfry.core.model.DeviceNotice
+import sh.belfry.core.model.SharedBlock
 import androidx.compose.runtime.collectAsState
 import sh.belfry.core.engine.ActionException
 import sh.belfry.core.model.World
@@ -125,15 +126,33 @@ fun ConversationScreen(conv: String) {
     val sealState by session.encryption.state.collectAsState()
     val seal = if (newMail) null else sealState.seal(conv)
     val openNotice = rememberNoticeOpener(conv)
-    // a new device (canvas v82): earlier messages give way to the amber banner, later ones read normally
+    // a device not yet allowed (canvas v84): messages from before the conversation was sealed read
+    // as usual, then one amber block in place of the rest; no composer
     val lockedHere = seal != null && conv in sealState.locked
-    val since = if (lockedHere) sealState.thisDevice?.added ?: Long.MAX_VALUE else Long.MIN_VALUE
-    val rows: List<Any> = remember(list, seal, since) {
-        val shown = list.filter { it.at >= since }
-        if (seal == null || seal.notices.isEmpty()) shown
-        else (shown.map { it.at to it } + seal.notices.filter { it.at >= since }.map { it.at to it }).sortedBy { it.first }.map { it.second }
+    val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
+    val rows: List<Any> = remember(list, seal, until) {
+        val shown = list.filter { it.at < until }
+        val merged = if (seal == null || seal.notices.isEmpty()) shown
+        else (shown.map { it.at to it } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
+        // history someone shared with this device (canvas v86): a "Shared by" line above each block
+        val out = ArrayList<Any>()
+        var open: SharedBlock? = null
+        for (r in merged) {
+            val block = if (r is Dm) seal?.shared?.firstOrNull { it.holds(r.at) } else null
+            if (block != null && block != open) out.add(block)
+            open = block ?: open.takeIf { r !is Dm }
+            out.add(r)
+        }
+        if (lockedHere) out.add(LockedHere)
+        out
     }
-    fun atOf(r: Any): Long = if (r is Dm) r.at else (r as DeviceNotice).at
+    fun atOf(r: Any): Long? = when (r) {
+        is Dm -> r.at
+        is DeviceNotice -> r.at
+        is SharedBlock -> r.from
+        else -> null
+    }
+    var why by remember(conv) { mutableStateOf<SharedBlock?>(null) }
 
     LaunchedEffect(conv, rows.size) {
         if (rows.isNotEmpty()) state.scrollToItem(rows.size - 1)
@@ -154,10 +173,7 @@ fun ConversationScreen(conv: String) {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })
             },
         )
-        if (lockedHere) EarlierLockedBanner { nav.go(Routes.UNLOCK_STEPS) }
-        if (rows.isEmpty() && lockedHere) {
-            Spacer(Modifier.weight(1f))
-        } else if (rows.isEmpty()) {
+        if (rows.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 EmptyState(
                     if (mail) "A new e-mail to $address" else "No messages yet",
@@ -175,19 +191,35 @@ fun ConversationScreen(conv: String) {
             }
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(bottom = 10.dp)) {
-                itemsIndexed(rows, key = { _, r -> if (r is Dm) r.rid else "notice:" + (r as DeviceNotice).id }) { i, r ->
+                itemsIndexed(rows, key = { _, r ->
+                    when (r) {
+                        is Dm -> r.rid
+                        is DeviceNotice -> "notice:" + r.id
+                        is SharedBlock -> "shared:" + r.by + ":" + r.from
+                        else -> "locked"
+                    }
+                }) { i, r ->
                     val prev = rows.getOrNull(i - 1)
                     val at = atOf(r)
-                    if (prev == null || world.dayOf(atOf(prev)) != world.dayOf(at)) DaySeparator(ChatFormat.day(world, at, now))
-                    if (r is Dm) {
-                        Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly })
-                    } else {
-                        val n = r as DeviceNotice
-                        DeviceNoticeRow(n, world) { openNotice(n) }
+                    val prevAt = prev?.let { atOf(it) }
+                    if (at != null && (prevAt == null || world.dayOf(prevAt) != world.dayOf(at))) DaySeparator(ChatFormat.day(world, at, now))
+                    when (r) {
+                        is Dm -> {
+                            val shared = seal?.shared?.any { it.holds(r.at) } == true
+                            if (shared) {
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }) }
+                            } else {
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly })
+                            }
+                        }
+                        is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
+                        is SharedBlock -> SharedByRow(r, world) { why = r }
+                        else -> LockedBlock(seal?.since, world, now) { nav.go(Routes.UNLOCK_STEPS) }
                     }
                 }
             }
         }
+        why?.let { b -> SharedWhySheet(b, world) { why = null } }
         Hairline()
         if (newMail) {
             BelfryTextField(
@@ -200,7 +232,12 @@ fun ConversationScreen(conv: String) {
             val d = list.firstOrNull { it.rid == rid }
             if (d == null) acting = null else DmMessageSheet(d, dms.reactionsOf(d.rid), emojiOnly, onClose = { acting = null })
         }
-        Composer(
+        if (lockedHere) {
+            Text(
+                sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),
+            )
+        } else Composer(
             composer,
             placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else "Message",
             onSend = { text, _, _, _ ->

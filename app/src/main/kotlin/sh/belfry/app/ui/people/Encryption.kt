@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -413,4 +414,74 @@ internal fun rememberNoticeOpener(conv: String): (DeviceNotice) -> Unit {
     var sharing by remember(conv) { mutableStateOf(false) }
     if (sharing && seal?.waiting != null) ShareHistorySheet(conv, seal, onClose = { sharing = false })
     return { n -> if (n.kind == DeviceNotice.Kind.NEW_LOCKED && seal?.waiting != null) sharing = true else nav.go(Routes.encryption(conv)) }
+}
+
+/** The amber block in a conversation this device can't read yet (canvas messages/encryption-locked-thread). */
+internal object LockedHere
+
+@Composable
+internal fun LockedBlock(since: Long?, world: World, now: Long, onShowHow: () -> Unit) {
+    val c = Belfry.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.orange.copy(alpha = if (c.isDark) 0.18f else 0.12f))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .testTag("seal-locked-block"),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(BelfryIcons.Lock, contentDescription = null, tint = c.orange, modifier = Modifier.size(20.dp).padding(top = 1.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(SealedText.LOCKED_BLOCK, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+            if (since != null) {
+                Text(SealedText.lockedFrom(since, now, world.ctx.zone), fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
+            }
+            Text(
+                "Show how", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.orange,
+                modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onShowHow).padding(vertical = 6.dp),
+            )
+        }
+    }
+}
+
+/** canvas messages/encryption-shared-history: the grey line above a block someone shared with this device. */
+@Composable
+internal fun SharedByRow(b: sh.belfry.core.model.SharedBlock, world: World, onClick: () -> Unit) {
+    val c = Belfry.colors
+    Row(
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp).testTag("seal-shared-by"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(BelfryIcons.Share, contentDescription = null, tint = c.faint, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(SealedText.sharedBy(world.displayName(b.by)), fontSize = 13.sp, color = c.muted, modifier = Modifier.weight(1f))
+        Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.faint, modifier = Modifier.size(14.dp))
+    }
+}
+
+/** A shared message: the bubble with a subtle rule on its left. */
+@Composable
+internal fun SharedRule(content: @Composable () -> Unit) {
+    Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min).padding(start = 12.dp).testTag("seal-shared-message")) {
+        Box(Modifier.width(2.dp).fillMaxHeight().background(Belfry.colors.line))
+        Box(Modifier.weight(1f)) { content() }
+    }
+}
+
+/** canvas messages/encryption-shared-history-why: one sentence, OK closes it. */
+@Composable
+internal fun SharedWhySheet(b: sh.belfry.core.model.SharedBlock, world: World, onClose: () -> Unit) {
+    BelfrySheet(onDismiss = onClose) { SharedWhyContent(world.displayName(b.by), onClose) }
+}
+
+@Composable
+fun SharedWhyContent(name: String, onClose: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("seal-shared-why")) {
+        Text(SealedText.sharedWhy(name), fontSize = 16.sp, lineHeight = 22.sp, color = Belfry.colors.text)
+        Spacer(Modifier.height(16.dp))
+        BusyButton("OK", onClick = { onClose() }, modifier = Modifier.fillMaxWidth())
+    }
 }
