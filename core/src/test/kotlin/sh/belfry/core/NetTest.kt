@@ -616,7 +616,7 @@ class SignInAndApiTest {
         // errors: fixed texts by code (and by reason for invalid_uri), never the server's words
         server.enqueue(json(422, """{"error":"invalid_uri","reason":"no_secret","message":"<b>x</b>"}"""))
         try { api.preview(code); fail("must throw") } catch (e: ApiException) {
-            assertEquals("invalid_uri", e.code); assertEquals("That code is missing its secret. Show a new code in the app.", e.message)
+            assertEquals("invalid_uri", e.code); assertEquals("Belfry can’t use this code. Show a new one in the app and scan again.", e.message)
         }
         server.takeRequest()
         server.enqueue(json(409, """{"error":"key_taken"}"""))

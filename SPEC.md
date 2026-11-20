@@ -2154,8 +2154,11 @@ third-party Nostr app on the app's relays; the phone answers nothing and holds n
   and, only when the app asks to decrypt, a "Read your private messages" switch that starts OFF)
   → Sign in ("Signing in…", Cancel locked; no answer in 15 s: "The app didn't answer. Check it is
   still open and scan again.") → "You're signed in to <app>" (Done / Connected apps). Refusals
-  shown in place of the confirm screen, each with one way on: expired or used, not a sign-in code,
-  connected to another account (`key_taken`), a guest ("How to join"). Entry: Accounts, under
+  shown in place of the confirm screen, each with one way on: "Belfry can't use this code" (invalid_uri
+  bad_key | no_relay | bad_relay | no_secret), not a sign-in code (bad_scheme or the prefix),
+  connected to another account (`key_taken`), a guest ("How to join"). The server can't tell a
+  code expired or was used (its secret and lifetime are the other app's): the Done screen says
+  "If <app> didn't sign you in, show a new code there and scan again." Entry: Accounts, under
   "Link a phone or tablet"; "Connected apps · N" only once one exists. "Paste a link instead"
   reads the clipboard. Never shown: a key, an npub, a relay address, the code.
 - (Android: `core/net/RemoteApps.kt`, `engine/RemoteApps.kt` `Session.remoteApps`;

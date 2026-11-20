@@ -80,7 +80,9 @@ private const val TITLE = "Sign in to another app"
 
 /** The fixed lines shown in place of the confirm screen (home/signer-errors-android), each with one way on. */
 internal enum class SignerProblem(val title: String, val text: String, val action: String) {
-    EXPIRED("This code has expired or was already used", "Ask the app for a new code.", "Scan again"),
+    /** A code the belfry can't use (invalid_uri: bad_key, no_relay, bad_relay, no_secret). The server can't
+     *  know a code expired or was used: that secret and its lifetime are the other app's (the lead, 2026-11-20). */
+    CANT_USE("Belfry can’t use this code", "Show a new one in the app and scan again.", "Scan again"),
     NOT_A_CODE("This isn’t a sign-in code", "Look for “remote signer” or “bunker” on the app’s sign-in screen.", "Scan again"),
     ANOTHER_ACCOUNT("This app is already connected to another account", "Disconnect it from that account first, then scan again.", "Scan again"),
     GUEST("Guests can’t do this yet", "Join as a member first.", "How to join");
@@ -92,7 +94,7 @@ internal enum class SignerProblem(val title: String, val text: String, val actio
             return when (code) {
                 "guest" -> GUEST
                 "key_taken" -> ANOTHER_ACCOUNT
-                "invalid_uri" -> if (e.message == sh.belfry.core.net.RemoteAppsApi.INVALID["bad_scheme"]) NOT_A_CODE else EXPIRED
+                "invalid_uri" -> if (e.message == sh.belfry.core.net.RemoteAppsApi.INVALID["bad_scheme"]) NOT_A_CODE else CANT_USE
                 else -> null
             }
         }
@@ -308,6 +310,9 @@ internal fun DoneStep(app: String, me: String, onDone: () -> Unit, onApps: () ->
             Text("You’re signed in to $app", fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = c.text, textAlign = TextAlign.Center, modifier = Modifier.testTag("remote-app-done"))
             Spacer(Modifier.height(8.dp))
             Text("Go back to it: it is signed in as $me. Belfry signs for it until you disconnect it.", fontSize = 15.sp, lineHeight = 21.sp, color = c.muted, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(10.dp))
+            // a code that expired or was used shows only as the app not reacting (the lead, 2026-11-20)
+            Text("If $app didn’t sign you in, show a new code there and scan again.", fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, textAlign = TextAlign.Center, modifier = Modifier.testTag("remote-app-done-hint"))
             Spacer(Modifier.height(28.dp))
             BusyButton("Done", onClick = { onDone() }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(8.dp))

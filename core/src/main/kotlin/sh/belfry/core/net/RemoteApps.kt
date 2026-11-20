@@ -145,10 +145,10 @@ class RemoteAppsApi(private val api: BelfryApi, private val signer: Signer) {
         )
         val INVALID = mapOf(
             "bad_scheme" to "That isn't an app sign-in code.",
-            "bad_key" to "That code is damaged. Show a new code in the app.",
-            "no_relay" to "That code doesn't say where to answer the app. Show a new code in the app.",
-            "bad_relay" to "That code doesn't say where to answer the app. Show a new code in the app.",
-            "no_secret" to "That code is missing its secret. Show a new code in the app.",
+            "bad_key" to "Belfry can’t use this code. Show a new one in the app and scan again.",
+            "no_relay" to "Belfry can’t use this code. Show a new one in the app and scan again.",
+            "bad_relay" to "Belfry can’t use this code. Show a new one in the app and scan again.",
+            "no_secret" to "Belfry can’t use this code. Show a new one in the app and scan again.",
         )
     }
 }
