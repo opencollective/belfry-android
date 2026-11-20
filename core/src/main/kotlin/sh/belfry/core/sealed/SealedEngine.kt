@@ -137,8 +137,8 @@ class SealedEngine(
                     ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
                 } else {
                     keys.add(lbPub, lbSecret); saveKeys()
-                    ports.publish(root)
                     val anchor = ports.signAsAccount(Anchor.template(root.id, root.id, clock()))
+                    ports.publish(root)
                     ports.publish(anchor)
                     ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock())))
                     mine = Mine.IN_HEAD
@@ -152,11 +152,16 @@ class SealedEngine(
 
     private fun saveKeys() = ports.saveKeys(keys.toMap())
 
-    /** Publishes roster n+1 after HEAD (lock held by the caller), then the anchor naming it. */
+    /**
+     * Roster n+1 after HEAD (lock held by the caller): signed here, the anchor naming it signed by
+     * the signer, and only then both sent, roster first. If the anchor can't be signed, neither goes
+     * (the change is tried again later; 294c94f).
+     */
     private suspend fun publishNext(head: Chain, devices: List<String>, lb: String, ready: Boolean) {
         val r = device.signNow(Roster.template(account, head.head.n + 1, head.head.id, lb, devices, ready, clock()))
+        val anchor = ports.signAsAccount(Anchor.template(head.root.id, r.id, clock()))
         ports.publish(r)
-        ports.publish(ports.signAsAccount(Anchor.template(head.root.id, r.id, clock())))
+        ports.publish(anchor)
         refresh(account)
     }
 
@@ -193,6 +198,9 @@ class SealedEngine(
         val chain = refresh(account) ?: throw IllegalStateException("no chain")
         if (newDevice in chain.devices) return@withLock
         if (chain.devices.size >= Roster.MAX_DEVICES) throw TooMany()
+        // the session is still live (294c94f)
+        val sessions = ports.sessions() ?: throw IllegalStateException("The list of sessions could not be read. Try again.")
+        if (sessions.none { it.clientPubkey == newDevice && it.chat }) throw IllegalStateException("That device is no longer signed in.")
         Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
         publishNext(chain, chain.devices + newDevice, chain.head.lb, chain.ready)
     }
@@ -209,12 +217,22 @@ class SealedEngine(
         require(dev != device.pubkey) { "this device signs out instead" }
         val chain = refresh(account) ?: return@withLock
         if (dev !in chain.devices) return@withLock
-        val (lbPub, lbSecret) = KeyChain.newLetterbox()
-        keys.add(lbPub, lbSecret); saveKeys()
-        val remaining = chain.devices - dev
-        remaining.filter { it != device.pubkey }.forEach { d -> Sealing.keysFor(device, account, d, keys, clock()).forEach { ports.publish(it) } }
-        publishNext(chain, remaining, lbPub, chain.ready)
+        // a user's removal revokes the session FIRST and changes nothing when that fails (294c94f)
         if (revoke) ports.revoke(dev)
+        val live = ports.sessions()?.mapNotNull { it.clientPubkey }?.toSet() ?: emptySet()
+        val (lbPub, lbSecret) = KeyChain.newLetterbox()
+        val remaining = chain.devices - dev
+        val anchorKeys = KeyChain(keys.toMap()).also { it.add(lbPub, lbSecret) }
+        // new keys only to devices that stay AND have a live session
+        val wraps = remaining.filter { it != device.pubkey && it in live }.flatMap { d -> Sealing.keysFor(device, account, d, anchorKeys, clock()) }
+        // roster and anchor both signed before anything goes; the keys go first, then the two together
+        val r = device.signNow(Roster.template(account, chain.head.n + 1, chain.head.id, lbPub, remaining, chain.ready, clock()))
+        val anchor = ports.signAsAccount(Anchor.template(chain.root.id, r.id, clock()))
+        keys.add(lbPub, lbSecret); saveKeys()
+        wraps.forEach { ports.publish(it) }
+        ports.publish(r)
+        ports.publish(anchor)
+        refresh(account)
     }
 
     /**
@@ -318,7 +336,7 @@ class SealedEngine(
         val firstSeen = pending[wrap.id]?.second ?: clock()
         val author = (o as? Opening.Opened)?.rumor?.pubkey
         if (author != null && author != belfry && chainOf(author) == null) refresh(author)
-        val v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry)
+        val v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry, myLetterboxes = chainOf(account)?.letterboxes?.toSet())
         when (v) {
             Sealing.Verdict.ACCEPT -> {
                 pending.remove(wrap.id)

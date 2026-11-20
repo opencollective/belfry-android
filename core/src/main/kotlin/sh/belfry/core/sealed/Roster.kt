@@ -69,7 +69,7 @@ object Anchor {
 
     /** The root and head ids the newest valid anchor of ACCOUNT names (head null = the root), else null. */
     fun read(events: List<Event>, account: String): Pair<String, String?>? =
-        events.filter { it.kind == KIND && it.pubkey == account && it.tag("d") == D && it.isValid() }
+        events.filter { it.kind == KIND && it.pubkey == account && it.tags.singleValue("d") == D && it.isValid() }
             .sortedWith(compareByDescending<Event> { it.createdAt }.thenBy { it.id })
             .firstNotNullOfOrNull { e ->
                 val root = e.tags.singleValue("root")?.takeIf { Hex.isKey(it) } ?: return@firstNotNullOfOrNull null

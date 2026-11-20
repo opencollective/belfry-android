@@ -44,6 +44,7 @@ class SealedEngineTest {
     class Server {
         val sessions = HashMap<String, MutableList<SessionRow>>()
         var odd = false
+        var failRevoke = false
         fun live(account: String, device: String, name: String, chat: Boolean = true) {
             sessions.getOrPut(account) { ArrayList() }.add(SessionRow(device, chat, now, name, "Belfry for Android"))
         }
@@ -52,6 +53,7 @@ class SealedEngineTest {
     companion object { var now = 1_795_000_000L }
 
     private val relay = FakeRelay()
+    private var signerDown = false
     private val server = Server()
 
     private inner class Ports(val account: LocalSigner) : SealedPorts {
@@ -59,9 +61,9 @@ class SealedEngineTest {
         val revoked = ArrayList<String>()
         override suspend fun query(q: Query) = relay.query(q)
         override suspend fun publish(e: Event) = relay.add(e)
-        override suspend fun signAsAccount(t: EventTemplate): Event = account.signNow(t)
+        override suspend fun signAsAccount(t: EventTemplate): Event = if (signerDown) throw IllegalStateException("signer") else account.signNow(t)
         override suspend fun sessions(): List<SessionRow>? = if (server.odd) null else server.sessions[account.pubkey]?.toList() ?: emptyList()
-        override suspend fun revoke(clientPubkey: String) { revoked.add(clientPubkey); server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
+        override suspend fun revoke(clientPubkey: String) { if (server.failRevoke) throw IllegalStateException("revoke"); revoked.add(clientPubkey); server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
         override fun loadKeys() = saved
         override fun saveKeys(keys: Map<String, String>) { saved = keys }
     }
@@ -147,10 +149,12 @@ class SealedEngineTest {
     @Test fun allowRefusedAtTwenty() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
-        repeat(19) { phone.allow(LocalSigner.random().pubkey) }
+        repeat(19) { val d = LocalSigner.random().pubkey; server.live(alice.pubkey, d, "Device $it"); phone.allow(d) }
         assertEquals(20, phone.refresh(alice.pubkey)!!.devices.size)
         val before = relay.events.size
-        kotlin.test.assertFailsWith<SealedEngine.TooMany> { phone.allow(LocalSigner.random().pubkey) }
+        val extra = LocalSigner.random().pubkey
+        server.live(alice.pubkey, extra, "One too many")
+        kotlin.test.assertFailsWith<SealedEngine.TooMany> { phone.allow(extra) }
         assertEquals(before, relay.events.size, "refused before any key goes out")
     }
 
@@ -284,5 +288,41 @@ class SealedEngineTest {
         phone.refresh(bob.pubkey)
         assertEquals(0, phone.pendingCount)
         assertEquals(listOf(rumor.id), phone.later.map { it.id })
+    }
+
+    /** 294c94f (5): Remove revokes first and changes nothing when that fails. */
+    @Test fun removeRevokesFirst() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val head = phone.refresh(alice.pubkey)!!.head.id
+        server.failRevoke = true
+        kotlin.test.assertFails { phone.remove(aliceLaptop.pubkey) }
+        assertEquals(head, phone.refresh(alice.pubkey)!!.head.id, "no roster change")
+    }
+
+    /** 294c94f (6): when the anchor can't be signed, neither the roster nor the anchor goes. */
+    @Test fun noRosterWithoutAnchor() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val before = relay.events.count { it.kind == Roster.KIND }
+        signerDown = true
+        kotlin.test.assertFails { phone.remove(aliceLaptop.pubkey, revoke = false) }
+        assertEquals(before, relay.events.count { it.kind == Roster.KIND })
+    }
+
+    /** 294c94f (1): a wrap to a letterbox that isn't one of my chain's is dropped, not "locked". */
+    @Test fun foreignLetterboxDropped() = runBlocking<Unit> {
+        val (phone, _, b) = world()
+        val stranger = KeyChain.newLetterbox().first
+        val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "x", now)
+        val wrap = Sealing.seal(rumor, bobPhone, alice.pubkey, stranger, now)
+        assertEquals(Sealing.Verdict.DROP, phone.receive(wrap, null) { "c" }.verdict)
+        assertEquals(0, phone.pendingCount)
+    }
+
+    /** 294c94f (13): Allow re-checks that the session is still live. */
+    @Test fun allowNeedsALiveSession() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        kotlin.test.assertFails { phone.allow(aliceLaptop.pubkey) }
+        assertEquals(1, phone.refresh(alice.pubkey)!!.devices.size)
     }
 }

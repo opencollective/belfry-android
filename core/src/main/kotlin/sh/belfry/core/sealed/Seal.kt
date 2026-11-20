@@ -122,7 +122,10 @@ object Sealing {
      */
     fun open(wrap: Event, keys: KeyChain): Opening {
         if (wrap.kind != WRAP) return Opening.Invalid
-        val lb = wrap.tag("lb") ?: return Opening.NotSealed
+        val lbs = wrap.tags.filter { it.size >= 2 && it[0] == "lb" }
+        if (lbs.isEmpty()) return Opening.NotSealed
+        if (lbs.size > 1) return Opening.Invalid // a tag given twice makes the event invalid (294c94f)
+        val lb = lbs[0][1]
         val secret = keys.secretFor(lb) ?: return Opening.Locked(lb)
         return try {
             val seal = Event.fromJsonString(Nip44.decryptFrom(secret, wrap.pubkey, wrap.content)) ?: return Opening.Invalid
@@ -148,13 +151,14 @@ object Sealing {
      * decrypt or its seal signature is bad; LOCKED when this device has no secret for its lb (keep
      * the wrap). A mail from the belfry (§7) is the caller's: its seal is the belfry's key.
      */
-    fun verdict(o: Opening, authorChain: Chain?, firstSeen: Long, now: Long, belfry: String? = null): Verdict = when (o) {
+    fun verdict(o: Opening, authorChain: Chain?, firstSeen: Long, now: Long, belfry: String? = null, myLetterboxes: Set<String>? = null): Verdict = when (o) {
         is Opening.NotSealed -> Verdict.NOT_SEALED
-        is Opening.Locked -> Verdict.LOCKED
+        // locked only for a letterbox of MY chain; a wrap naming any other lb is dropped (anyone can write one)
+        is Opening.Locked -> if (myLetterboxes == null || o.lb in myLetterboxes) Verdict.LOCKED else Verdict.DROP
         is Opening.Invalid -> Verdict.DROP
         is Opening.Opened -> when {
-            // §7: a mail sealed by the belfry, whose author is the belfry's key; it never speaks for a member
-            belfry != null && o.sealPubkey == belfry -> if (o.rumor.pubkey == belfry) Verdict.ACCEPT else Verdict.DROP
+            // §7, the only exception: a kind 1301 whose pubkey and seal signer are both the belfry's key (from belfry.json)
+            belfry != null && o.sealPubkey == belfry -> if (o.rumor.pubkey == belfry && o.rumor.kind == 1301) Verdict.ACCEPT else Verdict.DROP
             authorChain != null && authorChain.account == o.rumor.pubkey && authorChain.accepts(o.sealPubkey, o.rumor.createdAt) -> Verdict.ACCEPT
             now - firstSeen < KEEP_FOR -> Verdict.KEEP
             else -> Verdict.DROP
@@ -207,6 +211,7 @@ object Sealing {
         val opened = try { GiftWrap.unwrap(wrap, device) } catch (e: Exception) { null } ?: return null
         val r = opened.rumor
         if (r.kind != KEYS) return null
+        if (r.tags.count { it.size >= 2 && it[0] == "p" } != 1) return null
         val o = parseJsonOrNull(r.content) as? JsonObject ?: return null
         if ((o["v"] as? JsonPrimitive)?.longOrNull != 1L) return null
         val account = (o["account"] as? JsonPrimitive)?.content?.takeIf { Hex.isKey(it) } ?: return null
@@ -242,8 +247,9 @@ object Sealing {
 
     /** Does a request carry a valid proof for one of the link SECRETS this device showed (last 15 minutes)? */
     fun linkMatches(e: Event, secrets: Collection<String>): Boolean {
-        val proof = e.tag("link") ?: return false
-        return secrets.any { linkProof(it, e.pubkey).equals(proof, ignoreCase = true) }
+        val proof = e.tag("link")?.lowercase() ?: return false
+        // constant time (294c94f)
+        return secrets.any { java.security.MessageDigest.isEqual(linkProof(it, e.pubkey).toByteArray(), proof.toByteArray()) }
     }
 
     // ---- §8 sharing history -------------------------------------------------------------------
@@ -286,8 +292,9 @@ object Sealing {
      */
     fun acceptShared(share: Event, sealPubkey: String, sharerChain: Chain?, receiver: String): List<Event> {
         if (share.kind != SHARE || sharerChain == null || sharerChain.account != share.pubkey) return emptyList()
-        // the 8564's p must be the receiver (06a1386)
-        if (share.tags.none { it.size >= 2 && it[0] == "p" && it[1] == receiver }) return emptyList()
+        // the 8564's p must be the receiver (06a1386), given once (294c94f)
+        val ps = share.tags.filter { it.size >= 2 && it[0] == "p" }
+        if (ps.size != 1 || ps[0][1] != receiver) return emptyList()
         if (!sharerChain.accepts(sealPubkey, share.createdAt)) return emptyList()
         fun inIt(r: Event, who: String) = r.pubkey == who || r.tags.any { it.size >= 2 && it[0] == "p" && it[1] == who }
         return sharedRumors(share).filter { it.kind in SHARED_KINDS && inIt(it, share.pubkey) && inIt(it, receiver) }
