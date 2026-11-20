@@ -36,10 +36,23 @@ class ReferencesTest {
     fun partsAsTheVectorsSay() {
         val domain = v.s("domain")!!
         val cases = (v["cases"] as JsonArray).map { it as JsonObject }
-        assertTrue(cases.size >= 38)
+        assertTrue(cases.size >= 43)
         for (c in cases) {
             val got = References.parts(c.s("text")!!, domain).map { json(it) }
             assertEquals(c["parts"], JsonArray(got), c.s("name"))
+        }
+    }
+
+    /** One-line previews: each reference as its known name (`known`, by refKey), else its generic word. */
+    @Test
+    fun plainAsTheVectorsSay() {
+        val domain = v.s("domain")!!
+        val known = (v["known"] as JsonObject).mapValues { (it.value as JsonPrimitive).content }
+        val cases = (v["cases"] as JsonArray).map { it as JsonObject }
+        assertTrue(cases.size >= 43)
+        for (c in cases) {
+            val got = References.plain(c.s("text")!!, domain) { known[References.refKey(it)] }
+            assertEquals(c.s("plain"), got, c.s("name"))
         }
     }
 

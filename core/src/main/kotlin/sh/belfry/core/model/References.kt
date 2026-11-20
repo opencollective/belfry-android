@@ -132,6 +132,56 @@ object References {
         return out
     }
 
+    // ---- plain text (one-line previews: the channel list, notifications, the pinned line, reply
+    // quotes, search results, the DM list; the lead 2026-11-20, vectors/references.json `plain`):
+    // every reference reads as the thing's name, never its address; one not known here reads as a
+    // generic word. Ported from the web's src/core/refs.ts plainOf / refKey / genericWord.
+
+    private val NPUB = Regex("nostr:npub1[02-9ac-hj-np-z]+")
+    private val ENDS_WS = Regex("[${Js.WS}]$")
+
+    /** The key a name is known by (vectors/references.json `known`). */
+    fun refKey(t: RefTarget): String = when (t) {
+        is RefTarget.Group -> "group:" + t.id
+        is RefTarget.Event -> "event:" + (t.coord ?: t.link)
+        is RefTarget.Proposal -> "proposal:" + t.coord
+        is RefTarget.Todo -> "todo:${t.group}/${t.task}"
+        is RefTarget.Message -> "message:" + t.id
+        is RefTarget.Person -> "person:" + t.pubkey
+        is RefTarget.Drop -> "drop:" + t.token
+    }
+
+    /** The word for a thing not known (yet) here: never its address. A channel keeps "#channel". */
+    fun genericWord(t: RefTarget): String = when (t) {
+        is RefTarget.Group -> when (kindOfId(t.id)) { RefKind.EVENT -> "an event"; RefKind.PROPOSAL -> "a proposal"; RefKind.GROUP -> "#group"; else -> "#channel" }
+        is RefTarget.Event -> "an event"
+        is RefTarget.Proposal -> "a proposal"
+        is RefTarget.Todo -> "a to-do"
+        is RefTarget.Message -> "a message"
+        is RefTarget.Person -> "someone"
+        is RefTarget.Drop -> "a drop box"
+    }
+
+    /**
+     * TEXT as plain text: each reference as NAME(it) (else its generic word), a box at the end after
+     * one space; mentions (`nostr:npub1…`) as NPUB gives them (null: left as written, for a caller
+     * that names them itself).
+     */
+    fun plain(text: String, domain: String, npub: ((String) -> String)? = { "@…" }, name: (RefTarget) -> String?): String {
+        val out = StringBuilder()
+        for (p in parts(text, domain)) {
+            when (p) {
+                is RefPart.Text -> out.append(if (npub == null) p.text else NPUB.replace(p.text) { npub(it.value) })
+                is RefPart.Ref -> out.append(name(p.target) ?: genericWord(p.target))
+                is RefPart.Box -> {
+                    if (out.isNotEmpty() && !ENDS_WS.containsMatchIn(out)) out.append(' ')
+                    out.append(name(p.target) ?: genericWord(p.target))
+                }
+            }
+        }
+        return out.toString()
+    }
+
     /** The end box of TEXT and the text without it, or null when it has none. */
     fun endBox(text: String, domain: String): Pair<String, RefPart.Box>? {
         val p = parts(text, domain)
@@ -142,7 +192,16 @@ object References {
 }
 
 /** The kind's word, shown while a name hasn't come after 5 s (SPEC 19.43 / 19.44). */
-enum class RefKind(val word: String) { CHANNEL("#channel"), GROUP("#group"), EVENT("Event"), PROPOSAL("Proposal"), TODO("To-do"), MESSAGE("Message"), PERSON("Someone"), DROP("Drop box") }
+enum class RefKind(val word: String, val locked: String, val deleted: String) {
+    CHANNEL("#channel", "a members-only channel", "a deleted channel"),
+    GROUP("#group", "a closed group", "a deleted group"),
+    EVENT("Event", "a members-only event", "a deleted event"),
+    PROPOSAL("Proposal", "a members-only proposal", "a deleted proposal"),
+    TODO("To-do", "a to-do in a closed channel", "a deleted to-do"),
+    MESSAGE("Message", "a message in a closed channel", "a deleted message"),
+    PERSON("Someone", "someone", "someone"),
+    DROP("Drop box", "a drop box", "an ended drop box"),
+}
 
 /** What a reference shows here and now. */
 sealed interface RefSeen {
@@ -163,10 +222,10 @@ sealed interface RefSeen {
     data class Deleted(override val kind: RefKind) : RefSeen
 }
 
-private fun kindOfId(id: String): RefKind = when {
+internal fun kindOfId(id: String): RefKind = when {
     id.startsWith("pod-") -> RefKind.GROUP
     id.startsWith("prop-") -> RefKind.PROPOSAL
-    id.startsWith("ev-") -> RefKind.EVENT
+    id.startsWith("ev-") || id.startsWith("ws-") -> RefKind.EVENT
     else -> RefKind.CHANNEL
 }
 
@@ -238,3 +297,21 @@ fun World.refSeen(t: RefTarget, now: Long = System.currentTimeMillis() / 1000): 
         }
     }
 }
+
+/** A reference's name in plain text, as far as this device knows (else null: the generic word). */
+fun World.plainName(t: RefTarget): String? = when (val s = refSeen(t)) {
+    is RefSeen.Locked -> s.kind.locked
+    is RefSeen.Deleted -> s.kind.deleted
+    is RefSeen.Loading -> null
+    is RefSeen.PersonSeen -> "@" + displayName(s.pubkey)
+    is RefSeen.TodoSeen -> (if (s.task.done) "☑ " else "☐ ") + s.task.title
+    is RefSeen.MessageSeen -> "a message from " + displayName(s.message.ev.pubkey)
+    is RefSeen.DropSeen -> s.group?.takeIf { it.named }?.let { "the drop box of #${it.name}" }
+    is RefSeen.EventSeen -> s.event.title.ifEmpty { null }
+    is RefSeen.ProposalSeen -> s.proposal.title.ifEmpty { null }
+    is RefSeen.GroupSeen -> s.group.takeIf { it.named }?.let { "#${it.name}" }
+}
+
+/** TEXT with every reference as its name (or generic word), mentions left as written: for callers
+ *  that strip Markdown and name mentions themselves (`Markdown.plain`). */
+fun World.namedRefs(text: String): String = References.plain(text, ctx.domain, npub = null) { plainName(it) }

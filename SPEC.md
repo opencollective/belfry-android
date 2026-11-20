@@ -2078,6 +2078,17 @@ Copy link give the slug address.
   channel" / "A message in a closed channel", "Only members of <belfry> can open it"), grey words
   inside the text. **Deleted**: "a deleted channel" (group, event, proposal, to-do, message), "an
   ended drop box" (deleted or past its expiration), grey.
+- **As plain text** (one-line previews: the channel list, notifications, push texts built on the
+  phone, the pinned line, reply quotes, search results, the DM list; the lead 2026-11-20,
+  `references.json` `plain` + `known`): a `nostr:npub` as "@…" (or the caller's name); each
+  reference, inside or at the end, as the thing's name when it is known here — a channel or group
+  "#<name>", an event or proposal its title, a to-do "☐ <title>" ("☑" when done), "a message from
+  <name>", "@<name>", "the drop box of #<channel>"; locked and deleted as above — else its generic
+  word, never the address: "#channel", "#group", "an event", "a proposal", "a to-do", "a message",
+  "someone", "a drop box" (an event's chat `ev-` / `ws-` = "an event", `prop-` = "a proposal").
+  A box at the end follows the text after one space. `refKey`: `group:<id>`, `event:<coord or
+  link>`, `proposal:<coord>`, `todo:<group>/<task>`, `message:<id>`, `person:<pubkey>`,
+  `drop:<token>`. (vectors/channel-refs.json since 2026-11-20: a 30023 naddr reads "a proposal".)
 - **On send**: an `a` tag for each event or proposal coord in the text (as the web does for event
   links); readers never depend on it, they parse the text.
 - Direct actions on the boxes (Going / Maybe / Can't go, Claim / Mark done, Join / Apply, Vote:

@@ -36,7 +36,7 @@ import sh.belfry.core.markdown.Markdown
 import sh.belfry.core.nostr.Event
 import sh.belfry.core.model.World
 import sh.belfry.core.model.isDeletedGroup
-import sh.belfry.core.model.refLabel
+import sh.belfry.core.model.namedRefs
 
 /** The messages and thread replies that name me (p tag or my npub), newest first (web Mentions.tsx). */
 fun World.mentionsOfMe(limit: Int = 100): List<Event> {
@@ -84,7 +84,7 @@ fun MentionsScreen() {
                             "${world.displayName(e.pubkey)} in ${world.group(h)?.name ?: h}" + if (e.kind == 1111) " · thread" else "",
                             fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
-                        val text = Markdown.plain(e.content, channel = { world.refLabel(it) }) { npub ->
+                        val text = Markdown.plain(world.namedRefs(e.content)) { npub ->
                             "@" + (Bech32.npubToHex(npub)?.let { world.displayName(it) } ?: "…")
                         }
                         Text(text.ifEmpty { "a photo" }, fontSize = 15.sp, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)

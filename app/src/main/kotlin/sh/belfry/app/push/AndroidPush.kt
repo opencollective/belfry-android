@@ -274,11 +274,13 @@ object AndroidPush {
         val tag = account.slot + "|" + note.collapse
         val requestCode = (account.id + note.collapse + (note.event ?: "")).hashCode()
         val pi = PendingIntent.getActivity(context, requestCode, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        // an address of this belfry in the text reads as its generic word, never the address (SPEC 19.44 plain)
+        val body = sh.belfry.core.model.References.plain(note.body, account.domain, npub = null) { null }
         val b = NotificationCompat.Builder(context, note.androidChannel.id)
             .setSmallIcon(R.drawable.ic_stat_belfry)
             .setContentTitle(note.title)
-            .setContentText(note.body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(note.body))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pi)
             .setCategory(if (note.type == "dm") NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_SOCIAL)

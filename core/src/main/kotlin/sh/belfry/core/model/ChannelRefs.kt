@@ -13,7 +13,6 @@ object ChannelRefs {
     const val KIND = 39000
     /** A reference in a text; group 1 = the bare naddr. */
     val NADDR = Regex("nostr:(naddr1[02-9ac-hj-np-z]{20,400})")
-    private val NPUB_LOOSE = Regex("nostr:npub1[02-9ac-hj-np-z]+")
     // the web's /(^|[^\p{L}\p{N}_&/])#([\p{L}\p{N}_-]{0,30})$/u on the text before the caret
     private val PICKER = Regex("(^|[^\\p{L}\\p{N}_&/])#([\\p{L}\\p{N}_-]{0,30})\\z")
 
@@ -38,16 +37,11 @@ object ChannelRefs {
         return out
     }
 
-    /** One-line previews (the web's plainRefs): mentions as [npub], channel references as "#name"
-     *  ([nameOf] gives the name of a known channel; its id otherwise); other naddrs as they are. */
-    fun plain(text: String, npub: String = "@…", nameOf: (String) -> String?): String {
-        val noKeys = NPUB_LOOSE.replace(text) { npub }
-        return NADDR.replace(noKeys) { m ->
-            val id = groupOf(m.groupValues[1])
-            // a channel whose name isn't known: the kind's word, never its id (SPEC 19.43)
-            if (id == null) m.value else "#" + (nameOf(id) ?: "channel")
-        }
-    }
+    /** One-line previews (the web's plainRefs, now plainOf): mentions as [npub], channel references
+     *  as "#name" ([nameOf] gives a known channel's name), any other reference as its generic word
+     *  ("#channel", "a proposal", …: vectors/channel-refs.json + references.json `plain`). */
+    fun plain(text: String, npub: String = "@…", nameOf: (String) -> String?): String =
+        References.plain(text, "", { npub }) { t -> (t as? RefTarget.Group)?.let { nameOf(it.id) }?.let { "#$it" } }
 }
 
 /** "nostr:naddr1…" for a channel, or null when its metadata hasn't been seen. */
@@ -57,8 +51,9 @@ fun World.channelRef(id: String): String? {
     return "nostr:" + Nip19.naddr(Nip19.Addr(ChannelRefs.KIND, pubkey, id, relays))
 }
 
-/** Text for one-line previews: mentions as "@…" (or [npub]), channel references as "#name". */
-fun World.plainRefs(text: String, npub: String = "@…"): String = ChannelRefs.plain(text, npub) { group(it)?.name }
+/** Text for one-line previews: mentions as "@…" (or [npub]), every reference of this belfry as its
+ *  name when known here, else its generic word, never its address (SPEC 19.44 plain). */
+fun World.plainRefs(text: String, npub: String = "@…"): String = References.plain(text, ctx.domain, { npub }) { plainName(it) }
 
 /** What a channel reference shows: the channel when it is known here, else null (a neutral label). */
 fun World.channelOfRef(naddr: String): Group? = ChannelRefs.groupOf(naddr)?.let { group(it) }

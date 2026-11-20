@@ -65,27 +65,9 @@ import sh.belfry.core.model.World
  */
 val LocalNetworkImages = staticCompositionLocalOf { true }
 
-internal fun lockedWords(k: RefKind): String = when (k) {
-    RefKind.CHANNEL -> "a members-only channel"
-    RefKind.GROUP -> "a closed group"
-    RefKind.EVENT -> "a members-only event"
-    RefKind.PROPOSAL -> "a members-only proposal"
-    RefKind.TODO -> "a to-do in a closed channel"
-    RefKind.MESSAGE -> "a message in a closed channel"
-    RefKind.PERSON -> "someone"
-    RefKind.DROP -> "a drop box"
-}
+internal fun lockedWords(k: RefKind): String = k.locked
 
-internal fun deletedWords(k: RefKind): String = when (k) {
-    RefKind.CHANNEL -> "a deleted channel"
-    RefKind.GROUP -> "a deleted group"
-    RefKind.EVENT -> "a deleted event"
-    RefKind.PROPOSAL -> "a deleted proposal"
-    RefKind.TODO -> "a deleted to-do"
-    RefKind.MESSAGE -> "a deleted message"
-    RefKind.PERSON -> "someone"
-    RefKind.DROP -> "an ended drop box"
-}
+internal fun deletedWords(k: RefKind): String = k.deleted
 
 /** Opens what a reference points to; a drop box opens its page in the browser through [openLink]. */
 internal fun openRef(nav: Nav, seen: RefSeen, openLink: (String) -> Unit) {
