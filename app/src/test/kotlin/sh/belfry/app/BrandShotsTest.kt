@@ -31,13 +31,14 @@ import sh.belfry.core.net.Community
 class BrandShotsTest : Shots() {
     private val osv = Community.defaults("opensourcevillage.org").copy(
         brandPrimary = "#2b402e", brandSecondary = "#ad6e21",
-        brandColors = BrandColors(BrandMode("#2b402e", "#ffffff"), BrandMode("#58835e", null)),
+        brandColors = BrandColors(BrandMode("#2b402e", "#ffffff"), BrandMode("#608f67", "#111111")),
     )
 
     @Test fun accentPerMode() {
         assertEquals(Color(0xFF2B402E), LightBelfryColors.branded(osv.brandPrimary, osv.brandSecondary, osv.brandColors).accent)
-        assertEquals(Color(0xFF58835E), DarkBelfryColors.branded(osv.brandPrimary, osv.brandSecondary, osv.brandColors).accent)
+        assertEquals(Color(0xFF608F67), DarkBelfryColors.branded(osv.brandPrimary, osv.brandSecondary, osv.brandColors).accent)
         assertEquals(Color.White, LightBelfryColors.branded(osv.brandPrimary, null, osv.brandColors).onAccent)
+        assertEquals(Color(0xFF111111), DarkBelfryColors.branded(osv.brandPrimary, null, osv.brandColors).onAccent)
         // no colors: the raw primary, as before
         assertEquals(Color(0xFF2B402E), DarkBelfryColors.branded(osv.brandPrimary, null, null).accent)
     }
