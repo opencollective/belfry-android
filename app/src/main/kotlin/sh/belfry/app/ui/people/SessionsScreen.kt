@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import sh.belfry.app.ui.kit.rememberBusy
+import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.MyDevice
 import sh.belfry.core.model.SealedText
@@ -187,7 +188,7 @@ internal fun SealDevices() {
     var error by remember { mutableStateOf<String?>(null) }
     val now = session.now()
     val c = Belfry.colors
-    Hint("Signed in as ${world.displayName(session.me)}", Modifier.padding(bottom = 8.dp))
+    Hint("Signed in as ${world.face(session.me).name}", Modifier.padding(bottom = 8.dp))
     ActionGroup {
         st.myDevices.forEach { d ->
             ActionRow(

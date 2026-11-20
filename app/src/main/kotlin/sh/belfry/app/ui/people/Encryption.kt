@@ -212,7 +212,7 @@ fun EncryptionContent(seal: ConvSeal, mine: List<MyDevice>, world: World, now: L
         SectionTitle("You")
         ActionGroup {
             SealRow(
-                world.displayName(me) + " (you)", leading = { Avatar(world.face(me), size = 36.dp) },
+                world.face(me).name + " (you)", leading = { Avatar(world.face(me), size = 36.dp) },
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(SealedText.devices(mine.size), fontSize = 14.sp, color = c.muted)
@@ -227,7 +227,7 @@ fun EncryptionContent(seal: ConvSeal, mine: List<MyDevice>, world: World, now: L
     } else {
         Spacer(Modifier.height(16.dp))
         ActionGroup {
-            SealRow(world.displayName(me) + " (you)", leading = { Avatar(world.face(me), size = 36.dp) }, modifier = Modifier.testTag("seal-me"))
+            SealRow(world.face(me).name + " (you)", leading = { Avatar(world.face(me), size = 36.dp) }, modifier = Modifier.testTag("seal-me"))
             MyDeviceRows(mine, now, world)
         }
     }
@@ -320,7 +320,7 @@ fun SealAskHost() {
     val ask = st.asks.firstOrNull() ?: return
     var gone by remember(ask.id) { mutableStateOf(false) }
     if (gone) return
-    AccessAskDialog(ask, session.me.let { LocalWorld.current.displayName(it) }, session.now(), onDismiss = { gone = true },
+    AccessAskDialog(ask, LocalWorld.current.face(session.me).name, session.now(), onDismiss = { gone = true },
         onAllow = { session.encryption.allow(ask.id) }, onNotMe = { session.encryption.notMe(ask.id) })
 }
 

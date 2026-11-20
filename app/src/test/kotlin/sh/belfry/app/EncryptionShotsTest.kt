@@ -66,6 +66,7 @@ class EncryptionShotsTest : DemoShots() {
         assertEquals(2, compose.onAllNodesWithTag("seal-my-device").fetchSemanticsNodes().size)
         assertEquals(1, compose.onAllNodesWithTag("seal-person").fetchSemanticsNodes().size)
         compose.onNodeWithText("2 devices").assertExists()
+        compose.onNodeWithText("You (you)").assertDoesNotExist()
         compose.onNodeWithText("Removed a device today").assertExists()
         compose.onNodeWithTag("seal-counts-only").assertExists()
         compose.onNodeWithTag("seal-people").assertDoesNotExist()
@@ -107,7 +108,7 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device") { MessagesScreen() }
         compose.onNodeWithTag("seal-banner").assertExists()
-        assertTrue(compose.onAllNodesWithTag("seal-locked-row").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithTag("seal-locked-row", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun showHow() {
@@ -130,7 +131,7 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-locked-thread") { ConversationScreen(maya) }
         compose.onNodeWithTag("seal-locked-block").assertExists()
-        assertEquals(2, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size)
+        assertEquals(3, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size, "Maya's three messages from before it was sealed")
         compose.onNodeWithText("You can write here once this device is allowed.").assertExists()
     }
 
@@ -150,7 +151,7 @@ class EncryptionShotsTest : DemoShots() {
     @Test fun noBanner() {
         demoShot("encryption-messages") { MessagesScreen() }
         compose.onNodeWithTag("seal-banner").assertDoesNotExist()
-        compose.onNodeWithTag("seal-locked-row").assertDoesNotExist()
+        compose.onNodeWithTag("seal-locked-row", useUnmergedTree = true).assertDoesNotExist()
     }
 
     /** messages/encryption-allow: a Material dialog over whatever is open. */
@@ -219,6 +220,7 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-devices-me") { DevicesScreen() }
         assertEquals(2, compose.onAllNodesWithTag("seal-device").fetchSemanticsNodes().size)
         compose.onNodeWithText("This device can't be removed here: use Sign out.").assertExists()
+        compose.onNodeWithText("Signed in as You").assertDoesNotExist()
     }
 
     /** canvas v87: Me has a Devices row once this device has a device list. */
