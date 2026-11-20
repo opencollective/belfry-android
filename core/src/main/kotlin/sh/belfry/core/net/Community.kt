@@ -58,6 +58,8 @@ data class Community(
     /** Its cover image (https only) and its secondary colour (#rrggbb): badges and highlights. */
     val brandCover: String? = null,
     val brandSecondary: String? = null,
+    /** The accent for each mode the belfry worked out from its primary (`branding.colors`, 2026-11-20), when it says. */
+    val brandColors: BrandColors? = null,
     /**
      * Where the phone apps sign in without a browser (belfry.json `sign_in.sessions.api`, the full
      * address of `…/session`; SPEC 19.20). Null: this belfry does not say it has it.
@@ -67,11 +69,13 @@ data class Community(
     val groupsKey: String? = null,
 ) {
     /** The four branding values as the belfry's `/branding` takes them ("" = none). */
-    val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty())
+    val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty(), brandColors)
 
+    /** B's values; its colours, or the ones known when it has none and the primary didn't change. */
     fun withBranding(b: Branding): Community = copy(
         brandLogo = b.logo.ifEmpty { null }, brandCover = b.cover.ifEmpty { null },
         brandPrimary = b.primary.ifEmpty { null }, brandSecondary = b.secondary.ifEmpty { null },
+        brandColors = b.colors ?: brandColors.takeIf { b.primary.isNotEmpty() && b.primary == brandPrimary },
     )
 
     /** The web chat's link to a channel (the member invite link). */
@@ -109,7 +113,7 @@ data class Community(
         if (groupsKey != null) put("groupsKey", JsonPrimitive(groupsKey))
         // kept so the colours and the logo are there before the belfry answers (and offline)
         val b = branding
-        if (b != Branding()) put("branding", b.toJson())
+        if (b != Branding()) put("branding", b.toJson(withColors = true))
     }
 
     /** For the offline cache. */
@@ -219,10 +223,12 @@ data class Community(
  * `POST <api>/branding`), the belfry keeps it in its own key's profile and lists it in
  * belfry.json `branding`. "" = not set. Addresses are https only, colours `#rrggbb`.
  */
-data class Branding(val logo: String = "", val cover: String = "", val primary: String = "", val secondary: String = "") {
-    fun toJson(): JsonObject = buildJsonObject {
+data class Branding(val logo: String = "", val cover: String = "", val primary: String = "", val secondary: String = "", val colors: BrandColors? = null) {
+    /** The four values as `POST /branding` takes them; WITH_COLORS adds the belfry's colours (the offline copy). */
+    fun toJson(withColors: Boolean = false): JsonObject = buildJsonObject {
         put("logo", JsonPrimitive(logo)); put("cover", JsonPrimitive(cover))
         put("primary", JsonPrimitive(primary)); put("secondary", JsonPrimitive(secondary))
+        if (withColors && colors != null) put("colors", colors.toJson())
     }
 
     companion object {
@@ -237,7 +243,41 @@ data class Branding(val logo: String = "", val cover: String = "", val primary: 
             cover = o?.s("cover")?.trim()?.takeIf(::isImageUrl).orEmpty(),
             primary = o?.s("primary")?.trim()?.takeIf(::isColour)?.lowercase().orEmpty(),
             secondary = o?.s("secondary")?.trim()?.takeIf(::isColour)?.lowercase().orEmpty(),
+            colors = BrandColors.parse(o?.get("colors") as? JsonObject),
         )
+    }
+}
+
+/** One mode's accent and the label colour on a button filled with it (`#rrggbb`; ON_ACCENT may be missing). */
+data class BrandMode(val accent: String, val onAccent: String?) {
+    fun toJson(): JsonObject = buildJsonObject {
+        put("accent", JsonPrimitive(accent)); if (onAccent != null) put("on_accent", JsonPrimitive(onAccent))
+    }
+}
+
+/**
+ * `branding.colors` (the lead, 2026-11-20, live on OSV and belfry.sh): the primary when it reads on
+ * that mode's page, else the primary with hue and saturation kept and lightness moved until it
+ * does. Read leniently: a mode without a well-formed accent is absent.
+ */
+data class BrandColors(val light: BrandMode?, val dark: BrandMode?) {
+    fun forMode(dark: Boolean): BrandMode? = if (dark) this.dark else light
+
+    fun toJson(): JsonObject = buildJsonObject {
+        light?.let { put("light", it.toJson()) }; dark?.let { put("dark", it.toJson()) }
+    }
+
+    companion object {
+        private fun mode(o: JsonObject?): BrandMode? {
+            val accent = o?.s("accent")?.trim()?.takeIf(Branding::isColour)?.lowercase() ?: return null
+            return BrandMode(accent, o.s("on_accent")?.trim()?.takeIf(Branding::isColour)?.lowercase())
+        }
+
+        fun parse(o: JsonObject?): BrandColors? {
+            if (o == null) return null
+            val c = BrandColors(mode(o["light"] as? JsonObject), mode(o["dark"] as? JsonObject))
+            return c.takeIf { it.light != null || it.dark != null }
+        }
     }
 }
 

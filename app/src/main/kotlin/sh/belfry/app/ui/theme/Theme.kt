@@ -79,11 +79,13 @@ val LocalBelfryColors = staticCompositionLocalOf { LightBelfryColors }
  * The belfry's primary colour (its branding, web 2026-11-11) as the accent: buttons and badges.
  * Text on it is white or near-black, whichever reads better (the web's onColor).
  */
-fun BelfryColors.branded(hex: String?, secondary: String? = null): BelfryColors {
-    val a = brandColour(hex)
+fun BelfryColors.branded(hex: String?, secondary: String? = null, colors: sh.belfry.core.net.BrandColors? = null): BelfryColors {
+    // the belfry's accent for this mode when it says one (it reads on this page); else the raw primary
+    val mode = colors?.forMode(isDark)
+    val a = brandColour(mode?.accent) ?: brandColour(hex)
     val b = brandColour(secondary)
     var out = this
-    if (a != null) out = out.copy(accent = a, onAccent = onColour(a))
+    if (a != null) out = out.copy(accent = a, onAccent = brandColour(mode?.onAccent)?.takeIf { mode?.accent != null } ?: onColour(a))
     if (b != null) out = out.copy(badge = b, onBadge = onColour(b))
     return out
 }
