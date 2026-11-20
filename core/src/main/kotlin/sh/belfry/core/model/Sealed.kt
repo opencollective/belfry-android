@@ -47,7 +47,7 @@ data class DeviceNotice(
 }
 
 /** Someone's new device that nobody of theirs could unlock: the others may share history. */
-data class LockedDevice(val pubkey: String, val kind: DeviceKind, val at: Long)
+data class LockedDevice(val pubkey: String, val kind: DeviceKind?, val at: Long)
 
 /** What one sealed conversation shows. */
 data class ConvSeal(
@@ -61,7 +61,11 @@ data class ConvSeal(
     val since: Long? = null,
     /** History someone shared with this device (sealed.md §8), one block per sharer. */
     val shared: List<SharedBlock> = emptyList(),
-)
+    /** Times of messages that arrived the old, unsealed way after this device saw it sealed (§6, canvas v89). */
+    val notSealed: Set<Long> = emptySet(),
+) {
+    fun isNotSealed(at: Long): Boolean = at in notSealed
+}
 
 /** Messages someone shared with this device, by their times (FROM..TO). Not proven authentic. */
 data class SharedBlock(val by: String, val from: Long, val to: Long) {
@@ -155,10 +159,10 @@ object SealedText {
         DeviceKind.COMPUTER -> "computer"
     }
 
-    /** "A new phone · signed in today 9:38" (never the device's name). */
+    /** "A new phone · signed in today 9:38" (never the device's name); "A new device" when its kind isn't known (v88). */
     fun newDeviceLine(d: LockedDevice, now: Long, zone: ZoneId): String {
         val rel = relDay(d.at, now, zone)
-        return "A new ${kindWord(d.kind)} · signed in $rel " + TIME.format(Instant.ofEpochSecond(d.at).atZone(zone))
+        return "A new ${d.kind?.let { kindWord(it) } ?: "device"} · signed in $rel " + TIME.format(Instant.ofEpochSecond(d.at).atZone(zone))
     }
 
     fun shareTitle(name: String, group: Boolean): String =
@@ -194,6 +198,8 @@ object SealedText {
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."
     const val WRITE_LATER = "You can write here once this device is allowed."
+    const val NOT_SEALED = "Not sealed"
+    const val NOT_SEALED_WHY = "This message was not sent with the lock. It may come from an old app version."
     fun sharedBy(name: String): String = "Shared by $name"
     fun sharedWhy(name: String): String =
         "$name sent you these earlier messages. They come from $name's device, so the app can't check them the way it checks new ones."

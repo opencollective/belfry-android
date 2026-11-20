@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import sh.belfry.app.ui.kit.rememberBusy
+import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.MyDevice
 import sh.belfry.core.model.SealedText
@@ -161,10 +162,15 @@ fun SessionsContent(
     }
 }
 
-/** Me → Devices (canvas v87): where I'm signed in, each device named in full. */
+/**
+ * Me → Devices (canvas v87 / v88): where I'm signed in, each device named in full. Until this
+ * device has a device list (the sealed wiring), the sessions of the account stand in for it.
+ */
 @Composable
 fun DevicesScreen() {
-    Page("Devices") { SealDevices() }
+    val session = LocalSession.current
+    val st by session.encryption.state.collectAsState()
+    if (st.myDevices.isEmpty()) SessionsScreen() else Page("Devices") { SealDevices() }
 }
 
 /**
@@ -187,7 +193,7 @@ internal fun SealDevices() {
     var error by remember { mutableStateOf<String?>(null) }
     val now = session.now()
     val c = Belfry.colors
-    Hint("Signed in as ${world.displayName(session.me)}", Modifier.padding(bottom = 8.dp))
+    Hint("Signed in as ${world.face(session.me).name}", Modifier.padding(bottom = 8.dp))
     ActionGroup {
         st.myDevices.forEach { d ->
             ActionRow(

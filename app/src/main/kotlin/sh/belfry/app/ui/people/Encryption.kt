@@ -212,7 +212,7 @@ fun EncryptionContent(seal: ConvSeal, mine: List<MyDevice>, world: World, now: L
         SectionTitle("You")
         ActionGroup {
             SealRow(
-                world.displayName(me) + " (you)", leading = { Avatar(world.face(me), size = 36.dp) },
+                world.face(me).name + " (you)", leading = { Avatar(world.face(me), size = 36.dp) },
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(SealedText.devices(mine.size), fontSize = 14.sp, color = c.muted)
@@ -227,7 +227,7 @@ fun EncryptionContent(seal: ConvSeal, mine: List<MyDevice>, world: World, now: L
     } else {
         Spacer(Modifier.height(16.dp))
         ActionGroup {
-            SealRow(world.displayName(me) + " (you)", leading = { Avatar(world.face(me), size = 36.dp) }, modifier = Modifier.testTag("seal-me"))
+            SealRow(world.face(me).name + " (you)", leading = { Avatar(world.face(me), size = 36.dp) }, modifier = Modifier.testTag("seal-me"))
             MyDeviceRows(mine, now, world)
         }
     }
@@ -320,7 +320,7 @@ fun SealAskHost() {
     val ask = st.asks.firstOrNull() ?: return
     var gone by remember(ask.id) { mutableStateOf(false) }
     if (gone) return
-    AccessAskDialog(ask, session.me.let { LocalWorld.current.displayName(it) }, session.now(), onDismiss = { gone = true },
+    AccessAskDialog(ask, LocalWorld.current.face(session.me).name, session.now(), onDismiss = { gone = true },
         onAllow = { session.encryption.allow(ask.id) }, onNotMe = { session.encryption.notMe(ask.id) })
 }
 
@@ -377,7 +377,7 @@ fun ShareHistoryContent(seal: ConvSeal, world: World, now: Long, onShare: suspen
         Text(SealedText.shareBody(name), fontSize = 15.sp, lineHeight = 21.sp, color = c.muted, modifier = Modifier.padding(top = 8.dp))
         Spacer(Modifier.height(12.dp))
         ActionGroup {
-            SealRow(SealedText.newDeviceLine(d, now, world.ctx.zone), leading = { DeviceIcon(d.kind) })
+            SealRow(SealedText.newDeviceLine(d, now, world.ctx.zone), leading = { DeviceIcon(d.kind ?: DeviceKind.PHONE) })
         }
         ErrorLine(error)
         Spacer(Modifier.height(16.dp))
@@ -481,6 +481,34 @@ internal fun SharedWhySheet(b: sh.belfry.core.model.SharedBlock, world: World, o
 fun SharedWhyContent(name: String, onClose: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("seal-shared-why")) {
         Text(SealedText.sharedWhy(name), fontSize = 16.sp, lineHeight = 22.sp, color = Belfry.colors.text)
+        Spacer(Modifier.height(16.dp))
+        BusyButton("OK", onClick = { onClose() }, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/** canvas v89: open lock + "Not sealed" after the time of a message that came the old way. */
+@Composable
+internal fun NotSealedMark(onClick: () -> Unit) {
+    val c = Belfry.colors
+    Row(
+        Modifier.padding(start = 8.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 2.dp, vertical = 1.dp).testTag("seal-not-sealed"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(BelfryIcons.Unlock, contentDescription = null, tint = c.muted, modifier = Modifier.size(11.dp))
+        Spacer(Modifier.width(3.dp))
+        Text(SealedText.NOT_SEALED, fontSize = 11.sp, color = c.muted)
+    }
+}
+
+@Composable
+internal fun NotSealedSheet(onClose: () -> Unit) {
+    BelfrySheet(onDismiss = onClose) { NotSealedContent(onClose) }
+}
+
+@Composable
+fun NotSealedContent(onClose: () -> Unit) {
+    Column(Modifier.fillMaxWidth().testTag("seal-not-sealed-why")) {
+        Text(SealedText.NOT_SEALED_WHY, fontSize = 16.sp, lineHeight = 22.sp, color = Belfry.colors.text)
         Spacer(Modifier.height(16.dp))
         BusyButton("OK", onClick = { onClose() }, modifier = Modifier.fillMaxWidth())
     }

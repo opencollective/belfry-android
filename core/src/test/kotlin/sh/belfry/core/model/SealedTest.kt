@@ -53,6 +53,7 @@ class SealedTest {
         assertEquals("Share this group's history with Lina's new device?", SealedText.shareTitle("Lina", group = true))
         assertEquals("Lina started over on a new device and can't read your earlier messages. Only do this if you're sure it's Lina: ask in person or by phone if you're not.", SealedText.shareBody("Lina"))
         assertEquals("A new phone · signed in today 9:38", SealedText.newDeviceLine(LockedDevice("lina", DeviceKind.PHONE, at("2026-11-20T09:38:00Z")), now, zone))
+        assertEquals("A new device · signed in today 9:38", SealedText.newDeviceLine(LockedDevice("lina", null, at("2026-11-20T09:38:00Z")), now, zone))
     }
 
     @Test fun ask() {

@@ -153,6 +153,7 @@ fun ConversationScreen(conv: String) {
         else -> null
     }
     var why by remember(conv) { mutableStateOf<SharedBlock?>(null) }
+    var notSealedOpen by remember(conv) { mutableStateOf(false) }
 
     LaunchedEffect(conv, rows.size) {
         if (rows.isNotEmpty()) state.scrollToItem(rows.size - 1)
@@ -207,9 +208,9 @@ fun ConversationScreen(conv: String) {
                         is Dm -> {
                             val shared = seal?.shared?.any { it.holds(r.at) } == true
                             if (shared) {
-                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }) }
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true) ({ notSealedOpen = true }) else null) }
                             } else {
-                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly })
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true) ({ notSealedOpen = true }) else null)
                             }
                         }
                         is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
@@ -220,6 +221,7 @@ fun ConversationScreen(conv: String) {
             }
         }
         why?.let { b -> SharedWhySheet(b, world) { why = null } }
+        if (notSealedOpen) NotSealedSheet { notSealedOpen = false }
         Hairline()
         if (newMail) {
             BelfryTextField(
@@ -258,7 +260,7 @@ fun ConversationScreen(conv: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu: (emojiOnly: Boolean) -> Unit) {
+private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu: (emojiOnly: Boolean) -> Unit, notSealed: (() -> Unit)? = null) {
     val c = Belfry.colors
     val session = LocalSession.current
     val retry = rememberBusy()
@@ -294,6 +296,8 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu:
             if (d.attachments.isNotEmpty()) Attachments(d)
             Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(ChatFormat.time(world, d.at), fontSize = 11.sp, color = c.muted)
+                // canvas v89: arrived the old way after the conversation was sealed
+                if (notSealed != null) NotSealedMark(notSealed)
                 if (d.isMail && !d.mine) {
                     Spacer(Modifier.width(8.dp))
                     if (d.verified == true) {

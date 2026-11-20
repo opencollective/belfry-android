@@ -18,6 +18,7 @@ import sh.belfry.app.ui.people.AccessAskDialog
 import sh.belfry.app.ui.people.ConversationScreen
 import sh.belfry.app.ui.people.EncryptionScreen
 import sh.belfry.app.ui.people.MessagesScreen
+import sh.belfry.app.ui.people.NotSealedContent
 import sh.belfry.app.ui.people.DevicesScreen
 import sh.belfry.app.ui.people.MeScreen
 import sh.belfry.app.ui.people.ShareHistoryContent
@@ -66,6 +67,7 @@ class EncryptionShotsTest : DemoShots() {
         assertEquals(2, compose.onAllNodesWithTag("seal-my-device").fetchSemanticsNodes().size)
         assertEquals(1, compose.onAllNodesWithTag("seal-person").fetchSemanticsNodes().size)
         compose.onNodeWithText("2 devices").assertExists()
+        compose.onNodeWithText("You (you)").assertDoesNotExist()
         compose.onNodeWithText("Removed a device today").assertExists()
         compose.onNodeWithTag("seal-counts-only").assertExists()
         compose.onNodeWithTag("seal-people").assertDoesNotExist()
@@ -107,7 +109,7 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device") { MessagesScreen() }
         compose.onNodeWithTag("seal-banner").assertExists()
-        assertTrue(compose.onAllNodesWithTag("seal-locked-row").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(compose.onAllNodesWithTag("seal-locked-row", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun showHow() {
@@ -130,7 +132,7 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-locked-thread") { ConversationScreen(maya) }
         compose.onNodeWithTag("seal-locked-block").assertExists()
-        assertEquals(2, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size)
+        assertEquals("Maya's three messages from before it was sealed", 3, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size)
         compose.onNodeWithText("You can write here once this device is allowed.").assertExists()
     }
 
@@ -150,7 +152,7 @@ class EncryptionShotsTest : DemoShots() {
     @Test fun noBanner() {
         demoShot("encryption-messages") { MessagesScreen() }
         compose.onNodeWithTag("seal-banner").assertDoesNotExist()
-        compose.onNodeWithTag("seal-locked-row").assertDoesNotExist()
+        compose.onNodeWithTag("seal-locked-row", useUnmergedTree = true).assertDoesNotExist()
     }
 
     /** messages/encryption-allow: a Material dialog over whatever is open. */
@@ -219,6 +221,7 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-devices-me") { DevicesScreen() }
         assertEquals(2, compose.onAllNodesWithTag("seal-device").fetchSemanticsNodes().size)
         compose.onNodeWithText("This device can't be removed here: use Sign out.").assertExists()
+        compose.onNodeWithText("Signed in as You").assertDoesNotExist()
     }
 
     /** canvas v87: Me has a Devices row once this device has a device list. */
@@ -226,5 +229,16 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-me-devices") { MeScreen() }
         compose.onNodeWithTag("me-devices").assertExists()
         compose.onNodeWithText("Where you're signed in").assertExists()
+    }
+
+    /** canvas v89: "Not sealed" on a message that came the old way after the conversation was sealed. */
+    @Test fun notSealedMark() {
+        demoShot("encryption-not-sealed-mark") { ConversationScreen(maya) }
+        assertEquals(1, compose.onAllNodesWithTag("seal-not-sealed", useUnmergedTree = true).fetchSemanticsNodes().size)
+    }
+
+    @Test fun notSealedWhy() {
+        demoShot("encryption-not-sealed-why") { Column(Modifier.padding(16.dp)) { NotSealedContent {} } }
+        compose.onNodeWithText("This message was not sent with the lock. It may come from an old app version.").assertExists()
     }
 }
