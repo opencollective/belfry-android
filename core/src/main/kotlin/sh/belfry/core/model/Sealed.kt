@@ -165,7 +165,7 @@ object SealedText {
         "Share ${if (group) "this group's" else "this conversation's"} history with $name's new device?"
 
     fun shareBody(name: String): String =
-        "$name has no other device to unlock it. Only do this if you're sure it's $name: ask in person or by phone if you're not."
+        "$name started over on a new device and can't read your earlier messages. Only do this if you're sure it's $name: ask in person or by phone if you're not."
 
     fun askTitle(device: String): String = "Give your new device “$device” access to your conversations?"
 

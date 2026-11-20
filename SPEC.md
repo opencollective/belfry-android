@@ -2190,6 +2190,7 @@ Outside the demo nothing is sealed, so no lock shows anywhere and every action r
 - History shared with this device (v86): "Shared by <name>" above each sharer's block (opens one
   sentence in a sheet, OK closes it); the shared messages carry a subtle rule on their left.
 - Allow / Not me on my other devices (a dialog over any screen; the first to answer wins); the
-  linked screen inside Link a phone or tablet; Remove a device in Me → Signed-in devices (asks
+  linked screen inside Link a phone or tablet; Remove a device in Me → Devices ("Where you're signed
+  in", shown once this device has a device list, v87) (asks
   first, then the row shows progress, no other row removable; this device is Sign out's).
 

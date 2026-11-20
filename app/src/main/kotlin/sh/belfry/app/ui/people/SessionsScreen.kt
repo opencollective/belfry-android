@@ -74,7 +74,6 @@ fun SessionsScreen() {
         isThis = { session.isThisSession(it) },
         onReload = { round++ },
         onEnd = { ending = it },
-        devices = { SealDevices() },
     )
     val e = ending
     if (e != null) {
@@ -162,6 +161,12 @@ fun SessionsContent(
     }
 }
 
+/** Me → Devices (canvas v87): where I'm signed in, each device named in full. */
+@Composable
+fun DevicesScreen() {
+    Page("Devices") { SealDevices() }
+}
+
 /**
  * canvas messages/encryption-remove-device: the devices that read my sealed conversations, each
  * named in full. Remove asks first (Remove locks while working); this device is Sign out's.
@@ -171,7 +176,10 @@ internal fun SealDevices() {
     val session = LocalSession.current
     val world = sh.belfry.app.ui.nav.LocalWorld.current
     val st by session.encryption.state.collectAsState()
-    if (st.myDevices.isEmpty()) return
+    if (st.myDevices.isEmpty()) {
+        Hint("No devices yet.")
+        return
+    }
     var removing by remember { mutableStateOf<MyDevice?>(null) }
     // canvas v82: once confirmed, the row shows progress and no other row can be removed
     var working by remember { mutableStateOf<String?>(null) }
@@ -179,7 +187,6 @@ internal fun SealDevices() {
     var error by remember { mutableStateOf<String?>(null) }
     val now = session.now()
     val c = Belfry.colors
-    SectionTitle("Devices")
     Hint("Signed in as ${world.displayName(session.me)}", Modifier.padding(bottom = 8.dp))
     ActionGroup {
         st.myDevices.forEach { d ->
