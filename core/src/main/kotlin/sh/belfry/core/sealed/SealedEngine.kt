@@ -43,7 +43,6 @@ class SealedEngine(
     class Answer(val events: List<Event>, val complete: Boolean)
 
     private val lock = Mutex()
-    private val startedAt = clock()
 
     val keys: KeyChain = KeyChain(ports.loadKeys())
 
@@ -92,7 +91,7 @@ class SealedEngine(
     private fun knowsNoReadyChain(person: String): Boolean {
         val k = known[person] ?: return false
         val at = k.completeAt ?: return false
-        val fresh = at >= startedAt || clock() - at < 600
+        val fresh = clock() - at < 600 // expires after 10 minutes (64a07fa)
         return fresh && k.chain?.ready != true
     }
 
@@ -157,13 +156,32 @@ class SealedEngine(
      * the signer, and only then both sent, roster first. If the anchor can't be signed, neither goes
      * (the change is tried again later; 294c94f).
      */
-    private suspend fun publishNext(head: Chain, devices: List<String>, lb: String, ready: Boolean) {
+    private suspend fun publishNext(head: Chain, devices: List<String>, lb: String, ready: Boolean): Boolean {
         val r = device.signNow(Roster.template(account, head.head.n + 1, head.head.id, lb, devices, ready, clock()))
         val anchor = ports.signAsAccount(Anchor.template(head.root.id, r.id, clock()))
-        ports.publish(r)
-        ports.publish(anchor)
-        refresh(account)
+        return land(r, anchor)
     }
+
+    /**
+     * Roster and anchor as one unit (64a07fa): done only when the relay accepted BOTH, and my chain,
+     * read again, has the roster on its anchored path. Otherwise not done (the caller redoes it on
+     * the new head); a roster the relay refused is never kept here.
+     */
+    private suspend fun land(r: Event, anchor: Event): Boolean {
+        if (!ports.publish(r)) return false
+        if (!ports.publish(anchor)) return false
+        refresh(account) ?: return false
+        return anchoredHead() == r.id
+    }
+
+    /** The roster my anchor names, as the relay has it now (null = unknown or the root). */
+    private suspend fun anchoredHead(): String? {
+        val a = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
+        return Anchor.read(a.events, account)?.let { it.second ?: it.first }
+    }
+
+    /** A roster change that didn't land after a few tries on the newest head. */
+    class NotDone : IllegalStateException("Not done yet: another of your devices changed the list at the same moment. Try again.")
 
     // ---- requests, Allow / Not me (§5.2) ------------------------------------------------------
 
@@ -201,8 +219,19 @@ class SealedEngine(
         // the session is still live (294c94f)
         val sessions = ports.sessions() ?: throw IllegalStateException("The list of sessions could not be read. Try again.")
         if (sessions.none { it.clientPubkey == newDevice && it.chat }) throw IllegalStateException("That device is no longer signed in.")
-        Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
-        publishNext(chain, chain.devices + newDevice, chain.head.lb, chain.ready)
+        // the roster first; keys only once it is on the anchored path (never keys in no roster, 64a07fa)
+        var cur = chain
+        repeat(3) {
+            if (publishNext(cur, cur.devices + newDevice, cur.head.lb, cur.ready)) {
+                Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
+                return@withLock
+            }
+            cur = refresh(account) ?: throw NotDone()
+            val anchored = anchoredHead()?.let { id -> cur.rosters.firstOrNull { it.id == id } }
+            if (anchored != null && newDevice in anchored.devices) { Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }; return@withLock }
+            if (cur.devices.size >= Roster.MAX_DEVICES) throw TooMany()
+        }
+        throw NotDone()
     }
 
     /** Not me: revoke that session. No roster change. */
@@ -220,19 +249,23 @@ class SealedEngine(
         // a user's removal revokes the session FIRST and changes nothing when that fails (294c94f)
         if (revoke) ports.revoke(dev)
         val live = ports.sessions()?.mapNotNull { it.clientPubkey }?.toSet() ?: emptySet()
-        val (lbPub, lbSecret) = KeyChain.newLetterbox()
-        val remaining = chain.devices - dev
-        val anchorKeys = KeyChain(keys.toMap()).also { it.add(lbPub, lbSecret) }
-        // new keys only to devices that stay AND have a live session
-        val wraps = remaining.filter { it != device.pubkey && it in live }.flatMap { d -> Sealing.keysFor(device, account, d, anchorKeys, clock()) }
-        // roster and anchor both signed before anything goes; the keys go first, then the two together
-        val r = device.signNow(Roster.template(account, chain.head.n + 1, chain.head.id, lbPub, remaining, chain.ready, clock()))
-        val anchor = ports.signAsAccount(Anchor.template(chain.root.id, r.id, clock()))
-        keys.add(lbPub, lbSecret); saveKeys()
-        wraps.forEach { ports.publish(it) }
-        ports.publish(r)
-        ports.publish(anchor)
-        refresh(account)
+        var cur = chain
+        repeat(3) {
+            if (dev !in cur.devices) return@withLock
+            val (lbPub, lbSecret) = KeyChain.newLetterbox()
+            val remaining = cur.devices - dev
+            val withNew = KeyChain(keys.toMap()).also { it.add(lbPub, lbSecret) }
+            // new keys only to devices that stay AND have a live session
+            val wraps = remaining.filter { it != device.pubkey && it in live }.flatMap { d -> Sealing.keysFor(device, account, d, withNew, clock()) }
+            // roster and anchor both signed before anything goes; the keys go first, then the two as one unit
+            val r = device.signNow(Roster.template(account, cur.head.n + 1, cur.head.id, lbPub, remaining, cur.ready, clock()))
+            val anchor = ports.signAsAccount(Anchor.template(cur.root.id, r.id, clock()))
+            keys.add(lbPub, lbSecret); saveKeys()
+            wraps.forEach { ports.publish(it) }
+            if (land(r, anchor)) return@withLock
+            cur = refresh(account) ?: throw NotDone()
+        }
+        throw NotDone()
     }
 
     /**
@@ -289,8 +322,10 @@ class SealedEngine(
         data class Seal(val heads: Map<String, String>) : Plan
         /** Today's way: known, from a complete answer, that someone has no ready chain. */
         data object OldWay : Plan
-        /** Can't tell, or sealed with no head: refused, the text kept. */
+        /** Sealed with no head, or this device is locked: refused, the text kept. */
         data class Refuse(val why: String) : Plan
+        /** Can't tell yet: hold it undecided and plan again at the first complete answer (64a07fa). */
+        data object Hold : Plan
     }
 
     /** How to send in CONV to PARTICIPANTS (me included): every chain asked again first (≤ 3 s). */
@@ -308,7 +343,7 @@ class SealedEngine(
             return Plan.Seal(heads.mapValues { it.value!! })
         }
         if (people.any { knowsNoReadyChain(it) }) return Plan.OldWay
-        return Plan.Refuse("Not sent: no answer from the belfry yet. Try again in a moment.")
+        return Plan.Hold
     }
 
     /** The wraps of a rumor for a Seal plan. A rumor over 40 000 bytes is refused. */
@@ -327,6 +362,16 @@ class SealedEngine(
 
     // ---- receiving (§4) -----------------------------------------------------------------------
 
+    /** Unanswered chain reads back off per author, so waiting wraps don't hold up the rest (64a07fa). */
+    private val askedAt = HashMap<String, Pair<Long, Long>>()
+
+    private fun mayAsk(author: String): Boolean {
+        val (at, wait) = askedAt[author] ?: return true.also { askedAt[author] = clock() to 60L }
+        if (clock() - at < wait) return false
+        askedAt[author] = clock() to minOf(wait * 2, 3600L)
+        return true
+    }
+
     /** What happened to an arriving wrap; ACCEPT carries the rumor. */
     data class Received(val verdict: Sealing.Verdict, val rumor: Event? = null)
 
@@ -335,7 +380,7 @@ class SealedEngine(
         val o = Sealing.open(wrap, keys)
         val firstSeen = pending[wrap.id]?.second ?: clock()
         val author = (o as? Opening.Opened)?.rumor?.pubkey
-        if (author != null && author != belfry && chainOf(author) == null) refresh(author)
+        if (author != null && author != belfry && chainOf(author) == null && mayAsk(author)) refresh(author)
         val v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry, myLetterboxes = chainOf(account)?.letterboxes?.toSet())
         when (v) {
             Sealing.Verdict.ACCEPT -> {
@@ -389,7 +434,8 @@ data class SessionRow(val clientPubkey: String?, val chat: Boolean, val lastSeen
 /** What the engine needs from the outside. */
 interface SealedPorts {
     suspend fun query(q: Query): SealedEngine.Answer
-    suspend fun publish(e: Event)
+    /** True when the relay accepted it (OK true). */
+    suspend fun publish(e: Event): Boolean
     /** Signs as the account (the signer). */
     suspend fun signAsAccount(t: EventTemplate): Event
     /** null = no answer or not well formed (a missing `sessions` field is not "no sessions"). */

@@ -23,6 +23,9 @@ class SealedEngineTest {
     class FakeRelay {
         val events = ArrayList<Event>()
         var silent = false
+        /** Kinds the relay refuses (OK false). */
+        val refusing = HashSet<Int>()
+        fun refuse(e: Event) = e.kind in refusing
         fun add(e: Event) {
             if (e.kind == 30078) events.removeAll { it.kind == 30078 && it.pubkey == e.pubkey && it.tag("d") == e.tag("d") }
             events.add(e)
@@ -60,7 +63,7 @@ class SealedEngineTest {
         var saved: Map<String, String> = emptyMap()
         val revoked = ArrayList<String>()
         override suspend fun query(q: Query) = relay.query(q)
-        override suspend fun publish(e: Event) = relay.add(e)
+        override suspend fun publish(e: Event): Boolean { if (relay.refuse(e)) return false; relay.add(e); return true }
         override suspend fun signAsAccount(t: EventTemplate): Event = if (signerDown) throw IllegalStateException("signer") else account.signNow(t)
         override suspend fun sessions(): List<SessionRow>? = if (server.odd) null else server.sessions[account.pubkey]?.toList() ?: emptyList()
         override suspend fun revoke(clientPubkey: String) { if (server.failRevoke) throw IllegalStateException("revoke"); revoked.add(clientPubkey); server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
@@ -125,7 +128,7 @@ class SealedEngineTest {
         assertEquals(setOf(alicePhone.pubkey, aliceLaptop.pubkey), head.devices.toSet())
         assertNotNull(laptop.keys.secretFor(head.head.lb), "the laptop got the letterbox")
         // the anchor names the new head
-        assertEquals(head.head.id, relay.events.single { it.kind == 30078 && it.tag("d") == Anchor.D }.tag("head"))
+        assertEquals(head.head.id, relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }.tag("head"))
         assertTrue(phone.refresh(alice.pubkey)!!.ready)
     }
 
@@ -181,7 +184,7 @@ class SealedEngineTest {
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone"); phone.checkReady()
         val carol = LocalSigner.random().pubkey
         relay.silent = true
-        assertIs<SealedEngine.Plan.Refuse>(phone.plan(conv(alice.pubkey, carol), listOf(carol)))
+        assertEquals(SealedEngine.Plan.Hold, phone.plan(conv(alice.pubkey, carol), listOf(carol)), "held undecided, never the old way")
         relay.silent = false
         assertEquals(SealedEngine.Plan.OldWay, phone.plan(conv(alice.pubkey, carol), listOf(carol)))
     }
@@ -324,5 +327,30 @@ class SealedEngineTest {
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
         kotlin.test.assertFails { phone.allow(aliceLaptop.pubkey) }
         assertEquals(1, phone.refresh(alice.pubkey)!!.devices.size)
+    }
+
+    /** 64a07fa: knowledge of "no ready chain" expires after 10 minutes. */
+    @Test fun knowledgeExpires() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone"); phone.checkReady()
+        val carol = LocalSigner.random().pubkey
+        assertEquals(SealedEngine.Plan.OldWay, phone.plan(conv(alice.pubkey, carol), listOf(carol)))
+        relay.silent = true
+        now += 601
+        assertEquals(SealedEngine.Plan.Hold, phone.plan(conv(alice.pubkey, carol), listOf(carol)))
+        relay.silent = false
+    }
+
+    /** 64a07fa: Allow is not done when the relay refuses the anchor, and no key went out. */
+    @Test fun allowNotDoneWhenRefused() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        relay.refusing.add(30078)
+        kotlin.test.assertFailsWith<SealedEngine.NotDone> { phone.allow(aliceLaptop.pubkey) }
+        relay.refusing.clear()
+        assertTrue(relay.to(aliceLaptop.pubkey).isEmpty(), "never keys for a device in no roster")
+        val anchor = relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
+        assertEquals(anchor.tag("root"), anchor.tag("head"), "the anchor still names the root: the change isn't done")
     }
 }
