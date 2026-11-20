@@ -87,6 +87,10 @@ object Sealing {
     fun rumorBytes(rumor: Event): Int = rumor.copy(sig = "").toJsonString().toByteArray(Charsets.UTF_8).size
     fun fits(rumor: Event): Boolean = rumorBytes(rumor) <= MAX_RUMOR_BYTES
 
+    /**
+     * Never filter by `#lb` on the relay: belfry.sh's relay ignores a multi-letter tag filter and
+     * returns every 1059 (the lead's live check, 2026-11-20). Ask by `#p` only; match lb here.
+     */
     fun isSealed(wrap: Event): Boolean = wrap.kind == WRAP && wrap.tag("lb") != null
 
     /**
@@ -241,7 +245,15 @@ object Sealing {
     fun canSeal(participants: Collection<String>, chains: Map<String, Chain?>): Boolean =
         participants.isNotEmpty() && participants.all { chains[it]?.ready == true }
 
-    /** May the roster I publish say `ready`: every live session's client key is a device of it. */
+    /**
+     * The client keys of the sessions that count for `ready` (§6): the belfry's own chat clients
+     * (`chat` true) last active less than 30 × 86 400 s ago, by last_activity, or created_at when
+     * never active. Times in Unix seconds.
+     */
+    fun countedSessions(sessions: List<Triple<String?, Boolean, Long?>>, now: Long): List<String> =
+        sessions.mapNotNull { (key, chat, lastSeen) -> key?.takeIf { chat && lastSeen != null && now - lastSeen < 30 * 86400L } }
+
+    /** May the roster I publish say `ready`: every counted session's client key is a device of it. */
     fun readyFor(devices: Collection<String>, liveSessionKeys: Collection<String>): Boolean =
         liveSessionKeys.isNotEmpty() && liveSessionKeys.all { it in devices }
 }

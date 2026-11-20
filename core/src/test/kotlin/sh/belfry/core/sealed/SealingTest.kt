@@ -199,6 +199,17 @@ class SealingTest {
         assertNull(DeviceNames.open(e2, KeyChain()), "other people never read it")
     }
 
+    @Test fun countedSessions() {
+        val now = t0
+        val counted = Sealing.countedSessions(listOf(
+            Triple(phone.pubkey, true, now - 3600),
+            Triple(laptop.pubkey, true, now - 30 * 86400L), // 30 days ago: no longer counts
+            Triple(tablet.pubkey, false, now), // another approved app
+            Triple(null, true, now),
+        ), now)
+        assertEquals(listOf(phone.pubkey), counted)
+    }
+
     @Test fun myDeviceName() {
         assertEquals("Chrome on Windows", DeviceNames.myName("Chrome on Windows", "Pixel 8"))
         assertEquals("Pixel 8", DeviceNames.myName("  ", "Pixel 8"))

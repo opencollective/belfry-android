@@ -169,6 +169,10 @@ data class SessionInfo(
     val bunkerPubkey: String,
     val createdAt: String,
     val lastActivity: String?,
+    /** The session's client key (sealed.md: a device key), when the belfry says it. */
+    val clientPubkey: String? = null,
+    /** True for the belfry's own chat clients (sealed.md §5.2 / §6); false for other approved apps. */
+    val chat: Boolean = false,
 )
 
 /**
@@ -562,6 +566,8 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
                 bunkerPubkey = o.s("bunker_pubkey") ?: return@mapNotNull null,
                 createdAt = o.s("created_at") ?: "",
                 lastActivity = o.s("last_activity"),
+                clientPubkey = o.s("client_pubkey")?.lowercase()?.takeIf { sh.belfry.core.crypto.Hex.isKey(it) },
+                chat = o["chat"].bool() ?: false,
             )
         } ?: emptyList()
     }
