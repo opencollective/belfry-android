@@ -198,7 +198,7 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
         // a thread reply's link opens its thread with the reply flashed (canvas channels/message-link)
         ActionRow(
             if (copied == "link") "Copied" else "Copy link",
-            onClick = { copyText(context, session.community.channelLink(groupId) + "/m/" + m.id); copied = "link" },
+            onClick = { copyText(context, session.community.messageLink(groupId, m.id, world.calendar.firstOrNull { it.groupId == groupId }?.link)); copied = "link" },
             icon = BelfryIcons.Link,
         )
         // #requests (web 2026-11-11): a member turns a request into a proposal in #proposals

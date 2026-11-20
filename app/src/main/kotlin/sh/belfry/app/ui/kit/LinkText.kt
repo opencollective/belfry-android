@@ -27,6 +27,7 @@ import sh.belfry.app.ui.nav.LocalWorldOrNull
 import sh.belfry.app.ui.nav.Nav
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Links
+import sh.belfry.core.model.eventByLink
 
 /**
  * Opens a link someone wrote (SPEC 19.36): this belfry's channel, event and guest links open in
@@ -36,13 +37,14 @@ import sh.belfry.core.model.Links
 @Composable
 fun rememberOpenLink(): (String) -> Unit {
     val nav = LocalNav.current
-    val domain = LocalWorldOrNull.current?.ctx?.domain.orEmpty()
+    val world = LocalWorldOrNull.current
+    val domain = world?.ctx?.domain.orEmpty()
     val uri = LocalUriHandler.current
     val context = LocalContext.current
-    return remember(nav, domain, uri, context) { { href: String -> openLink(href, domain, nav, uri, context) } }
+    return remember(nav, domain, uri, context, world) { { href: String -> openLink(href, domain, nav, uri, context) { l -> world?.eventByLink(l)?.groupId } } }
 }
 
-fun openLink(href: String, domain: String, nav: Nav, uri: UriHandler, context: Context) {
+fun openLink(href: String, domain: String, nav: Nav, uri: UriHandler, context: Context, chatOfEvent: (String) -> String? = { null }) {
     if (!isSafeLink(href)) return
     fun inside(url: String) {
         try {
@@ -53,6 +55,8 @@ fun openLink(href: String, domain: String, nav: Nav, uri: UriHandler, context: C
     }
     when (val inApp = Links.inApp(href, domain)) {
         is Links.InApp.Channel -> nav.openChannel(inApp.id, inApp.messageId)
+        is Links.InApp.EventMessage -> chatOfEvent(inApp.link)?.let { nav.openChannel(it, inApp.messageId) }
+            ?: inside(href.substringBefore("#") + "#/events/" + inApp.link)
         is Links.InApp.Event -> inside(inApp.url)
         is Links.InApp.Join -> inside(inApp.url)
         null -> try { uri.openUri(href) } catch (e: Exception) { }

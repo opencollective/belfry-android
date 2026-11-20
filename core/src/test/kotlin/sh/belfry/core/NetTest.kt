@@ -419,6 +419,9 @@ class DiscoveryTest {
         assertEquals(emptyList(), c.admins)
         assertEquals("https://example.org/chat/", c.chatUrl)
         assertEquals("https://example.org/chat/#/c/caf%C3%A9%20club", c.channelLink("café club"))
+        val id = "ab".repeat(32)
+        assertEquals("https://example.org/chat/#/c/garden/m/$id", c.messageLink("garden", id))
+        assertEquals("https://example.org/chat/#/events/repair-cafe/m/$id", c.messageLink("ev-2026-repair", id, "repair-cafe"))
     }
 
     @Test

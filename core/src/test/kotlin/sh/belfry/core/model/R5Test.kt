@@ -92,6 +92,7 @@ class R5Test {
         val e = "e".repeat(64)
         assertEquals(Links.InApp.Channel("website", e), Links.inApp("https://chat.$d/#/c/website/m/$e", d))
         assertEquals(Links.InApp.Channel("garden", null), Links.inApp("https://$d/chat/#/c/garden", d))
+        assertEquals(Links.InApp.EventMessage("repair-cafe", e), Links.inApp("https://chat.$d/#/events/repair-cafe/m/$e", d))
         assertTrue(Links.inApp("https://chat.$d/events/seed-swap", d) is Links.InApp.Event)
         assertTrue(Links.inApp("https://chat.$d/join/abcdefghijklmnopqrstuvwxyz", d) is Links.InApp.Join)
         assertNull(Links.inApp("https://chat.other.org/#/c/general", d))

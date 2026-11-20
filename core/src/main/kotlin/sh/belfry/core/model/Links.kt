@@ -47,6 +47,8 @@ object Links {
     /** A link to something this app shows itself (on this belfry's chat host). */
     sealed interface InApp {
         data class Channel(val id: String, val messageId: String?) : InApp
+        /** A message in an event's chat, `#/events/<link>/m/<event>` (SPEC 19.44): its chat at the message. */
+        data class EventMessage(val link: String, val messageId: String) : InApp
         /** An event's page (also a ticket's `/t/<code>`): handled like an opened event link. */
         data class Event(val url: String) : InApp
         /** A guest link: handled like an opened invitation. */
@@ -54,6 +56,7 @@ object Links {
     }
 
     private val CHANNEL = Regex("^/(?:chat/)?#/c/([^/?#]{1,120})(?:/m/([0-9a-f]{64}))?/?$")
+    private val EVENT_MESSAGE = Regex("^/(?:chat/)?#/events/([A-Za-z0-9_-]{1,80})/m/([0-9a-f]{64})/?$")
 
     /**
      * What URL opens inside the app on the belfry at DOMAIN: `https://chat.<domain>/#/c/<id>[/m/<event>]`
@@ -72,6 +75,7 @@ object Links {
             val id = try { java.net.URLDecoder.decode(m.groupValues[1], "UTF-8") } catch (e: Exception) { return null }
             return InApp.Channel(id, m.groupValues[2].ifEmpty { null })
         }
+        EVENT_MESSAGE.matchEntire(rest)?.let { m -> return InApp.EventMessage(m.groupValues[1], m.groupValues[2]) }
         if (u.startsWith("https://chat.$domain/")) {
             sh.belfry.core.net.InviteLink.parse(u)?.let { if (it.domain == domain) return InApp.Join(u) }
             sh.belfry.core.net.EventLink.parse(u)?.let { if (it.domain == domain) return InApp.Event(u) }

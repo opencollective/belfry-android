@@ -77,6 +77,13 @@ data class Community(
     /** The web chat's link to a channel (the member invite link). */
     fun channelLink(id: String): String = chatUrl + "#/c/" + encodeURIComponent(id)
 
+    /**
+     * A message's address (SPEC 19.44): in an event's chat `#/events/<slug or d>/m/<id>` (no group
+     * id when the event is known: the lead, 2026-11-20), else `#/c/<group>/m/<id>`.
+     */
+    fun messageLink(groupId: String, id: String, eventLink: String? = null): String =
+        if (eventLink != null) chatUrl + "#/events/" + encodeURIComponent(eventLink) + "/m/" + id else channelLink(groupId) + "/m/" + id
+
     /** My address here for a username. */
     fun address(username: String): String = "$username@$domain"
 
