@@ -136,7 +136,7 @@ class SealingTest {
         // no secret here: locked, the wrap is kept
         assertIs<Opening.Locked>(Sealing.open(toLina, KeyChain()))
         // the old kind
-        val old = runBlocking<Unit> { GiftWrap.wrap(rumor, lina.pubkey, account) }
+        val old = runBlocking { GiftWrap.wrap(rumor, lina.pubkey, account) }
         assertEquals(Opening.NotSealed, Sealing.open(old, KeyChain(mapOf(linaLb))))
         // a wrong secret for the lb is refused by the chain itself
         assertFalse(KeyChain().add(linaLb.first, lb1.second))
