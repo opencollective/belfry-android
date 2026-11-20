@@ -16,7 +16,10 @@ import sh.belfry.core.engine.Demo
 /** canvas v93 (Xavier 2026-11-20): a member's agents fold under the member. Demo: Kofi and his agent Wren. */
 class MembersAgentsShotsTest : DemoShots() {
     @Test fun folded() {
-        demoShot("members-agents") { MembersScreen() }
+        demoShot("members-agents", act = {
+            compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("members-search"))).performTextInput("kofi")
+            compose.waitForIdle()
+        }) { MembersScreen() }
         compose.onNodeWithText("+ 1 agent", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Wren", useUnmergedTree = true).assertDoesNotExist()
     }
