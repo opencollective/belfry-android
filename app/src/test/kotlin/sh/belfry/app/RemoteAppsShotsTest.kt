@@ -7,6 +7,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import sh.belfry.app.ui.shell.ConfirmStep
 import sh.belfry.app.ui.shell.ConnectedAppsScreen
+import sh.belfry.app.ui.shell.DoneStep
+import sh.belfry.app.ui.shell.ProblemStep
+import sh.belfry.app.ui.shell.SignerProblem
 import sh.belfry.core.net.RemoteAppPreview
 
 /** SPEC 19.47: sign in to another app with the belfry as its remote signer (demo answers). */
@@ -18,6 +21,20 @@ class RemoteAppsShotsTest : DemoShots() {
         demoShot("remote-app-confirm") { ConfirmStep(preview, null, onCancel = {}, onConnect = {}) }
         compose.onNodeWithTag("remote-app-title").assertExists()
         compose.onNodeWithTag("remote-app-decrypt").assertExists()
+        compose.onNodeWithTag("remote-app-unverified").assertExists()
+    }
+
+    /** home/signer-errors-android: a fixed line in place of the confirm screen, one way on. */
+    @Test fun problems() {
+        demoShot("remote-app-problem-taken") { ProblemStep(SignerProblem.ANOTHER_ACCOUNT) {} }
+        compose.onNodeWithTag("remote-app-problem-ANOTHER_ACCOUNT").assertExists()
+    }
+
+    @Test fun guestProblem() = demoShot("remote-app-problem-guest") { ProblemStep(SignerProblem.GUEST) {} }
+
+    @Test fun done() {
+        demoShot("remote-app-done") { DoneStep("gitworkshop", "Alex Morgan", onDone = {}, onApps = {}) }
+        compose.onNodeWithTag("remote-app-done").assertExists()
     }
 
     /** No private messages asked: no switch. */

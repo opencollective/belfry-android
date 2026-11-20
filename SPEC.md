@@ -2130,8 +2130,15 @@ third-party Nostr app on the app's relays; the phone answers nothing and holds n
   try again."), 503 `signer`. A connection ends after 30 days without use and with the membership.
 - **Flow**: account switcher → "Sign in to another app" → Connected apps (the list, each can be
   disconnected) → "Sign in to an app" → scan (or "Paste a code instead") → the belfry's preview →
-  confirm ("Act as <you>", and a "Read your private messages" switch, on, only when the app asks
-  to decrypt) → Connect → "You're signed in to <app>" → Connected apps. Never shown: a key, an
-  npub, a relay address. Members only (hidden for guests).
+  confirm (canvas v71 home/signer-*-android, note n-signer, DRAFT for Xavier: "Sign in to
+  <name>?", "The app says it is “<name>”, at <host>" — no name: "An app at <host>", neither: "An
+  app" —, "Name not verified by Belfry", As <me>, It will be able to: "Post and sign as you"
+  and, only when the app asks to decrypt, a "Read your private messages" switch that starts OFF)
+  → Sign in ("Signing in…", Cancel locked; no answer in 15 s: "The app didn't answer. Check it is
+  still open and scan again.") → "You're signed in to <app>" (Done / Connected apps). Refusals
+  shown in place of the confirm screen, each with one way on: expired or used, not a sign-in code,
+  connected to another account (`key_taken`), a guest ("How to join"). Entry: Accounts, under
+  "Link a phone or tablet"; "Connected apps · N" only once one exists. "Paste a link instead"
+  reads the clipboard. Never shown: a key, an npub, a relay address, the code.
 - (Android: `core/net/RemoteApps.kt`, `engine/RemoteApps.kt` `Session.remoteApps`;
   `ui/shell/RemoteApps.kt`.)

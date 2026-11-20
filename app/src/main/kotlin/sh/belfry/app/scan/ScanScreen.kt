@@ -186,6 +186,8 @@ fun ScanContent(
                     ScanUi.ASKING -> BusyButton("Allow the camera", onClick = { onAllow() }, modifier = Modifier.fillMaxWidth())
                     else -> BusyButton("Back", onClick = { onClose() }, modifier = Modifier.fillMaxWidth(), kind = ButtonKind.Ghost)
                 }
+                // another way in (Sign in to another app: paste the app's code)
+                if (footer != null) { Spacer(Modifier.height(8.dp)); footer() }
             }
         }
         return

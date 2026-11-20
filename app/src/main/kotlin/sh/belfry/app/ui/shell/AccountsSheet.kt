@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -133,10 +134,18 @@ fun AccountsList(accounts: AccountsUi, onDismiss: () -> Unit, go: (String) -> Un
                 sub = "Scan a QR code there to log in as ${world.myAddress}", enabled = !busy.busy,
                 modifier = Modifier.testTag("account-link-device"),
             )
-            // Sign in to another app (SPEC 19.47): members only (a guest or an agent can't)
-            if (!world.amGuest) ActionRow(
-                "Sign in to another app", onClick = { onDismiss(); go(Routes.REMOTE_APPS) }, icon = BelfryIcons.Globe,
-                sub = "Use this account in another Nostr app: scan its code", enabled = !busy.busy,
+            // Sign in to another app (SPEC 19.47, canvas home/signer-entry-android): under "Link a phone
+            // or tablet"; a guest sees it too (scanning says guests can't yet). Connected apps · N once one exists.
+            ActionRow(
+                "Sign in to another app", onClick = { onDismiss(); go(Routes.REMOTE_APP_SCAN) }, icon = BelfryIcons.Qr,
+                sub = "Scan the code an app shows to sign in with your Belfry account", enabled = !busy.busy,
+                modifier = Modifier.testTag("account-remote-sign-in"),
+            )
+            val apps by session.remoteApps.apps.collectAsState()
+            if (!world.amGuest) androidx.compose.runtime.LaunchedEffect(Unit) { try { session.remoteApps.refresh() } catch (e: Exception) { } }
+            val n = apps?.size ?: 0
+            if (n > 0) ActionRow(
+                "Connected apps", onClick = { onDismiss(); go(Routes.REMOTE_APPS) }, icon = BelfryIcons.Globe, value = n.toString(), enabled = !busy.busy,
                 modifier = Modifier.testTag("account-remote-apps"),
             )
         }
