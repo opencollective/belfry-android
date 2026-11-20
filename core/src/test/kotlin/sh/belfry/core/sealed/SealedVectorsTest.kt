@@ -1,0 +1,183 @@
+package sh.belfry.core.sealed
+
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import sh.belfry.core.Vectors
+import sh.belfry.core.dm.GiftWrap
+import sh.belfry.core.nostr.Event
+import sh.belfry.core.nostr.LocalSigner
+import sh.belfry.core.nostr.s
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * vectors/sealed.json (collective-belfry belfry-sh 8290e37, sha256 572c8f01…8a95e4), shared with
+ * the web, iOS and the server: chains, wraps, the ceiling and packing, hand-over, link, ready, history.
+ */
+class SealedVectorsTest {
+    private val v = Vectors.load("sealed.json")
+    private val keys = v["keys"] as JsonObject
+    private fun pub(name: String) = (keys[name] as JsonObject).s("pubkey")!!
+    private fun secret(name: String) = (keys[name] as JsonObject).s("secret")!!
+
+    private fun ev(o: JsonObject): Event = Event.fromJson(o)!!
+    private fun evs(a: Any?): List<Event> = (a as? JsonArray)?.map { ev(it as JsonObject) } ?: emptyList()
+    private fun cases(name: String) = (v[name] as JsonArray).map { it as JsonObject }
+    private fun strs(a: Any?) = (a as JsonArray).map { it.jsonPrimitive.content }
+    private fun str(o: JsonObject, k: String): String? = (o[k] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
+
+    private fun chainOf(anchor: JsonObject?, rosters: List<Event>): Chain? {
+        val a = anchor?.let { ev(it) } ?: return null
+        return Chain.of(a.pubkey, listOf(a), rosters)
+    }
+
+    private fun chainCase(name: String): JsonObject = cases("chains").first { it.s("name") == name }
+    private fun namedChain(name: String): Chain? = chainCase(name).let { chainOf(it["anchor"] as? JsonObject, evs(it["rosters"])) }
+
+    @Test fun chains() {
+        val all = cases("chains")
+        assertTrue(all.size >= 27)
+        for (c in all) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val chain = chainOf(c["anchor"] as? JsonObject, evs(c["rosters"]))
+            assertEquals(strs(e["valid_ids"]), chain?.rosters?.map { it.id } ?: emptyList<String>(), name)
+            assertEquals(str(e, "head"), chain?.head?.id, name)
+            assertEquals(strs(e["devices"]), chain?.devices ?: emptyList<String>(), name)
+            assertEquals(str(e, "lb"), chain?.head?.lb, name)
+            assertEquals(e["ready"]!!.jsonPrimitive.boolean, chain?.ready ?: false, name)
+        }
+    }
+
+    @Test fun wraps() {
+        val all = cases("wraps")
+        assertTrue(all.size >= 11)
+        for (c in all) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val wrap = ev(c["wrap"] as JsonObject)
+            val lb = pub(c.s("letterbox")!!)
+            val chainKeys = KeyChain().also { it.add(lb, c.s("letterbox_secret")!!) }
+            val o = Sealing.open(wrap, chainKeys)
+            val opens = e["opens"]!!.jsonPrimitive.boolean
+            assertEquals(opens, o is Opening.Opened, name)
+            if (o !is Opening.Opened) continue
+            assertEquals(e.s("seal_pubkey"), o.sealPubkey, name)
+            val r = e["rumor"] as JsonObject
+            assertEquals(r.s("id"), o.rumor.id, name)
+            assertEquals(r.s("pubkey"), o.rumor.pubkey, name)
+            assertEquals(r["created_at"]!!.jsonPrimitive.long, o.rumor.createdAt, name)
+            assertEquals(r["kind"]!!.jsonPrimitive.int, o.rumor.kind, name)
+            assertEquals(ev(r).tags, o.rumor.tags, name)
+            assertEquals(r.s("content"), o.rumor.content, name)
+            val author = c.s("author_chain")?.let { namedChain(it) }
+                ?: (c["author_chain_events"] as? JsonObject)?.let { chainOf(it["anchor"] as? JsonObject, evs(it["rosters"])) }
+            val verdict = Sealing.verdict(o, author, firstSeen = 0, now = 31 * 86400L, belfry = c.s("belfry"))
+            assertEquals(e["accepted"]!!.jsonPrimitive.boolean, verdict == Sealing.Verdict.ACCEPT, name)
+        }
+    }
+
+    private fun rumorOf(o: JsonObject): Event {
+        val content = when (val c = o["content"]) {
+            is JsonObject -> c.s("repeat")!!.repeat(c["times"]!!.jsonPrimitive.int)
+            else -> c!!.jsonPrimitive.content
+        }
+        return GiftWrap.rumor(o["kind"]!!.jsonPrimitive.int, o.s("pubkey")!!, ev(JsonObject(o + mapOf("content" to JsonPrimitive("")))).tags, content, o["created_at"]!!.jsonPrimitive.long)
+    }
+
+    @Test fun ceiling() {
+        val ce = v["ceiling"] as JsonObject
+        assertEquals(Sealing.MAX_RUMOR_BYTES, ce["max_rumor_json_bytes"]!!.jsonPrimitive.int)
+        for (c in (ce["cases"] as JsonArray).map { it as JsonObject }) {
+            val name = c.s("name")!!
+            val r = rumorOf(c["rumor"] as JsonObject)
+            assertEquals(c.s("rumor_id"), r.id, name)
+            assertEquals(c["rumor_json_bytes"]!!.jsonPrimitive.int, Sealing.rumorBytes(r), name)
+            assertEquals(c["may_seal"]!!.jsonPrimitive.boolean, Sealing.fits(r), name)
+        }
+    }
+
+    @Test fun historyPacking() {
+        val t0 = (v["fixed"] as JsonObject)["T0"]!!.jsonPrimitive.long
+        val alice = pub("alice")
+        val bob = pub("bob")
+        val rumors = ArrayList<Event>()
+        for (i in 0 until 300) {
+            val from = if (i % 2 == 1) alice else bob
+            val to = if (from == alice) bob else alice
+            rumors.add(GiftWrap.rumor(14, from, listOf(listOf("p", to)), "Message $i: \"quoted\" \\ and é", t0 + i))
+            if (i == 149) rumors.add(GiftWrap.rumor(14, bob, listOf(listOf("p", alice)), "x".repeat(39_700), t0 + i))
+        }
+        val shares = Sealing.shareRumors(bob, alice, rumors, t0 + 800)
+        val e = (ce()["history_packing"] as JsonObject)["expected"] as JsonObject
+        assertEquals((e["rumors_per_8564"] as JsonArray).map { it.jsonPrimitive.int }, shares.map { Sealing.sharedRumors(it).size })
+        assertEquals((e["json_bytes_per_8564"] as JsonArray).map { it.jsonPrimitive.int }, shares.map { Sealing.rumorBytes(it) })
+        assertEquals(strs(e["ids_of_8564"]), shares.map { it.id })
+        assertEquals(301 - 1, shares.sumOf { Sealing.sharedRumors(it).size }, "the large one is left out")
+    }
+
+    private fun ce() = v["ceiling"] as JsonObject
+
+    @Test fun handover() = runBlocking {
+        for (c in cases("keys_handover")) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val device = LocalSigner(c.s("device_secret")!!)
+            val h = Sealing.openKeys(ev(c["wrap"] as JsonObject), device)!!
+            assertEquals(e.s("giver"), h.giver, name)
+            val chain = namedChain(c.s("chain")!!)!!
+            val taken = if (Sealing.acceptHandover(h, c.s("account")!!, listOf(chain))) h.keys else emptyMap()
+            val want = (e["keys"] as JsonArray).associate { k -> (k as JsonObject).s("lb")!! to k.s("secret")!! }
+            assertEquals(want, taken, name)
+        }
+    }
+
+    @Test fun link() {
+        for (c in cases("link")) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val req = ev(c["request"] as JsonObject)
+            val secret = c.s("link_secret")!!
+            assertEquals(e.s("link_for_this_device"), Sealing.linkProof(secret, req.pubkey), name)
+            assertEquals(e["valid"]!!.jsonPrimitive.boolean, Sealing.linkMatches(req, listOf(secret)), name)
+        }
+    }
+
+    @Test fun ready() {
+        val r = v["ready"] as JsonObject
+        val now = r["now"]!!.jsonPrimitive.long
+        fun t(s: String?) = s?.let { java.time.Instant.parse(it).epochSecond }
+        for (c in (r["cases"] as JsonArray).map { it as JsonObject }) {
+            val name = c.s("name")!!
+            val sessions = (c["sessions"] as JsonArray).map { it as JsonObject }.map { s ->
+                Triple(str(s, "client_pubkey"), s["chat"]!!.jsonPrimitive.boolean, t(str(s, "last_activity")) ?: t(str(s, "created_at")))
+            }
+            val ok = Sealing.readyFor(strs(c["roster_devices"]), Sealing.countedSessions(sessions, now))
+            assertEquals((c["expected"] as JsonObject)["may_carry_ready"]!!.jsonPrimitive.boolean, ok, name)
+        }
+    }
+
+    @Test fun history() {
+        for (c in cases("history")) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val lb = pub(c.s("letterbox")!!)
+            val o = Sealing.open(ev(c["wrap"] as JsonObject), KeyChain().also { it.add(lb, c.s("letterbox_secret")!!) })
+            o as Opening.Opened
+            assertEquals(e.s("sharer"), o.rumor.pubkey, name)
+            assertEquals(e.s("seal_pubkey"), o.sealPubkey, name)
+            val sc = c["sharer_chain_events"] as JsonObject
+            val chain = chainOf(sc["anchor"] as? JsonObject, evs(sc["rosters"]))
+            val added = Sealing.acceptShared(o.rumor, o.sealPubkey, chain, c.s("receiver")!!)
+            assertEquals(strs(e["added_ids"]), added.map { it.id }, name)
+        }
+    }
+}

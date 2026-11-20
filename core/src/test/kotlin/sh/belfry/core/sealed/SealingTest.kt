@@ -200,6 +200,46 @@ class SealingTest {
         assertTrue(DeviceNames.all(listOf(forged), account.pubkey, keys).isEmpty())
     }
 
+    @Test fun keepRetryDrop() {
+        val r1 = roster(phone, 1, null, lb1.first, listOf(phone), t0, ready = true)
+        val chain = Chain.of(account.pubkey, listOf(anchor(r1)), listOf(r1))!!
+        val lina = LocalSigner.random().pubkey
+        val keys = KeyChain(mapOf(lb1))
+        val rumor = GiftWrap.rumor(14, account.pubkey, listOf(listOf("p", lina)), "hi", t0)
+        val fromPhone = Sealing.open(Sealing.seal(rumor, phone, account.pubkey, lb1.first, t0), keys)
+        assertEquals(Sealing.Verdict.ACCEPT, Sealing.verdict(fromPhone, chain, t0, t0))
+        // a device not in the chain loaded yet: kept for 30 days, then dropped
+        val fromLaptop = Sealing.open(Sealing.seal(rumor, laptop, account.pubkey, lb1.first, t0), keys)
+        assertEquals(Sealing.Verdict.KEEP, Sealing.verdict(fromLaptop, chain, t0, t0 + 86400))
+        assertEquals(Sealing.Verdict.KEEP, Sealing.verdict(fromLaptop, null, t0, t0))
+        assertEquals(Sealing.Verdict.DROP, Sealing.verdict(fromLaptop, chain, t0, t0 + 30 * 86400L))
+        // no secret here: locked; a broken wrap: dropped at once
+        val wrap = Sealing.seal(rumor, phone, account.pubkey, lb1.first, t0)
+        assertEquals(Sealing.Verdict.LOCKED, Sealing.verdict(Sealing.open(wrap, KeyChain()), chain, t0, t0))
+        val broken = wrap.copy(content = wrap.content.dropLast(8) + "AAAAAAAA")
+        assertEquals(Sealing.Verdict.DROP, Sealing.verdict(Sealing.open(broken, keys), chain, t0, t0))
+        assertTrue(Sealing.needsReseal(lb1.first, lb2.first))
+        assertFalse(Sealing.needsReseal(lb1.first, lb1.first))
+    }
+
+    @Test fun countedSessions() {
+        val now = t0
+        val counted = Sealing.countedSessions(listOf(
+            Triple(phone.pubkey, true, now - 3600),
+            Triple(laptop.pubkey, true, now - 30 * 86400L), // 30 days ago: no longer counts
+            Triple(tablet.pubkey, false, now), // another approved app
+            Triple(null, true, now),
+        ), now)
+        assertEquals(listOf(phone.pubkey, null), counted, "a counted session without a client key stays, as no device")
+        assertFalse(Sealing.readyFor(listOf(phone.pubkey), counted))
+    }
+
+    @Test fun myDeviceName() {
+        assertEquals("Chrome on Windows", DeviceNames.myName("Chrome on Windows", "Pixel 8"))
+        assertEquals("Pixel 8", DeviceNames.myName("  ", "Pixel 8"))
+        assertEquals("Pixel 8", DeviceNames.myName(null, "Pixel 8"))
+    }
+
     @Test fun whenSealed() {
         val r1 = roster(phone, 1, null, lb1.first, listOf(phone), t0, ready = true)
         val c = Chain.of(account.pubkey, listOf(anchor(r1)), listOf(r1))
@@ -208,5 +248,6 @@ class SealingTest {
         assertFalse(Sealing.canSeal(listOf(account.pubkey, lina), mapOf(account.pubkey to c, lina to null)))
         assertTrue(Sealing.readyFor(listOf(phone.pubkey, laptop.pubkey), listOf(phone.pubkey)))
         assertFalse(Sealing.readyFor(listOf(phone.pubkey), listOf(phone.pubkey, laptop.pubkey)))
+        assertTrue(Sealing.readyFor(listOf(phone.pubkey), emptyList()), "no counted session: ready")
     }
 }

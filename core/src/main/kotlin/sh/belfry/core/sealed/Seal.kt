@@ -148,11 +148,13 @@ object Sealing {
      * decrypt or its seal signature is bad; LOCKED when this device has no secret for its lb (keep
      * the wrap). A mail from the belfry (§7) is the caller's: its seal is the belfry's key.
      */
-    fun verdict(o: Opening, authorChain: Chain?, firstSeen: Long, now: Long): Verdict = when (o) {
+    fun verdict(o: Opening, authorChain: Chain?, firstSeen: Long, now: Long, belfry: String? = null): Verdict = when (o) {
         is Opening.NotSealed -> Verdict.NOT_SEALED
         is Opening.Locked -> Verdict.LOCKED
         is Opening.Invalid -> Verdict.DROP
         is Opening.Opened -> when {
+            // §7: a mail sealed by the belfry, whose author is the belfry's key; it never speaks for a member
+            belfry != null && o.sealPubkey == belfry -> if (o.rumor.pubkey == belfry) Verdict.ACCEPT else Verdict.DROP
             authorChain != null && authorChain.account == o.rumor.pubkey && authorChain.accepts(o.sealPubkey, o.rumor.createdAt) -> Verdict.ACCEPT
             now - firstSeen < KEEP_FOR -> Verdict.KEEP
             else -> Verdict.DROP
@@ -260,6 +262,22 @@ object Sealing {
         return out
     }
 
+    /**
+     * The rumors of a received 8564 to add: only when its seal's signer is a device of the sharer's
+     * chain (SHARE.pubkey's), and for each rumor only when both the sharer and RECEIVER are its
+     * participants (author or p tags), §8. Marked as shared by the sharer: not proven authentic.
+     */
+    fun acceptShared(share: Event, sealPubkey: String, sharerChain: Chain?, receiver: String): List<Event> {
+        if (share.kind != SHARE || sharerChain == null || sharerChain.account != share.pubkey) return emptyList()
+        if (!sharerChain.accepts(sealPubkey, share.createdAt)) return emptyList()
+        fun inIt(r: Event, who: String) = r.pubkey == who || r.tags.any { it.size >= 2 && it[0] == "p" && it[1] == who }
+        return sharedRumors(share).filter { inIt(it, share.pubkey) && inIt(it, receiver) }
+    }
+
+    /** Is a handover's giver a device of a roster of one of my account's chains (current or the pinned earlier one)? */
+    fun acceptHandover(h: Handover, myAccount: String, chains: List<Chain>): Boolean =
+        h.account == myAccount && chains.any { it.account == myAccount && it.everHad(h.giver) }
+
     /** The rumors of a received 8564 (each with its own id recomputed), or empty. */
     fun sharedRumors(share: Event): List<Event> {
         if (share.kind != SHARE) return emptyList()
@@ -279,12 +297,16 @@ object Sealing {
      * (`chat` true) last active less than 30 × 86 400 s ago, by last_activity, or created_at when
      * never active. Times in Unix seconds.
      */
-    fun countedSessions(sessions: List<Triple<String?, Boolean, Long?>>, now: Long): List<String> =
-        sessions.mapNotNull { (key, chat, lastSeen) -> key?.takeIf { chat && lastSeen != null && now - lastSeen < 30 * 86400L } }
+    fun countedSessions(sessions: List<Triple<String?, Boolean, Long?>>, now: Long): List<String?> =
+        sessions.filter { (_, chat, lastSeen) -> chat && lastSeen != null && now - lastSeen < 30 * 86400L }.map { it.first }
 
-    /** May the roster I publish say `ready`: every counted session's client key is a device of it. */
-    fun readyFor(devices: Collection<String>, liveSessionKeys: Collection<String>): Boolean =
-        liveSessionKeys.isNotEmpty() && liveSessionKeys.all { it in devices }
+    /**
+     * May the roster I publish say `ready`: every counted session's client key is a device of it.
+     * A counted session with no client key is no device (not ready); no counted session at all: ready
+     * (vectors/sealed.json "ready").
+     */
+    fun readyFor(devices: Collection<String>, counted: Collection<String?>): Boolean =
+        counted.all { it != null && it in devices }
 }
 
 /**
