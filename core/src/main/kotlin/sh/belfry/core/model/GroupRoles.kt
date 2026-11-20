@@ -111,10 +111,8 @@ fun World.mayCheckIn(e: CalEvent): Boolean {
 /** From 00:00 of the event's first day to the end of its last day, in the context's zone. */
 fun World.onEventDays(e: CalEvent, now: Long): Boolean {
     val first = dayOf(e.start).atStartOfDay(ctx.zone).toEpochSecond()
-    var lastAt = endOf(e)
-    // an all-day event's end date is the day after its last day
-    if (e.allDay) { val end = e.end; if (end != null && end > e.start) lastAt = end - 1 }
-    val after = dayOf(lastAt).plusDays(1).atStartOfDay(ctx.zone).toEpochSecond()
+    // its last moment (SPEC 19.46: an all-day event's end date is its last day, inclusive)
+    val after = dayOf(endOf(e) - 1).plusDays(1).atStartOfDay(ctx.zone).toEpochSecond()
     return now >= first && now < after
 }
 

@@ -408,9 +408,27 @@ fun World.stillGoing(e: CalEvent): Boolean {
     return key(base) != key(e.ev)
 }
 
-fun World.endOf(e: CalEvent): Long = e.end ?: e.start
-fun World.isPast(e: CalEvent, now: Long): Boolean = endOf(e) < dayOf(now).atStartOfDay(ctx.zone).toEpochSecond()
-fun World.ended(e: CalEvent, now: Long): Boolean = endOf(e) < now
+/**
+ * When E is over (SPEC 19.46; the lead 2026-11-20 after an OSV bug, web chat 39a2b85): a timed
+ * event at its end, or one hour after its start when it has none; an all-day event at the start of
+ * the day after its last day (its end date is inclusive), in the event's time zone, the viewer's
+ * when it has none. Every list of upcoming / past events and RSVP go by it.
+ */
+fun World.endOf(e: CalEvent): Long {
+    if (!e.allDay) return e.end?.takeIf { it > e.start } ?: (e.start + 3600)
+    val zone = e.tz?.let { try { ZoneId.of(it) } catch (x: Exception) { null } } ?: ctx.zone
+    fun date(tag: String) = e.ev.t(tag)?.let { try { LocalDate.parse(it.trim().take(10)) } catch (x: Exception) { null } }
+    val first = date("start") ?: dayOf(e.start)
+    val last = (date("end") ?: e.end?.let { dayOf(it) } ?: first).let { if (it.isBefore(first)) first else it }
+    return last.plusDays(1).atStartOfDay(zone).toEpochSecond()
+}
+
+/** Over: NOW is at or after its end. An event going on now is not past (it stays upcoming, and "next"). */
+fun World.isPast(e: CalEvent, now: Long): Boolean = now >= endOf(e)
+fun World.ended(e: CalEvent, now: Long): Boolean = isPast(e, now)
+
+/** Does E take place on DAY (in the viewer's days): from its start's day to the day its last moment falls on. */
+fun World.onDay(e: CalEvent, day: LocalDate): Boolean = !dayOf(e.start).isAfter(day) && !dayOf(endOf(e) - 1).isBefore(day)
 /** Taking a place still makes sense: not cancelled, not over. */
 fun World.isOpen(e: CalEvent, now: Long): Boolean = e.status != EventStatus.CANCELLED && !ended(e, now)
 

@@ -54,8 +54,7 @@ fun World.calendarList(list: CalendarList, now: Long, publicRemote: List<CalEven
             val mineIds = groups.filter { me in it.members || me in it.reading }.map { it.id }.toSet()
             val local = all.filter { e -> e.visibility == Visibility.PUBLIC || e.channels.any { it in mineIds } }
             val known = local.map { it.coord }.toSet()
-            val start = dayOf(now).atStartOfDay(ctx.zone).toEpochSecond()
-            (local + publicRemote.filter { it.coord !in known && endOf(it) >= start && it.status != EventStatus.CANCELLED }).sortedBy { it.start }
+            (local + publicRemote.filter { it.coord !in known && !isPast(it, now) && it.status != EventStatus.CANCELLED }).sortedBy { it.start }
         }
     }
 }

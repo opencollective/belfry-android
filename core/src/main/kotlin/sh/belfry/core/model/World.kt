@@ -1264,11 +1264,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** The event whose chat this group is. */
     fun calEventFor(groupId: String): CalEvent? = calendar.firstOrNull { it.groupId == groupId }
 
-    /** Upcoming events (today onwards), of one channel or of all. */
-    fun upcoming(channel: String? = null, now: Long): List<CalEvent> {
-        val today = dayOf(now).atStartOfDay(ctx.zone).toEpochSecond()
-        return calendar.filter { (it.end ?: it.start) >= today && (channel == null || channel in it.channels) }
-    }
+    /** Upcoming events (not over yet: going on now counts), of one channel or of all (SPEC 19.46). */
+    fun upcoming(channel: String? = null, now: Long): List<CalEvent> =
+        calendar.filter { !isPast(it, now) && (channel == null || channel in it.channels) }
 
     /** The bar under a channel's name: its next event and how many more. */
     fun nextEvent(channel: String, now: Long): Pair<CalEvent, Int>? {

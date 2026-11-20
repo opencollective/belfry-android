@@ -2111,3 +2111,17 @@ mine; a long-press on a bubble opens the menu with the reactions row. The header
 one-to-one conversation shows the person's face and name; a tap opens their profile.
 (Android: `DmReaction.apply`, `DmSnapshot.reactionsOf`, `DirectMessages.react`,
 `ui/people/DmReactions.kt`.)
+
+### 19.46 When an event is over (2026-11-20; the lead, after an OSV member's bug "Upcoming events show events of the current day that have already passed"; web chat 39a2b85 and the server)
+
+One rule for every list of upcoming and past events (Events Upcoming / Mine / Hosting / Past,
+Calendar and its day view, Home "Coming up", the channel's pull-down Events, the attention line,
+the drawer's next-event line, the public events a guest reads from the API) and for RSVP:
+
+- **past = now ≥ end**. A timed event ends at its `end`; with none (or an end not after its
+  start), one hour after its start. An all-day event ends at the start of the day after its last
+  day (its `end` date is inclusive; none = its start date), in the event's time zone
+  (`start_tzid`), the viewer's when it has none.
+- An event going on now is **upcoming** (and stays "next"); RSVP closes at its end.
+- In a day view an event shows on each day from its start's day to the day of its last moment.
+- (Android: `core/model/Events.kt` `endOf / isPast / onDay`, `World.upcoming`; test `PastEventsTest`.)

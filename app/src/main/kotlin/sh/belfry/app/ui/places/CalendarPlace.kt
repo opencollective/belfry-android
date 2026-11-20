@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import sh.belfry.app.ui.chat.ChatFormat
 import sh.belfry.app.ui.kit.Hairline
+import sh.belfry.core.model.onDay
 import sh.belfry.core.model.eventStatus
 import sh.belfry.core.model.isHost
 import androidx.compose.foundation.layout.Column
@@ -92,7 +93,8 @@ fun CalendarPlace() {
         val day = java.time.LocalDate.ofEpochDay(picked)
         WeekStrip(day, today, events.map { world.dayOf(it.start) }.toSet()) { picked = it.toEpochDay() }
         Hairline()
-        val onDay = events.filter { world.dayOf(it.start) == day }
+        // an event of several days (or going on since an earlier day) shows on each of its days
+        val onDay = events.filter { world.onDay(it, day) }
         val later = events.filter { world.dayOf(it.start) > day }
         if (events.isEmpty()) {
             EmptyState(
