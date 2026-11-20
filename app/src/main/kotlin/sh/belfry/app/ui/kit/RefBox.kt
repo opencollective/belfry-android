@@ -140,7 +140,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                     }
                     is RefSeen.PersonSeen -> {
                         Title(world.displayName(seen.pubkey))
-                        world.profiles[seen.pubkey]?.about?.trim()?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Line(it) }
+                        world.profiles[seen.pubkey]?.about?.trim()?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Line(sh.belfry.core.markdown.Markdown.text(sh.belfry.core.markdown.Markdown.inline(it))) }
                     }
                     is RefSeen.DropSeen -> {
                         Title("Drop box")
