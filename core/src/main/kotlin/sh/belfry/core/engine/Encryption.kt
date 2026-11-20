@@ -13,6 +13,7 @@ import sh.belfry.core.model.LockedDevice
 import sh.belfry.core.model.MyDevice
 import sh.belfry.core.model.PersonDevices
 import sh.belfry.core.model.SealState
+import sh.belfry.core.model.SealedText
 import sh.belfry.core.model.SharedBlock
 
 /**
@@ -34,6 +35,8 @@ class EncryptionService internal constructor(private val s: Session) {
         s.checkWrite()
         if (!demo) notYet()
         delay(400)
+        // sealed.md §5.2: at most 20 devices; refused before any key goes out
+        if (_state.value.myDevices.size >= 20) throw ActionException("too_many_devices", SealedText.TOO_MANY)
         _state.value = _state.value.let { st -> st.copy(asks = st.asks.filter { it.id != ask }) }
     }
 

@@ -241,4 +241,23 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-not-sealed-why") { Column(Modifier.padding(16.dp)) { NotSealedContent {} } }
         compose.onNodeWithText("This message was not sent with the lock. It may come from an old app version.").assertExists()
     }
+
+    /** canvas v90: a 21st device can't be allowed. */
+    @Test fun allowTooMany() {
+        session.encryption.demoAsk("Firefox on Linux")
+        val ask = session.encryption.state.value.asks.first()
+        demoScreenShot("encryption-allow-too-many") {
+            MessagesScreen()
+            AccessAskDialog(ask, "Alex Morgan", session.now(), onDismiss = {}, onAllow = {}, onNotMe = {}, startFull = true)
+        }
+        compose.onNodeWithText("You already have 20 devices. Remove one in Devices, then try again.").assertExists()
+        compose.onNodeWithTag("seal-too-many-devices").assertExists()
+    }
+
+    /** canvas v90: a device that is itself locked shows no Remove. */
+    @Test fun lockedDeviceNoRemove() {
+        session.encryption.demoAsNewDevice()
+        demoShot("encryption-devices-locked") { DevicesScreen() }
+        compose.onNodeWithTag("seal-remove-d-laptop").assertDoesNotExist()
+    }
 }
