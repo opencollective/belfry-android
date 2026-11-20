@@ -2161,3 +2161,30 @@ third-party Nostr app on the app's relays; the phone answers nothing and holds n
   reads the clipboard. Never shown: a key, an npub, a relay address, the code.
 - (Android: `core/net/RemoteApps.kt`, `engine/RemoteApps.kt` `Session.remoteApps`;
   `ui/shell/RemoteApps.kt`.)
+
+### 19.48 End-to-end encrypted conversations: the screens (canvas "Messages · encryption", approved 2026-11-20, v80–v82)
+
+Screens only, filled by the demo (`core/engine/Encryption.kt`, words in `core/model/Sealed.kt`
+`SealedText`). **No wire, key or crypto yet**: that waits for the lead's contract
+(collective-belfry docs/sealed.md + vectors), and nothing of it ships before the lead reviewed it.
+Outside the demo nothing is sealed, so no lock shows anywhere and every action refuses.
+
+- A sealed conversation (direct, group, notes to self, an e-mail thread) has a small lock after its
+  title; it opens the Encryption screen. Channels never have a lock. A conversation that isn't
+  sealed shows no lock (the "Not locked yet" line is FOR XAVIER, not built).
+- Device lines among the messages, in the style of a channel's join line: "Lina added a device",
+  "Lina removed a device" (no device name), mine with it: "You added a device · Safari on Mac".
+  The amber "Lina signed in on a new device that can't read earlier messages yet" opens the share
+  sheet; once shared (or allowed by another of her devices) it becomes the plain "Lina added a
+  device" (v81).
+- Encryption screen: "Only these devices can read this conversation"; my devices in full (name,
+  "Added 12 Aug · from Pixel 8", "This device"); each other person one row with "N devices" and
+  a grey change line in the last 30 days; "You see only how many devices others have, not which.";
+  then the sentences. Groups: "5 people · 11 devices", only You unfolds. E-mail: "<name> · by
+  e-mail" / "not on this belfry", no count, the mail sentence.
+- A new device: the amber banner in Messages (+ Show how, three steps), "Locked on this device"
+  rows, and a locked conversation opens to the banner in place of its earlier messages (v82).
+- Allow / Not me on my other devices (a dialog over any screen; the first to answer wins); the
+  linked screen inside Link a phone or tablet; Remove a device in Me → Signed-in devices (asks
+  first, then the row shows progress, no other row removable; this device is Sign out's).
+

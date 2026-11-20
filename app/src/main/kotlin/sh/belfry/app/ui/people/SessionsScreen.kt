@@ -4,6 +4,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import sh.belfry.app.ui.kit.rememberBusy
+import sh.belfry.app.ui.theme.Belfry
+import sh.belfry.core.model.MyDevice
+import sh.belfry.core.model.SealedText
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -15,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import sh.belfry.app.ui.kit.ActionGroup
 import sh.belfry.app.ui.kit.ActionRow
 import sh.belfry.app.ui.kit.BelfryIcons
@@ -62,6 +74,7 @@ fun SessionsScreen() {
         isThis = { session.isThisSession(it) },
         onReload = { round++ },
         onEnd = { ending = it },
+        devices = { SealDevices() },
     )
     val e = ending
     if (e != null) {
@@ -106,6 +119,8 @@ fun SessionsContent(
     isThis: (SessionInfo) -> Boolean,
     onReload: () -> Unit,
     onEnd: (SessionInfo) -> Unit,
+    /** The devices that read sealed conversations (canvas messages/encryption-remove-device), when there are any. */
+    devices: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var copied by remember { mutableStateOf(false) }
@@ -119,6 +134,7 @@ fun SessionsContent(
                 value = if (copied) "Copied" else "Copy",
             )
         }
+        devices?.invoke()
         SectionTitle("Sessions")
         when {
             demo -> Hint("Demo mode has no sessions.")
@@ -144,4 +160,68 @@ fun SessionsContent(
         ErrorLine(error)
         Spacer(Modifier.height(8.dp))
     }
+}
+
+/**
+ * canvas messages/encryption-remove-device: the devices that read my sealed conversations, each
+ * named in full. Remove asks first (Remove locks while working); this device is Sign out's.
+ */
+@Composable
+internal fun SealDevices() {
+    val session = LocalSession.current
+    val world = sh.belfry.app.ui.nav.LocalWorld.current
+    val st by session.encryption.state.collectAsState()
+    if (st.myDevices.isEmpty()) return
+    var removing by remember { mutableStateOf<MyDevice?>(null) }
+    // canvas v82: once confirmed, the row shows progress and no other row can be removed
+    var working by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var error by remember { mutableStateOf<String?>(null) }
+    val now = session.now()
+    val c = Belfry.colors
+    SectionTitle("Devices")
+    Hint("Signed in as ${world.displayName(session.me)}", Modifier.padding(bottom = 8.dp))
+    ActionGroup {
+        st.myDevices.forEach { d ->
+            ActionRow(
+                d.name, onClick = null, icon = d.kind.icon(), sub = SealedText.activeLine(d, now, world.ctx.zone),
+                modifier = Modifier.testTag("seal-device"),
+                trailing = {
+                    if (d.thisDevice) {
+                        Chip("This device")
+                    } else if (working == d.id) {
+                        sh.belfry.app.ui.kit.Spinner(Modifier.padding(horizontal = 12.dp).testTag("seal-removing"))
+                    } else {
+                        TextButton(onClick = { error = null; removing = d }, enabled = working == null, modifier = Modifier.testTag("seal-remove-${d.id}")) {
+                            Text("Remove", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = if (working == null) c.danger else c.faint)
+                        }
+                    }
+                },
+            )
+        }
+    }
+    Hint("This device can't be removed here: use Sign out.", Modifier.padding(top = 8.dp))
+    ErrorLine(error)
+    val r = removing
+    if (r != null) RemoveDeviceDialog(r, onDismiss = { removing = null }, onRemove = {
+        removing = null
+        working = r.id
+        scope.launch {
+            try { session.encryption.removeDevice(r.id) } catch (e: Exception) { error = e.shown("Not removed. Try again.") }
+            working = null
+        }
+    })
+}
+
+@Composable
+fun RemoveDeviceDialog(d: MyDevice, onDismiss: () -> Unit, onRemove: suspend () -> Unit) {
+    val busy = rememberBusy()
+    AlertDialog(
+        onDismissRequest = { if (!busy.busy) onDismiss() },
+        title = { Text("Remove ${d.name}?", modifier = Modifier.testTag("seal-remove-title")) },
+        text = { Text(SealedText.REMOVE_TEXT) },
+        confirmButton = { BusyButton("Remove", onClick = onRemove, kind = ButtonKind.Danger, small = true, busy = busy, modifier = Modifier.testTag("seal-remove")) },
+        dismissButton = { BusyButton("Cancel", onClick = { onDismiss() }, kind = ButtonKind.Ghost, small = true, enabled = !busy.busy) },
+        containerColor = Belfry.colors.bg,
+    )
 }

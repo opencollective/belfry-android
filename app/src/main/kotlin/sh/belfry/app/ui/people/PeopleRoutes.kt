@@ -20,4 +20,6 @@ fun NavGraphBuilder.peopleRoutes() {
     composable(Routes.MESSAGES) { MessagesScreen() }
     composable(Routes.CONVERSATION) { entry -> ConversationScreen(entry.arg("conv")) }
     composable(Routes.NEW_CONVERSATION) { NewConversationScreen() }
+    composable(Routes.ENCRYPTION) { entry -> EncryptionScreen(entry.arg("conv")) }
+    composable(Routes.UNLOCK_STEPS) { UnlockStepsScreen() }
 }

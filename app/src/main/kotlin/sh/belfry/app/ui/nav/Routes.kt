@@ -103,6 +103,11 @@ object Routes {
     /** [conv] is a DmSnapshot conversation key: `n:<pubkeys>`, `m:<address>|<subject key>` or `m:<address>`. */
     fun conversation(conv: String) = "conversation/${enc(conv)}"
     const val NEW_CONVERSATION = "new-conversation"
+    /** A sealed conversation's Encryption screen: only these devices can read it (canvas messages/encryption-devices). */
+    const val ENCRYPTION = "encryption/{conv}"
+    fun encryption(conv: String) = "encryption/${enc(conv)}"
+    /** On a new device: how to unlock earlier messages with another one (canvas messages/encryption-new-device). */
+    const val UNLOCK_STEPS = "unlock-steps"
 
     // ---- cards (U3) ----
     const val EVENTS = "events?channel={channel}"

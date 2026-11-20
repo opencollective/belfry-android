@@ -109,6 +109,9 @@ object BelfryIcons {
     val Logout by lazy { icon("logout", "M10 4H5v16h5", "M15 8l4 4-4 4M19 12H9") }
     val Lock by lazy { icon("lock", rect(5f, 11f, 14f, 9f, 2f), "M8 11V8a4 4 0 0 1 8 0v3") }
     val Clock by lazy { icon("clock", circle(12f, 12f, 9f), "M12 7v5l3 2") }
+    val Phone by lazy { icon("phone", rect(6.5f, 2.5f, 11f, 19f, 2.5f), "M11 18.5h2") }
+    val Tablet by lazy { icon("tablet", rect(4f, 3f, 16f, 18f, 2.5f), "M11 18h2") }
+    val Computer by lazy { icon("computer", rect(3f, 4.5f, 18f, 12f, 2f), "M2 20h20M9 16.5l-.5 3.5M15 16.5l.5 3.5") }
     val Retry by lazy { icon("retry", "M20 12a8 8 0 1 1-2.6-5.9", "M20 4v5h-5") }
 
     /** Every icon with its name, for the kit gallery. */
@@ -121,7 +124,7 @@ object BelfryIcons {
             "pin" to Pin, "map pin" to MapPin, "image" to Image, "close" to Close, "check" to Check, "chevron" to Chevron,
             "down" to ChevronDown, "back" to Back, "more" to More, "inbox" to Inbox, "upload" to Upload, "shield" to Shield,
             "at" to At, "globe" to Globe, "react" to SmilePlus, "logout" to Logout, "lock" to Lock, "clock" to Clock,
-            "retry" to Retry,
+            "retry" to Retry, "phone" to Phone, "tablet" to Tablet, "computer" to Computer,
         )
     }
 }

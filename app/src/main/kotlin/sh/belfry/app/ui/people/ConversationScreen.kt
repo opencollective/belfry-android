@@ -76,6 +76,8 @@ import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.dm.Dm
 import sh.belfry.core.dm.DmSnapshot
+import sh.belfry.core.model.DeviceNotice
+import androidx.compose.runtime.collectAsState
 import sh.belfry.core.engine.ActionException
 import sh.belfry.core.model.World
 
@@ -118,9 +120,23 @@ fun ConversationScreen(conv: String) {
     var acting by remember(conv) { mutableStateOf<Pair<String, Boolean>?>(null) }
     // one person: their face and name at the top open their profile (canvas home/conversation)
     val peer = if (!mail && !toSelf && peers.size == 1) peers[0] else null
+    // sealed (canvas messages/encryption-*): a lock by the name and device lines among the messages;
+    // a conversation that isn't sealed shows neither. Channels never have a lock.
+    val sealState by session.encryption.state.collectAsState()
+    val seal = if (newMail) null else sealState.seal(conv)
+    val openNotice = rememberNoticeOpener(conv)
+    // a new device (canvas v82): earlier messages give way to the amber banner, later ones read normally
+    val lockedHere = seal != null && conv in sealState.locked
+    val since = if (lockedHere) sealState.thisDevice?.added ?: Long.MAX_VALUE else Long.MIN_VALUE
+    val rows: List<Any> = remember(list, seal, since) {
+        val shown = list.filter { it.at >= since }
+        if (seal == null || seal.notices.isEmpty()) shown
+        else (shown.map { it.at to it } + seal.notices.filter { it.at >= since }.map { it.at to it }).sortedBy { it.first }.map { it.second }
+    }
+    fun atOf(r: Any): Long = if (r is Dm) r.at else (r as DeviceNotice).at
 
-    LaunchedEffect(conv, list.size) {
-        if (list.isNotEmpty()) state.scrollToItem(list.size - 1)
+    LaunchedEffect(conv, rows.size) {
+        if (rows.isNotEmpty()) state.scrollToItem(rows.size - 1)
     }
     // read state (SPEC 19.27): on screen with the app in the foreground → read up to its newest message
     val started = sh.belfry.app.ui.kit.rememberStarted()
@@ -133,11 +149,15 @@ fun ConversationScreen(conv: String) {
             navigation = { BackButton { nav.back() } },
             onTitleClick = peer?.let { p -> { nav.go(Routes.profile(p)) } },
             titleLeading = peer?.let { p -> { Avatar(world.face(p), size = 34.dp) } },
+            titleMark = if (seal != null) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
             actions = {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })
             },
         )
-        if (list.isEmpty()) {
+        if (lockedHere) EarlierLockedBanner { nav.go(Routes.UNLOCK_STEPS) }
+        if (rows.isEmpty() && lockedHere) {
+            Spacer(Modifier.weight(1f))
+        } else if (rows.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 EmptyState(
                     if (mail) "A new e-mail to $address" else "No messages yet",
@@ -155,10 +175,16 @@ fun ConversationScreen(conv: String) {
             }
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(bottom = 10.dp)) {
-                itemsIndexed(list, key = { _, d -> d.rid }) { i, d ->
-                    val prev = list.getOrNull(i - 1)
-                    if (prev == null || world.dayOf(prev.at) != world.dayOf(d.at)) DaySeparator(ChatFormat.day(world, d.at, now))
-                    Bubble(d, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = d.rid to emojiOnly })
+                itemsIndexed(rows, key = { _, r -> if (r is Dm) r.rid else "notice:" + (r as DeviceNotice).id }) { i, r ->
+                    val prev = rows.getOrNull(i - 1)
+                    val at = atOf(r)
+                    if (prev == null || world.dayOf(atOf(prev)) != world.dayOf(at)) DaySeparator(ChatFormat.day(world, at, now))
+                    if (r is Dm) {
+                        Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly })
+                    } else {
+                        val n = r as DeviceNotice
+                        DeviceNoticeRow(n, world) { openNotice(n) }
+                    }
                 }
             }
         }
@@ -176,7 +202,7 @@ fun ConversationScreen(conv: String) {
         }
         Composer(
             composer,
-            placeholder = if (mail) "Write an e-mail" else "Message",
+            placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else "Message",
             onSend = { text, _, _, _ ->
                 if (newMail && subject.isBlank()) throw ActionException("subject", "Give it a subject: it names the thread.")
                 val target = session.sendDm(conv, text, if (newMail) subject.trim() else null)

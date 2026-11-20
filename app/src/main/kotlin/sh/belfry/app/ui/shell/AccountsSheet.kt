@@ -181,8 +181,13 @@ internal fun myLoginLink(): String? {
 fun LinkDeviceScreen() {
     val world = LocalWorld.current
     val link = myLoginLink()
+    val session = LocalSession.current
+    val nav = sh.belfry.app.ui.nav.LocalNav.current
+    // canvas messages/encryption-link-qr: once the new device is in, scanning was the confirmation
+    val linked = session.encryption.state.collectAsState().value.linked
     sh.belfry.app.ui.info.InfoPage("Link a phone or tablet") {
-        if (link != null) LinkDeviceBody(link, world.myAddress!!)
+        if (linked != null) sh.belfry.app.ui.people.LinkedContent(linked) { session.encryption.linkedSeen(); nav.back() }
+        else if (link != null) LinkDeviceBody(link, world.myAddress!!)
         else sh.belfry.app.ui.info.Hint("This account has no username here yet.")
     }
 }

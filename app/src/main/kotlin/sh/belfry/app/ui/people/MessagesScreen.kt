@@ -20,6 +20,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,6 +88,7 @@ fun MessagesScreen() {
     val address = world.myAddress
     val list = dms.threads
     val now = session.now()
+    val seal by session.encryption.state.collectAsState()
     Column(Modifier.fillMaxSize().background(c.bg)) {
         TopBar(
             "Messages", subtitle = if (address != null) "Your address: $address" else null,
@@ -92,6 +96,10 @@ fun MessagesScreen() {
             actions = { IconAction(BelfryIcons.Plus, "New message", { nav.go(Routes.NEW_CONVERSATION) }) },
         )
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 6.dp)) {
+            // a new device (canvas messages/encryption-new-device): earlier messages are locked here
+            if (seal.earlierLocked && list.any { it.conv in seal.locked }) {
+                item(key = "seal-banner") { EarlierLockedBanner { nav.go(Routes.UNLOCK_STEPS) } }
+            }
             if (list.isEmpty()) {
                 item(key = "empty") {
                     EmptyState(
@@ -101,7 +109,7 @@ fun MessagesScreen() {
                     )
                 }
             }
-            items(list, key = { it.conv }) { t -> ThreadRow(t, dms, world, now) { nav.go(Routes.conversation(t.conv)) } }
+            items(list, key = { it.conv }) { t -> ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) } }
             item(key = "new") {
                 Box(Modifier.fillMaxWidth().padding(16.dp)) {
                     BusyButton(
@@ -115,7 +123,7 @@ fun MessagesScreen() {
 }
 
 @Composable
-private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, onClick: () -> Unit) {
+private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, locked: Boolean = false, onClick: () -> Unit) {
     val c = Belfry.colors
     val mail = dms.isMail(t.conv)
     val title = if (mail) dms.threadName(t.conv) else if (dms.peers(t.conv).let { it.isEmpty() || it == listOf(world.me) }) "Notes to yourself" else dms.convName(t.conv, world)
@@ -129,7 +137,15 @@ private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, onC
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 16.sp, fontWeight = if (t.unread > 0) FontWeight.SemiBold else FontWeight.Medium, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(preview, fontSize = 14.sp, color = if (t.unread > 0) c.text else c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (locked) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("seal-locked-row")) {
+                    androidx.compose.material3.Icon(BelfryIcons.Lock, contentDescription = null, tint = c.muted, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text(sh.belfry.core.model.SealedText.LOCKED_HERE, fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            } else {
+                Text(preview, fontSize = 14.sp, color = if (t.unread > 0) c.text else c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
         Spacer(Modifier.width(10.dp))
         Column(horizontalAlignment = Alignment.End) {

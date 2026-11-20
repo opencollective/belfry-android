@@ -1387,6 +1387,8 @@ class Session(
 
     /** Sign in to another app with this account through the belfry (engine/RemoteApps.kt, SPEC 19.47). */
     val remoteApps: RemoteAppsService by lazy { RemoteAppsService(this) }
+    /** End-to-end encrypted conversations: screens only, the demo fills them (canvas "Messages · encryption"). */
+    val encryption: EncryptionService by lazy { EncryptionService(this) }
 
     /** For the services: refuses a write in guest mode (opens the Join sheet). */
     internal fun checkWrite() = guard()
