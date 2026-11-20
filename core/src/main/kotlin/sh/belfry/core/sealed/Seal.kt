@@ -199,32 +199,32 @@ object Sealing {
     // ---- §8 sharing history -------------------------------------------------------------------
 
     const val SHARE_MAX_RUMORS = 200
-    /** Rumor JSON per 8564, so the 8564 itself still fits in a seal. */
-    const val SHARE_MAX_BYTES = 40_000
 
     /**
-     * The 8564 rumors sharing RUMORS (oldest first) with PERSON: at most 200 rumors or 40 000 bytes
-     * of rumor JSON each, whichever comes first; a rumor larger than that alone is left out.
+     * The 8564 rumors sharing RUMORS (oldest first) with PERSON: at most 200 rumors each, and each
+     * 8564's own JSON at most [MAX_RUMOR_BYTES] (sealed.md §4 / §8, ruled 2026-11-20); a rumor too
+     * large alone is left out.
      */
     fun shareRumors(sharer: String, person: String, rumors: List<Event>, now: Long = unixNow()): List<Event> {
-        val chunks = ArrayList<List<JsonObject>>()
+        // packed until the 8564's own JSON (the exact string that is encrypted) would pass 40 000 bytes
+        fun build(list: List<JsonObject>): Event {
+            val content = buildJsonObject { put("v", JsonPrimitive(1)); put("rumors", JsonArray(list)) }.toString()
+            return GiftWrap.rumor(SHARE, sharer, listOf(listOf("p", person)), content, now)
+        }
+        val out = ArrayList<Event>()
         var cur = ArrayList<JsonObject>()
-        var bytes = 0
         for (r in rumors) {
             val j = r.copy(sig = "").toJson()
-            // counted as it will be inside the 8564's content (escaped), so the 8564 itself can be sealed
-            val size = JsonPrimitive(j.toString()).toString().toByteArray(Charsets.UTF_8).size
-            if (size > SHARE_MAX_BYTES - 200) continue
-            if (cur.isNotEmpty() && (cur.size >= SHARE_MAX_RUMORS || bytes + size + 1 > SHARE_MAX_BYTES - 200)) {
-                chunks.add(cur); cur = ArrayList(); bytes = 0
+            if (!fits(build(listOf(j)))) continue // too large alone: left out
+            if (cur.size < SHARE_MAX_RUMORS && fits(build(cur + j))) {
+                cur.add(j)
+            } else {
+                out.add(build(cur))
+                cur = arrayListOf(j)
             }
-            cur.add(j); bytes += size + 1
         }
-        if (cur.isNotEmpty()) chunks.add(cur)
-        return chunks.map { list ->
-            val content = buildJsonObject { put("v", JsonPrimitive(1)); put("rumors", JsonArray(list)) }.toString()
-            GiftWrap.rumor(SHARE, sharer, listOf(listOf("p", person)), content, now)
-        }
+        if (cur.isNotEmpty()) out.add(build(cur))
+        return out
     }
 
     /** The rumors of a received 8564 (each with its own id recomputed), or empty. */
