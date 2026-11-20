@@ -199,6 +199,28 @@ class SealingTest {
         assertNull(DeviceNames.open(e2, KeyChain()), "other people never read it")
     }
 
+    @Test fun keepRetryDrop() {
+        val r1 = roster(phone, 1, null, lb1.first, listOf(phone), t0, ready = true)
+        val chain = Chain.of(account.pubkey, listOf(anchor(r1)), listOf(r1))!!
+        val lina = LocalSigner.random().pubkey
+        val keys = KeyChain(mapOf(lb1))
+        val rumor = GiftWrap.rumor(14, account.pubkey, listOf(listOf("p", lina)), "hi", t0)
+        val fromPhone = Sealing.open(Sealing.seal(rumor, phone, account.pubkey, lb1.first, t0), keys)
+        assertEquals(Sealing.Verdict.ACCEPT, Sealing.verdict(fromPhone, chain, t0, t0))
+        // a device not in the chain loaded yet: kept for 30 days, then dropped
+        val fromLaptop = Sealing.open(Sealing.seal(rumor, laptop, account.pubkey, lb1.first, t0), keys)
+        assertEquals(Sealing.Verdict.KEEP, Sealing.verdict(fromLaptop, chain, t0, t0 + 86400))
+        assertEquals(Sealing.Verdict.KEEP, Sealing.verdict(fromLaptop, null, t0, t0))
+        assertEquals(Sealing.Verdict.DROP, Sealing.verdict(fromLaptop, chain, t0, t0 + 30 * 86400L))
+        // no secret here: locked; a broken wrap: dropped at once
+        val wrap = Sealing.seal(rumor, phone, account.pubkey, lb1.first, t0)
+        assertEquals(Sealing.Verdict.LOCKED, Sealing.verdict(Sealing.open(wrap, KeyChain()), chain, t0, t0))
+        val broken = wrap.copy(content = wrap.content.dropLast(8) + "AAAAAAAA")
+        assertEquals(Sealing.Verdict.DROP, Sealing.verdict(Sealing.open(broken, keys), chain, t0, t0))
+        assertTrue(Sealing.needsReseal(lb1.first, lb2.first))
+        assertFalse(Sealing.needsReseal(lb1.first, lb1.first))
+    }
+
     @Test fun countedSessions() {
         val now = t0
         val counted = Sealing.countedSessions(listOf(

@@ -136,6 +136,35 @@ object Sealing {
         }
     }
 
+    /** What to do with a wrap (§4 / §9). */
+    enum class Verdict { ACCEPT, KEEP, DROP, LOCKED, NOT_SEALED }
+
+    const val KEEP_FOR = 30 * 86400L
+
+    /**
+     * ACCEPT when the seal's device is allowed for the rumor's author by their chain; KEEP (retry on
+     * each new roster of that author and at each start) when it decrypted but the device isn't in a
+     * chain loaded yet, for 30 days after FIRST_SEEN, then DROP; DROP at once when it doesn't
+     * decrypt or its seal signature is bad; LOCKED when this device has no secret for its lb (keep
+     * the wrap). A mail from the belfry (§7) is the caller's: its seal is the belfry's key.
+     */
+    fun verdict(o: Opening, authorChain: Chain?, firstSeen: Long, now: Long): Verdict = when (o) {
+        is Opening.NotSealed -> Verdict.NOT_SEALED
+        is Opening.Locked -> Verdict.LOCKED
+        is Opening.Invalid -> Verdict.DROP
+        is Opening.Opened -> when {
+            authorChain != null && authorChain.account == o.rumor.pubkey && authorChain.accepts(o.sealPubkey, o.rumor.createdAt) -> Verdict.ACCEPT
+            now - firstSeen < KEEP_FOR -> Verdict.KEEP
+            else -> Verdict.DROP
+        }
+    }
+
+    /**
+     * A queued wrap is sealed again when the head it was sealed to changed before it was sent (§9):
+     * my head for the self-copy, the recipient's for theirs.
+     */
+    fun needsReseal(sealedTo: String, currentHead: String?): Boolean = currentHead != null && currentHead != sealedTo
+
     // ---- §5.5 handing keys over ---------------------------------------------------------------
 
     /** A gift wrap to the receiving DEVICE carrying the giver's whole chain (rumor 8561). */
