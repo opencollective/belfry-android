@@ -173,14 +173,18 @@ object Sealing {
      * Gift wraps to the receiving DEVICE carrying the giver's whole chain (rumors 8561), split into
      * several when one would pass the 40 000-byte ceiling (§5.5, 61d7846).
      */
-    suspend fun keysFor(giver: LocalSigner, account: String, receivingDevice: String, chain: KeyChain, now: Long = unixNow()): List<Event> {
+    suspend fun keysFor(giver: LocalSigner, account: String, receivingDevice: String, chain: KeyChain, now: Long = unixNow()): List<Event> =
+        keysRumors(giver.pubkey, account, chain, now).map { GiftWrap.wrap(it, receivingDevice, giver) }
+
+    /** The 8561 rumors of a hand-over, each filled until one more key would take its JSON past 40 000 bytes. */
+    fun keysRumors(giver: String, account: String, chain: KeyChain, now: Long = unixNow()): List<Event> {
         fun rumor(pairs: List<Pair<String, String>>): Event {
             val content = buildJsonObject {
                 put("v", JsonPrimitive(1))
                 put("account", JsonPrimitive(account))
                 put("keys", buildJsonArray { pairs.forEach { (lb, s) -> add(buildJsonObject { put("lb", JsonPrimitive(lb)); put("secret", JsonPrimitive(s)) }) } })
             }.toString()
-            return GiftWrap.rumor(KEYS, giver.pubkey, listOf(listOf("p", account)), content, now)
+            return GiftWrap.rumor(KEYS, giver, listOf(listOf("p", account)), content, now)
         }
         val rumors = ArrayList<Event>()
         var cur = ArrayList<Pair<String, String>>()
@@ -188,7 +192,7 @@ object Sealing {
             if (cur.isEmpty() || fits(rumor(cur + p))) cur.add(p) else { rumors.add(rumor(cur)); cur = arrayListOf(p) }
         }
         if (cur.isNotEmpty() || rumors.isEmpty()) rumors.add(rumor(cur))
-        return rumors.map { GiftWrap.wrap(it, receivingDevice, giver) }
+        return rumors
     }
 
     /** A received handover: who gave it (a device) and the pairs that check out. */

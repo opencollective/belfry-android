@@ -34,9 +34,9 @@ class SealedVectorsTest {
     private fun strs(a: Any?) = (a as JsonArray).map { it.jsonPrimitive.content }
     private fun str(o: JsonObject, k: String): String? = (o[k] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
 
-    private fun chainOf(anchor: JsonObject?, rosters: List<Event>): Chain? {
+    private fun chainOf(anchor: JsonObject?, rosters: List<Event>, pinned: String? = null): Chain? {
         val a = anchor?.let { ev(it) } ?: return null
-        return Chain.of(a.pubkey, listOf(a), rosters)
+        return Chain.of(a.pubkey, listOf(a), rosters, pinned)
     }
 
     private fun chainCase(name: String): JsonObject = cases("chains").first { it.s("name") == name }
@@ -44,11 +44,11 @@ class SealedVectorsTest {
 
     @Test fun chains() {
         val all = cases("chains")
-        assertTrue(all.size >= 27)
+        assertTrue(all.size >= 39)
         for (c in all) {
             val name = c.s("name")!!
             val e = c["expected"] as JsonObject
-            val chain = chainOf(c["anchor"] as? JsonObject, evs(c["rosters"]))
+            val chain = chainOf(c["anchor"] as? JsonObject, evs(c["rosters"]), str(c, "pinned_head"))
             assertEquals(strs(e["valid_ids"]), chain?.rosters?.map { it.id } ?: emptyList<String>(), name)
             assertEquals(str(e, "head"), chain?.head?.id, name)
             assertEquals(strs(e["devices"]), chain?.devices ?: emptyList<String>(), name)
@@ -125,6 +125,22 @@ class SealedVectorsTest {
     }
 
     private fun ce() = v["ceiling"] as JsonObject
+
+    @Test fun keysPacking() {
+        val t0 = (v["fixed"] as JsonObject)["T0"]!!.jsonPrimitive.long
+        val chain = KeyChain()
+        for (i in 0 until 600) {
+            val s = sh.belfry.core.crypto.sha256Hex("belfry sealed vectors/key/many-lb-$i")
+            assertTrue(chain.add(sh.belfry.core.crypto.Keys.publicKeyHex(s), s))
+        }
+        val rumors = Sealing.keysRumors(pub("alice_phone"), pub("alice"), chain, t0 + 600)
+        val e = (ce()["keys_packing"] as JsonObject)["expected"] as JsonObject
+        assertEquals((e["keys_per_8561"] as JsonArray).map { it.jsonPrimitive.int }, rumors.map { r ->
+            ((sh.belfry.core.nostr.parseJsonOrNull(r.content) as JsonObject)["keys"] as JsonArray).size
+        })
+        assertEquals((e["json_bytes_per_8561"] as JsonArray).map { it.jsonPrimitive.int }, rumors.map { Sealing.rumorBytes(it) })
+        assertEquals(strs(e["ids_of_8561"]), rumors.map { it.id })
+    }
 
     @Test fun handover() = runBlocking {
         for (c in cases("keys_handover")) {
