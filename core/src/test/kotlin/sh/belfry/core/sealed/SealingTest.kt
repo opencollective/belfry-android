@@ -154,8 +154,32 @@ class SealingTest {
         assertEquals(3, shares.size, "at most 200 rumors each")
         val back = shares.flatMap { Sealing.sharedRumors(it) }
         assertEquals(rumors.map { it.id }, back.map { it.id })
-        val big = (1..10).map { GiftWrap.rumor(14, account.pubkey, emptyList(), "x".repeat(50_000), t0 + it) }
-        assertTrue(Sealing.shareRumors(account.pubkey, phone.pubkey, big, t0).all { it.content.toByteArray().size <= Sealing.SHARE_MAX_BYTES })
+        val mid = (1..10).map { GiftWrap.rumor(14, account.pubkey, emptyList(), "x".repeat(15_000), t0 + it) }
+        val midShares = Sealing.shareRumors(account.pubkey, phone.pubkey, mid, t0)
+        assertTrue(midShares.size >= 4)
+        assertTrue(midShares.all { Sealing.fits(it) }, "each 8564 can itself be sealed")
+        assertEquals(10, midShares.sumOf { Sealing.sharedRumors(it).size })
+        // one rumor larger than the limit alone is left out
+        val huge = GiftWrap.rumor(14, account.pubkey, emptyList(), "x".repeat(41_000), t0)
+        assertEquals(0, Sealing.shareRumors(account.pubkey, phone.pubkey, listOf(huge), t0).size)
+    }
+
+    @Test fun sizeLimit() {
+        val lina = LocalSigner.random().pubkey
+        val ok = GiftWrap.rumor(14, account.pubkey, emptyList(), "x".repeat(39_000), t0)
+        assertTrue(Sealing.open(Sealing.seal(ok, phone, lina, lb1.first, t0), KeyChain(mapOf(lb1))) is Opening.Opened)
+        val tooBig = GiftWrap.rumor(14, account.pubkey, emptyList(), "x".repeat(40_001), t0)
+        kotlin.test.assertFailsWith<Sealing.TooLarge> { Sealing.seal(tooBig, phone, lina, lb1.first, t0) }
+    }
+
+    @Test fun openerComputesTheId() {
+        val lina = LocalSigner.random().pubkey
+        val rumor = GiftWrap.rumor(14, account.pubkey, emptyList(), "hi", t0)
+        val forged = rumor.copy(id = "00".repeat(32), sig = "ff".repeat(64))
+        val opened = Sealing.open(Sealing.seal(forged, phone, lina, lb1.first, t0), KeyChain(mapOf(lb1)))
+        assertIs<Opening.Opened>(opened)
+        assertEquals(rumor.id, opened.rumor.id)
+        assertEquals("", opened.rumor.sig)
     }
 
     @Test fun deviceNames() {

@@ -79,6 +79,14 @@ object Sealing {
     const val REQUEST = 8562
     const val SHARE = 8564
 
+    /** A sealed rumor's JSON is at most 40 000 bytes (NIP-44's 65 535 applies to the wrap around the seal); never seal a larger one. */
+    const val MAX_RUMOR_BYTES = 40_000
+
+    class TooLarge : IllegalArgumentException("a sealed message is at most 40 000 bytes")
+
+    fun rumorBytes(rumor: Event): Int = rumor.copy(sig = "").toJsonString().toByteArray(Charsets.UTF_8).size
+    fun fits(rumor: Event): Boolean = rumorBytes(rumor) <= MAX_RUMOR_BYTES
+
     fun isSealed(wrap: Event): Boolean = wrap.kind == WRAP && wrap.tag("lb") != null
 
     /**
@@ -87,7 +95,9 @@ object Sealing {
      */
     fun seal(rumor: Event, device: LocalSigner, recipient: String, lb: String, now: Long = unixNow()): Event {
         require(Hex.isKey(recipient) && Hex.isKey(lb))
-        val sealed = Nip44.encryptFor(device.secretHex, lb, rumor.copy(sig = "").toJsonString())
+        val json = rumor.copy(sig = "").toJsonString()
+        if (!fits(rumor)) throw TooLarge()
+        val sealed = Nip44.encryptFor(device.secretHex, lb, json)
         val seal = device.signNow(EventTemplate(SEAL, sealed, emptyList(), GiftWrap.backdate(now)))
         val oneTime = LocalSigner.random()
         val content = oneTime.nip44EncryptNow(lb, seal.toJsonString())
@@ -113,6 +123,7 @@ object Sealing {
         return try {
             val seal = Event.fromJsonString(Nip44.decryptFrom(secret, wrap.pubkey, wrap.content)) ?: return Opening.Invalid
             if (seal.kind != SEAL || !seal.isValid()) return Opening.Invalid
+            // the id and sig inside are ignored: the id is always computed here
             var rumor = Event.fromJsonString(Nip44.decryptFrom(secret, seal.pubkey, seal.content)) ?: return Opening.Invalid
             rumor = rumor.withId().copy(sig = "")
             Opening.Opened(rumor, seal.pubkey, lb)
@@ -188,17 +199,23 @@ object Sealing {
     // ---- §8 sharing history -------------------------------------------------------------------
 
     const val SHARE_MAX_RUMORS = 200
-    const val SHARE_MAX_BYTES = 200_000
+    /** Rumor JSON per 8564, so the 8564 itself still fits in a seal. */
+    const val SHARE_MAX_BYTES = 40_000
 
-    /** The 8564 rumors sharing RUMORS (oldest first) with PERSON, split at 200 rumors / 200 kB each. */
+    /**
+     * The 8564 rumors sharing RUMORS (oldest first) with PERSON: at most 200 rumors or 40 000 bytes
+     * of rumor JSON each, whichever comes first; a rumor larger than that alone is left out.
+     */
     fun shareRumors(sharer: String, person: String, rumors: List<Event>, now: Long = unixNow()): List<Event> {
         val chunks = ArrayList<List<JsonObject>>()
         var cur = ArrayList<JsonObject>()
         var bytes = 0
         for (r in rumors) {
             val j = r.copy(sig = "").toJson()
-            val size = j.toString().toByteArray(Charsets.UTF_8).size
-            if (cur.isNotEmpty() && (cur.size >= SHARE_MAX_RUMORS || bytes + size + 40 > SHARE_MAX_BYTES)) {
+            // counted as it will be inside the 8564's content (escaped), so the 8564 itself can be sealed
+            val size = JsonPrimitive(j.toString()).toString().toByteArray(Charsets.UTF_8).size
+            if (size > SHARE_MAX_BYTES - 200) continue
+            if (cur.isNotEmpty() && (cur.size >= SHARE_MAX_RUMORS || bytes + size + 1 > SHARE_MAX_BYTES - 200)) {
                 chunks.add(cur); cur = ArrayList(); bytes = 0
             }
             cur.add(j); bytes += size + 1
