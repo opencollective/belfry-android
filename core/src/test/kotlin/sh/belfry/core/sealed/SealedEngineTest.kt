@@ -78,7 +78,7 @@ class SealedEngineTest {
     private fun conv(a: String, b: String) = "n:" + listOf(a, b).sorted().joinToString(",")
 
     /** Alice with phone and laptop both in her head, Bob with his phone, everyone ready. */
-    private fun world(): Triple<SealedEngine, SealedEngine, SealedEngine> = runBlocking<Unit> {
+    private fun world(): Triple<SealedEngine, SealedEngine, SealedEngine> = runBlocking {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
         server.live(bob.pubkey, bobPhone.pubkey, "Bob's phone")
