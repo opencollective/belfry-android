@@ -294,4 +294,12 @@ object DeviceNames {
         EventTemplate(Anchor.KIND, Nip44.encryptFor(lbSecret, lb, content.toString()), listOf(listOf("d", D), listOf("lb", lb)), now)
 
     val KINDS = setOf("phone", "tablet", "computer")
+
+    /**
+     * This device's own name (§3.5): the `device` of its own row in /api/me/sessions (found by
+     * client_pubkey), so it equals what the Allow prompt showed on the other device; the platform's
+     * own name only when that is empty.
+     */
+    fun myName(sessionDevice: String?, platformName: String): String =
+        sessionDevice?.trim()?.ifEmpty { null }?.take(80) ?: platformName.trim().take(80)
 }

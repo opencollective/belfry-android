@@ -199,6 +199,12 @@ class SealingTest {
         assertNull(DeviceNames.open(e2, KeyChain()), "other people never read it")
     }
 
+    @Test fun myDeviceName() {
+        assertEquals("Chrome on Windows", DeviceNames.myName("Chrome on Windows", "Pixel 8"))
+        assertEquals("Pixel 8", DeviceNames.myName("  ", "Pixel 8"))
+        assertEquals("Pixel 8", DeviceNames.myName(null, "Pixel 8"))
+    }
+
     @Test fun whenSealed() {
         val r1 = roster(phone, 1, null, lb1.first, listOf(phone), t0, ready = true)
         val c = Chain.of(account.pubkey, listOf(anchor(r1)), listOf(r1))
