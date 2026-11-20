@@ -267,11 +267,18 @@ data class EventLink(val domain: String, val link: String, /** A ticket's code (
  * digits, `.` `_` `-` inside, 1–30 characters, as written (`vectors/login-links.json`). No secret
  * in it: the code mailed to that address is the proof.
  */
-data class LoginLink(val domain: String, val username: String) {
+data class LoginLink(val domain: String, val username: String, val linkSecret: String? = null) {
     val address: String get() = "$username@$domain"
 
+    /** The link again, with its `#l=` secret when it has one (sealed.md §5.2). */
+    fun url(): String = "https://chat.$domain/login/$username" + (linkSecret?.let { "#l=$it" } ?: "")
+
     companion object {
-        private val LINK = Regex("^https://([A-Za-z0-9.-]+)/login/([a-z0-9](?:[a-z0-9._-]{0,28}[a-z0-9])?)/?$")
+        /**
+         * The only fragment taken is `#l=<64 lower-case hex>`: the one-time link secret of sealed.md
+         * §5.2 (it never reaches a server; a device that signs in from the link proves it in its request).
+         */
+        private val LINK = Regex("^https://([A-Za-z0-9.-]+)/login/([a-z0-9](?:[a-z0-9._-]{0,28}[a-z0-9])?)/?(?:#l=([0-9a-f]{64}))?$")
 
         fun parse(url: String): LoginLink? {
             val m = LINK.matchEntire(url) ?: return null
@@ -279,7 +286,7 @@ data class LoginLink(val domain: String, val username: String) {
             if (!host.startsWith("chat.")) return null
             val domain = host.removePrefix("chat.")
             if (!Community.isDomain(domain)) return null
-            return LoginLink(domain, m.groupValues[2])
+            return LoginLink(domain, m.groupValues[2], m.groupValues[3].ifEmpty { null })
         }
     }
 }
