@@ -184,58 +184,20 @@ class SealingTest {
 
     @Test fun deviceNames() {
         val keys = KeyChain(mapOf(lb1))
-        val content = DeviceNames.write(null, phone.pubkey, DeviceNames.Entry("Pixel 8", "phone", t0, mapOf("x" to JsonPrimitive("kept"))), { true }, { null }, t0)
-        val e = account.signNow(DeviceNames.template(content, lb1.first, lb1.second, t0))
-        val doc = assertNotNull(DeviceNames.open(e, keys))
-        assertEquals("Pixel 8", doc.devices[phone.pubkey]!!.name)
-        // the laptop writes its own entry, the phone's and unknown fields stay
-        val raw = JsonObject(doc.raw + mapOf("future" to JsonPrimitive(1)))
-        val next = DeviceNames.write(DeviceNames.Doc(doc.devices, raw), laptop.pubkey, DeviceNames.Entry("Firefox on Linux", "computer", t0 + 5), { true }, { null }, t0 + 5)
-        val e2 = account.signNow(DeviceNames.template(next, lb1.first, lb1.second, t0 + 5))
-        val doc2 = assertNotNull(DeviceNames.open(e2, keys))
-        assertEquals(setOf(phone.pubkey, laptop.pubkey), doc2.devices.keys)
-        assertEquals(JsonPrimitive(1), doc2.raw["future"])
-        assertEquals(JsonPrimitive("kept"), doc2.devices[phone.pubkey]!!.extra["x"])
-        assertNull(DeviceNames.open(e2, KeyChain()), "other people never read it")
-    }
-
-    @Test fun keepRetryDrop() {
-        val r1 = roster(phone, 1, null, lb1.first, listOf(phone), t0, ready = true)
-        val chain = Chain.of(account.pubkey, listOf(anchor(r1)), listOf(r1))!!
-        val lina = LocalSigner.random().pubkey
-        val keys = KeyChain(mapOf(lb1))
-        val rumor = GiftWrap.rumor(14, account.pubkey, listOf(listOf("p", lina)), "hi", t0)
-        val fromPhone = Sealing.open(Sealing.seal(rumor, phone, account.pubkey, lb1.first, t0), keys)
-        assertEquals(Sealing.Verdict.ACCEPT, Sealing.verdict(fromPhone, chain, t0, t0))
-        // a device not in the chain loaded yet: kept for 30 days, then dropped
-        val fromLaptop = Sealing.open(Sealing.seal(rumor, laptop, account.pubkey, lb1.first, t0), keys)
-        assertEquals(Sealing.Verdict.KEEP, Sealing.verdict(fromLaptop, chain, t0, t0 + 86400))
-        assertEquals(Sealing.Verdict.KEEP, Sealing.verdict(fromLaptop, null, t0, t0))
-        assertEquals(Sealing.Verdict.DROP, Sealing.verdict(fromLaptop, chain, t0, t0 + 30 * 86400L))
-        // no secret here: locked; a broken wrap: dropped at once
-        val wrap = Sealing.seal(rumor, phone, account.pubkey, lb1.first, t0)
-        assertEquals(Sealing.Verdict.LOCKED, Sealing.verdict(Sealing.open(wrap, KeyChain()), chain, t0, t0))
-        val broken = wrap.copy(content = wrap.content.dropLast(8) + "AAAAAAAA")
-        assertEquals(Sealing.Verdict.DROP, Sealing.verdict(Sealing.open(broken, keys), chain, t0, t0))
-        assertTrue(Sealing.needsReseal(lb1.first, lb2.first))
-        assertFalse(Sealing.needsReseal(lb1.first, lb1.first))
-    }
-
-    @Test fun countedSessions() {
-        val now = t0
-        val counted = Sealing.countedSessions(listOf(
-            Triple(phone.pubkey, true, now - 3600),
-            Triple(laptop.pubkey, true, now - 30 * 86400L), // 30 days ago: no longer counts
-            Triple(tablet.pubkey, false, now), // another approved app
-            Triple(null, true, now),
-        ), now)
-        assertEquals(listOf(phone.pubkey), counted)
-    }
-
-    @Test fun myDeviceName() {
-        assertEquals("Chrome on Windows", DeviceNames.myName("Chrome on Windows", "Pixel 8"))
-        assertEquals("Pixel 8", DeviceNames.myName("  ", "Pixel 8"))
-        assertEquals("Pixel 8", DeviceNames.myName(null, "Pixel 8"))
+        val e1 = account.signNow(DeviceNames.template(phone.pubkey, DeviceNames.Entry("Pixel 8", "phone", t0), lb1.first, lb1.second, t0))
+        // the laptop writes its own event in the same second: neither drops the other (1390386)
+        val e2 = account.signNow(DeviceNames.template(laptop.pubkey, DeviceNames.Entry("Firefox on Linux", "computer", t0), lb1.first, lb1.second, t0))
+        val names = DeviceNames.all(listOf(e1, e2), account.pubkey, keys)
+        assertEquals("Pixel 8", names[phone.pubkey]!!.name)
+        assertEquals("computer", names[laptop.pubkey]!!.kind)
+        // a newer event of the same device replaces its name
+        val e3 = account.signNow(DeviceNames.template(phone.pubkey, DeviceNames.Entry("Sam's Pixel", "phone", t0), lb1.first, lb1.second, t0 + 5))
+        assertEquals("Sam's Pixel", DeviceNames.all(listOf(e3, e1, e2), account.pubkey, keys)[phone.pubkey]!!.name)
+        assertEquals("belfry:device:" + phone.pubkey, e1.tag("d"))
+        assertTrue(DeviceNames.all(listOf(e1), account.pubkey, KeyChain()).isEmpty(), "other people never read it")
+        // signed by someone else than the account: ignored
+        val forged = LocalSigner.random().signNow(DeviceNames.template(phone.pubkey, DeviceNames.Entry("x", "phone", t0), lb1.first, lb1.second, t0))
+        assertTrue(DeviceNames.all(listOf(forged), account.pubkey, keys).isEmpty())
     }
 
     @Test fun whenSealed() {

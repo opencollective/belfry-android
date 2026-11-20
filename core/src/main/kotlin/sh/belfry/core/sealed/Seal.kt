@@ -287,52 +287,47 @@ object Sealing {
         liveSessionKeys.isNotEmpty() && liveSessionKeys.all { it in devices }
 }
 
-/** My device names (30078 `d = belfry:devices`, §3.5): NIP-44 to the head letterbox itself. */
+/**
+ * My device names (sealed.md §3.5, as replaced in 1390386): ONE event per device, kind 30078
+ * `d = belfry:device:<device pubkey>`, signed by the account, written only by that device;
+ * content `{"v":1,"name","kind","added"}` NIP-44 with conv(lb secret, lb pub) of the head
+ * letterbox, tag `["lb", …]`. Other people never receive it.
+ */
 object DeviceNames {
-    const val D = "belfry:devices"
+    const val PREFIX = "belfry:device:"
 
-    data class Entry(val name: String, val kind: String, val added: Long?, val extra: Map<String, JsonElement> = emptyMap())
+    data class Entry(val name: String, val kind: String, val added: Long?)
 
-    /** The entries by device pubkey, plus the whole object (to keep unknown fields). */
-    class Doc(val devices: Map<String, Entry>, val raw: JsonObject)
+    fun d(device: String): String = PREFIX + device
 
-    fun open(e: Event, keys: KeyChain): Doc? {
-        if (e.kind != Anchor.KIND || e.tag("d") != D || !e.isValid()) return null
+    /** The device and its entry, when this device holds the secret of its lb; else null. */
+    fun open(e: Event, account: String, keys: KeyChain): Pair<String, Entry>? {
+        if (e.kind != Anchor.KIND || e.pubkey != account || !e.isValid()) return null
+        val device = e.tag("d")?.takeIf { it.startsWith(PREFIX) }?.removePrefix(PREFIX)?.takeIf { Hex.isKey(it) } ?: return null
         val lb = e.tag("lb") ?: return null
         val secret = keys.secretFor(lb) ?: return null
         val o = try { parseJsonOrNull(Nip44.decryptFrom(secret, lb, e.content)) as? JsonObject } catch (x: Exception) { null } ?: return null
-        val devs = (o["devices"] as? JsonObject) ?: JsonObject(emptyMap())
-        val map = LinkedHashMap<String, Entry>()
-        devs.forEach { (pk, v) ->
-            val d = v as? JsonObject ?: return@forEach
-            val name = (d["name"] as? JsonPrimitive)?.content?.trim()?.take(80) ?: return@forEach
-            val kind = (d["kind"] as? JsonPrimitive)?.content?.takeIf { it in KINDS } ?: "phone"
-            map[pk] = Entry(name, kind, (d["added"] as? JsonPrimitive)?.longOrNull, d.filterKeys { it !in setOf("name", "kind", "added") })
-        }
-        return Doc(map, o)
+        if ((o["v"] as? JsonPrimitive)?.longOrNull != 1L) return null
+        val name = (o["name"] as? JsonPrimitive)?.content?.trim()?.take(80)?.ifEmpty { null } ?: return null
+        val kind = (o["kind"] as? JsonPrimitive)?.content?.takeIf { it in KINDS } ?: "phone"
+        return device to Entry(name, kind, (o["added"] as? JsonPrimitive)?.longOrNull)
     }
 
-    /**
-     * The content to publish: DOC with MY entry written (my own name for myself), other entries and
-     * unknown fields kept, entries of devices in no roster dropped after 90 days.
-     */
-    fun write(doc: Doc?, me: String, mine: Entry, everInRoster: (String) -> Boolean, droppedSince: (String) -> Long?, now: Long): JsonObject {
-        val base = doc?.raw ?: JsonObject(emptyMap())
-        val old = (base["devices"] as? JsonObject) ?: JsonObject(emptyMap())
-        val devices = LinkedHashMap<String, JsonElement>()
-        old.forEach { (pk, v) ->
-            if (pk == me) return@forEach
-            val gone = droppedSince(pk)
-            if (!everInRoster(pk) && gone != null && now - gone > 90 * 86400L) return@forEach
-            devices[pk] = v
-        }
-        devices[me] = JsonObject(mine.extra + mapOf("name" to JsonPrimitive(mine.name), "kind" to JsonPrimitive(mine.kind)) + (mine.added?.let { mapOf("added" to JsonPrimitive(it)) } ?: emptyMap()))
-        return JsonObject(base + mapOf("v" to JsonPrimitive(1), "devices" to JsonObject(devices)))
-    }
+    /** The names of ACCOUNT's devices from its events, the newest per device. */
+    fun all(events: List<Event>, account: String, keys: KeyChain): Map<String, Entry> =
+        events.sortedWith(compareBy<Event> { it.createdAt }.thenByDescending { it.id })
+            .mapNotNull { open(it, account, keys) }.toMap()
 
-    /** The 30078 to sign with the account: content encrypted with conv(lb secret, lb pub). */
-    fun template(content: JsonObject, lb: String, lbSecret: String, now: Long): EventTemplate =
-        EventTemplate(Anchor.KIND, Nip44.encryptFor(lbSecret, lb, content.toString()), listOf(listOf("d", D), listOf("lb", lb)), now)
+    /** My own entry, to sign with the account (rewritten under the new letterbox after a key change). */
+    fun template(device: String, entry: Entry, lb: String, lbSecret: String, now: Long): EventTemplate {
+        val content = buildJsonObject {
+            put("v", JsonPrimitive(1))
+            put("name", JsonPrimitive(entry.name))
+            put("kind", JsonPrimitive(entry.kind))
+            entry.added?.let { put("added", JsonPrimitive(it)) }
+        }.toString()
+        return EventTemplate(Anchor.KIND, Nip44.encryptFor(lbSecret, lb, content), listOf(listOf("d", d(device)), listOf("lb", lb)), now)
+    }
 
     val KINDS = setOf("phone", "tablet", "computer")
 
