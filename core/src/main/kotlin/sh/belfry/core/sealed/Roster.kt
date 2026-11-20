@@ -58,18 +58,28 @@ data class Roster(
     }
 }
 
-/** The anchor: 30078 `d = belfry:sealed`, signed by the account, naming the root roster. */
+/**
+ * The anchor: 30078 `d = belfry:sealed`, signed by the account, naming the root roster and the
+ * newest roster (`head`; absent = the root). Every device that publishes a roster publishes the
+ * anchor again right after it (sealed.md §3.2, 61d7846).
+ */
 object Anchor {
     const val KIND = 30078
     const val D = "belfry:sealed"
 
-    /** The root id the newest valid anchor of ACCOUNT names, else null. */
-    fun root(events: List<Event>, account: String): String? =
+    /** The root and head ids the newest valid anchor of ACCOUNT names (head null = the root), else null. */
+    fun read(events: List<Event>, account: String): Pair<String, String?>? =
         events.filter { it.kind == KIND && it.pubkey == account && it.tag("d") == D && it.isValid() }
             .sortedWith(compareByDescending<Event> { it.createdAt }.thenBy { it.id })
-            .firstNotNullOfOrNull { e -> e.tags.singleValue("root")?.takeIf { Hex.isKey(it) } }
+            .firstNotNullOfOrNull { e ->
+                val root = e.tags.singleValue("root")?.takeIf { Hex.isKey(it) } ?: return@firstNotNullOfOrNull null
+                root to e.tags.singleValue("head")?.takeIf { Hex.isKey(it) }
+            }
 
-    fun template(root: String, now: Long): EventTemplate = EventTemplate(KIND, "", listOf(listOf("d", D), listOf("root", root)), now)
+    fun root(events: List<Event>, account: String): String? = read(events, account)?.first
+
+    fun template(root: String, head: String?, now: Long): EventTemplate =
+        EventTemplate(KIND, "", listOf(listOf("d", D), listOf("root", root)) + (head?.let { listOf(listOf("head", it)) } ?: emptyList()), now)
 }
 
 /** A device change between two heads, for the thread's notice lines (§3.4). */
@@ -127,26 +137,54 @@ class Chain(val account: String, val rosters: List<Roster>) {
     companion object {
         /**
          * The valid chain of ACCOUNT from its anchors and rosters (both read without `since`), or
-         * null when there is none. Invalid events are skipped silently.
+         * null when there is none (§3.3, 61d7846): the anchored path root → the anchor's `head`
+         * (the root alone when `head` isn't a valid descendant of it); anything off that path is
+         * ignored whatever its id; after its end, valid steps with the lower id winning for now.
+         * PINNED is the head this client last accepted for ACCOUNT: an anchor whose `head` is an
+         * ancestor of it is not followed back (PINNED is kept).
          */
-        fun of(account: String, anchors: List<Event>, rosterEvents: List<Event>): Chain? {
-            val rootId = Anchor.root(anchors, account) ?: return null
+        fun of(account: String, anchors: List<Event>, rosterEvents: List<Event>, pinned: String? = null): Chain? {
+            val (rootId, anchorHead) = Anchor.read(anchors, account) ?: return null
             val all = rosterEvents.mapNotNull { Roster.parse(it) }.filter { it.account == account }.associateBy { it.id }
             val root = all[rootId] ?: return null
             if (root.n != 1 || root.prev != null || root.signer !in root.devices) return null
+
+            var path = pathTo(anchorHead ?: rootId, root, all) ?: listOf(root)
+            // no going back: an anchor naming an ancestor of the head I pinned keeps the pinned head
+            if (pinned != null && pinned != path.last().id) {
+                val p = pathTo(pinned, root, all)
+                if (p != null && p.size > path.size && p.subList(0, path.size).map { it.id } == path.map { it.id }) path = p
+            }
+            val out = ArrayList(path)
+            val seenLb = path.map { it.lb }.toHashSet()
             val byPrev = all.values.filter { it.prev != null }.groupBy { it.prev!! }
-            val path = arrayListOf(root)
-            val seenLb = hashSetOf(root.lb)
-            while (true) {
-                val cur = path.last()
-                if (path.size > 100_000) break
-                val next = byPrev[cur.id].orEmpty()
-                    .filter { validAfter(cur, it, seenLb) }
-                    .minByOrNull { it.id.lowercase() } ?: break
-                path.add(next)
+            while (out.size < 100_000) {
+                val cur = out.last()
+                val next = byPrev[cur.id].orEmpty().filter { validAfter(cur, it, seenLb) }.minByOrNull { it.id.lowercase() } ?: break
+                out.add(next)
                 seenLb.add(next.lb)
             }
-            return Chain(account, path)
+            return Chain(account, out)
+        }
+
+        /** The valid path root → TARGET, or null when TARGET isn't a valid descendant of the root. */
+        private fun pathTo(target: String, root: Roster, all: Map<String, Roster>): List<Roster>? {
+            val back = ArrayList<Roster>()
+            var cur = all[target] ?: return null
+            val seen = HashSet<String>()
+            while (true) {
+                if (!seen.add(cur.id)) return null
+                back.add(cur)
+                if (cur.id == root.id) break
+                cur = all[cur.prev ?: return null] ?: return null
+            }
+            val path = back.reversed()
+            val lbs = hashSetOf(root.lb)
+            for (k in 1 until path.size) {
+                if (!validAfter(path[k - 1], path[k], lbs)) return null
+                lbs.add(path[k].lb)
+            }
+            return path
         }
 
         private fun validAfter(prev: Roster, r: Roster, earlierLbs: Set<String>): Boolean {

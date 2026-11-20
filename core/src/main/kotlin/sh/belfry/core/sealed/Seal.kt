@@ -169,15 +169,26 @@ object Sealing {
 
     // ---- §5.5 handing keys over ---------------------------------------------------------------
 
-    /** A gift wrap to the receiving DEVICE carrying the giver's whole chain (rumor 8561). */
-    suspend fun keysFor(giver: LocalSigner, account: String, receivingDevice: String, chain: KeyChain, now: Long = unixNow()): Event {
-        val content = buildJsonObject {
-            put("v", JsonPrimitive(1))
-            put("account", JsonPrimitive(account))
-            put("keys", chain.toJson())
-        }.toString()
-        val rumor = GiftWrap.rumor(KEYS, giver.pubkey, listOf(listOf("p", account)), content, now)
-        return GiftWrap.wrap(rumor, receivingDevice, giver)
+    /**
+     * Gift wraps to the receiving DEVICE carrying the giver's whole chain (rumors 8561), split into
+     * several when one would pass the 40 000-byte ceiling (§5.5, 61d7846).
+     */
+    suspend fun keysFor(giver: LocalSigner, account: String, receivingDevice: String, chain: KeyChain, now: Long = unixNow()): List<Event> {
+        fun rumor(pairs: List<Pair<String, String>>): Event {
+            val content = buildJsonObject {
+                put("v", JsonPrimitive(1))
+                put("account", JsonPrimitive(account))
+                put("keys", buildJsonArray { pairs.forEach { (lb, s) -> add(buildJsonObject { put("lb", JsonPrimitive(lb)); put("secret", JsonPrimitive(s)) }) } })
+            }.toString()
+            return GiftWrap.rumor(KEYS, giver.pubkey, listOf(listOf("p", account)), content, now)
+        }
+        val rumors = ArrayList<Event>()
+        var cur = ArrayList<Pair<String, String>>()
+        for (p in chain.toMap().toList()) {
+            if (cur.isEmpty() || fits(rumor(cur + p))) cur.add(p) else { rumors.add(rumor(cur)); cur = arrayListOf(p) }
+        }
+        if (cur.isNotEmpty() || rumors.isEmpty()) rumors.add(rumor(cur))
+        return rumors.map { GiftWrap.wrap(it, receivingDevice, giver) }
     }
 
     /** A received handover: who gave it (a device) and the pairs that check out. */
@@ -234,6 +245,8 @@ object Sealing {
     // ---- §8 sharing history -------------------------------------------------------------------
 
     const val SHARE_MAX_RUMORS = 200
+    /** Only these are shared and taken (never an e-mail), §8. */
+    val SHARED_KINDS = setOf(14, 7, 5)
 
     /**
      * The 8564 rumors sharing RUMORS (oldest first) with PERSON: at most 200 rumors each, and each
@@ -269,9 +282,11 @@ object Sealing {
      */
     fun acceptShared(share: Event, sealPubkey: String, sharerChain: Chain?, receiver: String): List<Event> {
         if (share.kind != SHARE || sharerChain == null || sharerChain.account != share.pubkey) return emptyList()
+        // the 8564's p must be the receiver (06a1386)
+        if (share.tags.none { it.size >= 2 && it[0] == "p" && it[1] == receiver }) return emptyList()
         if (!sharerChain.accepts(sealPubkey, share.createdAt)) return emptyList()
         fun inIt(r: Event, who: String) = r.pubkey == who || r.tags.any { it.size >= 2 && it[0] == "p" && it[1] == who }
-        return sharedRumors(share).filter { inIt(it, share.pubkey) && inIt(it, receiver) }
+        return sharedRumors(share).filter { it.kind in SHARED_KINDS && inIt(it, share.pubkey) && inIt(it, receiver) }
     }
 
     /** Is a handover's giver a device of a roster of one of my account's chains (current or the pinned earlier one)? */

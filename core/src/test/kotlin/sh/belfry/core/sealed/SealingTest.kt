@@ -29,7 +29,7 @@ class SealingTest {
     private fun roster(by: LocalSigner, n: Int, prev: Event?, lb: String, devices: List<LocalSigner>, at: Long, ready: Boolean = false): Event =
         by.signNow(Roster.template(account.pubkey, n, prev?.id, lb, devices.map { it.pubkey }, ready, at))
 
-    private fun anchor(root: Event, at: Long = t0): Event = account.signNow(Anchor.template(root.id, at))
+    private fun anchor(root: Event, at: Long = t0, head: Event? = null): Event = account.signNow(Anchor.template(root.id, head?.id, at))
 
     private val lb1 = KeyChain.newLetterbox()
     private val lb2 = KeyChain.newLetterbox()
@@ -58,7 +58,7 @@ class SealingTest {
         val r1 = roster(phone, 1, null, lb1.first, listOf(phone), t0)
         assertNull(Chain.of(account.pubkey, emptyList(), listOf(r1)))
         // an anchor signed by someone else doesn't count
-        val other = LocalSigner.random().signNow(Anchor.template(r1.id, t0))
+        val other = LocalSigner.random().signNow(Anchor.template(r1.id, null, t0))
         assertNull(Chain.of(account.pubkey, listOf(other), listOf(r1)))
     }
 
@@ -94,6 +94,32 @@ class SealingTest {
         assertEquals(win.id, c.head.id)
     }
 
+    /** 61d7846: a device dropped by the anchored path can't fork it back, whatever its id. */
+    @Test fun anchoredPathCantBeForked() {
+        val r1 = roster(phone, 1, null, lb1.first, listOf(phone, laptop), t0)
+        val r2 = roster(phone, 2, r1, lb2.first, listOf(phone), t0 + 10) // the laptop is removed
+        // the removed laptop signs siblings of r2 until one has a lower id than r2
+        var fork: Event
+        var k = 0
+        do { fork = roster(laptop, 2, r1, KeyChain.newLetterbox().first, listOf(laptop), t0 + 11 + k++) } while (fork.id >= r2.id)
+        val anchored = anchor(r1, t0 + 10, head = r2)
+        val c = Chain.of(account.pubkey, listOf(anchored), listOf(r1, r2, fork))!!
+        assertEquals(r2.id, c.head.id)
+        // without the head in the anchor, the lower id would have won (the old rule, kept only past the path's end)
+        assertEquals(fork.id, Chain.of(account.pubkey, listOf(anchor(r1)), listOf(r1, r2, fork))!!.head.id)
+        // no going back: an older anchor naming the root doesn't undo the pinned head
+        val back = account.signNow(Anchor.template(r1.id, r1.id, t0 + 20))
+        assertEquals(r2.id, Chain.of(account.pubkey, listOf(back), listOf(r1, r2, fork), pinned = r2.id)!!.head.id)
+    }
+
+    @Test fun handoverSplits() = runBlocking {
+        val chain = KeyChain((1..400).associate { KeyChain.newLetterbox() })
+        val wraps = Sealing.keysFor(phone, account.pubkey, tablet.pubkey, chain, t0)
+        assertTrue(wraps.size >= 2, "split under the ceiling")
+        val got = wraps.flatMap { Sealing.openKeys(it, tablet)!!.keys.toList() }.toMap()
+        assertEquals(chain.toMap(), got)
+    }
+
     @Test fun sealAndOpen() {
         val lina = LocalSigner.random()
         val linaLb = KeyChain.newLetterbox()
@@ -118,7 +144,7 @@ class SealingTest {
 
     @Test fun handover() = runBlocking {
         val chain = KeyChain(mapOf(lb1, lb2))
-        val wrap = Sealing.keysFor(phone, account.pubkey, tablet.pubkey, chain, t0)
+        val wrap = Sealing.keysFor(phone, account.pubkey, tablet.pubkey, chain, t0).single()
         assertEquals(tablet.pubkey, wrap.tag("p"))
         val got = assertNotNull(Sealing.openKeys(wrap, tablet))
         assertEquals(phone.pubkey, got.giver)
