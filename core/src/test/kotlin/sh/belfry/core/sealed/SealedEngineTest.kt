@@ -78,7 +78,7 @@ class SealedEngineTest {
     private fun conv(a: String, b: String) = "n:" + listOf(a, b).sorted().joinToString(",")
 
     /** Alice with phone and laptop both in her head, Bob with his phone, everyone ready. */
-    private fun world(): Triple<SealedEngine, SealedEngine, SealedEngine> = runBlocking {
+    private fun world(): Triple<SealedEngine, SealedEngine, SealedEngine> = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
         server.live(bob.pubkey, bobPhone.pubkey, "Bob's phone")
@@ -93,7 +93,7 @@ class SealedEngineTest {
         Triple(phone, laptop, b)
     }
 
-    @Test fun firstDevice() = runBlocking {
+    @Test fun firstDevice() = runBlocking<Unit> {
         val phone = engine(alice, alicePhone)
         phone.start("Pixel 8", "phone")
         assertEquals(SealedEngine.Mine.IN_HEAD, phone.mine)
@@ -104,7 +104,7 @@ class SealedEngineTest {
     }
 
     /** §5.1 (B): never a root from silence, never in a guest session. */
-    @Test fun noRootFromSilenceOrGuest() = runBlocking {
+    @Test fun noRootFromSilenceOrGuest() = runBlocking<Unit> {
         relay.silent = true
         val phone = engine(alice, alicePhone)
         phone.start("Pixel 8", "phone")
@@ -116,7 +116,7 @@ class SealedEngineTest {
         assertTrue(relay.events.isEmpty())
     }
 
-    @Test fun requestAllowHandover() = runBlocking {
+    @Test fun requestAllowHandover() = runBlocking<Unit> {
         val (phone, laptop, _) = world()
         assertEquals(SealedEngine.Mine.IN_HEAD, laptop.mine)
         val head = assertNotNull(laptop.refresh(alice.pubkey))
@@ -127,7 +127,7 @@ class SealedEngineTest {
         assertTrue(phone.refresh(alice.pubkey)!!.ready)
     }
 
-    @Test fun linkAllowsAtOnce() = runBlocking {
+    @Test fun linkAllowsAtOnce() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
@@ -136,7 +136,7 @@ class SealedEngineTest {
         assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(relay.events.last { it.kind == Sealing.REQUEST }))
     }
 
-    @Test fun requestFromNoLiveChatSessionIgnored() = runBlocking {
+    @Test fun requestFromNoLiveChatSessionIgnored() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         server.live(alice.pubkey, aliceLaptop.pubkey, "Notes", chat = false)
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
@@ -144,7 +144,7 @@ class SealedEngineTest {
         assertEquals(SealedEngine.OnRequest.Ignore, phone.onRequest(relay.events.last { it.kind == Sealing.REQUEST }))
     }
 
-    @Test fun allowRefusedAtTwenty() = runBlocking {
+    @Test fun allowRefusedAtTwenty() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
         repeat(19) { phone.allow(LocalSigner.random().pubkey) }
@@ -154,7 +154,7 @@ class SealedEngineTest {
         assertEquals(before, relay.events.size, "refused before any key goes out")
     }
 
-    @Test fun sealedSendAndReceive() = runBlocking {
+    @Test fun sealedSendAndReceive() = runBlocking<Unit> {
         val (phone, laptop, b) = world()
         val c = conv(alice.pubkey, bob.pubkey)
         val plan = assertIs<SealedEngine.Plan.Seal>(phone.plan(c, listOf(bob.pubkey)))
@@ -172,7 +172,7 @@ class SealedEngineTest {
     }
 
     /** ac5574b: never the old way on silence; only on a complete answer showing no ready chain. */
-    @Test fun neverOldWayOnSilence() = runBlocking {
+    @Test fun neverOldWayOnSilence() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone"); phone.checkReady()
         val carol = LocalSigner.random().pubkey
@@ -183,7 +183,7 @@ class SealedEngineTest {
     }
 
     /** A sealed conversation with no head to seal to: refused, never the old way. */
-    @Test fun sealedWithNoHeadRefuses() = runBlocking {
+    @Test fun sealedWithNoHeadRefuses() = runBlocking<Unit> {
         val (phone, _, _) = world()
         val carol = LocalSigner.random().pubkey
         val c = conv(alice.pubkey, carol)
@@ -192,7 +192,7 @@ class SealedEngineTest {
     }
 
     /** The web's bug: after a removal, the sender sealed to the stale head and the removed device read it. */
-    @Test fun removalReachesTheSender() = runBlocking {
+    @Test fun removalReachesTheSender() = runBlocking<Unit> {
         val (phone, laptop, b) = world()
         val c = conv(alice.pubkey, bob.pubkey)
         val old = assertIs<SealedEngine.Plan.Seal>(b.plan(c, listOf(alice.pubkey))).heads[alice.pubkey]
@@ -209,7 +209,7 @@ class SealedEngineTest {
     }
 
     /** A queued reaction and a queued delete are sealed again when the recipient's head changed. */
-    @Test fun queuedWrapsResealed() = runBlocking {
+    @Test fun queuedWrapsResealed() = runBlocking<Unit> {
         val (phone, _, b) = world()
         val c = conv(alice.pubkey, bob.pubkey)
         val plan = assertIs<SealedEngine.Plan.Seal>(b.plan(c, listOf(alice.pubkey)))
@@ -225,7 +225,7 @@ class SealedEngineTest {
     }
 
     /** The web's bug: a hand-over that arrives before my own chain is loaded was dropped. */
-    @Test fun earlyHandoverKept() = runBlocking {
+    @Test fun earlyHandoverKept() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
@@ -239,7 +239,7 @@ class SealedEngineTest {
     }
 
     /** (E): an odd answer, or one without my own session, removes nobody. */
-    @Test fun goneSessions() = runBlocking {
+    @Test fun goneSessions() = runBlocking<Unit> {
         val (phone, _, _) = world()
         server.odd = true
         phone.checkSessions()
@@ -255,7 +255,7 @@ class SealedEngineTest {
     }
 
     /** Remove isn't offered on a device that is itself locked (not in the head). */
-    @Test fun noRemoveFromALockedDevice() = runBlocking {
+    @Test fun noRemoveFromALockedDevice() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
@@ -269,7 +269,7 @@ class SealedEngineTest {
     }
 
     /** A message from an author's device not in the chain known yet: kept, accepted once the new roster is seen. */
-    @Test fun keepThenAccept() = runBlocking {
+    @Test fun keepThenAccept() = runBlocking<Unit> {
         val (phone, _, b) = world()
         val c = conv(alice.pubkey, bob.pubkey)
         phone.refresh(bob.pubkey) // Alice knows Bob's chain with his phone only

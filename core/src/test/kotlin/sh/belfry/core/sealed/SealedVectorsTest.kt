@@ -142,7 +142,7 @@ class SealedVectorsTest {
         assertEquals(strs(e["ids_of_8561"]), rumors.map { it.id })
     }
 
-    @Test fun handover() = runBlocking {
+    @Test fun handover() = runBlocking<Unit> {
         for (c in cases("keys_handover")) {
             val name = c.s("name")!!
             val e = c["expected"] as JsonObject

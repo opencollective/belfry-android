@@ -112,7 +112,7 @@ class SealingTest {
         assertEquals(r2.id, Chain.of(account.pubkey, listOf(back), listOf(r1, r2, fork), pinned = r2.id)!!.head.id)
     }
 
-    @Test fun handoverSplits() = runBlocking {
+    @Test fun handoverSplits() = runBlocking<Unit> {
         val chain = KeyChain((1..400).associate { KeyChain.newLetterbox() })
         val wraps = Sealing.keysFor(phone, account.pubkey, tablet.pubkey, chain, t0)
         assertTrue(wraps.size >= 2, "split under the ceiling")
@@ -136,13 +136,13 @@ class SealingTest {
         // no secret here: locked, the wrap is kept
         assertIs<Opening.Locked>(Sealing.open(toLina, KeyChain()))
         // the old kind
-        val old = runBlocking { GiftWrap.wrap(rumor, lina.pubkey, account) }
+        val old = runBlocking<Unit> { GiftWrap.wrap(rumor, lina.pubkey, account) }
         assertEquals(Opening.NotSealed, Sealing.open(old, KeyChain(mapOf(linaLb))))
         // a wrong secret for the lb is refused by the chain itself
         assertFalse(KeyChain().add(linaLb.first, lb1.second))
     }
 
-    @Test fun handover() = runBlocking {
+    @Test fun handover() = runBlocking<Unit> {
         val chain = KeyChain(mapOf(lb1, lb2))
         val wrap = Sealing.keysFor(phone, account.pubkey, tablet.pubkey, chain, t0).single()
         assertEquals(tablet.pubkey, wrap.tag("p"))
