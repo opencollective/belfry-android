@@ -19,6 +19,10 @@ class ReferencesTest {
             is RefTarget.Group -> { put("type", JsonPrimitive("group")); put("id", JsonPrimitive(t.id)) }
             is RefTarget.Event -> { put("type", JsonPrimitive("event")); t.coord?.let { put("coord", JsonPrimitive(it)) }; t.link?.let { put("link", JsonPrimitive(it)) } }
             is RefTarget.Proposal -> { put("type", JsonPrimitive("proposal")); put("coord", JsonPrimitive(t.coord)) }
+            is RefTarget.Todo -> { put("type", JsonPrimitive("todo")); put("group", JsonPrimitive(t.group)); put("task", JsonPrimitive(t.task)) }
+            is RefTarget.Message -> { put("type", JsonPrimitive("message")); t.group?.let { put("group", JsonPrimitive(it)) }; t.link?.let { put("link", JsonPrimitive(it)) }; put("id", JsonPrimitive(t.id)) }
+            is RefTarget.Person -> { put("type", JsonPrimitive("person")); put("pubkey", JsonPrimitive(t.pubkey)) }
+            is RefTarget.Drop -> { put("type", JsonPrimitive("drop")); put("token", JsonPrimitive(t.token)) }
         }
     }
 
@@ -32,7 +36,7 @@ class ReferencesTest {
     fun partsAsTheVectorsSay() {
         val domain = v.s("domain")!!
         val cases = (v["cases"] as JsonArray).map { it as JsonObject }
-        assertTrue(cases.size >= 20)
+        assertTrue(cases.size >= 38)
         for (c in cases) {
             val got = References.parts(c.s("text")!!, domain).map { json(it) }
             assertEquals(c["parts"], JsonArray(got), c.s("name"))

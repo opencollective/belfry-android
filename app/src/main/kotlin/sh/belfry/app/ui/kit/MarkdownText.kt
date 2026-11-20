@@ -70,6 +70,10 @@ internal fun lockedWords(k: RefKind): String = when (k) {
     RefKind.GROUP -> "a closed group"
     RefKind.EVENT -> "a members-only event"
     RefKind.PROPOSAL -> "a members-only proposal"
+    RefKind.TODO -> "a to-do in a closed channel"
+    RefKind.MESSAGE -> "a message in a closed channel"
+    RefKind.PERSON -> "someone"
+    RefKind.DROP -> "a drop box"
 }
 
 internal fun deletedWords(k: RefKind): String = when (k) {
@@ -77,16 +81,30 @@ internal fun deletedWords(k: RefKind): String = when (k) {
     RefKind.GROUP -> "a deleted group"
     RefKind.EVENT -> "a deleted event"
     RefKind.PROPOSAL -> "a deleted proposal"
+    RefKind.TODO -> "a deleted to-do"
+    RefKind.MESSAGE -> "a deleted message"
+    RefKind.PERSON -> "someone"
+    RefKind.DROP -> "an ended drop box"
 }
 
-/** Opens what a reference points to. */
-internal fun openRef(nav: Nav, seen: RefSeen) {
+/** Opens what a reference points to; a drop box opens its page in the browser through [openLink]. */
+internal fun openRef(nav: Nav, seen: RefSeen, openLink: (String) -> Unit) {
     when (seen) {
         is RefSeen.GroupSeen -> nav.openChannel(seen.group.id)
         is RefSeen.EventSeen -> nav.go(Routes.event(seen.event.coord))
         is RefSeen.ProposalSeen -> nav.go(Routes.proposal(seen.proposal.groupId))
+        is RefSeen.TodoSeen -> nav.go(Routes.todo(seen.group.id, seen.task.id))
+        is RefSeen.MessageSeen -> nav.openChannel(seen.group.id, seen.message.ev.id)
+        is RefSeen.PersonSeen -> nav.go(Routes.profile(seen.pubkey))
+        is RefSeen.DropSeen -> openLink(seen.url)
         else -> {}
     }
+}
+
+/** Whether a tap on reference SEEN opens something. */
+internal fun opens(seen: RefSeen): Boolean = when (seen) {
+    is RefSeen.Loading, is RefSeen.Locked, is RefSeen.Deleted -> false
+    else -> true
 }
 
 private class MdContext(
@@ -128,7 +146,7 @@ fun MarkdownText(
     val blocks = remember(text, rich) { Markdown.parse(text, if (rich) Markdown.rich else Markdown.asIs) }
     // a reference's name that hasn't come: a grey bar, the kind's word after 5 s (SPEC 19.43 / 19.44)
     var waited by remember { mutableStateOf(false) }
-    if (rich && (text.contains("naddr1") || text.contains("/#/c/") || text.contains("/events/"))) {
+    if (rich && (text.contains("naddr1") || text.contains("/#/") || text.contains("/events/") || text.contains("/drop/"))) {
         LaunchedEffect(Unit) { kotlinx.coroutines.delay(5_000); waited = true }
     }
     val ctx = MdContext(
@@ -137,7 +155,7 @@ fun MarkdownText(
         onTopic = onTopic,
         onLink = openLink,
         onChannel = { id -> nav.openChannel(id) },
-        onRef = { seen -> openRef(nav, seen) },
+        onRef = { seen -> openRef(nav, seen, openLink) },
         waited = waited,
     )
     val line = (fontSize.value * 1.4f).sp
@@ -172,7 +190,8 @@ fun MarkdownText(
 
 /**
  * A reference inside the text (SPEC 19.44, canvas channels/link-preview-inline): its name,
- * tappable ("#" + name for a channel or group, 📅 an event, 📝 a proposal), never its id; a grey
+ * tappable ("#" + name for a channel or group, 📅 an event, 📝 a proposal, ☐ a to-do, "a message
+ * from <name>", "@<name>", 📥 a drop box), never its id; a grey
  * bar while the name hasn't come, then the kind's word; grey words, not tappable, when I can't
  * open it or it is deleted.
  */
@@ -184,6 +203,10 @@ private fun AnnotatedString.Builder.appendRef(seen: RefSeen, ctx: MdContext) {
         is RefSeen.GroupSeen -> link(seen.group.icon + seen.group.name)
         is RefSeen.EventSeen -> link("📅 " + seen.event.title)
         is RefSeen.ProposalSeen -> link("📝 " + seen.proposal.title)
+        is RefSeen.TodoSeen -> link((if (seen.task.done) "☑ " else "☐ ") + seen.task.title)
+        is RefSeen.MessageSeen -> link("a message from " + (ctx.world?.displayName(seen.message.ev.pubkey) ?: "someone"))
+        is RefSeen.PersonSeen -> link("@" + (ctx.world?.displayName(seen.pubkey) ?: "someone"))
+        is RefSeen.DropSeen -> link("📥 drop box" + (seen.group?.takeIf { it.named }?.let { " of #${it.name}" } ?: ""))
         is RefSeen.Locked -> withStyle(SpanStyle(color = c.muted)) { append(lockedWords(seen.kind)) }
         is RefSeen.Deleted -> withStyle(SpanStyle(color = c.muted)) { append(deletedWords(seen.kind)) }
         is RefSeen.Loading -> if (ctx.waited) {

@@ -2035,33 +2035,56 @@ the feed row shaped like a message. Android: `ui/cards/MailThreadScreen.kt`, `ui
 - Android: `Group.named` + `World.kindWord / kindPhrase / UNKNOWN` (core), `NameSkeleton` /
   `rememberNameLoading` (kit), `TopBar(titleLoading =)`; tests `NamesTest`.
 
-### 19.44 References in a message: a name inside the text, a box at the end (2026-11-19; the lead's rule; canvas channels/link-preview-end + -inline, to-do c92a9f45; `vectors/references.json`, reference implementation `tools/vectors/references.mjs`)
+### 19.44 References in a message: a name inside the text, a box at the end (2026-11-19; the lead's rule; canvas channels/link-preview-end + -inline, to-do c92a9f45; grown 2026-11-20 after Xavier asked that a link to something in the belfry never shows as a raw link; `vectors/references.json`, 38 cases, now kept by the web: commonshub/collective-belfry branch chat-source, `src/core/refs.ts`, `tools/vectors/check.mjs`)
 
-A **reference** is this belfry's chat link `https://chat.<domain>/#/c/<id>` (also
-`https://<domain>/chat/#/c/<id>`; never with `/m/<event>`), its event pages
-`https://chat.<domain>/events/<link>` and `https://<domain>/events/<slug-or-d>` (not
-`/t/<code>`), or `nostr:naddr1…` of kind 39000 (a group id), 31922 / 31923 (an event coord) or
-30023 (a proposal coord). Another belfry's link, a message link and any other address stay links.
+A **reference** is any address of this belfry's chat, `https://chat.<domain>/#/…` or
+`https://<domain>/chat/#/…` (segments percent-encoded or not), that names:
+
+- `#/c/<id>` and its pages (`/group`, `/info`, `/info/members`, `/about`, `/members`, `/images`,
+  `/photos`, `/files`, `/todos`, `/log`, `/events`, `/t/<topic>`) = **group** `{id}`;
+- `#/c/<id>/todo/<task>` = **todo** `{group, task}`;
+- `#/c/<id>/m/<event>` and `#/c/<id>/thread/<event>` (64 hex; `/reply` after it allowed) =
+  **message** `{group, id}` (a message link was not a reference before 2026-11-20);
+- `#/cal/<31922|31923 coord>` (the older event address) = **event** `{coord}`;
+  `#/events/<link>` = **event** `{link}`; `#/events/<link>/m/<event>` = **message** `{link, id}`;
+- `#/u/<npub or hex>` = **person** `{pubkey}`;
+
+also its event pages `https://chat.<domain>/events/<link>` and `https://<domain>/events/<slug-or-d>`
+= event `{link}` (a ticket, `/t/<code>`, stays a link), its drop box links
+`https://<domain>/drop/<token>` = **drop** `{token}`, and `nostr:naddr1…` of kind 39000 (group id),
+31922 / 31923 (event coord) or 30023 (proposal coord). Another belfry's link, the app's places
+(`#/calendar`, `#/home`), a message id that isn't 64 hex and any other address stay links.
 A group is typed when shown: a channel, a group (pod), an event's chat (shown as the event), a
-proposal's chat `prop-…` (shown as the proposal).
+proposal's chat `prop-…` (shown as the proposal). Every event's own address is
+`#/events/<slug or d>` (never a coordinate with a key); old `#/cal/` links still open. Share and
+Copy link give the slug address.
 
 - **At the end**: when the text, trimmed of trailing white space, ends with a reference, the last
   one comes out of the text (with the white space before it) and shows as a preview box under it;
   a message that is only a reference shows the box alone. The box: the channel or group (name,
   "Channel · N members", its about), the event (its card), the proposal (title, "Proposal in
-  #parent"); a tap opens it. Same in direct messages.
+  #parent"), the to-do (its title, "To-do in #channel · Done | Nobody on it yet | <name> is on
+  it"), the message (its author, "Message in #channel", two lines of it), the person (face, name),
+  the drop box ("Drop box", its channel, until when); a tap opens it (a drop box: its page in the
+  browser). Same in direct messages.
 - **Inside the text**: its name, tappable: "#" + name for a channel or group, a calendar mark for
-  an event, a tick or page mark for a proposal. Never the id or the slug.
+  an event, a page mark for a proposal, "☐ <title>" for a to-do, "a message from <name>",
+  "@<name>" for a person. Never the id, the key or the slug.
 - **Not here yet**: a grey bar, then after 5 s the kind's word: "#channel" (as
-  `vectors/channel-refs.json`), "#group", "Event", "Proposal" (lower case "#channel" / "#group", as the web).
+  `vectors/channel-refs.json`), "#group", "Event", "Proposal", "To-do", "Message", "Someone",
+  "Drop box" (lower case "#channel" / "#group", as the web).
 - **Can't open it** (a closed group I'm not in, a members-only channel for a guest): no name: a
-  lock box at the end ("A members-only channel" / "A closed group", "Only members of <belfry> can
-  open it"), grey words inside the text. **Deleted**: "a deleted channel" (group, event,
-  proposal), grey.
+  lock box at the end ("A members-only channel" / "A closed group" / "A to-do in a closed
+  channel" / "A message in a closed channel", "Only members of <belfry> can open it"), grey words
+  inside the text. **Deleted**: "a deleted channel" (group, event, proposal, to-do, message), "an
+  ended drop box" (deleted or past its expiration), grey.
 - **On send**: an `a` tag for each event or proposal coord in the text (as the web does for event
   links); readers never depend on it, they parse the text.
+- Direct actions on the boxes (Going / Maybe / Can't go, Claim / Mark done, Join / Apply, Vote:
+  canvas v69 channels/card-*) are a draft for Xavier: not built.
 - (Android: `core/model/References.kt` — `References.parts / endBox`, `World.refSeen`;
   `ui/kit/RefBox.kt`, `MarkdownText` for the names.)
+
 ### 19.45 Reactions to direct messages (canvas home/conversation, Xavier's to-dos 2026-11-19; the web's dm.ts; `vectors/dm-reactions.json`)
 
 A reaction to a direct message is an unsigned kind 7 rumor, content = the emoji, tags

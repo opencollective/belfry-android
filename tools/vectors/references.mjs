@@ -1,3 +1,6 @@
+// NOTE 2026-11-20: vectors/references.json now comes from the web (commonshub/collective-belfry branch chat-source,
+// tools/vectors/check.mjs, 38 cases): copy it from there; this script writes only the first 20.
+//
 // Writes vectors/references.json: references in a message's text (SPEC 19.44; canvas
 // channels/link-preview-end + -inline, to-do c92a9f45). This file is also the reference
 // implementation of the rule (parts()), so the three apps port the same steps:

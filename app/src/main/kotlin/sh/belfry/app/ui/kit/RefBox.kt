@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import sh.belfry.app.ui.cards.CardFormat
+import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.LocalSession
 import sh.belfry.app.ui.nav.LocalWorld
@@ -47,8 +48,9 @@ import sh.belfry.core.model.refSeen
 
 /**
  * The preview box of a reference at the very end of a message (SPEC 19.44, canvas
- * channels/link-preview-end): the channel, group, event or proposal with its name and a line,
- * a tap opens it. Loading: a grey bar, the kind's word after 5 s. I can't open it: a lock and no
+ * channels/link-preview-end): the channel, group, event, proposal, to-do (its title, "To-do in
+ * #channel · Done | Nobody on it yet | <name> is on it"), message (its author, "Message in
+ * #channel", two lines of it), person or drop box with its name and a line; a tap opens it. Loading: a grey bar, the kind's word after 5 s. I can't open it: a lock and no
  * name. Deleted: grey words. A bar on the left, not colour alone, sets it apart (e-ink).
  */
 @Composable
@@ -65,7 +67,8 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
     val seen = world.refSeen(target)
     var waited by remember { mutableStateOf(false) }
     if (seen is RefSeen.Loading) LaunchedEffect(Unit) { delay(5_000); waited = true }
-    val open = seen is RefSeen.GroupSeen || seen is RefSeen.EventSeen || seen is RefSeen.ProposalSeen
+    val openLink = rememberOpenLink()
+    val open = opens(seen)
     val shape = RoundedCornerShape(12.dp)
     Row(
         modifier
@@ -75,7 +78,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
             .height(IntrinsicSize.Min)
             .clip(shape)
             .background(c.surface)
-            .then(if (open) Modifier.clickable(role = Role.Button, onClickLabel = "Open") { openRef(nav, seen) } else Modifier)
+            .then(if (open) Modifier.clickable(role = Role.Button, onClickLabel = "Open") { openRef(nav, seen, openLink) } else Modifier)
             .testTag("ref-box"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -88,6 +91,10 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                         Text(z.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.ENGLISH).uppercase(), fontSize = 10.sp, lineHeight = 11.sp, fontWeight = FontWeight.SemiBold, color = c.danger)
                         Text(z.dayOfMonth.toString(), fontSize = 17.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, color = c.text)
                     }
+                }
+                is RefSeen.PersonSeen -> {
+                    val f = world.face(seen.pubkey)
+                    Avatar(f.pubkey, f.name, picture = f.picture, size = 40.dp)
                 }
                 else -> Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(c.bg), contentAlignment = Alignment.Center) {
                     Icon(iconOf(seen), contentDescription = null, tint = c.muted, modifier = Modifier.size(20.dp))
@@ -113,6 +120,33 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                         val parent = world.group(p.groupId)?.parent?.let { world.group(it) }?.takeIf { it.named }?.name
                         Line("Proposal" + (parent?.let { " in #$it" } ?: ""))
                     }
+                    is RefSeen.TodoSeen -> {
+                        val t = seen.task
+                        Title(t.title)
+                        val who = when {
+                            t.done -> "Done"
+                            t.assignee == null -> "Nobody on it yet"
+                            t.assignee == world.me -> "You're on it"
+                            else -> world.displayName(t.assignee!!) + " is on it"
+                        }
+                        Line("To-do" + (seen.group.takeIf { it.named }?.let { " in #${it.name}" } ?: "") + " · " + who)
+                    }
+                    is RefSeen.MessageSeen -> {
+                        val m = seen.message
+                        Title(world.displayName(m.ev.pubkey))
+                        Line("Message in " + (seen.event?.title ?: seen.group.takeIf { it.named }?.let { "#${it.name}" } ?: "a channel"))
+                        val excerpt = sh.belfry.core.markdown.Markdown.text(sh.belfry.core.markdown.Markdown.inline(m.text.take(400))).replace(Regex("\\s+"), " ").trim()
+                        if (excerpt.isNotEmpty()) About(excerpt)
+                    }
+                    is RefSeen.PersonSeen -> {
+                        Title(world.displayName(seen.pubkey))
+                        world.profiles[seen.pubkey]?.about?.trim()?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() }?.let { Line(it) }
+                    }
+                    is RefSeen.DropSeen -> {
+                        Title("Drop box")
+                        val day = CardFormat.zoned(world, seen.until).format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.ENGLISH))
+                        Line("Photos and files" + (seen.group?.takeIf { it.named }?.let { " for #${it.name}" } ?: "") + " · until $day")
+                    }
                     is RefSeen.Locked -> {
                         Text(lockedWords(seen.kind).replaceFirstChar { it.uppercase() }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.muted)
                         Line("Only members of ${world.ctx.communityName.ifEmpty { "this belfry" }} can open it")
@@ -136,6 +170,10 @@ private fun iconOf(seen: RefSeen): ImageVector = when (seen) {
         RefKind.GROUP -> BelfryIcons.Pod
         RefKind.EVENT -> BelfryIcons.Calendar
         RefKind.PROPOSAL -> BelfryIcons.Proposal
+        RefKind.TODO -> BelfryIcons.Check
+        RefKind.MESSAGE -> BelfryIcons.Thread
+        RefKind.PERSON -> BelfryIcons.User
+        RefKind.DROP -> BelfryIcons.Upload
     }
 }
 
