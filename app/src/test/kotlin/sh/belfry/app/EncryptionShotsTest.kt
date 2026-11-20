@@ -20,6 +20,7 @@ import sh.belfry.app.ui.people.EncryptionScreen
 import sh.belfry.app.ui.people.MessagesScreen
 import sh.belfry.app.ui.people.SessionsScreen
 import sh.belfry.app.ui.people.ShareHistoryContent
+import sh.belfry.app.ui.people.SharedWhyContent
 import sh.belfry.app.ui.people.UnlockStepsScreen
 import sh.belfry.app.ui.shell.LinkDeviceScreen
 import sh.belfry.core.engine.Demo
@@ -114,12 +115,34 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithText("It asks whether to give this device access: tap Allow.").assertExists()
     }
 
-    /** canvas v82: a locked conversation opens to the banner in place of its earlier messages; the composer stays. */
+    /** canvas v84 (messages/encryption-locked-thread): the amber block in place of every sealed message, no composer. */
     @Test fun lockedConversation() {
         session.encryption.demoAsNewDevice()
-        demoShot("encryption-new-device-thread") { ConversationScreen(trio) }
-        compose.onNodeWithTag("seal-banner").assertExists()
+        demoShot("encryption-locked-thread-group") { ConversationScreen(trio) }
+        compose.onNodeWithTag("seal-locked-block").assertExists()
+        compose.onNodeWithTag("seal-write-later").assertExists()
         compose.onNodeWithTag("dm-bubble").assertDoesNotExist()
+    }
+
+    /** Messages from before the conversation was sealed read as usual, then the block. */
+    @Test fun lockedConversationOlder() {
+        session.encryption.demoAsNewDevice()
+        demoShot("encryption-locked-thread") { ConversationScreen(maya) }
+        compose.onNodeWithTag("seal-locked-block").assertExists()
+        assertEquals(2, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size)
+        compose.onNodeWithText("You can write here once this device is allowed.").assertExists()
+    }
+
+    /** canvas v86 (messages/encryption-shared-history): "Shared by Lena Fischer" above the shared block. */
+    @Test fun sharedHistory() {
+        demoShot("encryption-shared-history") { ConversationScreen(trio) }
+        compose.onNodeWithText("Shared by Lena Fischer").assertExists()
+        assertEquals(3, compose.onAllNodesWithTag("seal-shared-message").fetchSemanticsNodes().size)
+    }
+
+    @Test fun sharedHistoryWhy() {
+        demoShot("encryption-shared-history-why") { Column(Modifier.padding(16.dp)) { SharedWhyContent("Lena Fischer") {} } }
+        compose.onNodeWithText("Lena Fischer sent you these earlier messages. They come from Lena Fischer's device, so the app can't check them the way it checks new ones.").assertExists()
     }
 
     /** No banner on a device that isn't new. */

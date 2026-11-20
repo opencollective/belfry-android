@@ -13,6 +13,7 @@ import sh.belfry.core.model.LockedDevice
 import sh.belfry.core.model.MyDevice
 import sh.belfry.core.model.PersonDevices
 import sh.belfry.core.model.SealState
+import sh.belfry.core.model.SharedBlock
 
 /**
  * End-to-end encrypted conversations (canvas "Messages · encryption", 2026-11-20): SCREENS ONLY.
@@ -80,7 +81,8 @@ class EncryptionService internal constructor(private val s: Session) {
         if (!demo) return
         val st = _state.value
         val now = s.now()
-        val older = st.sealed.keys.filter { it != DM_MAYA }.toSet()
+        // canvas v84: every sealed conversation is locked on a device not yet allowed
+        val older = st.sealed.keys.toSet()
         val mine = listOf(
             MyDevice("d-new", "Pixel 8", DeviceKind.PHONE, now - 120, from = null, thisDevice = true, active = now),
         ) + st.myDevices.map { it.copy(thisDevice = false) }
@@ -119,12 +121,16 @@ class EncryptionService internal constructor(private val s: Session) {
                 DeviceNotice("n4", now - 40 * 60, Demo.maya.pubkey, DeviceNotice.Kind.NEW_LOCKED),
             ),
             waiting = LockedDevice(Demo.maya.pubkey, DeviceKind.PHONE, now - 40 * 60),
+            since = now - 25 * h + 600,
         )
         val group = ConvSeal(
             others = listOf(
                 PersonDevices(Demo.lena.pubkey, 3, DeviceChange(added = true, at = now - day)),
                 PersonDevices(Demo.tomas.pubkey, 1),
             ),
+            since = now - 4 * day,
+            // Lena shared the group's history with this device (canvas v86)
+            shared = listOf(SharedBlock(Demo.lena.pubkey, now - 3 * day, now - 3 * day + 900)),
         )
         return SealState(
             myDevices = listOf(pixel, laptop),

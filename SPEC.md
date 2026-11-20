@@ -2182,8 +2182,13 @@ Outside the demo nothing is sealed, so no lock shows anywhere and every action r
   a grey change line in the last 30 days; "You see only how many devices others have, not which.";
   then the sentences. Groups: "5 people · 11 devices", only You unfolds. E-mail: "<name> · by
   e-mail" / "not on this belfry", no count, the mail sentence.
-- A new device: the amber banner in Messages (+ Show how, three steps), "Locked on this device"
-  rows, and a locked conversation opens to the banner in place of its earlier messages (v82).
+- A device not yet allowed reads no sealed message, old or new (v84): the banner "Messages are
+  locked on this device" (+ Show how, three steps), every sealed conversation's row "Locked on this
+  device"; in the thread, messages from before it was sealed read as usual, then one amber block
+  ("Messages from <date> on can be read once another device of yours allows this one." + Show
+  how), and "You can write here once this device is allowed." in place of the composer.
+- History shared with this device (v86): "Shared by <name>" above each sharer's block (opens one
+  sentence in a sheet, OK closes it); the shared messages carry a subtle rule on their left.
 - Allow / Not me on my other devices (a dialog over any screen; the first to answer wins); the
   linked screen inside Link a phone or tablet; Remove a device in Me → Signed-in devices (asks
   first, then the row shows progress, no other row removable; this device is Sign out's).
