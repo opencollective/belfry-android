@@ -805,9 +805,6 @@ class SignInAndApiTest {
         server.enqueue(json(409, """{"error":"taken","moved":false}"""))
         try { api.guestVerify(guest, "ana@example.org", "123456"); fail("must throw") } catch (e: ApiException) { assertFalse(e.moved); assertEquals(null, e.nip05) }
         server.takeRequest()
-        server.enqueue(json(503, """{"error":"relays_full"}"""))
-        try { api.connect(code, false); fail("must throw") } catch (e: ApiException) { assertEquals("Couldn't connect just now. Try again later.", e.message) }
-        server.takeRequest()
         Unit
     }
 

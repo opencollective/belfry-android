@@ -216,9 +216,9 @@ fun SignInToAppScreen() {
 
 /** The app's first letter on a tinted square: its picture is its own claim and never loaded. */
 @Composable
-private fun AppMark(label: String, size: Int = 56) {
+private fun AppMark(label: String, size: Int = 56, onSurface: Boolean = false) {
     val c = Belfry.colors
-    Box(Modifier.size(size.dp).clip(RoundedCornerShape((size / 4).dp)).background(c.surface2), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size.dp).clip(RoundedCornerShape((size / 4).dp)).background(if (onSurface) c.bg else c.surface2).border(1.dp, c.line, RoundedCornerShape((size / 4).dp)), contentAlignment = Alignment.Center) {
         Text(label.trim().take(1).lowercase().ifEmpty { "?" }, fontSize = (size * 0.45f).sp, fontWeight = FontWeight.SemiBold, color = c.text)
     }
 }
@@ -353,7 +353,7 @@ fun ConnectedAppsScreen() {
                 ActionGroup {
                     for (a in list) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp).testTag("remote-app-row"), verticalAlignment = Alignment.CenterVertically) {
-                            AppMark(a.label, size = 40)
+                            AppMark(a.label, size = 40, onSurface = true)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(a.label, fontSize = 16.sp, color = c.text)
@@ -366,7 +366,10 @@ fun ConnectedAppsScreen() {
                                 Text(parts.joinToString(" · "), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted)
                             }
                             Spacer(Modifier.width(8.dp))
-                            BusyButton("Disconnect", onClick = { confirming = a }, kind = ButtonKind.Danger, small = true, modifier = Modifier.testTag("remote-app-disconnect-${a.id}"))
+                            // a red text button (the board's); it only asks first, the dialog does the work
+                            androidx.compose.material3.TextButton(onClick = { confirming = a }, modifier = Modifier.testTag("remote-app-disconnect-${a.id}")) {
+                                Text("Disconnect", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = c.danger)
+                            }
                         }
                     }
                 }
