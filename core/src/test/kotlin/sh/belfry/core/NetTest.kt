@@ -625,7 +625,10 @@ class SignInAndApiTest {
         }
         server.takeRequest()
         server.enqueue(json(502, """{"error":"unreachable"}"""))
-        try { api.connect(code, true); fail("must throw") } catch (e: ApiException) { assertEquals("Couldn't reach the app. Show a new code and try again.", e.message) }
+        try { api.connect(code, true); fail("must throw") } catch (e: ApiException) { assertEquals("The app didn’t answer. Check it is still open and scan again.", e.message) }
+        server.takeRequest()
+        server.enqueue(json(503, """{"error":"relays_full"}"""))
+        try { api.connect(code, false); fail("must throw") } catch (e: ApiException) { assertEquals("Couldn't connect just now. Try again later.", e.message) }
         server.takeRequest()
         Unit
     }
@@ -801,6 +804,9 @@ class SignInAndApiTest {
         server.takeRequest()
         server.enqueue(json(409, """{"error":"taken","moved":false}"""))
         try { api.guestVerify(guest, "ana@example.org", "123456"); fail("must throw") } catch (e: ApiException) { assertFalse(e.moved); assertEquals(null, e.nip05) }
+        server.takeRequest()
+        server.enqueue(json(503, """{"error":"relays_full"}"""))
+        try { api.connect(code, false); fail("must throw") } catch (e: ApiException) { assertEquals("Couldn't connect just now. Try again later.", e.message) }
         server.takeRequest()
         Unit
     }

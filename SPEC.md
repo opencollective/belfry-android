@@ -2112,7 +2112,7 @@ one-to-one conversation shows the person's face and name; a tap opens their prof
 (Android: `DmReaction.apply`, `DmSnapshot.reactionsOf`, `DirectMessages.react`,
 `ui/people/DmReactions.kt`.)
 
-### 19.47 Sign in to another app, the belfry as its remote signer (2026-11-20; the lead's contract, Xavier: Android first; NOT LIVE until the lead says the server is)
+### 19.47 Sign in to another app, the belfry as its remote signer (2026-11-20; the lead's contract, Xavier: Android first; live 2026-11-20)
 
 The phone only scans and confirms: the belfry's server becomes the NIP-46 remote signer of a
 third-party Nostr app on the app's relays; the phone answers nothing and holds no key for it.
@@ -2126,8 +2126,12 @@ third-party Nostr app on the app's relays; the phone answers nothing and holds n
   `{apps: [{id, name, url, host, image, decrypt, created, used, expires}]}`; `POST /<id>/disconnect`.
   Errors by code, fixed texts: 422 `invalid_uri` (`reason` bad_scheme | bad_key | no_relay |
   bad_relay | no_secret), 403 `guest` | `agent`, 409 `own_key` | `key_taken` | `limit` (10) |
-  `unsupported`, 429 `too_many`, 502 `unreachable` ("Couldn't reach the app. Show a new code and
-  try again."), 503 `signer`. A connection ends after 30 days without use and with the membership.
+  `unsupported`, 429 `too_many`, 502 `unreachable` (shown as "The app didn't answer. Check it is
+  still open and scan again."), 503 `signer` | `relays_full` ("Couldn't connect just now. Try
+  again later."), 403 `no_pass`, 422 `invalid` (a non-boolean decrypt). Live 2026-11-20 on OSV and
+  belfry.sh (Belfry 41d5903, docs/remote-apps.md). `decrypt` is sent false when the switch isn't
+  shown; `known: true` = already connected to this account: "Already connected. Sign in again?",
+  connecting replaces it. POST /remote-apps can take ~8 s (button locked with a spinner). A connection ends after 30 days without use and with the membership.
 - **Flow**: account switcher → "Sign in to another app" → Connected apps (the list, each can be
   disconnected) → "Sign in to an app" → scan (or "Paste a code instead") → the belfry's preview →
   confirm (canvas v71 home/signer-*-android, note n-signer, DRAFT for Xavier: "Sign in to

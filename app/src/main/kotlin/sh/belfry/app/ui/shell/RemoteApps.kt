@@ -234,7 +234,7 @@ internal fun ConfirmStep(p: RemoteAppPreview, error: String?, onCancel: () -> Un
         Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             AppMark(p.name ?: p.host ?: "")
             Spacer(Modifier.height(12.dp))
-            Text("Sign in to ${p.short()}?", fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = c.text, textAlign = TextAlign.Center, modifier = Modifier.testTag("remote-app-title"))
+            Text(if (p.known) "Already connected. Sign in again?" else "Sign in to ${p.short()}?", fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, color = c.text, textAlign = TextAlign.Center, modifier = Modifier.testTag("remote-app-title"))
             Spacer(Modifier.height(4.dp))
             val claim = when {
                 p.name != null && p.host != null -> "The app says it is “${p.name}”, at ${p.host}"
@@ -249,7 +249,7 @@ internal fun ConfirmStep(p: RemoteAppPreview, error: String?, onCancel: () -> Un
             )
             if (p.known) {
                 Spacer(Modifier.height(6.dp))
-                Text("It is already connected to your account.", fontSize = 14.sp, color = c.muted, textAlign = TextAlign.Center, modifier = Modifier.testTag("remote-app-known"))
+                Text("${p.short().replaceFirstChar { it.uppercase() }} is already connected to your account; signing in again replaces it.", fontSize = 14.sp, color = c.muted, textAlign = TextAlign.Center, modifier = Modifier.testTag("remote-app-known"))
             }
         }
         SectionTitle("As")

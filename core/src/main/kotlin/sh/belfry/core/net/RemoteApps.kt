@@ -136,9 +136,12 @@ class RemoteAppsApi(private val api: BelfryApi, private val signer: Signer) {
             "limit" to "You have 10 connected apps. Disconnect one first.",
             "unsupported" to "That app asks for something the belfry can't do yet.",
             "too_many" to "Too many tries. Wait a minute and try again.",
-            "unreachable" to "Couldn't reach the app. Show a new code and try again.",
+            "unreachable" to "The app didn’t answer. Check it is still open and scan again.",
             "signer" to "The belfry's signer isn't answering. Try again in a moment.",
             "network" to "No connection to the belfry. Check your connection and try again.",
+            "relays_full" to "Couldn't connect just now. Try again later.",
+            "no_pass" to "This account isn't a member here.",
+            "invalid" to "That did not work. Show a new code and try again.",
         )
         val INVALID = mapOf(
             "bad_scheme" to "That isn't an app sign-in code.",
