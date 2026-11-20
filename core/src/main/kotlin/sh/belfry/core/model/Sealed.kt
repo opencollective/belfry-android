@@ -47,7 +47,7 @@ data class DeviceNotice(
 }
 
 /** Someone's new device that nobody of theirs could unlock: the others may share history. */
-data class LockedDevice(val pubkey: String, val kind: DeviceKind, val at: Long)
+data class LockedDevice(val pubkey: String, val kind: DeviceKind?, val at: Long)
 
 /** What one sealed conversation shows. */
 data class ConvSeal(
@@ -155,10 +155,10 @@ object SealedText {
         DeviceKind.COMPUTER -> "computer"
     }
 
-    /** "A new phone · signed in today 9:38" (never the device's name). */
+    /** "A new phone · signed in today 9:38" (never the device's name); "A new device" when its kind isn't known (v88). */
     fun newDeviceLine(d: LockedDevice, now: Long, zone: ZoneId): String {
         val rel = relDay(d.at, now, zone)
-        return "A new ${kindWord(d.kind)} · signed in $rel " + TIME.format(Instant.ofEpochSecond(d.at).atZone(zone))
+        return "A new ${d.kind?.let { kindWord(it) } ?: "device"} · signed in $rel " + TIME.format(Instant.ofEpochSecond(d.at).atZone(zone))
     }
 
     fun shareTitle(name: String, group: Boolean): String =

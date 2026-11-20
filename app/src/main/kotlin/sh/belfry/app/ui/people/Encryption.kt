@@ -377,7 +377,7 @@ fun ShareHistoryContent(seal: ConvSeal, world: World, now: Long, onShare: suspen
         Text(SealedText.shareBody(name), fontSize = 15.sp, lineHeight = 21.sp, color = c.muted, modifier = Modifier.padding(top = 8.dp))
         Spacer(Modifier.height(12.dp))
         ActionGroup {
-            SealRow(SealedText.newDeviceLine(d, now, world.ctx.zone), leading = { DeviceIcon(d.kind) })
+            SealRow(SealedText.newDeviceLine(d, now, world.ctx.zone), leading = { DeviceIcon(d.kind ?: DeviceKind.PHONE) })
         }
         ErrorLine(error)
         Spacer(Modifier.height(16.dp))
