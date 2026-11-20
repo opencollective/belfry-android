@@ -14,6 +14,7 @@ fun NavGraphBuilder.peopleRoutes() {
     composable(Routes.PROFILE, listOf(Routes.optional("group"))) { entry -> ProfileScreen(entry.arg("pubkey"), group = entry.optArg("group")) }
     composable(Routes.ME) { MeScreen() }
     composable(Routes.SESSIONS) { SessionsScreen() }
+    composable(Routes.DEVICES) { DevicesScreen() }
     composable(Routes.NOTIFICATIONS) { NotificationsScreen() }
     composable(Routes.BRANDING) { BrandingScreen() }
     composable(Routes.MEMBERS) { MembersScreen() }

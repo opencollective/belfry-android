@@ -91,6 +91,8 @@ object Routes {
     /** The apps this account is signed in to through the belfry. */
     const val REMOTE_APPS = "remote-apps"
     const val SESSIONS = "sessions"
+    /** Me → Devices: the devices that read my sealed conversations (canvas messages/encryption-remove-device, v87). */
+    const val DEVICES = "devices"
     /** Me → Notifications (push). */
     const val NOTIFICATIONS = "notifications"
     /** Me → Branding (admins of the belfry): its logo, cover and colours. */

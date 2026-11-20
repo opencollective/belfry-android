@@ -18,7 +18,8 @@ import sh.belfry.app.ui.people.AccessAskDialog
 import sh.belfry.app.ui.people.ConversationScreen
 import sh.belfry.app.ui.people.EncryptionScreen
 import sh.belfry.app.ui.people.MessagesScreen
-import sh.belfry.app.ui.people.SessionsScreen
+import sh.belfry.app.ui.people.DevicesScreen
+import sh.belfry.app.ui.people.MeScreen
 import sh.belfry.app.ui.people.ShareHistoryContent
 import sh.belfry.app.ui.people.SharedWhyContent
 import sh.belfry.app.ui.people.UnlockStepsScreen
@@ -209,14 +210,21 @@ class EncryptionShotsTest : DemoShots() {
 
     /** messages/encryption-remove-device: Me → Devices; Remove asks first. */
     @Test fun removeDevice() {
-        demoScreenShot("encryption-remove-device", act = { compose.onNodeWithTag("seal-remove-d-laptop").performClick() }) { SessionsScreen() }
+        demoScreenShot("encryption-remove-device", act = { compose.onNodeWithTag("seal-remove-d-laptop").performClick() }) { DevicesScreen() }
         compose.onNodeWithText("Remove Firefox on Linux?").assertExists()
         compose.onNodeWithTag("seal-remove").assertExists()
     }
 
     @Test fun devicesList() {
-        demoShot("encryption-devices-me") { SessionsScreen() }
+        demoShot("encryption-devices-me") { DevicesScreen() }
         assertEquals(2, compose.onAllNodesWithTag("seal-device").fetchSemanticsNodes().size)
         compose.onNodeWithText("This device can't be removed here: use Sign out.").assertExists()
+    }
+
+    /** canvas v87: Me has a Devices row once this device has a device list. */
+    @Test fun meDevicesRow() {
+        demoShot("encryption-me-devices") { MeScreen() }
+        compose.onNodeWithTag("me-devices").assertExists()
+        compose.onNodeWithText("Where you're signed in").assertExists()
     }
 }
