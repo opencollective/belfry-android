@@ -177,7 +177,7 @@ class SealingTest {
     @Test fun sharedHistory() {
         val rumors = (1..450).map { GiftWrap.rumor(14, account.pubkey, listOf(listOf("p", phone.pubkey)), "message $it", t0 + it) }
         val shares = Sealing.shareRumors(account.pubkey, phone.pubkey, rumors, t0)
-        assertEquals(3, shares.size, "at most 200 rumors each")
+        assertTrue(shares.size >= 3 && shares.all { Sealing.sharedRumors(it).size <= 200 && Sealing.fits(it) }, "at most 200 rumors each, each under the ceiling")
         val back = shares.flatMap { Sealing.sharedRumors(it) }
         assertEquals(rumors.map { it.id }, back.map { it.id })
         val mid = (1..10).map { GiftWrap.rumor(14, account.pubkey, emptyList(), "x".repeat(15_000), t0 + it) }
