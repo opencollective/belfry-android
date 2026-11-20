@@ -625,7 +625,7 @@ class SignInAndApiTest {
         }
         server.takeRequest()
         server.enqueue(json(502, """{"error":"unreachable"}"""))
-        try { api.connect(code, true); fail("must throw") } catch (e: ApiException) { assertEquals("The app didn’t answer. Check it is still open and scan again.", e.message) }
+        try { api.connect(code, true); fail("must throw") } catch (e: ApiException) { assertEquals("The app didn’t answer. Check it’s still open, show a new code there and scan again.", e.message) }
         server.takeRequest()
         server.enqueue(json(503, """{"error":"relays_full"}"""))
         try { api.connect(code, false); fail("must throw") } catch (e: ApiException) { assertEquals("Couldn't connect just now. Try again later.", e.message) }

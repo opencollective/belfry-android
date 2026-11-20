@@ -2140,8 +2140,7 @@ third-party Nostr app on the app's relays; the phone answers nothing and holds n
   `{apps: [{id, name, url, host, image, decrypt, created, used, expires}]}`; `POST /<id>/disconnect`.
   Errors by code, fixed texts: 422 `invalid_uri` (`reason` bad_scheme | bad_key | no_relay |
   bad_relay | no_secret), 403 `guest` | `agent`, 409 `own_key` | `key_taken` | `limit` (10) |
-  `unsupported`, 429 `too_many`, 502 `unreachable` (shown as "The app didn't answer. Check it is
-  still open and scan again."), 503 `signer` | `relays_full` ("Couldn't connect just now. Try
+  `unsupported`, 429 `too_many`, 502 `unreachable` (shown as "The app didn't answer. Check it's still open, show a new code there and scan again."), 503 `signer` | `relays_full` ("Couldn't connect just now. Try
   again later."), 403 `no_pass`, 422 `invalid` (a non-boolean decrypt). Live 2026-11-20 on OSV and
   belfry.sh (Belfry 41d5903, docs/remote-apps.md). `decrypt` is sent false when the switch isn't
   shown; `known: true` = already connected to this account: "Already connected. Sign in again?",
@@ -2152,8 +2151,7 @@ third-party Nostr app on the app's relays; the phone answers nothing and holds n
   <name>?", "The app says it is “<name>”, at <host>" — no name: "An app at <host>", neither: "An
   app" —, "Name not verified by Belfry", As <me>, It will be able to: "Post and sign as you"
   and, only when the app asks to decrypt, a "Read your private messages" switch that starts OFF)
-  → Sign in ("Signing in…", Cancel locked; no answer in 15 s: "The app didn't answer. Check it is
-  still open and scan again.") → "You're signed in to <app>" (Done / Connected apps). Refusals
+  → Sign in ("Signing in…", Cancel locked; no answer in 15 s: "The app didn't answer. Check it's still open, show a new code there and scan again.") → "You're signed in to <app>" (Done / Connected apps). Refusals
   shown in place of the confirm screen, each with one way on: "Belfry can't use this code" (invalid_uri
   bad_key | no_relay | bad_relay | no_secret), not a sign-in code (bad_scheme or the prefix),
   connected to another account (`key_taken`), a guest ("How to join"). The server can't tell a

@@ -192,7 +192,7 @@ fun SignInToAppScreen() {
                 val call = scope.async { runCatching { session.remoteApps.connect(c, decrypt) } }
                 val r = withTimeoutOrNull(15_000) { call.await() }
                 when {
-                    r == null -> line = "The app didn’t answer. Check it is still open and scan again."
+                    r == null -> line = "The app didn’t answer. Check it’s still open, show a new code there and scan again."
                     r.isSuccess -> { code = null; line = null; step = Step.DONE }
                     else -> {
                         val e = r.exceptionOrNull()!!
