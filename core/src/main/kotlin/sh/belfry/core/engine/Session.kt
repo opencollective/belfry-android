@@ -1385,6 +1385,9 @@ class Session(
     /** Membership: roles, requests, the directory, the charter, a guest's request (engine/Members.kt). */
     val members: MembersService by lazy { MembersService(this) }
 
+    /** Sign in to another app with this account through the belfry (engine/RemoteApps.kt, SPEC 19.47). */
+    val remoteApps: RemoteAppsService by lazy { RemoteAppsService(this) }
+
     /** For the services: refuses a write in guest mode (opens the Join sheet). */
     internal fun checkWrite() = guard()
 

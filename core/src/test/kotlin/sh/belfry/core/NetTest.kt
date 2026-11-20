@@ -578,6 +578,61 @@ class SignInAndApiTest {
         try { flow.exchange("c", http); fail("must throw") } catch (e: SignInException) { assertEquals(SignInFailure.UNKNOWN, e.failure) }
     }
 
+    /** SPEC 19.47: sign in to another app, the belfry as its remote signer. */
+    @Test
+    fun remoteApps() = runBlocking {
+        val api = sh.belfry.core.net.RemoteAppsApi(BelfryApi(community(), http), LocalSigner.random())
+        val code = "nostrconnect://" + "ab".repeat(32) + "?relay=wss%3A%2F%2Frelay.example&secret=s3cr3t&name=Git%20Workshop"
+        assertEquals(code, sh.belfry.core.net.RemoteAppCode.accept("  $code\n"))
+        assertNull(sh.belfry.core.net.RemoteAppCode.accept("bunker://" + "ab".repeat(32)))
+        assertNull(sh.belfry.core.net.RemoteAppCode.accept("nostrconnect://"))
+        assertNull(sh.belfry.core.net.RemoteAppCode.accept("nostrconnect://ab cd"))
+
+        server.enqueue(json(200, """{"name":"Git Workshop","url":"https://gitworkshop.dev","host":"gitworkshop.dev","image":null,"asks":{"sign":true,"decrypt":true},"known":false}"""))
+        val p = api.preview(code)
+        assertEquals("Git Workshop", p.name); assertEquals("gitworkshop.dev", p.host); assertNull(p.image)
+        assertTrue(p.asksDecrypt); assertFalse(p.known)
+        var req = server.takeRequest()
+        assertEquals("/api/v1/remote-apps/preview", req.path)
+        assertEquals("""{"uri":"${code}"}""", req.body.readUtf8())
+
+        server.enqueue(json(201, """{"app":{"id":"7","name":null,"url":null,"host":"gitworkshop.dev","image":null,"decrypt":false,"created":"2026-11-20T12:00:00Z","used":null,"expires":1795000000}}"""))
+        val app = api.connect(code, decrypt = false)!!
+        assertEquals("7", app.id); assertEquals("gitworkshop.dev", app.label); assertFalse(app.decrypt)
+        assertEquals(java.time.Instant.parse("2026-11-20T12:00:00Z").epochSecond, app.created); assertNull(app.used); assertEquals(1795000000L, app.expires)
+        req = server.takeRequest()
+        assertEquals("/api/v1/remote-apps", req.path)
+        assertEquals("""{"uri":"${code}","decrypt":false}""", req.body.readUtf8())
+
+        server.enqueue(json(200, """{"apps":[{"id":7,"name":"Git Workshop","host":"gitworkshop.dev","decrypt":true},{"name":"no id"}]}"""))
+        val list = api.list()
+        assertEquals(listOf("7"), list.map { it.id })
+        assertEquals("GET", server.takeRequest().method)
+
+        server.enqueue(json(200, """{"ok":true}"""))
+        api.disconnect("7")
+        assertEquals("/api/v1/remote-apps/7/disconnect", server.takeRequest().path)
+
+        // errors: fixed texts by code (and by reason for invalid_uri), never the server's words
+        server.enqueue(json(422, """{"error":"invalid_uri","reason":"no_secret","message":"<b>x</b>"}"""))
+        try { api.preview(code); fail("must throw") } catch (e: ApiException) {
+            assertEquals("invalid_uri", e.code); assertEquals("That code is missing its secret. Show a new code in the app.", e.message)
+        }
+        server.takeRequest()
+        server.enqueue(json(409, """{"error":"key_taken"}"""))
+        try { api.connect(code, true); fail("must throw") } catch (e: ApiException) {
+            assertEquals("key_taken", e.code); assertEquals("That app is already connected to another account. Disconnect it there first.", e.message)
+        }
+        server.takeRequest()
+        server.enqueue(json(502, """{"error":"unreachable"}"""))
+        try { api.connect(code, true); fail("must throw") } catch (e: ApiException) { assertEquals("The app didn’t answer. Check it is still open and scan again.", e.message) }
+        server.takeRequest()
+        server.enqueue(json(503, """{"error":"relays_full"}"""))
+        try { api.connect(code, false); fail("must throw") } catch (e: ApiException) { assertEquals("Couldn't connect just now. Try again later.", e.message) }
+        server.takeRequest()
+        Unit
+    }
+
     @Test
     fun guestLinks() = runBlocking {
         val api = BelfryApi(community(), http)
