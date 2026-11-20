@@ -131,7 +131,7 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-locked-thread") { ConversationScreen(maya) }
         compose.onNodeWithTag("seal-locked-block").assertExists()
-        assertEquals(3, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size, "Maya's three messages from before it was sealed")
+        assertEquals("Maya's three messages from before it was sealed", 3, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size)
         compose.onNodeWithText("You can write here once this device is allowed.").assertExists()
     }
 
