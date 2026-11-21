@@ -5,8 +5,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.unit.dp
-import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Test
 import sh.belfry.app.ui.cards.EventScreen
 import sh.belfry.core.engine.Demo
@@ -28,9 +28,10 @@ class EventAddressShotsTest : DemoShots() {
         compose.onNodeWithTag("event-address").assertExists()
         val copy = compose.onNodeWithTag("event-copy").getBoundsInRoot()
         val share = compose.onNodeWithTag("event-share").getBoundsInRoot()
-        assertEquals(copy.right - copy.left, share.right - share.left)
-        assertEquals(50.dp, copy.bottom - copy.top)
-        assertEquals(50.dp, share.bottom - share.top)
+        // equal widths, up to the one pixel weight(1f) may round to either side
+        assertTrue(abs((copy.right - copy.left).value - (share.right - share.left).value) < 1f)
+        assertTrue(abs((copy.bottom - copy.top).value - 50f) < 1f)
+        assertTrue(abs((share.bottom - share.top).value - 50f) < 1f)
     }
 
     @Test fun copied() {
