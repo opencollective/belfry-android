@@ -306,7 +306,14 @@ class Session(
 
     private val groupsRelay: Relay? = if (localOnly) null else Relay(community.groupsRelay, http, scope)
     private val mainRelay: Relay? = if (localOnly) null else Relay(community.mainRelay, http, scope)
-    private fun relay(t: Target): Relay? = if (t == Target.GROUPS) groupsRelay else mainRelay
+    /** The relay a target publishes to; none for [Target.API] (HTTP calls). It must stay none: every per-target
+     *  loop below (callbacks, subscriptions, status) would otherwise set up the main relay a second time as "API",
+     *  overwriting its handlers (since 0d1cc0f the main relay's EOSE came as API and the read state never published). */
+    private fun relay(t: Target): Relay? = when (t) {
+        Target.GROUPS -> groupsRelay
+        Target.MAIN -> mainRelay
+        Target.API -> null
+    }
 
     private sealed interface Incoming {
         class Ev(val e: Event) : Incoming

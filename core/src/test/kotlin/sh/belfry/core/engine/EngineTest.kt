@@ -785,4 +785,19 @@ class EngineTest {
         until("the members-only message from before") { second.world.value.messages("board").any { it.text == "members only, long ago" } }
         until("the mark set after AUTH") { store.get(Session.K_GROUPS_MARK) != null }
     }
+
+    /**
+     * The main relay's handlers are its own (not overwritten by the outbox's API target): its EOSE comes as
+     * MAIN, so the read state is published there (SPEC 19.27). Broken from 0d1cc0f to this fix.
+     */
+    @Test
+    fun mainRelayEoseLetsTheReadStatePublish() = runBlocking<Unit> {
+        val g = fake(); val m = fake()
+        val s = session(community(g, m), MemoryStore(), LocalSigner.random())
+        s.start()
+        s.markMentionsSeen(System.currentTimeMillis() / 1000)
+        until("the read state reaches the main relay", 20_000) {
+            m.published.any { it.kind == sh.belfry.core.read.ReadState.KIND && it.tag("d") == sh.belfry.core.read.ReadState.READ_D }
+        }
+    }
 }
