@@ -192,17 +192,12 @@ class DirectMessagesSealedTest {
         assertTrue(after.signed!!.tag("lb") != before.signed!!.tag("lb"))
     }
 
-    /** canvas v98: a message too long to lock waits with its reason and never goes; Cancel gives it back. */
+    /** canvas v99: a message too long to lock, sent from the box, is refused with the line; no bubble. */
     @Test fun tooLongToLock() = runBlocking<Unit> {
         val (a, _) = ready()
-        val text = "x".repeat(41_000)
-        a.second.send(conv(bob.pubkey), text)
-        val d = a.second.snapshot.value.thread(conv(bob.pubkey)).single()
-        assertEquals("too_long", d.heldWhy)
-        assertEquals("Not sent: the message is too long to lock. Shorten it and send again.", a.second.snapshot.value.stateLine(d))
+        val e = kotlin.test.assertFailsWith<sh.belfry.core.dm.DmException> { a.second.send(conv(bob.pubkey), "x".repeat(41_000)) }
+        assertEquals("Not sent: the message is too long to lock. Shorten it and send again.", e.message)
+        assertTrue(a.second.snapshot.value.thread(conv(bob.pubkey)).isEmpty(), "no bubble: the text stays in the box")
         assertTrue(outbox(a.second).isEmpty())
-        a.second.process()
-        assertTrue(outbox(a.second).isEmpty(), "never sent")
-        assertEquals(text, a.second.cancelHeld(d.rid))
     }
 }

@@ -714,7 +714,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             } else if (conv != null) {
                 when (val plan = eng.plan(conv, to.filter { it != host.me })) {
                     is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> {
-                        if (!sh.belfry.core.sealed.Sealing.fits(rumor)) { hold(rumor, to, self, conv, "too_long"); return false }
+                        // from the box: no bubble, the box's error line, the text stays (canvas v99)
+                        if (!sh.belfry.core.sealed.Sealing.fits(rumor)) throw DmException(DmSnapshot.HELD_TOO_LONG)
                         enqueueSealed(eng.seal(rumor, plan), rumor.id); return true
                     }
                     // a sealed conversation with nobody to seal to for someone: it waits (canvas v98), never the old way
@@ -754,6 +755,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                     update(rid) { it.copy(heldSince = null, pending = false, failed = plan.why) }
                 }
                 is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> {
+                    // decided after waiting, but too long to lock: it stays with its line and Cancel
+                    if (!sh.belfry.core.sealed.Sealing.fits(h.rumor)) { update(rid) { it.copy(heldWhy = "too_long") }; continue }
                     enqueueSealed(eng.seal(h.rumor, plan), rid)
                     synchronized(lock) { held.remove(rid) }
                     update(rid) { it.copy(heldSince = null) }
