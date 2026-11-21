@@ -221,4 +221,25 @@ class DirectMessagesSealedTest {
         assertEquals(0, sa.calls)
         assertTrue(cold.queued.isEmpty())
     }
+
+    /** N1: a held mail is decided like a direct one (only my own chain): sealed by the device, never the signer. */
+    @Test fun heldMailDecidedLikeADirectOne() = runBlocking<Unit> {
+        val (a, _) = ready()
+        // the same phone after a restart: its keys, not yet its chain (start not done)
+        val ports = Ports(alice).also { it.saved = a.first.keys.toMap() }
+        val e2 = SealedEngine(ports, alicePhone, alice.pubkey, clock = { now }, removalJitter = 0)
+        val sa = CountingSigner(alice)
+        val host = Host(sa, e2).also { it.bridge = LocalSigner.random().pubkey }
+        val dm = dmOf(host).also { it.myAddressProvider = { "alex@belfry.example" } }
+        relay.silent = true
+        dm.send("m:ana@example.org", "Held first", subject = "Visit")
+        assertTrue(host.queued.isEmpty(), "can't tell yet: held")
+        relay.silent = false
+        e2.start("Pixel 8", "phone")
+        assertEquals(SealedEngine.Mine.IN_HEAD, e2.mine)
+        dm.process() // retryHeld: decided with no participants, like a direct mail
+        assertEquals(0, sa.calls, "never the signer")
+        assertTrue(host.queued.any { it.signed!!.tag("p") == host.bridge && it.signed!!.tag("lb") == null }, "sealed by the device to the mail key")
+        assertTrue(host.queued.any { it.signed!!.tag("lb") != null }, "the self-copy sealed to my head")
+    }
 }

@@ -82,7 +82,7 @@ class SealedEngineTest {
     private inner class Ports(val account: LocalSigner) : SealedPorts {
         var saved: Map<String, String> = emptyMap()
         val revoked = ArrayList<String>()
-        override suspend fun query(q: Query) = relay.query(q)
+        override suspend fun query(q: Query): SealedEngine.Answer { kotlinx.coroutines.yield(); return relay.query(q) } // a suspension point: real interleaving
         override suspend fun publish(e: Event): Boolean { if (relay.refuse(e)) return false; relay.add(e); return true }
         override suspend fun signAsAccount(t: EventTemplate): Event = if (signerDown) throw IllegalStateException("signer") else account.signNow(t)
         override suspend fun sessions(): List<SessionRow>? = if (server.odd) null else server.sessions[account.pubkey]?.toList() ?: emptyList()
@@ -682,21 +682,18 @@ class SealedEngineTest {
         assertTrue(laptop.later.any { it.first.id == rumor.id }, "opened once the keys came")
     }
 
-    /** The review's 9: engine state touched from many coroutines at once. */
+    /** The review's 9: engine state touched from many coroutines at once (every relay call suspends). */
     @Test fun concurrency() = runBlocking<Unit> {
         val (phone, _, b) = world()
         val c = "n:" + listOf(alice.pubkey, bob.pubkey).sorted().joinToString(",")
         val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
-        val jobs = (1..60).map { i ->
-            async(kotlinx.coroutines.Dispatchers.Default) {
-                when (i % 3) {
-                    0 -> phone.refresh(bob.pubkey)
-                    1 -> phone.receive(b.seal(GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "m$i", now), plan).single { it.recipient == alice.pubkey }.wrap, null) { c }
-                    else -> phone.saveState()
-                }
-            }
-        }
-        jobs.forEach { it.await() }
+        val wraps = (1..40).map { i -> b.seal(GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "m$i", now + i), plan).single { it.recipient == alice.pubkey }.wrap }
+        val results = (wraps.map { w -> async(kotlinx.coroutines.Dispatchers.Default) { phone.receive(w, null) { c }.verdict } } +
+            (1..20).map { async(kotlinx.coroutines.Dispatchers.Default) { phone.refresh(bob.pubkey); phone.saveState(); Sealing.Verdict.ACCEPT } }).map { it.await() }
+        assertEquals(60, results.count { it == Sealing.Verdict.ACCEPT }, "every message accepted, no lost state")
         assertTrue(phone.sealedSince.containsKey(c))
+        assertEquals(0, phone.pendingCount)
+        // the saved state is whole: a restart reads it back
+        assertEquals(phone.chainOf(bob.pubkey)!!.head.id, engine(alice, alicePhone).chainOf(bob.pubkey)!!.head.id)
     }
 }

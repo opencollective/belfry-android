@@ -188,6 +188,34 @@ class RelayTest {
         }
     }
 
+    /**
+     * Relay.queryKnown (sealed.md §5.1, the lead's re-review): a CLOSED is no answer, an answer to a
+     * REQ sent before AUTH is no knowledge, an EOSE after AUTH on the same socket is.
+     */
+    @Test
+    fun queryKnownOnlyAfterAuth() = runBlocking<Unit> {
+        val f = fake(auth = true, connections = 3)
+        val member = LocalSigner.random()
+        f.stored.add(member.signNow(EventTemplate(8560, "", emptyList(), 1_800_000_000)))
+        // no AUTH signer: the relay answers CLOSED (auth-required)
+        val shy = Relay(f.url, client, scope)
+        shy.connect()
+        val closed = shy.queryKnown(listOf(Filters.of(kinds = listOf(8560))))
+        assertTrue(closed == null || !closed.second, "a CLOSED is not an answer")
+        shy.close()
+        // with AUTH: once authenticated, a complete answer
+        val relay = Relay(f.url, client, scope)
+        relay.authSigner = member
+        val authenticated = CompletableDeferred<Unit>()
+        relay.onAuthenticated = { authenticated.complete(Unit) }
+        relay.connect()
+        withTimeout(5000) { authenticated.await() }
+        val known = relay.queryKnown(listOf(Filters.of(kinds = listOf(8560))))!!
+        assertTrue(known.second, "EOSE after AUTH on the same socket")
+        assertEquals(1, known.first.size)
+        relay.close()
+    }
+
     @Test
     fun authThenSubscriptionsAreSentAgain() = runBlocking {
         val f = fake(auth = true)

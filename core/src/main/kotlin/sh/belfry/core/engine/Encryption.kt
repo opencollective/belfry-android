@@ -97,8 +97,10 @@ class EncryptionService internal constructor(private val s: Session) {
         val asks = ArrayList<AccessAsk>()
         var linked: String? = _state.value.linked
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) {
-            for (req in try { e.requests() } catch (x: Exception) { emptyList() }) {
-                when (val r = try { e.onRequest(req) } catch (x: Exception) { sh.belfry.core.sealed.SealedEngine.OnRequest.Ignore }) {
+            // each request once, the newest per device, a linked one first (N2): see SealedEngine.answerRequests
+            val answers = try { e.answerRequests(e.requests()) } catch (x: Exception) { emptyList() }
+            for ((req, r) in answers) {
+                when (r) {
                     is sh.belfry.core.sealed.SealedEngine.OnRequest.Ask -> if (asks.none { it.id == r.device }) asks.add(AccessAsk(r.device, r.name, DeviceKind.PHONE, req.createdAt))
                     sh.belfry.core.sealed.SealedEngine.OnRequest.Allowed -> linked = linked ?: "Your new device"
                     else -> {}

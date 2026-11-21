@@ -773,7 +773,9 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val eng = host.sealed ?: return
         for ((rid, h) in synchronized(lock) { held.toList() }) {
             if (synchronized(lock) { items[rid]?.heldWhy } == "too_long") continue // never: Cancel only
-            val plan = try { eng.plan(h.conv, h.to.filter { it != host.me }) } catch (e: Exception) { continue }
+            // a held mail is decided exactly like a direct one: only my own chain matters (§7; N1)
+            val who = if (h.rumor.kind == 1301) emptyList() else h.to.filter { it != host.me }
+            val plan = try { eng.plan(h.conv, who) } catch (e: Exception) { continue }
             when (plan) {
                 sh.belfry.core.sealed.SealedEngine.Plan.Hold -> update(rid) { it.copy(heldWhy = null) }
                 is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> if (plan.who != null) update(rid) { it.copy(heldWhy = "device:${plan.who}") } else {
@@ -904,6 +906,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         try {
             if (!deliver(rumor, listOf(bridge), conv = target)) update(rumor.id) { it.copy(heldSince = host.now()) }
         } catch (e: Exception) {
+            synchronized(lock) { refused[rumor.id] = Held(rumor, listOf(bridge), true, target) }
             val why = if (e is DmException) e.message ?: "It could not be prepared." else if (e is SignerTimeout) "Your signer did not answer." else "It could not be prepared."
             synchronized(lock) { reports[emailId] = Report(Report.FAILED, why) }
             update(rumor.id) { it.copy(pending = false, failed = why) }
@@ -993,9 +996,25 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         react(d, emoji, mine)
     }
 
+    /** Mails refused before any wrap was queued (no head yet…): Retry plans them again from the kept rumor (N7). */
+    private val refused = HashMap<String, Held>()
+
     /** Puts a refused message back in the outbox. */
     suspend fun retry(rid: String) {
         val queued = host.outbox().filter { it.dm == rid }
+        val again = synchronized(lock) { refused.remove(rid) }
+        if (queued.isEmpty() && again != null) {
+            update(rid) { it.copy(failed = null, pending = true) }
+            publish()
+            try {
+                if (!deliver(again.rumor, again.to, again.self, again.conv)) update(rid) { it.copy(heldSince = host.now()) }
+            } catch (e: Exception) {
+                synchronized(lock) { refused[rid] = again }
+                update(rid) { it.copy(pending = false, failed = (e as? DmException)?.message ?: "It could not be prepared.") }
+            }
+            publish()
+            return
+        }
         if (queued.isEmpty()) return
         val d = synchronized(lock) { items[rid] }
         update(rid) { it.copy(failed = null, pending = true) }

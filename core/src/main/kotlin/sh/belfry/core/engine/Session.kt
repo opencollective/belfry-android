@@ -245,6 +245,12 @@ class Session(
 
     /** Where this account's letterbox secrets are kept (set by [Onboarding]; null: no sealed conversations). */
     @Volatile var keyVault: Vault? = null
+    /** How often the sealed side looks at requests and its own state (tests shorten it). */
+    @Volatile internal var sealedPollMs = 120_000L
+
+    /** Tests only: a device key when the signer is no bunker (the sealed side needs one). */
+    @Volatile internal var deviceKeyOverride: sh.belfry.core.nostr.LocalSigner? = null
+
     /** This device's own name and kind for sealed conversations (the app sets them: Build.MODEL, phone / tablet). */
     @Volatile var deviceName: String = "Android phone"
     @Volatile var deviceKind: String = "phone"
@@ -258,7 +264,7 @@ class Session(
      * bunker session (no device key) or a key store. Started once the community relay authenticated.
      */
     val sealed: sh.belfry.core.sealed.SealedEngine? by lazy {
-        val device = (signer as? BunkerSigner)?.device
+        val device = (signer as? BunkerSigner)?.device ?: deviceKeyOverride
         val ks = sealedKeys
         if (localOnly || device == null || ks == null || _guest.value != null) null
         else sh.belfry.core.sealed.SealedEngine(
@@ -290,6 +296,27 @@ class Session(
         nameWritten = true
     }
 
+    private val chainReads = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** A live roster / anchor of WHO: their chain read again (at most every 5 s each). */
+    private fun sealedChainMoved(who: String) {
+        val now = System.currentTimeMillis()
+        val last = chainReads[who]
+        if (last != null && now - last < 5_000) return
+        chainReads[who] = now
+        launchSafely { delay(1_000); sealed?.refresh(who) }
+    }
+
+    @Volatile private var subscribedPeers: Set<String> = emptySet()
+
+    /** The sealed set gained a person: the community relay's live subscription is sent again to cover them (N3). */
+    private fun resubscribeIfSealedGrew() {
+        val now = sealedPeers().toSet()
+        if ((now - subscribedPeers).isEmpty()) return
+        subscribedPeers = now
+        mainRelay?.let { r -> if (r.isUp) r.subscribe(SUB, filters(Target.MAIN)) }
+    }
+
     /** A sealed conversation opened: its people's chains asked again, kept wraps tried again (§4; the review's 1). */
     fun sealedOpened(conv: String) {
         val e = sealed ?: return
@@ -313,16 +340,28 @@ class Session(
         val e = sealed ?: return
         if (e.onKeys == null) e.onKeys = { launchSafely { rereadWraps() } }
         // a correspondent's (or my own) chain moved: the wraps kept for it are tried again (§4; the review's 1)
-        if (e.onChain == null) e.onChain = { launchSafely { dm.retryKept(); dm.process() } }
+        if (e.onChain == null) e.onChain = { who ->
+            launchSafely { dm.retryKept(); dm.process(); resubscribeIfSealedGrew() }
+            // my own head moved (a rotation): my device name record again under the new letterbox (re-review (16))
+            if (who == me) { nameWritten = false; launchSafely { if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) writeNameOnce(e) } }
+        }
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN && !e.firstRefused) {
             val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
             e.start(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind, link = linkSecret)
             if (e.mine != sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN) linkSecret = null
             if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) e.writeMyName(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind)
         }
-        // a waiting device asks again at each (re)connect, and reads its chain again (§5.2 / §5.5; the review's 4)
-        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING) e.askAgain(linkSecret, force = true)
-        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) { e.upkeep(); writeNameOnce(e) }
+        // a waiting device (or one in the head without the key) asks again once per connection (N2, N4);
+        // start() just asked when it was the one to decide WAITING
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING || e.inHeadWithoutKey) e.askAgain(linkSecret, force = true)
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) {
+            writeNameOnce(e)
+            // the post-AUTH flush first, then the partners' chains (N6)
+            requestFlush()
+            launchSafely { delay(2_000); e.upkeep() }
+        }
+        // a first roster made in this run: read once more 5 s later (a race lost late; re-review (7))
+        if (e.createdFirst) { e.createdFirst = false; launchSafely { delay(5_000); e.askAgain(linkSecret, force = true) } }
         try { encryption.refresh() } catch (x: Exception) { }
         launchSafely { dm.process() }
     }
@@ -542,11 +581,20 @@ class Session(
         synchronized(logLock) { log.addAll(fresh); fresh.mapTo(logIds) { it.id } }
         dm.offer(fresh)
         readSync.offer(fresh)
+        // a correspondent's (or my own) roster or anchor arrived live: that person's chain read again, debounced (N3)
+        if (sealed != null) for (e in fresh) {
+            val who = when {
+                e.kind == sh.belfry.core.sealed.Roster.KIND -> e.tag("p")
+                e.kind == 30078 && e.tag("d") == sh.belfry.core.sealed.Anchor.D -> e.pubkey
+                else -> null
+            } ?: continue
+            sealedChainMoved(who)
+        }
         // a key hand-over to this device (sealed §5.5)
-        val device = (signer as? BunkerSigner)?.device?.pubkey
-        if (device != null && sealed != null) for (w in fresh) if (w.kind == 1059 && w.hasTag("p", device)) launchSafely { sealed?.onDeviceWrap(w) }
+        val device = sealed?.device?.pubkey
+        if (device != null) for (w in fresh) if (w.kind == 1059 && w.hasTag("p", device)) launchSafely { sealed?.onDeviceWrap(w) }
         markDirty()
-        if (fresh.any { it.kind == 1059 || it.kind == 4 }) launchSafely { dm.process() }
+        if (fresh.any { it.kind == 1059 || it.kind == 4 }) launchSafely { dm.process(); resubscribeIfSealedGrew() }
     }
 
     /** Background work that stop() cancels (the review's 9: a task asleep must not write after sign-out). */
@@ -697,14 +745,20 @@ class Session(
         // requests from my new devices (the Allow prompt) and device lines: looked at every two minutes
         if (sealed != null) jobs += scope.launch(Dispatchers.Default) {
             while (isActive) {
-                delay(120_000)
+                delay(sealedPollMs)
                 try {
                     if (_status.value.online) {
                         val e = sealed
                         when (e?.mine) {
                             sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN -> sealedStart()
                             sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h
-                            sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> { writeNameOnce(e); encryption.refresh() }
+                            sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> {
+                                resubscribeIfSealedGrew()
+                                // in the head but a rotation's hand-over missed: ask too (N4); my chain read first
+                                e.refresh(me)
+                                if (e.inHeadWithoutKey) e.askAgain(linkSecret, force = true)
+                                writeNameOnce(e); encryption.refresh()
+                            }
                             else -> {}
                         }
                     }
@@ -867,9 +921,9 @@ class Session(
             Filters.of(kinds = listOf(1059), since = wraps, limit = 300, tags = mapOf("p" to listOf(me))), // the relay's max limit
         ) + listOfNotNull(
             // sealed: key hand-overs come to this DEVICE's key (§5.5), not to the account
-            (signer as? BunkerSigner)?.device?.pubkey?.takeIf { sealed != null }?.let { Filters.of(kinds = listOf(1059), limit = 300, tags = mapOf("p" to listOf(it))) },
+            sealed?.device?.pubkey?.let { Filters.of(kinds = listOf(1059), limit = 300, tags = mapOf("p" to listOf(it))) },
             // sealed: my correspondents' rosters and anchors on the live subscription (§4; the review's 1)
-            sealedPeers().takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(sh.belfry.core.sealed.Roster.KIND), limit = 300, tags = mapOf("p" to it)) },
+            sealedPeers().also { subscribedPeers = it.toSet() }.takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(sh.belfry.core.sealed.Roster.KIND), limit = 300, tags = mapOf("p" to it)) },
             sealedPeers().takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(30078), authors = it, limit = 300, tags = mapOf("d" to listOf(sh.belfry.core.sealed.Anchor.D))) },
         ) + listOf(
             Filters.of(kinds = listOf(4), since = old, limit = 500, tags = mapOf("p" to listOf(me))),
