@@ -69,6 +69,9 @@ class SealedEngineTest {
         override suspend fun revoke(clientPubkey: String) { if (server.failRevoke) throw IllegalStateException("revoke"); revoked.add(clientPubkey); server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
         override fun loadKeys() = saved
         override fun saveKeys(keys: Map<String, String>) { saved = keys }
+        val notes = HashMap<String, String>()
+        override fun loadNote(name: String): String? = notes[name]
+        override fun saveNote(name: String, value: String) { notes[name] = value }
     }
 
     private val alice = LocalSigner.random()
@@ -362,6 +365,7 @@ class SealedEngineTest {
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
         phone.allow(aliceLaptop.pubkey)
         relay.events.removeAll { it.kind == 1059 && it.tag("p") == aliceLaptop.pubkey } // the hand-over is lost
+        now += 10 // its request comes after the roster that added it and after the lost hand-over
         val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
         assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
         val req = relay.events.last { it.kind == Sealing.REQUEST }
@@ -440,5 +444,35 @@ class SealedEngineTest {
             val anchor = relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
             assertEquals(anchor.tag("root"), anchor.tag("head"))
         }
+    }
+
+    /** f28220c: an older anchor pointing back to a roster with a since-removed device doesn't make it "already allowed". */
+    @Test fun olderAnchorDoesNotAllow() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val withLaptop = phone.refresh(alice.pubkey)!!
+        phone.remove(aliceLaptop.pubkey, revoke = false) // the laptop is out, its session still live
+        // the server republishes an anchor naming the old roster (the laptop in it)
+        now += 5
+        relay.add(alice.signNow(Anchor.template(withLaptop.root.id, withLaptop.head.id, now)))
+        val before = relay.to(aliceLaptop.pubkey).size
+        now += 5
+        val req = aliceLaptop.signNow(Sealing.request(alice.pubkey, aliceLaptop.pubkey, null, now))
+        val r = phone.onRequest(req)
+        assertTrue(r != SealedEngine.OnRequest.Allowed, "never allowed at once by an older anchor")
+        assertEquals(before, relay.to(aliceLaptop.pubkey).size, "no keys handed over")
+    }
+
+    /** f28220c: a request no newer than my last hand-over to that device gets nothing again. */
+    @Test fun handoverOnlyForNewerRequests() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        now += 10
+        phone.allow(aliceLaptop.pubkey)
+        relay.events.removeAll { it.kind == 1059 && it.tag("p") == aliceLaptop.pubkey }
+        now += 10
+        val req = aliceLaptop.signNow(Sealing.request(alice.pubkey, aliceLaptop.pubkey, null, now))
+        assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(req))
+        assertEquals(SealedEngine.OnRequest.Ignore, phone.onRequest(req), "the same request again: nothing")
     }
 }

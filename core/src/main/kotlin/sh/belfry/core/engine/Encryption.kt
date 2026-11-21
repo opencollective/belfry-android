@@ -36,6 +36,7 @@ class EncryptionService internal constructor(private val s: Session) {
     private suspend fun <T> shown(fallback: String, block: suspend () -> T): T = try { block() } catch (e: ActionException) { throw e } catch (e: sh.belfry.core.sealed.SealedEngine.TooMany) {
         throw ActionException("too_many_devices", sh.belfry.core.model.SealedText.TOO_MANY)
     } catch (e: sh.belfry.core.sealed.SealedEngine.NotDone) {
+        s.sealedFollowUps() // done later: upkeep again soon, not in 6 hours
         throw ActionException("not_done", e.message ?: fallback)
     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
         throw ActionException("failed", fallback)
@@ -98,7 +99,7 @@ class EncryptionService internal constructor(private val s: Session) {
             myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
             // only "this device is not in my head" hides messages or the composer (294c94f (1))
             locked = if (waiting) sealed.keys else emptySet(),
-            asks = asks, linked = linked,
+            asks = asks, linked = linked, waitingKeys = e.inHeadWithoutKey,
         )
     }
 

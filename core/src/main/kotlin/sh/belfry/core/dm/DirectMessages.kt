@@ -744,14 +744,19 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         }
     }
 
+    /** Keys arrived or my chain moved: the wraps kept as locked are tried again at the next [process]. */
+    fun retryKept() {
+        synchronized(lock) { for (w in kept.values) if (backlog.none { it.id == w.id }) backlog.add(w) }
+    }
+
     /** The person cancels a held message: it goes, and its text comes back (64a07fa). */
-    fun cancelHeld(rid: String): String? {
+    suspend fun cancelHeld(rid: String): String? = busy.withLock { // the lock its sending (retryHeld) takes
         val text = synchronized(lock) {
-            if (held.remove(rid) == null) return null
+            if (held.remove(rid) == null) return@withLock null
             items.remove(rid)?.text
         }
         publish()
-        return text
+        text
     }
 
     /**

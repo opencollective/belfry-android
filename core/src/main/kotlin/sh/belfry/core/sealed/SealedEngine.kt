@@ -264,9 +264,15 @@ class SealedEngine(
         val row = sessions.firstOrNull { it.clientPubkey == dev && it.chat } ?: return OnRequest.Ignore
         val head = chainOf(account)
         if (head != null && dev in head.devices) {
-            // a device of the head that lost its hand-over: the keys at once, no prompt (§5.5, c233eec)
+            // a device of the head this device holds (its pinned head, never an older roster an anchor
+            // points back to) that lost its hand-over: the keys at once, no prompt (§5.5, f28220c) —
+            // only for a request newer than the roster that added it and than my last hand-over to it
             if (keys.secretFor(head.head.lb) == null) return OnRequest.Ignore
+            val addedAt = addedLast(head, dev) ?: return OnRequest.Ignore
+            val lastGiven = ports.loadNote("handover:$dev")?.toLongOrNull() ?: 0L
+            if (req.createdAt <= addedAt || req.createdAt <= lastGiven) return OnRequest.Ignore
             Sealing.keysFor(device, account, dev, keys, clock()).forEach { ports.publish(it) }
+            ports.saveNote("handover:$dev", clock().toString())
             return OnRequest.Allowed
         }
         val now = clock()
@@ -290,6 +296,7 @@ class SealedEngine(
         repeat(3) {
             if (publishNext(cur, (cur.devices + newDevice).distinct(), cur.head.lb, cur.ready)) {
                 Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
+                ports.saveNote("handover:$newDevice", clock().toString())
                 return@withLock
             }
             cur = refresh(account) ?: throw NotDone()
@@ -375,7 +382,7 @@ class SealedEngine(
         if (mineChain == null) { pendingKeys[wrap.id] = wrap; return false }
         if (!Sealing.acceptHandover(h, account, listOf(mineChain))) return false
         val added = keys.merge(h.keys)
-        if (added > 0) saveKeys()
+        if (added > 0) { saveKeys(); onKeys?.invoke() }
         pendingKeys.remove(wrap.id)
         if (device.pubkey in (refresh(account)?.devices ?: emptyList())) mine = Mine.IN_HEAD
         retryPending()
@@ -479,6 +486,23 @@ class SealedEngine(
         }
     }
 
+    /** Told when keys arrived: the app reads its wraps again from 0 (§5.5). */
+    @Volatile var onKeys: (() -> Unit)? = null
+
+    /** When DEV last came into my chain (the roster that added it, after any earlier removal). */
+    private fun addedLast(chain: Chain, dev: String): Long? {
+        var at: Long? = null
+        for (i in chain.rosters.indices) {
+            val inIt = dev in chain.rosters[i].devices
+            val before = i > 0 && dev in chain.rosters[i - 1].devices
+            if (inIt && !before) at = chain.rosters[i].createdAt
+        }
+        return at
+    }
+
+    /** This device is in my head but has no secret for it (a lost hand-over): "Waiting for another of your devices". */
+    val inHeadWithoutKey: Boolean get() = chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) == null } == true
+
     /** Wraps kept (tests). */
     val pendingCount: Int get() = pending.size
     val pendingKeysCount: Int get() = pendingKeys.size
@@ -529,6 +553,9 @@ interface SealedPorts {
     suspend fun revoke(clientPubkey: String)
     fun loadKeys(): Map<String, String>
     fun saveKeys(keys: Map<String, String>)
+    /** Small records kept across restarts (my last hand-over to each device, f28220c). */
+    fun loadNote(name: String): String? = null
+    fun saveNote(name: String, value: String) {}
 }
 
 internal fun hexOk(s: String) = Hex.isKey(s)

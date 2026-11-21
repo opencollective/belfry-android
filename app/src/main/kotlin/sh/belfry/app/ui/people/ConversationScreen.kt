@@ -154,6 +154,7 @@ fun ConversationScreen(conv: String) {
     }
     var why by remember(conv) { mutableStateOf<SharedBlock?>(null) }
     var notSealedOpen by remember(conv) { mutableStateOf(false) }
+    val cancelScope = rememberCoroutineScope()
 
     LaunchedEffect(conv, rows.size) {
         if (rows.isNotEmpty()) state.scrollToItem(rows.size - 1)
@@ -208,9 +209,9 @@ fun ConversationScreen(conv: String) {
                         is Dm -> {
                             val shared = seal?.shared?.any { it.holds(r.at) } == true
                             if (shared) {
-                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t) } }) }
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { cancelScope.launch { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t) } } }) }
                             } else {
-                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t) } })
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { cancelScope.launch { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t) } } })
                             }
                         }
                         is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
@@ -236,7 +237,7 @@ fun ConversationScreen(conv: String) {
         }
         if (lockedHere) {
             Text(
-                sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
+                if (sealState.waitingKeys) sh.belfry.core.model.SealedText.WAITING_KEYS else sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),
             )
         } else Composer(

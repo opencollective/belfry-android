@@ -86,6 +86,8 @@ data class SealState(
     val asks: List<AccessAsk> = emptyList(),
     /** A device just linked by scanning my code (Link a phone or tablet). */
     val linked: String? = null,
+    /** This device is in my head without its secret (a lost hand-over, f28220c): waiting for another of my devices. */
+    val waitingKeys: Boolean = false,
 ) {
     fun seal(conv: String): ConvSeal? = sealed[conv]
     val thisDevice: MyDevice? get() = myDevices.firstOrNull { it.thisDevice }
@@ -198,6 +200,7 @@ object SealedText {
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."
     const val WRITE_LATER = "You can write here once this device is allowed."
+    const val WAITING_KEYS = "Waiting for another of your devices"
     const val NOT_SEALED = "Not sealed"
     const val TOO_MANY = "You already have 20 devices. Remove one in Devices, then try again."
     const val NOT_SEALED_WHY = "This message was not sent with the lock. It may come from an old app version."

@@ -267,9 +267,30 @@ class Session(
         )
     }
 
+    /** Keys arrived: kept wraps tried again, and every wrap to me read again from 0, paged (§5.5). */
+    private suspend fun rereadWraps() {
+        dm.retryKept()
+        val r = mainRelay ?: return
+        val all = Paging.all { f -> r.queryKnown(listOf(f)) }(Filters.of(kinds = listOf(1059), tags = mapOf("p" to listOf(me))))
+        addToLog(all.events)
+        dm.offer(all.events)
+        dm.process()
+        try { encryption.refresh() } catch (x: Exception) { }
+    }
+
+    /** After a roster change ended "not done": upkeep again in 10 s, 1 min and 5 min (not the 6-hour timer). */
+    fun sealedFollowUps() {
+        if (sealed == null) return
+        for (ms in longArrayOf(10_000, 60_000, 300_000)) scope.launch(Dispatchers.Default) {
+            delay(ms)
+            try { if (!stopped) { sealed?.upkeep(); encryption.refresh() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+        }
+    }
+
     /** Starts (or retries, after a late AUTH) the sealed side; then the upkeep. Never throws. */
     private suspend fun sealedStart() {
         val e = sealed ?: return
+        if (e.onKeys == null) e.onKeys = { launchSafely { rereadWraps() } }
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN && !e.firstRefused) {
             val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
             e.start(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind, link = linkSecret)
@@ -496,6 +517,9 @@ class Session(
         synchronized(logLock) { log.addAll(fresh); fresh.mapTo(logIds) { it.id } }
         dm.offer(fresh)
         readSync.offer(fresh)
+        // a key hand-over to this device (sealed §5.5)
+        val device = (signer as? BunkerSigner)?.device?.pubkey
+        if (device != null && sealed != null) for (w in fresh) if (w.kind == 1059 && w.hasTag("p", device)) launchSafely { sealed?.onDeviceWrap(w) }
         markDirty()
         if (fresh.any { it.kind == 1059 || it.kind == 4 }) launchSafely { dm.process() }
     }
@@ -798,6 +822,10 @@ class Session(
             // my read state (SPEC 19.27): one replaceable event, always the exact d
             Filters.of(kinds = listOf(ReadState.KIND), authors = listOf(me), limit = 5, tags = mapOf("d" to listOf(ReadState.READ_D))),
             Filters.of(kinds = listOf(1059), since = wraps, limit = 1000, tags = mapOf("p" to listOf(me))),
+        ) + listOfNotNull(
+            // sealed: key hand-overs come to this DEVICE's key (§5.5), not to the account
+            (signer as? BunkerSigner)?.device?.pubkey?.takeIf { sealed != null }?.let { Filters.of(kinds = listOf(1059), limit = 300, tags = mapOf("p" to listOf(it))) },
+        ) + listOf(
             Filters.of(kinds = listOf(4), since = old, limit = 500, tags = mapOf("p" to listOf(me))),
             Filters.of(kinds = listOf(4), authors = listOf(me), since = old, limit = 500),
         )
@@ -1301,7 +1329,7 @@ class Session(
      * ("m:<address>"). Returns the conversation it is in now. Throws [ActionException].
      */
     /** Cancels a message held undecided (sealed.md §6): its text, for the composer. */
-    fun cancelHeldDm(rid: String): String? = dm.cancelHeld(rid)
+    suspend fun cancelHeldDm(rid: String): String? = dm.cancelHeld(rid)
 
     suspend fun sendDm(conv: String, text: String, subject: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject) } }
 
