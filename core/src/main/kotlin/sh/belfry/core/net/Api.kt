@@ -569,7 +569,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
                 clientPubkey = o.s("client_pubkey")?.lowercase()?.takeIf { sh.belfry.core.crypto.Hex.isKey(it) },
                 chat = o["chat"].bool() ?: false,
             )
-        } ?: emptyList()
+        } ?: throw ApiException("odd", a.status, "Your sessions could not be read just now.") // a missing field is not "no sessions"
     }
 
     suspend fun revokeSession(signer: Signer, bunkerPubkey: String) {

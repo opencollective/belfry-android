@@ -243,6 +243,39 @@ class Session(
     @Volatile var accountId: String = ""
     @Volatile var slot: String = ""
 
+    /** Where this account's letterbox secrets are kept (set by [Onboarding]; null: no sealed conversations). */
+    @Volatile var keyVault: Vault? = null
+    /** This device's own name and kind for sealed conversations (the app sets them: Build.MODEL, phone / tablet). */
+    @Volatile var deviceName: String = "Android phone"
+    @Volatile var deviceKind: String = "phone"
+
+    private val sealedKeys: SealedKeyStore? by lazy { keyVault?.let { SealedKeyStore(it, Slots.key(SealedKeyStore.V_KEYS, slot), me) } }
+
+    /**
+     * Sealed conversations on this device (sealed.md): null in the demo, for a guest, without a
+     * bunker session (no device key) or a key store. Started once the community relay authenticated.
+     */
+    val sealed: sh.belfry.core.sealed.SealedEngine? by lazy {
+        val device = (signer as? BunkerSigner)?.device
+        val ks = sealedKeys
+        if (localOnly || device == null || ks == null || _guest.value != null) null
+        else sh.belfry.core.sealed.SealedEngine(
+            SessionSealedPorts({ mainRelay }, { t -> signer.sign(t) }, { api().sessions(signer) }, { b -> api().revokeSession(signer, b) }, ks),
+            device, me, clock = clock, guest = false,
+        )
+    }
+
+    /** Starts (or retries, after a late AUTH) the sealed side; then the upkeep. Never throws. */
+    private suspend fun sealedStart() {
+        val e = sealed ?: return
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN && !e.firstRefused) {
+            val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
+            e.start(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind)
+        }
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) e.upkeep()
+        launchSafely { dm.process() }
+    }
+
     /** Told when the community document was refreshed or the guest state changed (the app saves them). */
     @Volatile var onRecordChanged: ((Community, GuestInfo?) -> Unit)? = null
 
@@ -572,9 +605,15 @@ class Session(
                 if (sub == SUB) reopen(t, reason)
             }
             r.onAuthRefused = { reason -> if (t == Target.GROUPS) noteRefusal(reason) }
-            r.onAuthenticated = { requestFlush() }
+            r.onAuthenticated = {
+                // sealed: first device / request again when AUTH lands late (64a07fa); chains before the flush
+                if (t == Target.MAIN && sealed != null) launchSafely { sealedStart(); requestFlush() } else requestFlush()
+            }
             r.onConnected = { requestFlush() }
-            r.onDisconnect = { r.subscribe(SUB, filters(t)) } // catch up from the last event seen
+            r.onDisconnect = {
+                if (t == Target.MAIN) sealed?.connectionLost() // knowledge needs a live connection (c233eec)
+                r.subscribe(SUB, filters(t)) // catch up from the last event seen
+            }
             r.subscribe(SUB, filters(t))
             jobs += scope.launch { r.state.collect { s -> setStatus { if (t == Target.GROUPS) it.copy(groups = s) else it.copy(main = s) } } }
             if (_status.value.online) r.keepConnected()
@@ -587,6 +626,13 @@ class Session(
             }
         }
         launchSafely { refreshCommunity() }
+        // sealed conversations: the 6-hour upkeep (gone sessions, ready, my unanchored roster)
+        if (sealed != null) jobs += scope.launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(SEALED_UPKEEP_MS)
+                try { if (sealed?.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) sealed?.upkeep() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+            }
+        }
         // a guest on this device: is that still so? (a member link, an admin, an accepted request)
         if (_guest.value != null) launchSafely { refreshWhois(listOf(me)) }
         requestFlush()
@@ -655,6 +701,7 @@ class Session(
             }
         }
         stop()
+        sealedKeys?.wipe() // the letterbox secrets go with the session; a late write is refused
         withContext(Dispatchers.IO) { store.wipe() }
     }
 
@@ -1750,6 +1797,7 @@ class Session(
         private const val SUB = "main"
         private const val REBUILD_MS = 100L
         private const val WATCHDOG_MS = 15_000L
+        const val SEALED_UPKEEP_MS = 6 * 3600 * 1000L
         /** Tests shorten it. */
         @Volatile var PUBLISH_TIMEOUT_MS = 15_000L
         /** How long the demo's belfry takes to answer a button. */

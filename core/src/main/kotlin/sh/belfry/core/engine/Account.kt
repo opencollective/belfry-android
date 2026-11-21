@@ -404,6 +404,7 @@ class Onboarding(
         val s = Session(community, stores.open(rec.slot), signer, http, scope, localOnly, clock, guest, zone, placeNames)
         s.accountId = rec.id
         s.slot = rec.slot
+        s.keyVault = vault
         s.onRecordChanged = { c, g -> saved(rec.slot)?.let { save(rec.slot, it.copy(community = c, guest = g)) } }
         return s
     }
@@ -553,6 +554,7 @@ class Onboarding(
         val slot = session.slot
         session.signOut(revoke)
         vault.remove(Slots.key(V_SESSION, slot))
+        vault.remove(Slots.key(SealedKeyStore.V_KEYS, slot))
         changeAccounts { it.without(session.accountId) }
         try { stores.delete(slot) } catch (e: Exception) { }
         vault.remove(V_FLOW)

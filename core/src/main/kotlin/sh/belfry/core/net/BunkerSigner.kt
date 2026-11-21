@@ -80,6 +80,8 @@ class BunkerSigner(
 ) : Signer {
     private val client = LocalSigner(clientSecretHex)
     val clientPubkey: String get() = client.pubkey
+    /** This device's key: also its sealed-conversations device key (sealed.md §2). Never leaves the device. */
+    val device: LocalSigner get() = client
 
     @Volatile private var memberKey: String = pubkey ?: ""
     /** Empty until [ensurePubkey] has run, unless it was given. */

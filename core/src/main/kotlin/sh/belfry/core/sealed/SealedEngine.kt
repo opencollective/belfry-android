@@ -479,7 +479,7 @@ data class Query(
 )
 
 /** One row of GET /api/me/sessions, as the engine needs it. LAST_SEEN = last_activity, else created_at. */
-data class SessionRow(val clientPubkey: String?, val chat: Boolean, val lastSeen: Long?, val device: String?, val applicationName: String)
+data class SessionRow(val clientPubkey: String?, val chat: Boolean, val lastSeen: Long?, val device: String?, val applicationName: String, val id: String = "")
 
 /** What the engine needs from the outside. */
 interface SealedPorts {

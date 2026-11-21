@@ -396,6 +396,17 @@ class Relay(
     suspend fun queryUntilEose(filters: List<JsonObject>, timeoutMs: Long = 8_000): List<Event>? =
         ask(filters, timeoutMs)?.takeIf { it.second }?.first
 
+    /**
+     * For sealed conversations: the events, and whether the answer is COMPLETE knowledge (EOSE
+     * reached after NIP-42 on this same socket; sealed.md 294c94f (7)). Null without a connection.
+     */
+    suspend fun queryKnown(filters: List<JsonObject>, timeoutMs: Long = 8_000): Pair<List<Event>, Boolean>? {
+        val before = synchronized(lock) { socket }
+        val a = ask(filters, timeoutMs) ?: return null
+        val complete = a.second && synchronized(lock) { authed && socket === before && socket != null }
+        return a.first to complete
+    }
+
     /** What arrived, and whether EOSE came; null without a connection. */
     private suspend fun ask(filters: List<JsonObject>, timeoutMs: Long): Pair<List<Event>, Boolean>? {
         if (openSocket() == null) {
