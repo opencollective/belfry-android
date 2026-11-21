@@ -162,7 +162,7 @@ internal class SessionTyping(
     /** The message went: no stop needed. */
     fun sent(place: TypingPlace) = sender.onSent(place)
 
-    private fun allowed(place: TypingPlace): Boolean {
+    internal fun allowed(place: TypingPlace): Boolean {
         if (!canSend()) return false
         val g = place.group
         if (g != null && world().isArchived(g)) return false

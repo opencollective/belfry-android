@@ -68,6 +68,13 @@ class DirectMessagesSealedTest {
         var nip05Down = false
         override suspend fun nip05(name: String): String? = if (nip05Down) throw java.io.IOException("offline") else null
         override fun later(delayMs: Long, block: suspend () -> Unit) {}
+        // files (vectors/dm-files.json): the item the outbox would hold, the bytes, an upload that works
+        val files = ArrayList<OutboxItem>()
+        val blobs = HashMap<String, ByteArray>()
+        override fun putBlob(key: String, bytes: ByteArray) { blobs[key] = bytes }
+        override fun blob(key: String): ByteArray? = blobs[key]
+        override suspend fun enqueue(item: OutboxItem) { files.add(item) }
+        override suspend fun uploadSealed(bytes: ByteArray, progress: (Long, Long) -> Unit): String = "https://files.belfry.example/" + sh.belfry.core.crypto.sha256Hex(bytes)
     }
 
     private val alice = LocalSigner.random()
@@ -252,5 +259,35 @@ class DirectMessagesSealedTest {
         kotlin.test.assertFailsWith<sh.belfry.core.dm.DmException> { a.second.convFor("lina@belfry.example", emptyList()) }
         host.nip05Down = false
         assertEquals("m:ana@example.org", a.second.convFor("ana@example.org", emptyList()), "another domain is e-mail")
+    }
+
+    /** A file (kind 15) in a sealed conversation is sealed by the device like a kind 14, never the signer (0.7.6). */
+    @Test fun sealedFileNeverTheSigner() = runBlocking<Unit> {
+        val (a, b) = ready()
+        a.second.send(conv(bob.pubkey), "first, sealed")
+        hosts.getValue(a.second).queued.clear()
+        val callsBefore = a.third.calls
+        a.second.sendFiles(conv(bob.pubkey), listOf(sh.belfry.core.dm.DmNewFile("plan.pdf", "application/pdf", ByteArray(300) { it.toByte() })))
+        val item = hosts.getValue(a.second).files.single()
+        val wraps = a.second.prepareFile(item) {}
+        assertEquals(2, wraps.size, "one to Bob's head, one to mine")
+        assertTrue(wraps.all { Sealing.isSealed(it) }, "sealed wraps (lb), not the old kind")
+        assertEquals(callsBefore, a.third.calls, "no signer call for a sealed file")
+        // Bob's device opens it as a file message
+        b.second.offer(listOf(wraps.first { it.tag("p") == bob.pubkey }))
+        b.second.process()
+        val got = b.second.snapshot.value.thread(conv(alice.pubkey)).last()
+        assertEquals(sh.belfry.core.dm.DmFiles.KIND, got.kind)
+        assertNotNull(got.file)
+        assertEquals(0, b.third.calls)
+    }
+
+    /** Not sealed: the file goes the old way as before. */
+    @Test fun unsealedFileTheOldWay() = runBlocking<Unit> {
+        val (a, _) = ready()
+        val carol = LocalSigner.random()
+        a.second.sendFiles(conv(carol.pubkey), listOf(sh.belfry.core.dm.DmNewFile("a.txt", "text/plain", "hi".toByteArray())))
+        val wraps = a.second.prepareFile(hosts.getValue(a.second).files.single()) {}
+        assertTrue(wraps.none { Sealing.isSealed(it) })
     }
 }
