@@ -705,7 +705,7 @@ class Session(
                             sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN -> sealedStart()
                             sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h
                             sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> { writeNameOnce(e); encryption.refresh() }
-                            null -> {}
+                            else -> {}
                         }
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }

@@ -201,7 +201,7 @@ class SealedEngineTest {
         val got = b.receive(toBob, null) { c }
         assertEquals(Sealing.Verdict.ACCEPT, got.verdict)
         assertEquals(rumor.id, got.rumor!!.id)
-        assertTrue(c in b.sealedSince, "accepting a sealed rumor marks its conversation sealed")
+        assertTrue(b.sealedSince.containsKey(c), "accepting a sealed rumor marks its conversation sealed")
         // the self-copy opens on my other device
         val self = wraps.single { it.recipient == alice.pubkey }.wrap
         assertEquals(Sealing.Verdict.ACCEPT, laptop.receive(self, null) { c }.verdict)
@@ -696,6 +696,6 @@ class SealedEngineTest {
             }
         }
         jobs.forEach { it.await() }
-        assertTrue(c in phone.sealedSince)
+        assertTrue(phone.sealedSince.containsKey(c))
     }
 }

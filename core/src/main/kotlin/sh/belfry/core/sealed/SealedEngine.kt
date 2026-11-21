@@ -590,9 +590,9 @@ class SealedEngine(
         val people = (participants + account).toSet()
         withTimeoutOrNull(3000) { people.forEach { refresh(it) } }
         val chains = people.associateWith { chainOf(it) }
-        val sealed = conv in sealedSince
+        val sealed = sealedSince.containsKey(conv)
         if (!sealed && Sealing.canSeal(people, chains)) { sealedSince[conv] = clock(); saveState() }
-        if (conv in sealedSince) {
+        if (sealedSince.containsKey(conv)) {
             val heads = people.associateWith { chains[it]?.head?.lb ?: lastHead[it] }
             if (mine != Mine.IN_HEAD) return Plan.Refuse("Not sent: the lock for this conversation isn't ready on this device. Try again in a moment.")
             heads.entries.firstOrNull { it.value == null }?.let { return Plan.Refuse("Not sent yet: their new device isn't ready.", who = it.key) }

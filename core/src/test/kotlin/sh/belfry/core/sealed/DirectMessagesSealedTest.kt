@@ -108,7 +108,7 @@ class DirectMessagesSealedTest {
         b.second.process()
         assertEquals("hello Bob", b.second.snapshot.value.thread(conv(alice.pubkey)).single().text)
         assertEquals(0, b.third.calls)
-        assertTrue(conv(alice.pubkey) in b.first.sealedSince)
+        assertTrue(b.first.sealedSince.containsKey(conv(alice.pubkey)))
     }
 
     /** No engine yet: a sealed wrap is kept, never handed to the signer. */
