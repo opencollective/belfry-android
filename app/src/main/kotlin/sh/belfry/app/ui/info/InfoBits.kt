@@ -102,13 +102,6 @@ fun LinkBox(
 ) {
     val c = Belfry.colors
     val context = LocalContext.current
-    var copied by remember { mutableStateOf(false) }
-    LaunchedEffect(copied) {
-        if (copied) {
-            delay(1500)
-            copied = false
-        }
-    }
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         QrCode(url, Modifier.alpha(if (waiting) 0.12f else 1f), size = 220.dp)
         if (waiting && busy) Spinner(size = 28.dp)
@@ -133,16 +126,6 @@ fun LinkBox(
         )
     }
     Spacer(Modifier.height(10.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        BusyButton(
-            if (copied) "Copied" else "Copy link",
-            onClick = { copyText(context, url, shareTitle); copied = true },
-            // both secondary (canvas v48)
-            modifier = Modifier.weight(1f).testTag("link-copy"), kind = ButtonKind.Ghost, enabled = !waiting, icon = BelfryIcons.Copy,
-        )
-        BusyButton(
-            "Share…", onClick = { shareText(context, url, shareTitle) },
-            modifier = Modifier.weight(1f), kind = ButtonKind.Ghost, enabled = !waiting, icon = BelfryIcons.Share,
-        )
-    }
+    // both secondary (canvas v48); equal widths, 50 dp, "Copied" with a check for 2 s (canvas v113)
+    sh.belfry.app.ui.kit.CopyShareButtons(url, shareTitle, enabled = !waiting)
 }
