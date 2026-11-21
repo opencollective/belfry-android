@@ -762,7 +762,7 @@ class Session(
                         val e = sealed
                         when (e?.mine) {
                             sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN -> sealedStart()
-                            sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = true); encryption.refresh() } // once a minute and once per connection at most (N2): a missed ask at AUTH is made up here
+                            sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h (§5.2); AUTH asks once per connection
                             sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> {
                                 resubscribeIfSealedGrew()
                                 // in the head but a rotation's hand-over missed: ask too (N4); my chain read first
@@ -1579,7 +1579,12 @@ class Session(
                 res.body?.bytes() ?: ByteArray(0)
             }
         }
-        override suspend fun nip05(name: String): String? = Discovery.nip05(name, community.domain, http)
+        // "no answer" is not "nobody" (fourth review 1): convFor never turns a member into e-mail in clear on a failed lookup
+        override suspend fun nip05(name: String): String? = when (val a = Discovery.nip05Answer(name, community.domain, http)) {
+            is Discovery.Nip05Answer.Key -> a.pubkey
+            Discovery.Nip05Answer.None -> null
+            Discovery.Nip05Answer.Failed -> throw java.io.IOException("no NIP-05 answer")
+        }
         override fun later(delayMs: Long, block: suspend () -> Unit) {
             scope.launch(Dispatchers.Default) {
                 delay(delayMs)

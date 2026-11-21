@@ -716,11 +716,14 @@ class SealedEngineTest {
         val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
         val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "five weeks ago", now)
         val wrap = b.seal(rumor, plan).single { it.recipient == alice.pubkey }.wrap
-        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(wrap, null) { c }.verdict)
+        val first = laptop.receive(wrap, null) { c }
+        assertEquals(Sealing.Verdict.LOCKED, first.verdict)
+        assertTrue(!first.stored, "to my letterbox without its secret: not stored, never marked seen (fourth review 2b)")
         now += 35 * 86400L
-        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(wrap, null) { c }.verdict, "still kept after 35 days")
+        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(wrap, null) { c }.verdict, "still locked, never dropped, after 35 days")
         lost.forEach { relay.add(it); laptop.onDeviceWrap(it) }
-        assertTrue(laptop.later.any { it.first.id == rumor.id })
+        // the app reads its wraps again from 0 when keys arrive: then it opens
+        assertEquals(Sealing.Verdict.ACCEPT, laptop.receive(wrap, null) { c }.verdict)
     }
 
     /** Third review P3: when the own-chain re-read is throttled, a wrap to an unknown lb is kept, not judged on an older read. */
@@ -760,5 +763,50 @@ class SealedEngineTest {
         val answers = phone.answerRequests(listOf(unlinked, linked))
         assertEquals(linked.id, answers.first().first.id, "the linked request first")
         assertTrue(answers.none { it.second is SealedEngine.OnRequest.Ask }, "no Ask flashes for a device the link allows")
+    }
+
+    /** Fourth review 2a: a foreign-lb wrap kept while throttled is judged by the next complete read of my chain that began after it. */
+    @Test fun keptForeignWrapJudgedByALaterRead() = runBlocking<Unit> {
+        val (phone, laptop, _) = world()
+        val stranger = KeyChain.newLetterbox().first
+        val one = Sealing.seal(GiftWrap.rumor(14, bob.pubkey, emptyList(), "one", now), bobPhone, alice.pubkey, stranger, now)
+        assertEquals(Sealing.Verdict.DROP, laptop.receive(one, null) { "c" }.verdict, "its own fresh read judges it")
+        now += 1
+        val two = Sealing.seal(GiftWrap.rumor(14, bob.pubkey, emptyList(), "two", now), bobPhone, alice.pubkey, stranger, now)
+        val kept = laptop.receive(two, null) { "c" }
+        assertEquals(Sealing.Verdict.LOCKED, kept.verdict, "throttled: kept")
+        assertTrue(kept.stored)
+        now += 5
+        laptop.refresh(alice.pubkey) // any complete read of my chain that began after it was first seen
+        val (seen, _) = laptop.drainSettled()
+        assertTrue(two.id in seen, "dropped by the later read and marked seen")
+    }
+
+    /** Fourth review 2c: at most MAX_KEPT kept wraps; the oldest are let go unseen. */
+    @Test fun keptWrapsAreCapped() = runBlocking<Unit> {
+        val (_, laptop, _) = world()
+        val stranger = KeyChain.newLetterbox().first
+        // the first one spends the minute's re-read; the rest are kept while throttled
+        laptop.receive(Sealing.seal(GiftWrap.rumor(14, bob.pubkey, emptyList(), "x", now), bobPhone, alice.pubkey, stranger, now), null) { "c" }
+        val ids = ArrayList<String>()
+        repeat(SealedEngine.MAX_KEPT + 3) { i ->
+            val w = Sealing.seal(GiftWrap.rumor(14, bob.pubkey, emptyList(), "w$i", now), bobPhone, alice.pubkey, stranger, now)
+            ids.add(w.id)
+            laptop.receive(w, null) { "c" }
+        }
+        val (seen, letGo) = laptop.drainSettled()
+        assertEquals(3, letGo.size, "the oldest three let go")
+        assertTrue(seen.isEmpty(), "never marked seen")
+    }
+
+    /** Fourth review 4: after Not me, the same request doesn't prompt again from the cached session list. */
+    @Test fun notMeDoesNotPromptAgain() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        val stranger = LocalSigner.random(); server.live(alice.pubkey, stranger.pubkey, "Unknown laptop")
+        val req = stranger.signNow(Sealing.request(alice.pubkey, stranger.pubkey, null, now))
+        assertTrue(phone.answerRequests(listOf(req)).single().second is SealedEngine.OnRequest.Ask)
+        phone.notMe(stranger.pubkey)
+        assertEquals(SealedEngine.OnRequest.Ignore, phone.answerRequests(listOf(req)).single().second, "no prompt again")
     }
 }

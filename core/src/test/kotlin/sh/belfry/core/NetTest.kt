@@ -68,7 +68,16 @@ class FakeRelay(
     private val publicBeforeAuth: ((Event) -> Boolean)? = null,
     /** The AUTH challenge comes only after the first REQ was answered (the web's 458704e case). */
     private val lateAuth: Boolean = false,
+    /**
+     * Like a real relay: REQs match authors, #p / #d / #e / #h and until too, and a stored event is sent live
+     * to each authenticated socket whose open subscription matches it (the lead's fourth review).
+     */
+    private val strict: Boolean = false,
 ) : WebSocketListener() {
+    /** AUTH per socket (a second client's reconnect doesn't sign out the first). */
+    private val authBy = java.util.concurrent.ConcurrentHashMap<WebSocket, String>()
+    /** Open subscriptions per socket (strict mode's live sending). */
+    private val subsBy = java.util.concurrent.ConcurrentHashMap<WebSocket, java.util.concurrent.ConcurrentHashMap<String, List<JsonObject>>>()
     /** False: this relay never asks for AUTH (it stays public-only). */
     @Volatile var sendAuth = true
     val server = MockWebServer()
@@ -77,6 +86,7 @@ class FakeRelay(
     val stored = CopyOnWriteArrayList<Event>()
     val published = CopyOnWriteArrayList<Event>()
     val sockets = CopyOnWriteArrayList<WebSocket>()
+    /** The last key that signed in, on any socket. */
     @Volatile var authedAs: String? = null
     @Volatile var opens = 0
     /** content → refusal reason */
@@ -107,19 +117,39 @@ class FakeRelay(
 
     override fun onOpen(webSocket: WebSocket, response: Response) {
         opens++
-        authedAs = null
         sockets.add(webSocket)
         if (requireAuth && !lateAuth && sendAuth) send(webSocket, "AUTH", challenge)
     }
 
+    private fun matches(e: Event, f: JsonObject): Boolean {
+        val kinds = f["kinds"].arr()?.mapNotNull { it.int() }
+        val since = (f["since"] as? JsonPrimitive)?.content?.toLongOrNull()
+        if (!((kinds == null || e.kind in kinds) && (since == null || e.createdAt >= since))) return false
+        if (!strict) return true // by kinds and since only (enough for the engine's catch-up)
+        val until = (f["until"] as? JsonPrimitive)?.content?.toLongOrNull()
+        if (until != null && e.createdAt > until) return false
+        f["authors"].arr()?.mapNotNull { it.str() }?.let { if (e.pubkey !in it) return false }
+        f["ids"].arr()?.mapNotNull { it.str() }?.let { if (e.id !in it) return false }
+        for ((k, v) in f) if (k.startsWith("#") && k.length == 2) {
+            val want = v.arr()?.mapNotNull { it.str() } ?: continue
+            if (e.tags.none { it.size >= 2 && it[0] == k.substring(1) && it[1] in want }) return false
+        }
+        return true
+    }
+
     private fun answer(ws: WebSocket, sub: String, filters: List<JsonObject>, pick: (Event) -> Boolean) {
-        // by kinds and since only (enough for the engine's catch-up)
-        for (e in stored) if (pick(e) && filters.any { f ->
-                val kinds = f["kinds"].arr()?.mapNotNull { it.int() }
-                val since = (f["since"] as? JsonPrimitive)?.content?.toLongOrNull()
-                (kinds == null || e.kind in kinds) && (since == null || e.createdAt >= since)
-            }) send(ws, "EVENT", sub, e)
+        for (e in stored) if (pick(e) && filters.any { matches(e, it) }) send(ws, "EVENT", sub, e)
         send(ws, "EOSE", sub)
+    }
+
+    private fun authed(ws: WebSocket) = !requireAuth || authBy[ws] != null
+
+    /** Stores E as if published and sends it live to the matching subscriptions (strict mode). */
+    fun inject(e: Event) { stored.add(e); broadcast(e) }
+
+    private fun broadcast(e: Event) {
+        if (!strict) return
+        for ((ws, subs) in subsBy) if (authed(ws)) for ((sub, fs) in subs) if (fs.any { matches(e, it) }) send(ws, "EVENT", sub, e)
     }
 
     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -135,7 +165,8 @@ class FakeRelay(
                 reqTexts.add(text)
                 if (closeReqs) { send(webSocket, "CLOSED", sub, "error: not now"); return }
                 val filters = arr.drop(2).mapNotNull { it as? JsonObject }
-                if (requireAuth && authedAs == null) {
+                subsBy.getOrPut(webSocket) { java.util.concurrent.ConcurrentHashMap() }[sub] = filters
+                if (requireAuth && authBy[webSocket] == null) {
                     val pub = publicBeforeAuth
                     if (pub == null) { send(webSocket, "CLOSED", sub, "auth-required: sign in first"); return }
                     answer(webSocket, sub, filters, pub)
@@ -146,7 +177,7 @@ class FakeRelay(
             }
             "EVENT" -> {
                 val ev = Event.fromJson(arr[1])!!
-                if (requireAuth && authedAs == null) {
+                if (requireAuth && authBy[webSocket] == null) {
                     send(webSocket, "OK", ev.id, false, "auth-required: sign in first")
                     return
                 }
@@ -159,16 +190,21 @@ class FakeRelay(
                 if (ev.kind != 24133) stored.add(ev)
                 send(webSocket, "OK", ev.id, true, "")
                 onPublished?.invoke(webSocket, ev)
+                if (ev in stored) broadcast(ev) // live, unless the test took it away
             }
             "AUTH" -> {
                 val ev = Event.fromJson(arr[1])!!
                 val ok = ev.kind == 22242 && ev.isValid() && ev.tag("challenge") == challenge && ev.tag("relay") == url
-                if (ok) authedAs = ev.pubkey
+                if (ok) { authedAs = ev.pubkey; authBy[webSocket] = ev.pubkey }
                 send(webSocket, "OK", ev.id, ok, if (ok) "" else "restricted: not you")
             }
+            "CLOSE" -> { arr[1].str()?.let { subsBy[webSocket]?.remove(it) } }
             else -> Unit
         }
     }
+
+    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { authBy.remove(webSocket); subsBy.remove(webSocket) }
+    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { authBy.remove(webSocket); subsBy.remove(webSocket) }
 }
 
 class RelayTest {
@@ -225,6 +261,22 @@ class RelayTest {
         assertTrue(!refused.second, "a CLOSED after AUTH is no answer either")
         f.closeReqs = false
         relay.close()
+        // a relay that answers a REQ before AUTH (its public part) and asks for AUTH only after: that answer is
+        // no knowledge; the same query once signed in is
+        val late = FakeRelay(requireAuth = true, publicBeforeAuth = { true }, lateAuth = true).also { it.expect(1); fakes.add(it) }
+        late.stored.add(member.signNow(EventTemplate(8560, "", emptyList(), 1_800_000_000)))
+        val r2 = Relay(late.url, client, scope)
+        r2.authSigner = member
+        val authed2 = CompletableDeferred<Unit>()
+        r2.onAuthenticated = { authed2.complete(Unit) }
+        r2.connect()
+        val before = r2.queryKnown(listOf(Filters.of(kinds = listOf(8560))))!!
+        assertEquals(1, before.first.size, "the public answer came")
+        assertTrue(!before.second, "an answer to a REQ sent before AUTH is no knowledge")
+        withTimeout(5000) { authed2.await() }
+        val after = r2.queryKnown(listOf(Filters.of(kinds = listOf(8560))))!!
+        assertTrue(after.second, "the same query after AUTH is")
+        r2.close()
     }
 
     @Test

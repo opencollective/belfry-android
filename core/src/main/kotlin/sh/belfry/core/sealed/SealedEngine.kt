@@ -91,6 +91,7 @@ class SealedEngine(
     suspend fun refresh(person: String): Chain? = kotlinx.coroutines.withContext(confined) { refreshHere(person) }
 
     private suspend fun refreshHere(person: String): Chain? {
+        val began = clock()
         val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(person), d = listOf(Anchor.D)))
         val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(person)))
         val complete = qa.complete && qr.complete
@@ -100,6 +101,7 @@ class SealedEngine(
         val r = SealedEngine.Answer((qr.events + pathEvents[person].orEmpty()).distinctBy { it.id }, qr.complete)
         val chain = followRead(person, a, r)
         lastReadComplete[person] = complete
+        if (person == account && complete) ownReadBegan = began
         val prev = known[person]
         known[person] = Known(chain ?: prev?.chain?.takeIf { !complete || lastEvent[person] == Follow.Change.IGNORED_BACK }, if (complete) clock() else prev?.completeAt)
         if (chain != null) {
@@ -380,7 +382,9 @@ class SealedEngine(
         if (device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; trace("in head"); return }
         mine = Mine.WAITING
         // at most once a minute, and once per connection (N2); else every 24 h
-        val due = if (force) !askedThisConnection && clock() - lastAsk >= 60 else clock() - lastAsk >= 86_400
+        // force (AUTH, a new state): once per connection and once a minute; any call: once a day (§5.2)
+        val since = clock() - lastAsk
+        val due = (force && !askedThisConnection && since >= 60) || since >= 86_400
         if (!due) trace("not due (force=$force asked=$askedThisConnection since=${clock() - lastAsk})")
         if (due && asking) trace("in flight")
         if (due && !asking) {
@@ -471,6 +475,7 @@ class SealedEngine(
         answered[req.id]?.let { return it }
         if ((newestRequest[dev] ?: 0L) > req.createdAt) return OnRequest.Ignore
         newestRequest[dev] = req.createdAt
+        newestRequestId[dev] = req.id
         var sessions = cachedSessions() ?: return OnRequest.Ignore
         // a device newer than the cached list: read it once more
         if (sessions.none { it.clientPubkey == dev }) sessions = ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return OnRequest.Ignore
@@ -481,11 +486,15 @@ class SealedEngine(
             // prompt, only as the reference's answer_without_prompt allows (§5.5: on the anchored end,
             // in the pinned head, trusted after a switch, a live chat session, a strictly newer request)
             if (keys.secretFor(head.head.lb) == null) return OnRequest.Ignore
-            // "live" for a no-prompt hand-over is read fresh, never from the cache (P4)
-            val fresh = ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return OnRequest.Ignore
-            val live = fresh.filter { it.chat }.mapNotNull { it.clientPubkey }
             val lastGiven = ports.loadNote("handover:$dev")?.toLongOrNull()
-            if (!Follow.answerWithoutPrompt(head, pins[account], dev, live, req.createdAt, addedLast(head, dev), lastGiven)) {
+            val added = addedLast(head, dev)
+            // the cheap tests first, as if the session were live (fourth review 5): only a request that could pass
+            // costs a fresh read of the session list
+            val could = Follow.answerWithoutPrompt(head, pins[account], dev, listOf(dev), req.createdAt, added, lastGiven)
+            // "live" for a no-prompt hand-over is read fresh, never from the cache (P4)
+            val live = if (!could) emptyList() else (ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return OnRequest.Ignore)
+                .filter { it.chat }.mapNotNull { it.clientPubkey }
+            if (!could || !Follow.answerWithoutPrompt(head, pins[account], dev, live, req.createdAt, added, lastGiven)) {
                 return if (dev in (pins[account]?.trusted ?: head.devices)) OnRequest.Ignore else OnRequest.Ask(dev, row.device?.ifEmpty { null } ?: row.applicationName)
             }
             Sealing.keysFor(device, account, dev, keys, clock()).forEach { ports.publish(it) }
@@ -500,6 +509,7 @@ class SealedEngine(
 
     private val answered = java.util.concurrent.ConcurrentHashMap<String, OnRequest>()
     private val newestRequest = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val newestRequestId = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var sessionsAt = 0L
     private var sessionsCache: List<SessionRow>? = null
 
@@ -557,6 +567,11 @@ class SealedEngine(
     /** Not me: revoke that session. No roster change. */
     suspend fun notMe(newDevice: String) {
         ports.revoke(newDevice)
+        kotlinx.coroutines.withContext(confined) {
+            // the prompt doesn't come back from the cached list (fourth review 4): the list read again, the request answered
+            sessionsCache = null
+            newestRequestId[newDevice]?.let { answered[it] = OnRequest.Ignore }
+        }
     }
 
     // ---- removal (§5.6) -----------------------------------------------------------------------
@@ -704,7 +719,32 @@ class SealedEngine(
     }
 
     /** What happened to an arriving wrap; ACCEPT carries the rumor. */
-    data class Received(val verdict: Sealing.Verdict, val rumor: Event? = null, val sealPubkey: String? = null)
+    data class Received(val verdict: Sealing.Verdict, val rumor: Event? = null, val sealPubkey: String? = null, val stored: Boolean = true)
+
+    /** Kept wraps settled later: [settledSeen] accepted or dropped (mark seen), [released] let go unseen (read again later). */
+    private val settledSeen = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    private val released = java.util.concurrent.ConcurrentLinkedQueue<String>()
+    /** Start of the last complete read of my chain. */
+    private var ownReadBegan = 0L
+    @Volatile private var stateDirty = false
+
+    /** At most [MAX_KEPT] kept wraps; the oldest go without being marked seen (fourth review 2c). */
+    private fun capPending() {
+        if (pending.size <= MAX_KEPT) return
+        for ((id, _) in pending.entries.sortedBy { it.value.second }.take(pending.size - MAX_KEPT)) {
+            pending.remove(id); firstSeenStored.remove(id); released.add(id)
+        }
+    }
+
+    /** What the app's kept list should forget: (mark seen, let go unseen). */
+    fun drainSettled(): Pair<List<String>, List<String>> {
+        val a = generateSequence { settledSeen.poll() }.toList()
+        val b = generateSequence { released.poll() }.toList()
+        return a to b
+    }
+
+    /** The engine's state written once per pass of the app, not per wrap (fourth review 2c). */
+    fun flushState() { if (stateDirty) { stateDirty = false; saveState() } }
 
     /** Opens a sealed wrap to me. CONV_OF names a rumor's conversation (to mark it sealed). */
     suspend fun receive(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received = kotlinx.coroutines.withContext(confined) { receiveHere(wrap, belfry, convOf) }
@@ -723,15 +763,27 @@ class SealedEngine(
         // complete means keep (re-review (2))
         var myLbs: Set<String>? = myLetterboxesIfCurrent()
         if (o is Opening.Locked && myLbs?.contains(o.lb) != true) {
-            myLbs = if (clock() - lastOwnReread >= 60) {
-                lastOwnReread = clock()
-                refreshHere(account)
-                if (lastReadComplete[account] == true) myLetterboxesIfCurrent() else null
-            } else null // throttled: no fresh read, so no judging: kept (P3)
+            myLbs = when {
+                // a complete read of my chain that BEGAN after this wrap was first seen judges it (fourth review 2a)
+                myLbs != null && ownReadBegan > firstSeen -> myLbs
+                clock() - lastOwnReread >= 60 -> {
+                    lastOwnReread = clock()
+                    refreshHere(account)
+                    if (lastReadComplete[account] == true) myLetterboxesIfCurrent() else null
+                }
+                else -> null // throttled: no fresh read, so no judging: kept (P3), judged by the next complete read
+            }
         }
         var v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry, myLetterboxes = myLbs)
         // a wrap to MY letterbox whose secret I lack is kept, never dropped, however long (§4 / §5.3; the third
         // review's P1): the hand-over gives every key, and the message opens then
+        if (v == Sealing.Verdict.LOCKED && o is Opening.Locked && myLbs?.contains(o.lb) == true) {
+            // to MY letterbox, and this device lacks its secret: not stored at all (fourth review 2b); never
+            // marked seen, so the reading again from 0 when keys arrive (onKeys) brings it back
+            if (pending.remove(wrap.id) != null) stateDirty = true
+            firstSeenStored.remove(wrap.id)
+            return Received(v, stored = false)
+        }
         when (v) {
             Sealing.Verdict.ACCEPT -> {
                 pending.remove(wrap.id)
@@ -740,7 +792,7 @@ class SealedEngine(
                 convOf(r)?.let { if (sealedSince.putIfAbsent(it, clock()) == null) saveState() }
                 return Received(v, r, (o as Opening.Opened).sealPubkey)
             }
-            Sealing.Verdict.KEEP, Sealing.Verdict.LOCKED -> { pending[wrap.id] = wrap to firstSeen; saveState() }
+            Sealing.Verdict.KEEP, Sealing.Verdict.LOCKED -> { pending[wrap.id] = wrap to firstSeen; capPending(); stateDirty = true }
             Sealing.Verdict.DROP -> { pending.remove(wrap.id); firstSeenStored.remove(wrap.id) }
             Sealing.Verdict.NOT_SEALED -> {}
         }
@@ -775,9 +827,13 @@ class SealedEngine(
                 val c = known[author]?.chain
                 if (c == null || !c.accepts(o.sealPubkey, o.rumor.createdAt)) refreshHere(author)
             }
-            val v = Sealing.verdict(o, author?.let { known[it]?.chain }, p.second, clock(), null)
-            if (v == Sealing.Verdict.ACCEPT) { pending.remove(id); firstSeenStored.remove(id); later.add((o as Opening.Opened).rumor to o.sealPubkey) }
-            if (v == Sealing.Verdict.DROP) pending.remove(id)
+            // a locked one is judged by a complete read of my chain that began after it was first seen (fourth review 2a)
+            val lbs = if (o is Opening.Locked && ownReadBegan > p.second) myLetterboxesIfCurrent() else null
+            val v = Sealing.verdict(o, author?.let { known[it]?.chain }, p.second, clock(), null, myLetterboxes = lbs)
+            if (v == Sealing.Verdict.ACCEPT) { pending.remove(id); firstSeenStored.remove(id); later.add((o as Opening.Opened).rumor to o.sealPubkey); settledSeen.add(id); stateDirty = true }
+            if (v == Sealing.Verdict.DROP) { pending.remove(id); firstSeenStored.remove(id); settledSeen.add(id); stateDirty = true }
+            // locked to MY letterbox: not kept (read again from 0 when keys arrive)
+            if (v == Sealing.Verdict.LOCKED && lbs != null) { pending.remove(id); firstSeenStored.remove(id); released.add(id); stateDirty = true }
         }
         if (pendingKeys.isNotEmpty() && known[account]?.chain != null) {
             for (w in pendingKeys.values.toList()) onDeviceWrap(w)
@@ -829,6 +885,7 @@ class SealedEngine(
 
     // last: every field above exists before the saved state is read (Kotlin runs initialisers in order)
     init { loadState() }
+    companion object { const val MAX_KEPT = 2_000 }
 }
 
 /** A relay query (only what sealed conversations ask; never `#lb`). */

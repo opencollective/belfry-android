@@ -383,17 +383,30 @@ object Discovery {
         }
     }
 
-    /** NIP-05: the key behind NAME@DOMAIN (`_smtp`, `_groups`, a username), or null. */
-    suspend fun nip05(name: String, domain: String, http: OkHttpClient): String? {
+    /** NIP-05: the key behind NAME@DOMAIN (`_smtp`, `_groups`, a username), or null (no key, or no answer). */
+    suspend fun nip05(name: String, domain: String, http: OkHttpClient): String? =
+        (nip05Answer(name, domain, http) as? Nip05Answer.Key)?.pubkey
+
+    /** What a NIP-05 lookup said (iOS Discovery.nip05Answer). */
+    sealed interface Nip05Answer {
+        data class Key(val pubkey: String) : Nip05Answer
+        /** The belfry answered: nobody by that name. */
+        data object None : Nip05Answer
+        /** No answer: offline, a non-200, or a body without a `names` object. */
+        data object Failed : Nip05Answer
+    }
+
+    /** NIP-05 with "nobody" and "no answer" told apart: only a 200 with a `names` object is an answer. */
+    suspend fun nip05Answer(name: String, domain: String, http: OkHttpClient): Nip05Answer {
         val url = "https://$domain/.well-known/nostr.json".toHttpUrlOrNull()?.newBuilder()
-            ?.addQueryParameter("name", name)?.build() ?: return null
+            ?.addQueryParameter("name", name)?.build() ?: return Nip05Answer.Failed
         return try {
             val (code, body) = http.fetch(Request.Builder().url(url).build())
-            if (code != 200) return null
-            val names = (parseJsonOrNull(body) as? JsonObject)?.get("names").obj() ?: return null
-            pick(names, name)
+            if (code != 200) return Nip05Answer.Failed
+            val names = (parseJsonOrNull(body) as? JsonObject)?.get("names").obj() ?: return Nip05Answer.Failed
+            pick(names, name)?.let { Nip05Answer.Key(it) } ?: Nip05Answer.None
         } catch (e: IOException) {
-            null
+            Nip05Answer.Failed
         }
     }
 

@@ -447,6 +447,14 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private val busy = Mutex()
     /** Sealed wraps kept for later (locked here, or the author's chain not loaded yet), by id. */
     private val kept = LinkedHashMap<String, Event>()
+    /** The kept list's ids as last written (it is written only when they change: fourth review 2c). */
+    private var keptWritten: List<String>? = null
+
+    /** At most [sh.belfry.core.sealed.SealedEngine.MAX_KEPT] kept wraps: the oldest go, never marked seen. Under [lock]. */
+    private fun capKept() {
+        val over = kept.size - sh.belfry.core.sealed.SealedEngine.MAX_KEPT
+        if (over > 0) kept.keys.take(over).forEach { kept.remove(it) }
+    }
     /** Messages held undecided (64a07fa): rid → the rumor and who it goes to. */
     private val held = LinkedHashMap<String, Held>()
     /** Sealed wraps in the outbox: wrap id → what was sealed to whom (re-sealed when a head moved, §9). */
@@ -508,7 +516,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 }.toString())
                 store.set(K_REACTS, JsonArray(reacts.values.map { it.toJson() }).toString())
                 store.set(K_GONE, buildJsonObject { for ((k, v) in gone) put(k, JsonPrimitive(v)) }.toString())
-                store.set(K_KEPT, JsonArray(kept.values.map { it.toJson() }).toString())
+                val keptIds = kept.keys.toList()
+                if (keptIds != keptWritten) { store.set(K_KEPT, JsonArray(kept.values.map { it.toJson() }).toString()); keptWritten = keptIds }
                 store.set(K_SEALED_RUMORS, JsonArray(sealedRumors.values.map { it.toJson() }).toString())
                 store.set(K_REFUSED, buildJsonObject {
                     for ((rid, h) in refused) put(rid, buildJsonObject {
@@ -565,7 +574,12 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                         synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id) }
                     }
                     sh.belfry.core.sealed.Sealing.Verdict.KEEP, sh.belfry.core.sealed.Sealing.Verdict.LOCKED ->
-                        synchronized(lock) { kept[e.id] = e; backlog.removeAll { it.id == e.id } }
+                        synchronized(lock) {
+                            backlog.removeAll { it.id == e.id }
+                            // to my letterbox, this device without its secret: not kept, not seen; read again
+                            // from the relay when keys arrive (fourth review 2b)
+                            if (got.stored) { kept[e.id] = e; capKept() } else kept.remove(e.id)
+                        }
                     else -> synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id) }
                 }
                 changed = true
@@ -589,6 +603,15 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 changed = true
             }
         }
+        // kept wraps the engine settled meanwhile: accepted / dropped are seen, the rest let go unseen
+        if (eng != null) {
+            val (seenNow, letGo) = eng.drainSettled()
+            if (seenNow.isNotEmpty() || letGo.isNotEmpty()) synchronized(lock) {
+                for (id in seenNow) { seen.add(id); kept.remove(id) }
+                for (id in letGo) kept.remove(id)
+                changed = true
+            }
+        }
         // accepted later by the engine (the author's new roster, keys that arrived)
         if (eng != null) {
             val later = eng.later.toList().also { eng.later.removeAll(it.toSet()) }
@@ -598,6 +621,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 changed = true
             }
             if (held.isNotEmpty()) { retryHeld(); changed = true }
+            eng.flushState() // once per pass, not per wrap
         }
         if (changed) {
             rethread()

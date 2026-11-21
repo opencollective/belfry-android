@@ -43,7 +43,7 @@ class SealedSessionTest {
         chain.proceed(chain.request())
     }).build()
     private val g = FakeRelay().also { it.expect(8) }
-    private val m = FakeRelay(requireAuth = true).also { it.expect(8) }
+    private val m = FakeRelay(requireAuth = true, strict = true).also { it.expect(8) }
     private val live = CopyOnWriteArrayList<String>() // client keys with a live chat session
     private val api = MockWebServer().also { srv ->
         srv.dispatcher = object : Dispatcher() {
@@ -158,14 +158,12 @@ class SealedSessionTest {
         val aliceLb = a.sealed!!.chainOf(alice.pubkey)!!.head.lb
         val rumor = sh.belfry.core.dm.GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "hello", t)
         val wrap = Sealing.seal(rumor, bobPhone, alice.pubkey, aliceLb, t)
-        m.stored.add(wrap)
-        for (ws in m.sockets) m.send(ws, "EVENT", "main", wrap)
+        m.inject(wrap) // sent live only to subscriptions whose filters match it (#p Alice)
         until("the conversation is sealed") { a.sealed!!.sealedSince.containsKey("n:" + bob.pubkey) }
         until("the subscription names Bob", 10_000) { m.reqTexts.any { it.contains("\"#p\"") && it.contains(bob.pubkey) && it.contains("8560") } }
         val r2 = bobPhone.signNow(Roster.template(bob.pubkey, 2, r1.id, lb, listOf(bobPhone.pubkey, bobTab.pubkey), true, t + 1))
         val a2 = bob.signNow(Anchor.template(r1.id, r2.id, t + 1))
-        m.stored.add(r2); m.stored.add(a2)
-        for (ws in m.sockets) { m.send(ws, "EVENT", "main", r2); m.send(ws, "EVENT", "main", a2) }
+        m.inject(r2); m.inject(a2) // live only through the subscription that names Bob
         until("Alice's phone follows Bob's new head") { a.sealed?.chainOf(bob.pubkey)?.head?.id == r2.id }
     }
 }
