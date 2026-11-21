@@ -414,7 +414,8 @@ private fun HeldLine(d: Dm, dms: DmSnapshot, world: World, onCancel: (suspend ()
     val busy = rememberBusy()
     var alreadySent by remember(d.rid) { mutableStateOf(false) }
     if (alreadySent) LaunchedEffect(Unit) { kotlinx.coroutines.delay(2_000); alreadySent = false }
-    val who = d.heldWhy?.removePrefix("device:")?.takeIf { d.heldWhy.startsWith("device:") }
+    val why = d.heldWhy
+    val who = if (why != null && why.startsWith("device:")) why.removePrefix("device:") else null
     val text = if (alreadySent) "Already sent" else dms.stateLine(d) ?: DmSnapshot.heldDevice(if (who != null) world.displayName(who) else "Their")
     Row(Modifier.padding(top = 3.dp, end = 2.dp).testTag("dm-held-line"), verticalAlignment = Alignment.CenterVertically) {
         Text(text, fontSize = 12.sp, lineHeight = 16.sp, color = c.muted, modifier = Modifier.widthIn(max = 280.dp))
