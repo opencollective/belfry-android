@@ -625,7 +625,7 @@ internal fun RsvpControl(mine: Rsvp?, busy: BusyState, onAnswer: suspend (Rsvp) 
             Box(
                 Modifier
                     .weight(1f)
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = 48.dp)
                     .clip(shape)
                     .background(if (on) c.accent else c.bg)
                     .border(1.dp, if (on) c.accent else c.line, shape)

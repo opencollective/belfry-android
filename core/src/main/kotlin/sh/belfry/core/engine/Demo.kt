@@ -436,15 +436,15 @@ object Demo {
             wraps.add(GiftWrap.wrap(rumor, me.pubkey, from))
         }
         val seedlings = "5eed1e95a1b2c3d4"
-        dmFile(me, listOf(maya), now - 30 * 60, "seedlings-1.jpg", "image/jpeg", dim = "640x480", group = seedlings)
-        dmFile(me, listOf(maya), now - 30 * 60 + 1, "seedlings-2.jpg", "image/jpeg", dim = "640x480", group = seedlings)
-        dmFile(me, listOf(maya), now - 30 * 60 + 2, "seedlings-3.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        dmFile(me, listOf(lena), now - 30 * 60, "seedlings-1.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        dmFile(me, listOf(lena), now - 30 * 60 + 1, "seedlings-2.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        dmFile(me, listOf(lena), now - 30 * 60 + 2, "seedlings-3.jpg", "image/jpeg", dim = "640x480", group = seedlings)
         run {
-            val caption = GiftWrap.rumor(14, me.pubkey, listOf(listOf("p", maya.pubkey), listOf("group", seedlings)), "The seedlings came up!", now - 30 * 60 + 3)
+            val caption = GiftWrap.rumor(14, me.pubkey, listOf(listOf("p", lena.pubkey), listOf("group", seedlings)), "The seedlings came up!", now - 30 * 60 + 3)
             wraps.add(GiftWrap.wrap(caption, me.pubkey, me))
         }
-        dmFile(maya, listOf(me), now - 25 * 60, "garden-plan.pdf", "application/pdf", name = "Garden plan 2027.pdf")
-        dmFile(maya, listOf(me), now - 20 * 60, "recording.m4a", "audio/mp4", duration = 7)
+        dmFile(lena, listOf(me), now - 25 * 60, "garden-plan.pdf", "application/pdf", name = "Garden plan 2027.pdf")
+        dmFile(lena, listOf(me), now - 20 * 60, "recording.m4a", "audio/mp4", duration = 7)
         val trio = listOf(tomas, lena, me)
         dm(tomas, trio, now - 3 * day, "Shall we buy the wood for the pantry shelves together?")
         dm(lena, trio, now - 3 * day + 600, "Yes. The budget allows 150 EUR.")
