@@ -373,13 +373,19 @@ class SealedEngine(
         mine = Mine.WAITING
         // at most once a minute, and once per connection (N2); else every 24 h
         val due = if (force) !askedThisConnection && clock() - lastAsk >= 60 else clock() - lastAsk >= 86_400
-        if (due) {
-            // marked before publishing: two calls overlapping (a reconnect) never send two
-            lastAsk = clock()
-            askedThisConnection = true
-            ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+        if (due && !asking) {
+            asking = true // the confined dispatcher interleaves at suspensions: one request in flight
+            try {
+            // counted only when the relay took it: a request sent before AUTH lands is refused, and
+            // the device asks again once the connection is signed in
+            if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))) {
+                lastAsk = clock()
+                askedThisConnection = true
+            }
+            } finally { asking = false }
         }
     }
+    private var asking = false
 
     @Volatile private var askedThisConnection = false
 
