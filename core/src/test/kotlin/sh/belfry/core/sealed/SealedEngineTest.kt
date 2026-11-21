@@ -69,6 +69,9 @@ class SealedEngineTest {
         override suspend fun revoke(clientPubkey: String) { if (server.failRevoke) throw IllegalStateException("revoke"); revoked.add(clientPubkey); server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
         override fun loadKeys() = saved
         override fun saveKeys(keys: Map<String, String>) { saved = keys }
+        var state: String? = null
+        override fun loadState(): String? = state
+        override fun saveState(json: String) { state = json }
         val notes = HashMap<String, String>()
         override fun loadNote(name: String): String? = notes[name]
         override fun saveNote(name: String, value: String) { notes[name] = value }
@@ -80,8 +83,11 @@ class SealedEngineTest {
     private val aliceLaptop = LocalSigner.random()
     private val bobPhone = LocalSigner.random()
 
+    private val portsOf = HashMap<String, Ports>()
+
+    /** One store per device: a second engine for the same device is that device after a restart. */
     private fun engine(account: LocalSigner, device: LocalSigner, guest: Boolean = false) =
-        SealedEngine(Ports(account), device, account.pubkey, clock = { now }, guest = guest, removalJitter = 0)
+        SealedEngine(portsOf.getOrPut(device.pubkey) { Ports(account) }, device, account.pubkey, clock = { now }, guest = guest, removalJitter = 0)
 
     private fun conv(a: String, b: String) = "n:" + listOf(a, b).sorted().joinToString(",")
 
@@ -501,5 +507,52 @@ class SealedEngineTest {
         val req = attacker.signNow(Sealing.request(alice.pubkey, attacker.pubkey, null, now + 10))
         assertTrue(phone.onRequest(req) != SealedEngine.OnRequest.Allowed)
         assertTrue(relay.to(attacker.pubkey).isEmpty(), "no keys for the attacker's device")
+    }
+
+    /** Pins are durable (§3.4): after a restart a new root still gives the amber notice, an older anchor is still ignored. */
+    @Test fun pinsSurviveRestart() = runBlocking<Unit> {
+        val (_, _, b) = world()
+        val alices = b.refresh(alice.pubkey)!!
+        val restarted = engine(bob, bobPhone) // the app started again: pins come from storage
+        assertEquals(alices.head.id, restarted.chainOf(alice.pubkey)!!.head.id)
+        // the relay forgets Alice's rosters and the server republishes an anchor naming an ancestor
+        relay.events.removeAll { it.kind == Roster.KIND }
+        now += 5
+        relay.add(alice.signNow(Anchor.template(alices.root.id, alices.rosters[1].id, now)))
+        assertEquals(alices.head.id, restarted.refresh(alice.pubkey)!!.head.id, "an older anchor is ignored after a restart too")
+        assertTrue(alice.pubkey !in restarted.resetAt)
+        // Alice starts fresh: a new root
+        val phone2 = LocalSigner.random()
+        val root2 = phone2.signNow(Roster.template(alice.pubkey, 1, null, KeyChain.newLetterbox().first, listOf(phone2.pubkey), true, now + 1))
+        relay.add(root2)
+        now += 5
+        relay.add(alice.signNow(Anchor.template(root2.id, root2.id, now)))
+        val again = engine(bob, bobPhone)
+        again.refresh(alice.pubkey)
+        assertTrue(alice.pubkey in again.resetAt, "a replaced root after a restart: the amber notice")
+    }
+
+    /** §8 from the amber line: Bob shares the conversation's messages with Alice's new head. */
+    @Test fun shareHistoryAfterAFreshStart() = runBlocking<Unit> {
+        val (_, _, b) = world()
+        b.refresh(alice.pubkey)
+        val phone2 = LocalSigner.random()
+        val (lb2, secret2) = KeyChain.newLetterbox()
+        val root2 = phone2.signNow(Roster.template(alice.pubkey, 1, null, lb2, listOf(phone2.pubkey), true, now + 1))
+        relay.add(root2)
+        now += 5
+        relay.add(alice.signNow(Anchor.template(root2.id, root2.id, now)))
+        b.refresh(alice.pubkey)
+        assertTrue(alice.pubkey in b.resetAt)
+        val rumors = listOf(
+            GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "first", now - 100),
+            GiftWrap.rumor(14, alice.pubkey, listOf(listOf("p", bob.pubkey)), "second", now - 50),
+        )
+        b.shareHistory(alice.pubkey, rumors)
+        assertTrue((b.sharedAfter[alice.pubkey] ?: 0) >= b.resetAt[alice.pubkey]!!)
+        val wrap = relay.events.last { it.kind == 1059 && it.tag("lb") == lb2 }
+        val opened = Sealing.open(wrap, KeyChain(mapOf(lb2 to secret2))) as Opening.Opened
+        val chain = Chain.of(bob.pubkey, relay.events.filter { it.kind == 30078 }, relay.events.filter { it.kind == Roster.KIND })
+        assertEquals(rumors.map { it.id }, Sealing.acceptShared(opened.rumor, opened.sealPubkey, chain, alice.pubkey).map { it.id })
     }
 }

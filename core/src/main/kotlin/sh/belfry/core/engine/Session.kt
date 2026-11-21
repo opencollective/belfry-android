@@ -262,7 +262,9 @@ class Session(
         val ks = sealedKeys
         if (localOnly || device == null || ks == null || _guest.value != null) null
         else sh.belfry.core.sealed.SealedEngine(
-            SessionSealedPorts({ mainRelay }, { t -> signer.sign(t) }, { api().sessions(signer) }, { b -> api().revokeSession(signer, b) }, ks),
+            SessionSealedPorts({ mainRelay }, { t -> signer.sign(t) }, { api().sessions(signer) }, { b -> api().revokeSession(signer, b) }, ks,
+                // pins and sealed conversations beside the conversation data (wiped with the account), one value
+                { store.get(K_SEALED_STATE) } to { v -> store.set(K_SEALED_STATE, v) }),
             device, me, clock = clock, guest = false,
         )
     }
@@ -1331,6 +1333,9 @@ class Session(
     /** Cancels a message held undecided (sealed.md §6): its text, for the composer. */
     suspend fun cancelHeldDm(rid: String): String? = dm.cancelHeld(rid)
 
+    /** A conversation's sealed messages, for Share history (§8). */
+    fun sealedRumors(conv: String): List<sh.belfry.core.nostr.Event> = dm.sealedRumorsOf(conv)
+
     suspend fun sendDm(conv: String, text: String, subject: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject) } }
 
     /** When this phone last sent a DM or e-mail (ms): a "dm" push right after it is my own copy (SPEC 19.19). */
@@ -1846,6 +1851,7 @@ class Session(
         private const val REBUILD_MS = 100L
         private const val WATCHDOG_MS = 15_000L
         const val SEALED_UPKEEP_MS = 6 * 3600 * 1000L
+        const val K_SEALED_STATE = "sealed-state"
         /** Tests shorten it. */
         @Volatile var PUBLISH_TIMEOUT_MS = 15_000L
         /** How long the demo's belfry takes to answer a button. */

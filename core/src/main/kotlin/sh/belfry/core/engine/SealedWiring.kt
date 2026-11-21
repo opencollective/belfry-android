@@ -127,7 +127,10 @@ internal class SessionSealedPorts(
     private val listSessions: suspend () -> List<SessionInfo>,
     private val revokeSession: suspend (String) -> Unit,
     private val keys: SealedKeyStore,
+    private val state: Pair<() -> String?, (String) -> Unit> = { null } to { _ -> },
 ) : SealedPorts {
+    override fun loadState(): String? = state.first()
+    override fun saveState(json: String) = state.second(json)
     override suspend fun query(q: Query): SealedEngine.Answer {
         val r = relay() ?: return SealedEngine.Answer(emptyList(), false)
         return Paging.all { filter -> r.queryKnown(listOf(filter)) }(q.toFilter())

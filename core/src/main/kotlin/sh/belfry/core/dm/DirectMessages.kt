@@ -450,6 +450,9 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     /** Sealed wraps in the outbox: wrap id → what was sealed to whom (re-sealed when a head moved, §9). */
     private val sealQ = LinkedHashMap<String, QueuedSeal>()
 
+    /** The rumors of sealed conversations (sealed or sent sealed), by id: what Share history sends (§8). */
+    private val sealedRumors = LinkedHashMap<String, Event>()
+
     private class Held(val rumor: Event, val to: List<String>, val self: Boolean, val conv: String)
     private class QueuedSeal(val rumor: Event, val recipient: String, val lb: String)
 
@@ -481,6 +484,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             val r = o["rumor"].obj()?.let { Event.fromJson(it) } ?: return@forEach
             sealQ[wid] = QueuedSeal(r, o.s("to") ?: return@forEach, o.s("lb") ?: return@forEach)
         }
+        parseJsonOrNull(store.get(K_SEALED_RUMORS) ?: "").arr()?.forEach { el -> el.obj()?.let { Event.fromJson(it) }?.let { sealedRumors[it.id] = it } }
         backlog.addAll(kept.values) // tried again at each start
         // a message marked pending whose wraps are gone from the outbox is out
         val waiting = host.outbox().mapNotNull { it.dm }.toSet()
@@ -498,6 +502,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 store.set(K_REACTS, JsonArray(reacts.values.map { it.toJson() }).toString())
                 store.set(K_GONE, buildJsonObject { for ((k, v) in gone) put(k, JsonPrimitive(v)) }.toString())
                 store.set(K_KEPT, JsonArray(kept.values.map { it.toJson() }).toString())
+                store.set(K_SEALED_RUMORS, JsonArray(sealedRumors.values.map { it.toJson() }).toString())
                 store.set(K_HELD, buildJsonObject {
                     for ((rid, h) in held) put(rid, buildJsonObject {
                         put("rumor", h.rumor.toJson()); put("to", JsonArray(h.to.map { JsonPrimitive(it) })); put("self", JsonPrimitive(h.self)); put("conv", JsonPrimitive(h.conv))
@@ -598,6 +603,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             }
             return
         }
+        if (rumor.kind in sh.belfry.core.sealed.Sealing.SHARED_KINDS) synchronized(lock) { sealedRumors[rumor.id] = rumor }
         if (rumor.kind == 7 || rumor.kind == 5) { synchronized(lock) { reactionRumor(rumor) }; return }
         val d = readRumor(rumor) ?: return
         synchronized(lock) {
@@ -736,6 +742,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     }
 
     private suspend fun enqueueSealed(qs: List<sh.belfry.core.sealed.SealedEngine.Queued>, rid: String) {
+        qs.firstOrNull()?.rumor?.takeIf { it.kind in sh.belfry.core.sealed.Sealing.SHARED_KINDS }?.let { r -> synchronized(lock) { sealedRumors[r.id] = r } }
         for (q in qs) {
             synchronized(lock) { sealQ[q.wrap.id] = QueuedSeal(q.rumor, q.recipient, q.lb) }
             host.enqueueSigned(Target.MAIN, q.wrap, rid)
@@ -768,6 +775,11 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 }
             }
         }
+    }
+
+    /** A conversation's sealed messages (14 / 7 / 5), oldest first: what Share history sends. */
+    fun sealedRumorsOf(conv: String): List<Event> = synchronized(lock) {
+        sealedRumors.values.filter { DmReader.convOf(it, host.me, host.bridgeKey()) == conv }.sortedBy { it.createdAt }
     }
 
     /** Keys arrived or my chain moved: the wraps kept as locked are tried again at the next [process]. */
@@ -1086,6 +1098,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         const val K_KEPT = "dm-sealed-kept"
         const val K_HELD = "dm-held"
         const val K_SEALQ = "dm-sealed-queue"
+        const val K_SEALED_RUMORS = "dm-sealed-rumors"
         private val ADDRESS = Regex("^([^@\\s]+)@([^@\\s]+\\.[^@\\s]+)$")
     }
 }

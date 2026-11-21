@@ -74,8 +74,12 @@ class EncryptionService internal constructor(private val s: Session) {
                         PersonDevices(p, c?.devices?.size ?: 0, last?.let { DeviceChange(it.added, it.at) })
                     },
                     notices = peers.mapNotNull { p ->
-                        // they started fresh or their chain was switched (§3.4, 2a1b30e): the amber line, once
-                        e.resetAt[p]?.takeIf { it >= since }?.let { at -> DeviceNotice("reset:$p:$at", at, p, DeviceNotice.Kind.NEW_LOCKED) }
+                        // they started fresh or their chain was switched (§3.4, 2a1b30e): the amber line, once;
+                        // once shared, the plain "<name> added a device" (canvas v81)
+                        e.resetAt[p]?.takeIf { it >= since }?.let { at ->
+                            val shared = (e.sharedAfter[p] ?: 0L) >= at
+                            DeviceNotice("reset:$p:$at", at, p, if (shared) DeviceNotice.Kind.ADDED else DeviceNotice.Kind.NEW_LOCKED)
+                        }
                     } + (peers + me).flatMap { p ->
                         e.chainOf(p)?.changesAfter(null).orEmpty().filter { it.at >= since }.map { ch ->
                             DeviceNotice("$p:${ch.device}:${ch.at}", ch.at, p, if (ch.added) DeviceNotice.Kind.ADDED else DeviceNotice.Kind.REMOVED,
@@ -83,6 +87,9 @@ class EncryptionService internal constructor(private val s: Session) {
                         }
                     },
                     since = since,
+                    waiting = peers.firstNotNullOfOrNull { p ->
+                        e.resetAt[p]?.takeIf { it >= since && (e.sharedAfter[p] ?: 0L) < it }?.let { at -> LockedDevice(p, null, at) }
+                    },
                 )
             }
         }
@@ -143,7 +150,12 @@ class EncryptionService internal constructor(private val s: Session) {
      */
     suspend fun shareHistory(conv: String) {
         s.checkWrite()
-        if (!demo) notYet()
+        if (!demo) {
+            val person = _state.value.sealed[conv]?.waiting?.pubkey ?: return
+            shown("Not shared: try again.") { engine().shareHistory(person, s.sealedRumors(conv)) }
+            refresh()
+            return
+        }
         delay(400)
         val st = _state.value
         val seal = st.sealed[conv] ?: return

@@ -9,6 +9,11 @@ import sh.belfry.core.crypto.Random
 import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.EventTemplate
 import sh.belfry.core.nostr.LocalSigner
+import sh.belfry.core.nostr.parseJsonOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 /**
  * The device side of sealed conversations (sealed.md v1 up to ac5574b): the first device, a new
@@ -71,9 +76,12 @@ class SealedEngine(
 
     /** Asks the relay again for PERSON's anchor and rosters (never by `#lb`). */
     suspend fun refresh(person: String): Chain? {
-        val a = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(person), d = listOf(Anchor.D)))
-        val r = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(person)))
-        val complete = a.complete && r.complete
+        val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(person), d = listOf(Anchor.D)))
+        val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(person)))
+        val complete = qa.complete && qr.complete
+        // the pin holds even when the relay no longer has its events: the stored path and anchor join in
+        val a = SealedEngine.Answer((qa.events + listOfNotNull(anchors[person])).distinctBy { it.id }, qa.complete)
+        val r = SealedEngine.Answer((qr.events + pathEvents[person].orEmpty()).distinctBy { it.id }, qr.complete)
         val anchorRoot = Anchor.root(a.events, person)
         if (anchorRoot != null && pinnedRoot[person] != null && pinnedRoot[person] != anchorRoot) {
             pinnedHead.remove(person) // started fresh
@@ -89,8 +97,83 @@ class SealedEngine(
         }
         val prev = known[person]
         known[person] = Known(chain ?: prev?.chain?.takeIf { !complete }, if (complete) clock() else prev?.completeAt)
-        if (chain != null) retryPending()
+        if (chain != null) {
+            remember(person, chain, a.events, r.events)
+            retryPending()
+        }
         return known[person]?.chain
+    }
+
+    // ---- pins kept across restarts (sealed.md §3.4, durable) -------------------------------------
+
+    private val anchors = HashMap<String, Event>()
+    private val pathEvents = HashMap<String, List<Event>>()
+
+    /** Shared history sent after someone's reset (the amber line becomes plain): person → when. */
+    val sharedAfter = HashMap<String, Long>()
+
+    /** Keeps PERSON's pin: the newest valid anchor and the roster events of the chain's path. */
+    private fun remember(person: String, chain: Chain, anchorEvents: List<Event>, rosterEvents: List<Event>) {
+        val newest = anchorEvents.filter { it.pubkey == person && it.kind == Anchor.KIND }.maxByOrNull { it.createdAt }
+        if (newest != null) anchors[person] = newest
+        val byId = rosterEvents.associateBy { it.id }
+        pathEvents[person] = chain.rosters.mapNotNull { byId[it.id] }
+        saveState()
+    }
+
+    /** Written at once, as one value, beside the conversation data (not secrets); wiped with the account. */
+    fun saveState() {
+        val o = buildJsonObject {
+            put("v", JsonPrimitive(1))
+            put("pins", buildJsonObject {
+                for (p in (pinnedRoot.keys + pinnedHead.keys).toSet()) put(p, buildJsonObject {
+                    pinnedRoot[p]?.let { put("root", JsonPrimitive(it)) }
+                    pinnedHead[p]?.let { put("head", JsonPrimitive(it)) }
+                    anchors[p]?.let { put("anchor", it.toJson()) }
+                    put("path", JsonArray(pathEvents[p].orEmpty().map { it.toJson() }))
+                    put("marks", JsonArray(seenAnchored[p].orEmpty().map { JsonPrimitive(it) }))
+                    resetAt[p]?.let { put("reset", JsonPrimitive(it)) }
+                    sharedAfter[p]?.let { put("shared", JsonPrimitive(it)) }
+                })
+            })
+            put("sealed", buildJsonObject { sealedSince.forEach { (c, t) -> put(c, JsonPrimitive(t)) } })
+            put("untrusted", JsonArray(untrusted.map { JsonPrimitive(it) }))
+            put("oldLb", JsonArray(oldLetterboxes.map { JsonPrimitive(it) }))
+        }
+        ports.saveState(o.toString())
+    }
+
+    private fun loadState() {
+        val o = parseJsonOrNull(ports.loadState() ?: return) as? JsonObject ?: return
+        (o["pins"] as? JsonObject)?.forEach { (p, v) ->
+            val pin = v as? JsonObject ?: return@forEach
+            (pin["root"] as? JsonPrimitive)?.content?.let { pinnedRoot[p] = it }
+            (pin["head"] as? JsonPrimitive)?.content?.let { pinnedHead[p] = it }
+            (pin["anchor"] as? JsonObject)?.let { Event.fromJson(it) }?.let { anchors[p] = it }
+            pathEvents[p] = (pin["path"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { e -> Event.fromJson(e) } }.orEmpty()
+            seenAnchored[p] = (pin["marks"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty().toMutableSet()
+            (pin["reset"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { resetAt[p] = it }
+            (pin["shared"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { sharedAfter[p] = it }
+            val chain = anchors[p]?.let { Chain.of(p, listOf(it), pathEvents[p].orEmpty(), pinned = pinnedHead[p]) }
+            if (chain != null) { known[p] = Known(chain, null); lastHead[p] = chain.head.lb }
+        }
+        (o["sealed"] as? JsonObject)?.forEach { (c, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { sealedSince[c] = it } }
+        (o["untrusted"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(untrusted::add) }
+        (o["oldLb"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(oldLetterboxes::add) }
+    }
+
+    init { loadState() }
+
+    /**
+     * Shares a conversation's sealed messages with PERSON's new head (§8, from the amber line): kinds
+     * 14 / 7 / 5 only, packed under the ceiling, each 8564 sealed to their head. The line becomes plain.
+     */
+    suspend fun shareHistory(person: String, rumors: List<Event>) {
+        val chain = refresh(person) ?: throw NotDone()
+        val shares = Sealing.shareRumors(account, person, rumors.filter { it.kind in Sealing.SHARED_KINDS }.sortedBy { it.createdAt }, clock())
+        for (sh in shares) if (!ports.publish(Sealing.seal(sh, device, person, chain.head.lb, clock()))) throw NotDone()
+        sharedAfter[person] = clock()
+        saveState()
     }
 
     /** Rosters this client saw named by the anchor, per person (the pin's "seen anchored" mark, 2a1b30e). */
@@ -116,6 +199,7 @@ class SealedEngine(
             before.head.id !in after.rosters.map { it.id } && after.rosters.none { it.id == before.head.id }
         if (freshStart || switched) {
             resetAt[person] = clock()
+            saveState()
             if (person == account) {
                 if (switched) untrusted.addAll(after.devices - before!!.devices.toSet())
                 if (device.pubkey !in after.devices) mine = Mine.WAITING
@@ -158,12 +242,16 @@ class SealedEngine(
      * when a chain exists and this device isn't in its head, ask (§5.2).
      */
     suspend fun start(myName: String, kind: String, link: String? = null) = lock.withLock {
-        val a = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
-        val r = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(account)))
-        val complete = a.complete && r.complete
+        val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
+        val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(account)))
+        val complete = qa.complete && qr.complete
+        val a = SealedEngine.Answer((qa.events + listOfNotNull(anchors[account])).distinctBy { it.id }, qa.complete)
+        val r = SealedEngine.Answer((qr.events + pathEvents[account].orEmpty()).distinctBy { it.id }, qr.complete)
         val chain = Chain.of(account, a.events, r.events, pinned = pinnedHead[account])
         if (chain != null) {
+            noteSwitch(account, known[account]?.chain, chain, Anchor.read(a.events, account))
             known[account] = Known(chain, if (complete) clock() else null)
+            remember(account, chain, a.events, r.events)
             pinnedRoot[account] = chain.root.id
             pinnedHead[account] = chain.head.id
             lastHead[account] = chain.head.lb
@@ -205,8 +293,11 @@ class SealedEngine(
                     pendingFirst = null
                     ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock())))
                     mine = Mine.IN_HEAD
-                    known[account] = Known(Chain.of(account, listOf(anchor), listOf(root)), clock())
+                    val first = Chain.of(account, listOf(anchor), listOf(root))
+                    known[account] = Known(first, clock())
+                    if (first != null) remember(account, first, listOf(anchor), listOf(root))
                     pinnedRoot[account] = root.id; pinnedHead[account] = root.id; lastHead[account] = lbPub
+                    saveState()
                 }
             }
             else -> mine = Mine.UNKNOWN // silence or a guest: nothing is created
@@ -441,7 +532,7 @@ class SealedEngine(
         withTimeoutOrNull(3000) { people.forEach { refresh(it) } }
         val chains = people.associateWith { chainOf(it) }
         val sealed = conv in sealedSince
-        if (!sealed && Sealing.canSeal(people, chains)) sealedSince[conv] = clock()
+        if (!sealed && Sealing.canSeal(people, chains)) { sealedSince[conv] = clock(); saveState() }
         if (conv in sealedSince) {
             val heads = people.associateWith { chains[it]?.head?.lb ?: lastHead[it] }
             if (mine != Mine.IN_HEAD) return Plan.Refuse("Not sent: the lock for this conversation isn't ready on this device. Try again in a moment.")
@@ -492,7 +583,7 @@ class SealedEngine(
             Sealing.Verdict.ACCEPT -> {
                 pending.remove(wrap.id)
                 val r = (o as Opening.Opened).rumor
-                convOf(r)?.let { sealedSince.putIfAbsent(it, clock()) }
+                convOf(r)?.let { if (sealedSince.putIfAbsent(it, clock()) == null) saveState() }
                 return Received(v, r, (o as Opening.Opened).sealPubkey)
             }
             Sealing.Verdict.KEEP, Sealing.Verdict.LOCKED -> pending[wrap.id] = wrap to firstSeen
@@ -585,6 +676,9 @@ interface SealedPorts {
     suspend fun revoke(clientPubkey: String)
     fun loadKeys(): Map<String, String>
     fun saveKeys(keys: Map<String, String>)
+    /** The engine's pins and sealed conversations, one value, kept beside the conversation data. */
+    fun loadState(): String? = null
+    fun saveState(json: String) {}
     /** Small records kept across restarts (my last hand-over to each device, f28220c). */
     fun loadNote(name: String): String? = null
     fun saveNote(name: String, value: String) {}
