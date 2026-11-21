@@ -1048,7 +1048,7 @@ class Session(
             val bytes = store.blob(a.blobKey) ?: continue
             step(SendState.STEP_UPLOAD)
             val url = if (localOnly) LOCAL_BLOB + a.blobKey else try {
-                synchronized(uploaded) { uploaded[a.blobKey] } ?: api().upload(signer, bytes, a.name, a.mime).also { u -> synchronized(uploaded) { uploaded[a.blobKey] = u } }
+                synchronized(uploaded) { uploaded[a.blobKey] } ?: api().upload(signer, bytes, a.name, a.mime) { sent, total -> step(SendState.uploading(sent, total)) }.also { u -> synchronized(uploaded) { uploaded[a.blobKey] = u } }
             } catch (e: SignerTimeout) {
                 setStatus { it.copy(signerTrouble = true) }
                 return SendOutcome.Error("timeout: the signer did not answer")

@@ -26,6 +26,23 @@ object SendState {
     const val STEP_UPLOAD = "uploading"
     const val STEP_AGAIN = "trying again"
 
+    /**
+     * The words people see for a step (the same on the three apps, the lead 2026-11-21): connecting,
+     * encrypting, uploading 2.2 of 4.8 MB, waiting for the server. Never "signer" or "relay": the
+     * trace keeps the exact step.
+     */
+    fun shown(step: String): String = when {
+        step == "checking the connection" || step == "connecting" || step == STEP_AGAIN -> "connecting"
+        step == STEP_PREPARE -> "encrypting"
+        step.startsWith(STEP_UPLOAD) -> step
+        else -> "waiting for the server" // signing, waiting for the relay, the API's answer
+    }
+
+    /** "uploading 2.2 of 4.8 MB" */
+    fun uploading(sent: Long, total: Long): String = "$STEP_UPLOAD ${mb(sent)} of ${mb(total)} MB"
+
+    private fun mb(n: Long): String = String.format(java.util.Locale.ROOT, "%.1f", n / 1_000_000.0)
+
     fun line(failed: Boolean, tries: Int, p: SendProgress?, nowMs: Long, online: Boolean): SendLine {
         if (failed) return SendLine("Not sent", retry = true)
         if (!online) return SendLine("Waiting for connection…")
@@ -34,7 +51,7 @@ object SendState {
         val waited = nowMs - p.since
         return when {
             waited < STILL_MS -> SendLine(first)
-            waited < NOT_YET_MS -> SendLine("Still sending… · ${p.step}")
+            waited < NOT_YET_MS -> SendLine("Still sending… · ${shown(p.step)}")
             else -> SendLine("Not sent yet", retry = true)
         }
     }
@@ -75,6 +92,12 @@ class SendTrace(private val nowMs: () -> Long, private val wallMs: () -> Long = 
     fun step(id: String, label: String, step: String) = synchronized(lock) {
         val now = nowMs()
         val r = runs.getOrPut(id) { Run(label, now, wallMs()) }
+        // the upload's progress: the same step goes on, only its words change (shown at most every 0.1 MB)
+        if (step.startsWith(SendState.STEP_UPLOAD) && r.step?.startsWith(SendState.STEP_UPLOAD) == true) {
+            val p = _progress.value[id]
+            if (p != null && p.step != step) _progress.value = _progress.value + (id to p.copy(step = step))
+            return@synchronized
+        }
         close(r, now)
         r.step = step
         r.stepAt = now
@@ -128,7 +151,7 @@ class SendTrace(private val nowMs: () -> Long, private val wallMs: () -> Long = 
     fun lines(): List<String> = synchronized(lock) { lines.toList() }
 
     private fun close(r: Run, now: Long) {
-        r.step?.let { r.parts.add("$it ${secs(now - r.stepAt)}") }
+        r.step?.let { r.parts.add((if (it.startsWith(SendState.STEP_UPLOAD)) SendState.STEP_UPLOAD else it) + " " + secs(now - r.stepAt)) }
         r.step = null
     }
 

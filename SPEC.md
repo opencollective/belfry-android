@@ -2236,11 +2236,13 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   items, except: never a direct message for a non-DM item's sake, and not once the item failed
   transiently **3** times (then only its lane). Order within a lane is kept. `vectors/outbox.json`
   passes unchanged.
-- **The line under a message not out yet**: "Sending…"; after **5 s** "Still sending… · <step>"
-  (preparing, signing, uploading, checking the connection, connecting, waiting for the relay,
-  trying again); after **30 s** "Not sent yet · Retry" (Retry: every socket asked now, the
-  backoff forgotten, a fresh 30 s, a pass at once). Offline: "Waiting for connection…". Refused:
-  "Not sent: <reason> · Retry" as before. `SendState` (core), `rememberSendLine` (app).
+- **The line under a message not out yet** (the same words on the three apps, the lead
+  2026-11-21; belfry-ios writes them in its SPEC): "Sending…"; after **5 s** "Still sending… ·
+  connecting" / "· encrypting" / "· uploading 2.2 of 4.8 MB" / "· waiting for the server" (a
+  signer's or a relay's answer pending: never say signer or relay to people); after **30 s** "Not
+  sent yet · Retry" (Retry: every socket asked now, the backoff forgotten, a fresh 30 s, a pass at
+  once). Offline: "Waiting for connection…". Refused: "Not sent: <reason> · Retry" as before.
+  `SendState.shown` maps the trace's exact steps to these words; `rememberSendLine` (app).
 - **Send trace** (`SendTrace`): per attempt `HH:mm:ss <kind> · <step> 0.3s · … → OK|retry (<class>)|refused 1.2s`,
   plus a line for a signer request of 1 s or more and for a socket dropped after a publish timeout;
   the last 20, never any content, name or key. About Belfry → Diagnostics shows them under each

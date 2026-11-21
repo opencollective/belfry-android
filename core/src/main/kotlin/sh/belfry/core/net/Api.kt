@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
+import okio.buffer
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -583,11 +584,12 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
     // ---- files (Blossom BUD-02, SPEC 5) ---------------------------------------------------------------
 
     /** Uploads the bytes and returns their URL. Throws IOException (the outbox retries those). */
-    suspend fun upload(signer: Signer, bytes: ByteArray, name: String, mime: String): String {
+    suspend fun upload(signer: Signer, bytes: ByteArray, name: String, mime: String, onProgress: ((sent: Long, total: Long) -> Unit)? = null): String {
         val auth = Nip98.authorization(signer.sign(Nip98.blossomUpload(name, sha256Hex(bytes))))
+        val plain = bytes.toRequestBody(mime.toMediaTypeOrNull() ?: "application/octet-stream".toMediaType())
         val req = Request.Builder().url(community.blossom + "/upload")
             .header("Authorization", auth)
-            .put(bytes.toRequestBody(mime.toMediaTypeOrNull() ?: "application/octet-stream".toMediaType()))
+            .put(if (onProgress == null) plain else Counting(plain, bytes.size.toLong(), onProgress))
             .build()
         return withContext(Dispatchers.IO) {
             http.newCall(req).execute().use { res ->
@@ -597,6 +599,25 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
                 if (url == null || !(url.startsWith("https://") || url.startsWith("http://"))) throw IOException("upload failed (no url)")
                 url
             }
+        }
+    }
+
+    /** A body that tells how much of it went out (the "uploading 2.2 of 4.8 MB" line, SPEC 19.50). */
+    private class Counting(private val inner: okhttp3.RequestBody, private val total: Long, private val tell: (Long, Long) -> Unit) : okhttp3.RequestBody() {
+        override fun contentType() = inner.contentType()
+        override fun contentLength() = total
+        override fun writeTo(sink: okio.BufferedSink) {
+            var sent = 0L
+            val counting = object : okio.ForwardingSink(sink) {
+                override fun write(source: okio.Buffer, byteCount: Long) {
+                    super.write(source, byteCount)
+                    sent += byteCount
+                    tell(sent, total)
+                }
+            }
+            val buffered = counting.buffer()
+            inner.writeTo(buffered)
+            buffered.flush()
         }
     }
 
