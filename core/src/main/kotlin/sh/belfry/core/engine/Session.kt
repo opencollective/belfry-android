@@ -762,7 +762,7 @@ class Session(
                         val e = sealed
                         when (e?.mine) {
                             sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN -> sealedStart()
-                            sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h
+                            sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = true); encryption.refresh() } // once a minute and once per connection at most (N2): a missed ask at AUTH is made up here
                             sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> {
                                 resubscribeIfSealedGrew()
                                 // in the head but a rotation's hand-over missed: ask too (N4); my chain read first
