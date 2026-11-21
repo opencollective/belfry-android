@@ -438,8 +438,14 @@ class SealedEngine(
      */
     suspend fun startFresh(myName: String, kind: String) = locked {
         val c = refreshHere(account)
-        if (known[account]?.completeAt == null) throw FreshNotDone("Can't reach the belfry to check your devices. Try again in a moment.")
+        // the head from THIS read, complete, on this connection (never what the device stored)
+        if (lastReadComplete[account] != true || known[account]?.completeAt == null) throw FreshNotDone("Can't reach the belfry to check your devices. Try again in a moment.")
         if (c != null && device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; trace("fresh: already in head"); return@locked }
+        // only a device that is out of an existing chain (review of start-fresh): in the head without the key, its
+        // keys are on the way (another device just allowed it); no chain at all is the first device's path (§5.1)
+        if (c == null) throw FreshNotDone("There is nothing to start again from yet. Try again in a moment.")
+        if (device.pubkey in c.devices) throw FreshNotDone(sh.belfry.core.model.SealedText.FRESH_ALREADY_ALLOWED)
+        if (mine != Mine.WAITING) throw FreshNotDone("Not ready yet. Try again in a moment.")
         // one pending key, reused on every try (no orphan letterboxes)
         val (lbPub, lbSecret) = pendingFresh ?: KeyChain.newLetterbox().also { pendingFresh = it }
         keys.add(lbPub, lbSecret)
@@ -450,11 +456,12 @@ class SealedEngine(
         pendingFresh = null
         val back = refreshHere(account)
         if (back == null || back.root.id != root.id || device.pubkey !in back.devices) throw FreshNotDone("Not done yet: check your connection and try again.")
-        ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock())))
         mine = Mine.IN_HEAD
         lastHead[account] = lbPub
         trace("fresh: started")
         saveState()
+        // the name record under the new letterbox: its failure doesn't undo a fresh start (the upkeep writes it again)
+        try { ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock()))) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { trace("fresh: name not written") }
     }
 
     /** The 6-hour upkeep: gone sessions, ready, my own unanchored roster. */
@@ -708,7 +715,19 @@ class SealedEngine(
         if (added > 0) { saveKeys(); onKeys?.invoke() }
         pendingKeys.remove(wrap.id)
         val c = refreshHere(account)
-        if (c != null && device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) mine = Mine.IN_HEAD
+        if (c != null && device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) {
+            mine = Mine.IN_HEAD
+            // §5.4: a device of an earlier chain, allowed into this one after a fresh start, hands its old key chain
+            // to the device that let it in (which lacks the letterboxes the giver didn't send): earlier messages open there
+            val mineOnly = keys.toMap().keys - h.keys.keys
+            if (mineOnly.isNotEmpty() && h.giver != device.pubkey && h.giver in c.devices && ports.loadNote("handback:${h.giver}") == null) {
+                try {
+                    Sealing.keysFor(device, account, h.giver, keys, clock()).forEach { ports.publish(it) }
+                    ports.saveNote("handback:${h.giver}", clock().toString())
+                    trace("handback to giver")
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { trace("handback failed") }
+            }
+        }
         retryPending()
         true
     }

@@ -839,6 +839,27 @@ class SealedEngineTest {
         assertEquals(fresh.root.id, seen.root.id)
         assertEquals(SealedEngine.Mine.WAITING, phone.mine)
         assertTrue(phone.resetAt.containsKey(alice.pubkey))
+        // §5.4: the laptop allows the old phone; the phone hands its old key chain back: the old letterbox opens on the laptop
+        assertNull(laptop.keys.secretFor(oldHead.head.lb))
+        now += 5
+        laptop.allow(alicePhone.pubkey)
+        relay.to(alicePhone.pubkey).forEach { phone.onDeviceWrap(it) }
+        assertEquals(SealedEngine.Mine.IN_HEAD, phone.mine)
+        relay.to(aliceLaptop.pubkey).forEach { laptop.onDeviceWrap(it) }
+        assertNotNull(laptop.keys.secretFor(oldHead.head.lb), "the old letterbox came back from the phone")
+    }
+
+    /** Review of start-fresh: a device already in the head (its keys on the way) never starts fresh. */
+    @Test fun noStartFreshOnceAllowed() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
+        now += 5
+        phone.allow(aliceLaptop.pubkey) // the roster with the laptop lands; its keys not delivered yet
+        val anchors = relay.events.count { it.kind == Anchor.KIND }
+        kotlin.test.assertFailsWith<SealedEngine.FreshNotDone> { laptop.startFresh("Firefox on Linux", "computer") }
+        assertEquals(anchors, relay.events.count { it.kind == Anchor.KIND }, "no anchor replaced")
     }
 
     /** No complete answer on this connection: Start fresh does nothing and says so. */

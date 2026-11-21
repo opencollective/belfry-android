@@ -248,4 +248,5 @@ object SealedText {
     const val START_FRESH_TEXT = "Earlier sealed messages stay locked here unless someone shares them with you or an old device comes back."
     const val START_FRESH_SEEN = "The people you write with will see that you started on a new device."
     const val START_FRESH = "Start fresh"
+    const val FRESH_ALREADY_ALLOWED = "This device was just allowed: its key is on the way. No need to start fresh."
 }

@@ -191,7 +191,7 @@ class EncryptionService internal constructor(private val s: Session) {
         if (!demo) {
             val e = engine()
             try {
-                e.startFresh(sh.belfry.core.sealed.DeviceNames.myName(null, s.deviceName), s.deviceKind)
+                e.startFresh(s.sealedMyName(), s.deviceKind)
             } catch (x: sh.belfry.core.sealed.SealedEngine.FreshNotDone) {
                 throw ActionException("not_done", x.message ?: "Not done: try again.")
             } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) {

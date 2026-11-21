@@ -352,6 +352,13 @@ class Session(
         }
     }
 
+    /** This device's name for its record (§3.5): the session row's, else the platform's. */
+    internal suspend fun sealedMyName(): String {
+        val e = sealed
+        val own = if (e == null) null else try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
+        return sh.belfry.core.sealed.DeviceNames.myName(own, deviceName)
+    }
+
     /** Starts (or retries, after a late AUTH) the sealed side; then the upkeep. Never throws. */
     private suspend fun sealedStart() {
         val e = sealed ?: return
