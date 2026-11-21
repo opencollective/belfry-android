@@ -1,5 +1,6 @@
 package sh.belfry.core.sealed
 
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import sh.belfry.core.dm.GiftWrap
 import sh.belfry.core.nostr.Event
@@ -519,10 +520,10 @@ class SealedEngineTest {
         relay.add(alice.signNow(Anchor.template(chain.root.id, sibling.id, now))) // the server's signature
         val after = phone.refresh(alice.pubkey)!!
         assertEquals(sibling.id, after.head.id, "followed")
-        assertTrue(alice.pubkey in phone.resetAt, "treated like a fresh start")
+        assertTrue(phone.resetAt.containsKey(alice.pubkey), "treated like a fresh start")
         assertEquals(SealedEngine.Mine.WAITING, phone.mine, "this phone isn't in the new head")
         b.refresh(alice.pubkey)
-        assertTrue(alice.pubkey in b.resetAt, "Bob sees the amber notice for Alice")
+        assertTrue(b.resetAt.containsKey(alice.pubkey), "Bob sees the amber notice for Alice")
         val req = attacker.signNow(Sealing.request(alice.pubkey, attacker.pubkey, null, now + 10))
         assertTrue(phone.onRequest(req) != SealedEngine.OnRequest.Allowed)
         assertTrue(relay.to(attacker.pubkey).isEmpty(), "no keys for the attacker's device")
@@ -539,7 +540,7 @@ class SealedEngineTest {
         now += 5
         relay.add(alice.signNow(Anchor.template(alices.root.id, alices.rosters[1].id, now)))
         assertEquals(alices.head.id, restarted.refresh(alice.pubkey)!!.head.id, "an older anchor is ignored after a restart too")
-        assertTrue(alice.pubkey !in restarted.resetAt)
+        assertTrue(!restarted.resetAt.containsKey(alice.pubkey))
         // Alice starts fresh: a new root
         val phone2 = LocalSigner.random()
         val root2 = phone2.signNow(Roster.template(alice.pubkey, 1, null, KeyChain.newLetterbox().first, listOf(phone2.pubkey), true, now + 1))
@@ -548,7 +549,7 @@ class SealedEngineTest {
         relay.add(alice.signNow(Anchor.template(root2.id, root2.id, now)))
         val again = engine(bob, bobPhone)
         again.refresh(alice.pubkey)
-        assertTrue(alice.pubkey in again.resetAt, "a replaced root after a restart: the amber notice")
+        assertTrue(again.resetAt.containsKey(alice.pubkey), "a replaced root after a restart: the amber notice")
     }
 
     /** §8 from the amber line: Bob shares the conversation's messages with Alice's new head. */
@@ -562,7 +563,7 @@ class SealedEngineTest {
         now += 5
         relay.add(alice.signNow(Anchor.template(root2.id, root2.id, now)))
         b.refresh(alice.pubkey)
-        assertTrue(alice.pubkey in b.resetAt)
+        assertTrue(b.resetAt.containsKey(alice.pubkey))
         val rumors = listOf(
             GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "first", now - 100),
             GiftWrap.rumor(14, alice.pubkey, listOf(listOf("p", bob.pubkey)), "second", now - 50),
@@ -589,7 +590,7 @@ class SealedEngineTest {
         now += 5
         relay.add(alice.signNow(Anchor.template(chain.root.id, sibling.id, now)))
         assertEquals(sibling.id, b.refresh(alice.pubkey)!!.head.id)
-        assertTrue(alice.pubkey !in b.resetAt)
+        assertTrue(!b.resetAt.containsKey(alice.pubkey))
     }
 
     private val tablet = LocalSigner.random()
@@ -608,7 +609,7 @@ class SealedEngineTest {
         now += 5
         relay.add(alice.signNow(Anchor.template(chain.root.id, sibling.id, now)))
         assertEquals(sibling.id, phone.refresh(alice.pubkey)!!.head.id)
-        assertTrue(alice.pubkey in phone.resetAt, "a switch")
+        assertTrue(phone.resetAt.containsKey(alice.pubkey), "a switch")
         assertEquals(SealedEngine.Mine.IN_HEAD, phone.mine)
         // Not me on the newcomer: dropped, a new letterbox
         phone.remove(x.pubkey)
@@ -687,7 +688,7 @@ class SealedEngineTest {
         val c = "n:" + listOf(alice.pubkey, bob.pubkey).sorted().joinToString(",")
         val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
         val jobs = (1..60).map { i ->
-            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.Default) {
+            async(kotlinx.coroutines.Dispatchers.Default) {
                 when (i % 3) {
                     0 -> phone.refresh(bob.pubkey)
                     1 -> phone.receive(b.seal(GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "m$i", now), plan).single { it.recipient == alice.pubkey }.wrap, null) { c }
