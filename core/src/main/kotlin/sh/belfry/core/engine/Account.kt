@@ -405,9 +405,13 @@ class Onboarding(
         s.accountId = rec.id
         s.slot = rec.slot
         s.keyVault = vault
+        s.linkSecret = pendingLinkSecret.also { pendingLinkSecret = null }
         s.onRecordChanged = { c, g -> saved(rec.slot)?.let { save(rec.slot, it.copy(community = c, guest = g)) } }
         return s
     }
+
+    /** The one-time secret of the Link-a-phone code this sign-in came from (memory only, sealed.md §5.2). */
+    @Volatile var pendingLinkSecret: String? = null
 
     // ---- guest links ----------------------------------------------------------------------------
 

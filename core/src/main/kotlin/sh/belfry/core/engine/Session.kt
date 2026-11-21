@@ -248,6 +248,8 @@ class Session(
     /** This device's own name and kind for sealed conversations (the app sets them: Build.MODEL, phone / tablet). */
     @Volatile var deviceName: String = "Android phone"
     @Volatile var deviceKind: String = "phone"
+    /** The Link-a-phone secret this sign-in came from: proves it in the request (§5.2); memory only. */
+    @Volatile var linkSecret: String? = null
 
     private val sealedKeys: SealedKeyStore? by lazy { keyVault?.let { SealedKeyStore(it, Slots.key(SealedKeyStore.V_KEYS, slot), me) } }
 
@@ -270,9 +272,12 @@ class Session(
         val e = sealed ?: return
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN && !e.firstRefused) {
             val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
-            e.start(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind)
+            e.start(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind, link = linkSecret)
+            if (e.mine != sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN) linkSecret = null
+            if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) e.writeMyName(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind)
         }
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) e.upkeep()
+        try { encryption.refresh() } catch (x: Exception) { }
         launchSafely { dm.process() }
     }
 
@@ -631,6 +636,13 @@ class Session(
             while (isActive) {
                 delay(SEALED_UPKEEP_MS)
                 try { if (sealed?.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) sealed?.upkeep() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+            }
+        }
+        // requests from my new devices (the Allow prompt) and device lines: looked at every two minutes
+        if (sealed != null) jobs += scope.launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(120_000)
+                try { if (_status.value.online) { if (sealed?.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN) sealedStart() else encryption.refresh() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
             }
         }
         // a guest on this device: is that still so? (a member link, an admin, an accepted request)

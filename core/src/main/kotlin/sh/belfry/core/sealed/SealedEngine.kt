@@ -466,6 +466,25 @@ class SealedEngine(
     val pendingCount: Int get() = pending.size
     val pendingKeysCount: Int get() = pendingKeys.size
 
+    /** My devices' names (one 30078 per device, §3.5), as far as this device can open them. */
+    suspend fun deviceNames(): Map<String, DeviceNames.Entry> {
+        val head = chainOf(account) ?: return emptyMap()
+        val a = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = head.rosters.flatMap { it.devices }.distinct().map { DeviceNames.d(it) }))
+        return DeviceNames.all(a.events, account, keys)
+    }
+
+    /** Writes this device's own name record under the head letterbox (§3.5), when it is in the head. */
+    suspend fun writeMyName(name: String, kind: String) {
+        val head = chainOf(account) ?: return
+        val secret = keys.secretFor(head.head.lb) ?: return
+        if (device.pubkey !in head.devices) return
+        ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(name, kind, head.addedAt(device.pubkey)), head.head.lb, secret, clock())))
+    }
+
+    /** Requests (8562) to my account on the relay, newest first. */
+    suspend fun requests(): List<Event> =
+        ports.query(Query(kinds = listOf(Sealing.REQUEST), p = listOf(account))).events.sortedByDescending { it.createdAt }
+
     /** Is DEVICE removable from this device's list (not this one, and this device is in the head)? */
     fun canRemove(dev: String): Boolean = mine == Mine.IN_HEAD && dev != device.pubkey && chainOf(account)?.devices?.contains(dev) == true
 }

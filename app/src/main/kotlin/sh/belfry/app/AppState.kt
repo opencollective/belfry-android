@@ -423,6 +423,8 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
      * and the code screen names the community; a new account is added beside the others.
      */
     fun onLoginLink(link: sh.belfry.core.net.LoginLink) {
+        // the Link-a-phone code's one-time secret: kept in memory for the sign-in it starts, never stored (§5.2)
+        onboarding.pendingLinkSecret = link.linkSecret
         scope.launch {
             val here = withContext(Dispatchers.Default) { accountsNow() }.accounts.firstOrNull { !it.demo && !it.guest && it.domain == link.domain && it.address.lowercase() == link.address }
             if (here != null) {

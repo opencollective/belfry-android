@@ -187,7 +187,11 @@ fun LinkDeviceScreen() {
     val linked = session.encryption.state.collectAsState().value.linked
     sh.belfry.app.ui.info.InfoPage("Link a phone or tablet") {
         if (linked != null) sh.belfry.app.ui.people.LinkedContent(linked) { session.encryption.linkedSeen(); nav.back() }
-        else if (link != null) LinkDeviceBody(link, world.myAddress!!)
+        else if (link != null) {
+            // sealed.md §5.2: a fresh one-time secret each time the screen opens, ONLY in the QR (not in any text or copy)
+            val secret = remember { session.encryption.linkSecret() }
+            LinkDeviceBody(link, world.myAddress!!, qr = secret?.let { "$link#l=$it" } ?: link)
+        }
         else sh.belfry.app.ui.info.Hint("This account has no username here yet.")
     }
 }
@@ -197,10 +201,10 @@ fun LinkDeviceScreen() {
  * other device confirms with the code mailed to the person's own e-mail (onboarding/scan-login).
  */
 @Composable
-internal fun LinkDeviceBody(link: String, address: String) {
+internal fun LinkDeviceBody(link: String, address: String, qr: String = link) {
     val c = sh.belfry.app.ui.theme.Belfry.colors
     Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-        sh.belfry.app.ui.kit.QrCode(link, Modifier.testTag("link-device-qr"))
+        sh.belfry.app.ui.kit.QrCode(qr, Modifier.testTag("link-device-qr"))
         Spacer(Modifier.height(14.dp))
         androidx.compose.material3.Text(
             "Open the Belfry app on the other device and scan this code. It logs in as $address after a 6-digit code sent to your e-mail.",

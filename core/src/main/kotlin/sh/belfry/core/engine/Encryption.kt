@@ -29,10 +29,87 @@ class EncryptionService internal constructor(private val s: Session) {
 
     private fun notYet(): Nothing = throw ActionException("sealed", "Not available on this belfry yet.")
 
+    private fun engine(): sh.belfry.core.sealed.SealedEngine = s.sealed ?: notYet()
+
+    /** A failure as a fixed sentence (Allow / Not me / Remove / Share must show failures, 294c94f (5)). */
+    private suspend fun <T> shown(fallback: String, block: suspend () -> T): T = try { block() } catch (e: ActionException) { throw e } catch (e: sh.belfry.core.sealed.SealedEngine.TooMany) {
+        throw ActionException("too_many_devices", sh.belfry.core.model.SealedText.TOO_MANY)
+    } catch (e: sh.belfry.core.sealed.SealedEngine.NotDone) {
+        throw ActionException("not_done", e.message ?: fallback)
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+        throw ActionException("failed", fallback)
+    }
+
+    /**
+     * The real state from the engine (outside the demo): my devices with their names, each sealed
+     * conversation's people as counts and its device lines (from when this device first saw it
+     * sealed), "locked" only when this device is not in my head, and the requests to answer.
+     */
+    suspend fun refresh() {
+        if (demo) return
+        val e = s.sealed ?: return
+        val me = s.me
+        val mine = e.chainOf(me)
+        val names = try { e.deviceNames() } catch (x: Exception) { emptyMap() }
+        fun kindOf(k: String?) = when (k) { "tablet" -> DeviceKind.TABLET; "computer" -> DeviceKind.COMPUTER; else -> DeviceKind.PHONE }
+        val myDevices = mine?.devices.orEmpty().map { d ->
+            val n = names[d]
+            MyDevice(
+                d, n?.name ?: if (d == e.device.pubkey) s.deviceName else "A device", kindOf(n?.kind ?: if (d == e.device.pubkey) s.deviceKind else null),
+                mine!!.addedAt(d) ?: 0, mine.addedFrom(d)?.let { names[it]?.name }, thisDevice = d == e.device.pubkey,
+            )
+        }
+        val dms = s.dms.value
+        val world = s.world.value
+        val sealed = e.sealedSince.toMap().mapValues { (conv, since) ->
+            if (MailThreads.isMail(conv)) ConvSeal(mail = listOf(dms.convName(conv, world)), since = since)
+            else {
+                val peers = MailThreads.peers(conv).filter { it != me }
+                ConvSeal(
+                    others = peers.map { p ->
+                        val c = e.chainOf(p)
+                        val last = c?.changesAfter(null)?.lastOrNull()
+                        PersonDevices(p, c?.devices?.size ?: 0, last?.let { DeviceChange(it.added, it.at) })
+                    },
+                    notices = (peers + me).flatMap { p ->
+                        e.chainOf(p)?.changesAfter(null).orEmpty().filter { it.at >= since }.map { ch ->
+                            DeviceNotice("$p:${ch.device}:${ch.at}", ch.at, p, if (ch.added) DeviceNotice.Kind.ADDED else DeviceNotice.Kind.REMOVED,
+                                device = if (p == me) names[ch.device]?.name else null)
+                        }
+                    },
+                    since = since,
+                )
+            }
+        }
+        val asks = ArrayList<AccessAsk>()
+        var linked: String? = _state.value.linked
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) {
+            for (req in try { e.requests() } catch (x: Exception) { emptyList() }) {
+                when (val r = try { e.onRequest(req) } catch (x: Exception) { sh.belfry.core.sealed.SealedEngine.OnRequest.Ignore }) {
+                    is sh.belfry.core.sealed.SealedEngine.OnRequest.Ask -> if (asks.none { it.id == r.device }) asks.add(AccessAsk(r.device, r.name, DeviceKind.PHONE, req.createdAt))
+                    sh.belfry.core.sealed.SealedEngine.OnRequest.Allowed -> linked = linked ?: "Your new device"
+                    else -> {}
+                }
+            }
+        }
+        val waiting = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING
+        _state.value = SealState(
+            myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
+            // only "this device is not in my head" hides messages or the composer (294c94f (1))
+            locked = if (waiting) sealed.keys else emptySet(),
+            asks = asks, linked = linked,
+        )
+    }
+
     /** Give my new device access (the prompt on my other devices). The first to answer wins. */
     suspend fun allow(ask: String) {
         s.checkWrite()
-        if (!demo) notYet()
+        if (!demo) {
+            shown("Not allowed: try again.") { engine().allow(ask) }
+            _state.value = _state.value.let { st -> st.copy(asks = st.asks.filter { it.id != ask }) }
+            refresh()
+            return
+        }
         delay(400)
         _state.value = _state.value.let { st -> st.copy(asks = st.asks.filter { it.id != ask }) }
     }
@@ -40,7 +117,11 @@ class EncryptionService internal constructor(private val s: Session) {
     /** Not me: that device is removed and signed out. */
     suspend fun notMe(ask: String) {
         s.checkWrite()
-        if (!demo) notYet()
+        if (!demo) {
+            shown("That device could not be signed out. Try again.") { engine().notMe(ask) }
+            _state.value = _state.value.let { st -> st.copy(asks = st.asks.filter { it.id != ask }) }
+            return
+        }
         delay(400)
         _state.value = _state.value.let { st -> st.copy(asks = st.asks.filter { it.id != ask }) }
     }
@@ -62,12 +143,20 @@ class EncryptionService internal constructor(private val s: Session) {
     /** Remove one of my devices (never this one: that is Sign out). */
     suspend fun removeDevice(id: String) {
         s.checkWrite()
-        if (!demo) notYet()
+        if (!demo) {
+            if (id == s.sealed?.device?.pubkey) throw ActionException("this-device", "This device can't be removed here: use Sign out.")
+            shown("Not removed: try again.") { engine().remove(id) }
+            refresh()
+            return
+        }
         val d = _state.value.myDevices.firstOrNull { it.id == id } ?: return
         if (d.thisDevice) throw ActionException("this-device", "This device can't be removed here: use Sign out.")
         delay(400)
         _state.value = _state.value.let { st -> st.copy(myDevices = st.myDevices.filter { it.id != id }) }
     }
+
+    /** A one-time secret for the Link-a-phone QR (only in the QR, never stored; §5.2). Null: no sealed side. */
+    fun linkSecret(): String? = if (demo) null else s.sealed?.newLinkSecret()
 
     /** The linked screen was closed. */
     fun linkedSeen() {
