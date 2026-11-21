@@ -75,7 +75,10 @@ class SealedEngine(
         val r = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(person)))
         val complete = a.complete && r.complete
         val anchorRoot = Anchor.root(a.events, person)
-        if (anchorRoot != null && pinnedRoot[person] != null && pinnedRoot[person] != anchorRoot) pinnedHead.remove(person) // started fresh
+        if (anchorRoot != null && pinnedRoot[person] != null && pinnedRoot[person] != anchorRoot) {
+            pinnedHead.remove(person) // started fresh
+            if (person == account) known[person]?.chain?.letterboxes?.let { oldLetterboxes.addAll(it) }
+        }
         val chain = Chain.of(person, a.events, r.events, pinned = pinnedHead[person])
         if (chain != null) {
             pinnedRoot[person] = chain.root.id
@@ -86,6 +89,20 @@ class SealedEngine(
         known[person] = Known(chain ?: prev?.chain?.takeIf { !complete }, if (complete) clock() else prev?.completeAt)
         if (chain != null) retryPending()
         return known[person]?.chain
+    }
+
+    /** Letterboxes of earlier pinned chains of mine (a fresh start keeps them mine, §5.3). */
+    private val oldLetterboxes = HashSet<String>()
+
+    /**
+     * My chain's letterboxes (valid rosters of the current chain and the previously pinned one),
+     * ONLY when my chain is current on this connection (6e0bc8e): before that a wrap naming another
+     * lb is kept, never dropped (it may be my newest letterbox, ahead of its roster).
+     */
+    private fun myLetterboxesIfCurrent(): Set<String>? {
+        val k = known[account] ?: return null
+        if (k.completeAt == null) return null
+        return (k.chain?.letterboxes.orEmpty() + oldLetterboxes).toSet()
     }
 
     private fun knowsNoReadyChain(person: String): Boolean {
@@ -271,7 +288,7 @@ class SealedEngine(
         // the roster first; keys only once it is on the anchored path (never keys in no roster, 64a07fa)
         var cur = chain
         repeat(3) {
-            if (publishNext(cur, cur.devices + newDevice, cur.head.lb, cur.ready)) {
+            if (publishNext(cur, (cur.devices + newDevice).distinct(), cur.head.lb, cur.ready)) {
                 Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
                 return@withLock
             }
@@ -431,7 +448,7 @@ class SealedEngine(
         val firstSeen = pending[wrap.id]?.second ?: clock()
         val author = (o as? Opening.Opened)?.rumor?.pubkey
         if (author != null && author != belfry && chainOf(author) == null && mayAsk(author)) refresh(author)
-        val v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry, myLetterboxes = chainOf(account)?.letterboxes?.toSet())
+        val v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry, myLetterboxes = myLetterboxesIfCurrent())
         when (v) {
             Sealing.Verdict.ACCEPT -> {
                 pending.remove(wrap.id)

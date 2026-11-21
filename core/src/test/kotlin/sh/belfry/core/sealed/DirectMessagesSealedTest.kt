@@ -170,4 +170,21 @@ class DirectMessagesSealedTest {
         assertTrue(after.signed!!.tag("lb") != before.signed!!.tag("lb"))
         assertEquals(b.first.chainOf(bob.pubkey)!!.head.lb, after.signed!!.tag("lb"))
     }
+
+    /** 6e0bc8e: the re-seal check works after a restart with wraps still queued (the queue is kept in the store). */
+    @Test fun resealAfterRestart() = runBlocking<Unit> {
+        val (a, b) = ready()
+        val store = MemoryStore()
+        val host = Host(a.third, a.first)
+        val dm1 = DirectMessages(store, host).also { hosts[it] = host }
+        dm1.send(conv(bob.pubkey), "queued before a restart")
+        val before = host.queued.first { it.signed!!.tag("p") == bob.pubkey }
+        val bobTablet = LocalSigner.random()
+        server.live(bob.pubkey, bobTablet.pubkey, "Bob's tablet")
+        b.first.allow(bobTablet.pubkey)
+        b.first.remove(bobTablet.pubkey)
+        val dm2 = DirectMessages(store, host) // the app started again
+        val after = dm2.resealQueued(host.queued).first { it.signed!!.tag("p") == bob.pubkey }
+        assertTrue(after.signed!!.tag("lb") != before.signed!!.tag("lb"))
+    }
 }

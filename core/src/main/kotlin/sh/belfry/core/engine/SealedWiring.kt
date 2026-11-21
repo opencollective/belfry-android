@@ -24,7 +24,11 @@ import sh.belfry.core.sealed.SessionRow
 class SealedKeyStore(private val vault: Vault, private val name: String, private val account: String) {
     @Volatile private var closed = false
 
+    /** Never saved or loaded before the account key is known (an empty owner lost a whole chain on iOS). */
+    private val known: Boolean get() = account.isNotEmpty() && Hex.isKey(account)
+
     fun load(): Map<String, String> {
+        if (!known) return emptyMap()
         val o = parseJsonOrNull(vault.get(name) ?: return emptyMap()) as? JsonObject ?: return emptyMap()
         if ((o["account"] as? JsonPrimitive)?.content != account) return emptyMap() // another account's keys: never used
         val keys = o["keys"] as? JsonObject ?: return emptyMap()
@@ -32,7 +36,7 @@ class SealedKeyStore(private val vault: Vault, private val name: String, private
     }
 
     fun save(keys: Map<String, String>) {
-        if (closed) return
+        if (closed || !known) return
         vault.set(name, buildJsonObject {
             put("account", JsonPrimitive(account))
             put("keys", buildJsonObject { keys.forEach { (k, v) -> put(k, JsonPrimitive(v)) } })

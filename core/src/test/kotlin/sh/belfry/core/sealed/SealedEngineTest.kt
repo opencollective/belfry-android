@@ -413,4 +413,32 @@ class SealedEngineTest {
         assertEquals(SealedEngine.Plan.Hold, phone.plan(conv(alice.pubkey, carol), listOf(carol)))
         relay.silent = false
     }
+
+    /** 6e0bc8e: a wrap to an lb not of my chain is kept while my chain isn't current here; dropped once it is. */
+    @Test fun foreignLbKeptUntilCurrent() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val stranger = KeyChain.newLetterbox().first
+        val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "x", now)
+        val wrap = Sealing.seal(rumor, bobPhone, alice.pubkey, stranger, now)
+        phone.connectionLost()
+        assertEquals(Sealing.Verdict.LOCKED, phone.receive(wrap, null) { "c" }.verdict, "kept: my chain isn't current on this connection")
+        phone.refresh(alice.pubkey)
+        assertEquals(Sealing.Verdict.DROP, phone.receive(wrap, null) { "c" }.verdict)
+    }
+
+    /** "Done" only from a read-back: the relay refusing the roster only, the anchor only, or both. */
+    @Test fun refusedRosterOrAnchor() = runBlocking<Unit> {
+        for (refused in listOf(setOf(Roster.KIND), setOf(30078), setOf(Roster.KIND, 30078))) {
+            relay.events.clear(); server.sessions.clear()
+            server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+            server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+            val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+            relay.refusing.addAll(refused)
+            kotlin.test.assertFailsWith<SealedEngine.NotDone>("refused $refused") { phone.allow(aliceLaptop.pubkey) }
+            relay.refusing.clear()
+            assertTrue(relay.to(aliceLaptop.pubkey).isEmpty(), "no keys when refused $refused")
+            val anchor = relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
+            assertEquals(anchor.tag("root"), anchor.tag("head"))
+        }
+    }
 }
