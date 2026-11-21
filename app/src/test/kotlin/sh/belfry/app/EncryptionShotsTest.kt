@@ -260,4 +260,25 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-devices-locked") { DevicesScreen() }
         compose.onNodeWithTag("seal-remove-d-laptop").assertDoesNotExist()
     }
+
+    /** canvas v96 messages/encryption-waiting: allowed, no key yet: messages as usual, the composer waits. */
+    @Test fun waitingKeys() {
+        session.encryption.demoWaitingKeys()
+        demoShot("encryption-waiting") { ConversationScreen(maya) }
+        compose.onNodeWithTag("seal-waiting-keys").assertExists()
+        compose.onNodeWithTag("seal-locked-block").assertDoesNotExist()
+        assertTrue(compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    /** canvas v96 messages/encryption-allow-waiting: "Not allowed yet: waiting for your other device". */
+    @Test fun allowWaiting() {
+        session.encryption.demoAsk("Firefox on Linux")
+        val ask = session.encryption.state.value.asks.first()
+        demoScreenShot("encryption-allow-waiting") {
+            MessagesScreen()
+            AccessAskDialog(ask, "Alex Morgan", session.now(), onDismiss = {}, onAllow = {}, onNotMe = {}, startWaiting = true)
+        }
+        compose.onNodeWithText("Not allowed yet: waiting for your other device").assertExists()
+        compose.onNodeWithTag("seal-not-me").assertExists()
+    }
 }

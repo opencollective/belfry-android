@@ -200,7 +200,8 @@ object SealedText {
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."
     const val WRITE_LATER = "You can write here once this device is allowed."
-    const val WAITING_KEYS = "Waiting for another of your devices"
+    const val WAITING_KEYS = "Waiting for another of your devices…"
+    const val ALLOW_WAITING = "Not allowed yet: waiting for your other device"
     const val NOT_SEALED = "Not sealed"
     const val TOO_MANY = "You already have 20 devices. Remove one in Devices, then try again."
     const val NOT_SEALED_WHY = "This message was not sent with the lock. It may come from an old app version."

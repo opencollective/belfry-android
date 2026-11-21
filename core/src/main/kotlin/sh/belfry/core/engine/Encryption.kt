@@ -94,10 +94,12 @@ class EncryptionService internal constructor(private val s: Session) {
                 }
             }
         }
-        val waiting = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING
+        // allowed but no key yet (canvas v96 messages/encryption-waiting): messages it can read show as
+        // usual, no banner, the composer waits; only "not in my head" locks (294c94f (1))
+        val noKey = e.inHeadWithoutKey
+        val waiting = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING && !noKey
         _state.value = SealState(
             myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
-            // only "this device is not in my head" hides messages or the composer (294c94f (1))
             locked = if (waiting) sealed.keys else emptySet(),
             asks = asks, linked = linked, waitingKeys = e.inHeadWithoutKey,
         )
@@ -107,6 +109,8 @@ class EncryptionService internal constructor(private val s: Session) {
     suspend fun allow(ask: String) {
         s.checkWrite()
         if (!demo) {
+            // this device has no key to hand over yet: another of my devices will (canvas v96)
+            if (engine().inHeadWithoutKey) throw ActionException("waiting_other", sh.belfry.core.model.SealedText.ALLOW_WAITING)
             shown("Not allowed: try again.") { engine().allow(ask) }
             _state.value = _state.value.let { st -> st.copy(asks = st.asks.filter { it.id != ask }) }
             refresh()
@@ -180,6 +184,12 @@ class EncryptionService internal constructor(private val s: Session) {
             MyDevice("d-new", "Pixel 8", DeviceKind.PHONE, now - 120, from = null, thisDevice = true, active = now),
         ) + st.myDevices.map { it.copy(thisDevice = false) }
         _state.value = st.copy(earlierLocked = true, locked = older, myDevices = mine)
+    }
+
+    /** Demo and tests: this device is allowed but its key hasn't arrived (canvas v96). */
+    fun demoWaitingKeys() {
+        if (!demo) return
+        _state.value = _state.value.copy(waitingKeys = true, earlierLocked = false, locked = emptySet())
     }
 
     /** Demo and tests: a new device of mine asks for access (the prompt over any screen). */

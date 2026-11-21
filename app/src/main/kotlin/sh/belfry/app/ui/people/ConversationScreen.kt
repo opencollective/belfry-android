@@ -235,9 +235,19 @@ fun ConversationScreen(conv: String) {
             val d = list.firstOrNull { it.rid == rid }
             if (d == null) acting = null else DmMessageSheet(d, dms.reactionsOf(d.rid), emojiOnly, onClose = { acting = null })
         }
-        if (lockedHere) {
+        if (seal != null && sealState.waitingKeys && !lockedHere) {
+            // allowed, the key not here yet (canvas v96): clears by itself when it arrives
+            Row(
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-waiting-keys"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spinner(size = 14.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(sh.belfry.core.model.SealedText.WAITING_KEYS, fontSize = 14.sp, color = c.muted)
+            }
+        } else if (lockedHere) {
             Text(
-                if (sealState.waitingKeys) sh.belfry.core.model.SealedText.WAITING_KEYS else sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
+                sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),
             )
         } else Composer(

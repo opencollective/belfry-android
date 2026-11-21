@@ -329,13 +329,15 @@ fun SealAskHost() {
 @Composable
 fun AccessAskDialog(
     ask: AccessAsk, myName: String, now: Long, onDismiss: () -> Unit, onAllow: suspend () -> Unit, onNotMe: suspend () -> Unit,
-    onDevices: () -> Unit = {}, startFull: Boolean = false,
+    onDevices: () -> Unit = {}, startFull: Boolean = false, startWaiting: Boolean = false,
 ) {
     val c = Belfry.colors
     val busy = rememberBusy()
     var error by remember { mutableStateOf<String?>(null) }
     // canvas v90 / sealed.md §5.2: at most 20 devices; the new device stays locked
     var full by remember { mutableStateOf(startFull) }
+    // canvas v96: allowed only once another of my devices hands the key over; stays open until done
+    var waitingOther by remember { mutableStateOf(startWaiting) }
     if (full) {
         AlertDialog(
             onDismissRequest = onDismiss,
@@ -361,9 +363,21 @@ fun AccessAskDialog(
             }
         },
         confirmButton = {
-            BusyButton(
+            if (waitingOther) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("seal-allow-waiting")) {
+                    sh.belfry.app.ui.kit.Spinner(size = 14.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(SealedText.ALLOW_WAITING, fontSize = 13.sp, color = c.muted)
+                }
+            } else BusyButton(
                 "Allow", onClick = { onAllow() }, busy = busy, small = true,
-                onError = { if ((it as? sh.belfry.core.engine.ActionException)?.code == "too_many_devices") full = true else error = it.shown() },
+                onError = {
+                    when ((it as? sh.belfry.core.engine.ActionException)?.code) {
+                        "too_many_devices" -> full = true
+                        "waiting_other" -> waitingOther = true
+                        else -> error = it.shown()
+                    }
+                },
                 modifier = Modifier.testTag("seal-allow"),
             )
         },
