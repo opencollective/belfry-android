@@ -187,13 +187,16 @@ object Sealing {
     }
 
     /** What a device does with a kind 7679 of BELFRY (the reference's open_report; vectors `reports`). */
-    fun openReport(e: Event, belfry: String?, keys: KeyChain): Report {
+    fun openReport(e: Event, belfry: String?, keys: KeyChain): Report = openReport(e, belfry) { keys.secretFor(it) }
+
+    /** The same with a plain key chain (lb → secret, as held, unchecked). */
+    fun openReport(e: Event, belfry: String?, secretFor: (String) -> String?): Report {
         if (e.kind != 7679 || !e.isValid() || belfry == null || e.pubkey != belfry) return Report.Invalid
         val peer = e.tags.singleValue("ephemeral-pubkey")?.takeIf { Hex.isKey(it) } ?: return Report.Invalid
         val lbs = e.tags.filter { it.size >= 2 && it[0] == "lb" }.map { it[1] }
         if (lbs.isEmpty()) return Report.Signer
         if (lbs.size != 1 || !Hex.isKey(lbs[0])) return Report.Invalid
-        val secret = keys.secretFor(lbs[0]) ?: return Report.Locked
+        val secret = secretFor(lbs[0]) ?: return Report.Locked
         return try {
             (parseJsonOrNull(Nip44.decryptFrom(secret, peer, e.content)) as? JsonObject)?.let { Report.Opened(it) } ?: Report.Invalid
         } catch (x: Exception) { Report.Invalid }

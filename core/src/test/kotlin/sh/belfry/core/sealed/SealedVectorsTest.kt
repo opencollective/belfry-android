@@ -272,8 +272,9 @@ class SealedVectorsTest {
         for (c in cases) {
             val name = c.s("name")!!
             val want = c["expected"] as JsonObject
-            val chain = KeyChain().also { k -> (c["key_chain"] as JsonArray).forEach { e -> e as JsonObject; k.add(e.s("lb")!!, e.s("secret")!!) } }
-            val got = Sealing.openReport(ev(c["report"] as JsonObject), belfry, chain)
+            // the key chain as held (the reference's list), unchecked: the wrong-secret case pairs an lb with another secret
+            val chain = (c["key_chain"] as JsonArray).associate { e -> e as JsonObject; e.s("lb")!! to e.s("secret")!! }
+            val got = Sealing.openReport(ev(c["report"] as JsonObject), belfry) { chain[it] }
             when (want.s("state")) {
                 "opened" -> assertEquals(want["body"], (got as Sealing.Report.Opened).body, name)
                 "signer" -> assertEquals(Sealing.Report.Signer, got, name)
