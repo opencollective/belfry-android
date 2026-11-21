@@ -253,15 +253,33 @@ object SealedText {
     const val START_FRESH_TEXT = "Earlier sealed messages stay locked here unless someone shares them with you or an old device comes back."
     const val START_FRESH_SEEN = "The people you write with will see that you started on a new device."
     const val START_FRESH = "Start fresh"
-    /** An old device of mine after a fresh start elsewhere (the lead's text, 0.7.7; canvas board asked for). */
-    const val FRESH_ELSEWHERE_TITLE = "Sealed conversations were started fresh"
-    fun freshElsewhereText(device: String?, at: Long, zone: ZoneId): String {
+    /** An old device of mine after a fresh start elsewhere (canvas v122 messages/encryption-fresh-elsewhere + -done). */
+    fun freshElsewhereTitle(device: String?): String = "Sealed conversations were started fresh on " + (device?.let { "\u201c$it\u201d" } ?: "another device")
+    private val TIME_12 = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+    /** "Today at 9:41 PM", or "21 Nov at 9:41 PM". */
+    fun freshElsewhereWhen(at: Long, now: Long, zone: ZoneId): String {
         val t = Instant.ofEpochSecond(at).atZone(zone)
-        val time = TIME.format(t) + " on " + DAY_MONTH.format(t)
-        return "Sealed conversations were started fresh on ${device ?: "another device"} at $time. If this wasn't you, sign out every other device."
+        val day = if (date(at, zone) == date(now, zone)) "Today" else day(at, now, zone)
+        return "$day at " + TIME_12.format(t)
     }
+    const val FRESH_ELSEWHERE_BODY = "This device can't read new sealed messages until it's allowed again."
+    const val FRESH_ELSEWHERE_BOLD = "If this wasn't you, sign out every other device."
     const val FRESH_ELSEWHERE_SIGN_OUT = "Sign out every other device"
     const val FRESH_ELSEWHERE_ME = "It was me"
-    const val FRESH_ELSEWHERE_DONE = "Every other device is signed out. This device now asks to be allowed again."
+    const val FRESH_ELSEWHERE_FAILED = "Couldn't sign out every device. Try again."
+    const val FRESH_DONE_TITLE = "Every other device is signed out"
+    /** "Firefox on Windows and Safari on Mac can't open your account any more." */
+    fun freshDoneNames(names: List<String>): String {
+        val list = when (names.size) {
+            0 -> "No other device"
+            1 -> names[0]
+            else -> names.dropLast(1).joinToString(", ") + " and " + names.last()
+        }
+        return "$list can't open your account any more."
+    }
+    fun freshDoneEmail(email: String?): String = "Someone may have signed in with a code sent to ${email ?: "your e-mail"}: change that e-mail's password."
+    const val FRESH_DONE_START = "To read sealed conversations here again, start fresh on this device."
+    const val FRESH_DONE_SHOW_HOW = "Show how"
+    const val FRESH_DONE_OK = "Done"
     const val FRESH_ALREADY_ALLOWED = "This device was just allowed: its key is on the way. No need to start fresh."
 }

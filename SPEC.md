@@ -2293,10 +2293,15 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   device out of my existing chain, my chain read complete on this connection. A new letterbox, a
   root n = 1 (this device), the anchor replaced; the old chain's letterboxes stay mine. A device of
   the old chain, allowed in again, hands its old key chain to the device that let it in, once.
-- An old device after a fresh start elsewhere (the lead, 0.7.7): a dialog over any screen, kept
-  across restarts until answered: "Sealed conversations were started fresh on <device> at <time>.
-  If this wasn't you, sign out every other device." Sign out every other device (every session but
-  this one, /me/sessions/revoke) then asks to be allowed again; It was me closes it. Texts until the
-  canvas board arrives are the lead's.
+- An old device after a fresh start elsewhere (canvas v122 messages/encryption-fresh-elsewhere +
+  -done, approved by the lead): a dialog over any screen, back at every start until a button is
+  tapped (no Cancel, no tap-outside): "Sealed conversations were started fresh on “<device>”",
+  "Today at 9:41 PM", "This device can't read new sealed messages until it's allowed again.",
+  **"If this wasn't you, sign out every other device."** Sign out every other device (red; every
+  session but this one, /me/sessions/revoke; a failure: "Couldn't sign out every device. Try again.")
+  → "Every other device is signed out", "<names> can't open your account any more.", the e-mail
+  line, "To read sealed conversations here again, start fresh on this device." Show how / Done.
+  It was me closes it (the locked state and the ask, as before). The device name is the session
+  row's (the new root's device), else "another device"; Android keeps no e-mail: "your e-mail".
 - **Known limit:** a second fresh start forgets the first chain (only the previous pinned chain is
   remembered), so devices of the first chain can no longer hand their keys back.

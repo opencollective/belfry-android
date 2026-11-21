@@ -625,53 +625,80 @@ fun OnlyDeviceDialog(how: SealedText.Leaving, onLink: () -> Unit, onAnyway: susp
 
 /**
  * An old device of mine, still signed in, after my sealed conversations were started fresh on another
- * device (the lead, 0.7.7): never quiet, since it is also what someone who got into the account would
- * do. Over any screen, like the Allow prompt, until answered.
+ * device (canvas v122 messages/encryption-fresh-elsewhere + -done, approved by the lead): never quiet,
+ * since it is also what someone who got into the account would do. A Material dialog over any screen,
+ * back at every start until a button is tapped; no Cancel, no tap-outside.
  */
 @Composable
 fun FreshElsewhereHost() {
     val session = LocalSession.current
+    val nav = LocalNav.current
     val st by session.encryption.state.collectAsState()
-    val f = st.freshElsewhere
-    var done by remember { mutableStateOf(false) }
-    if (done) {
-        AlertDialog(
-            onDismissRequest = { done = false },
-            text = { Text(SealedText.FRESH_ELSEWHERE_DONE, fontSize = 15.sp, lineHeight = 21.sp, color = Belfry.colors.text, modifier = Modifier.testTag("seal-fresh-elsewhere-done")) },
-            confirmButton = { BusyButton("OK", onClick = { done = false }, small = true) },
-            containerColor = Belfry.colors.bg,
-        )
+    var done by remember { mutableStateOf<List<String>?>(null) }
+    val d = done
+    if (d != null) {
+        FreshDoneDialog(d, onShowHow = { done = null; nav.go(Routes.UNLOCK_STEPS) }, onDone = { done = null })
         return
     }
-    if (f == null) return
-    FreshElsewhereDialog(f, LocalWorld.current.ctx.zone, onSignOut = { session.encryption.signOutOthers(); done = true }, onMine = { session.encryption.freshElsewhereMine() })
+    val f = st.freshElsewhere ?: return
+    FreshElsewhereDialog(f, session.now(), LocalWorld.current.ctx.zone, onSignOut = { done = session.encryption.signOutOthers() }, onMine = { session.encryption.freshElsewhereMine() })
 }
 
 @Composable
-fun FreshElsewhereDialog(f: sh.belfry.core.model.FreshElsewhere, zone: java.time.ZoneId, onSignOut: suspend () -> Unit, onMine: () -> Unit) {
+fun FreshElsewhereDialog(f: sh.belfry.core.model.FreshElsewhere, now: Long, zone: java.time.ZoneId, onSignOut: suspend () -> Unit, onMine: () -> Unit) {
     val c = Belfry.colors
     val busy = rememberBusy()
     var error by remember { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = {}, // answered, not dismissed
-        title = { Text(SealedText.FRESH_ELSEWHERE_TITLE, modifier = Modifier.testTag("seal-fresh-elsewhere")) },
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        title = {
+            Column(Modifier.testTag("seal-fresh-elsewhere")) {
+                Text(SealedText.freshElsewhereTitle(f.device))
+                Text(SealedText.freshElsewhereWhen(f.at, now, zone), fontSize = 14.sp, color = c.muted, modifier = Modifier.padding(top = 4.dp))
+            }
+        },
         text = {
             Column {
-                Text(SealedText.freshElsewhereText(f.device, f.at, zone), fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
-                if (error != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(error!!, fontSize = 14.sp, color = c.danger, modifier = Modifier.testTag("seal-fresh-elsewhere-error"))
-                }
+                Text(SealedText.FRESH_ELSEWHERE_BODY, fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
+                Spacer(Modifier.height(8.dp))
+                Text(SealedText.FRESH_ELSEWHERE_BOLD, fontSize = 15.sp, lineHeight = 21.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             }
         },
         confirmButton = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BusyButton(
                     SealedText.FRESH_ELSEWHERE_SIGN_OUT,
-                    onClick = { error = null; try { onSignOut() } catch (e: sh.belfry.core.engine.ActionException) { error = e.message } },
+                    onClick = { error = null; try { onSignOut() } catch (e: sh.belfry.core.engine.ActionException) { error = SealedText.FRESH_ELSEWHERE_FAILED } },
                     modifier = Modifier.fillMaxWidth().testTag("seal-fresh-elsewhere-signout"), kind = ButtonKind.Danger, busy = busy,
                 )
+                if (error != null) Text(error!!, fontSize = 14.sp, color = c.danger, modifier = Modifier.testTag("seal-fresh-elsewhere-error"))
                 BusyButton(SealedText.FRESH_ELSEWHERE_ME, onClick = { onMine() }, modifier = Modifier.fillMaxWidth().testTag("seal-fresh-elsewhere-me"), kind = ButtonKind.Ghost, enabled = !busy.busy)
+            }
+        },
+        containerColor = c.bg,
+    )
+}
+
+/** canvas v122 messages/encryption-fresh-elsewhere-done: the same dialog, replaced. */
+@Composable
+fun FreshDoneDialog(names: List<String>, onShowHow: () -> Unit, onDone: () -> Unit, email: String? = null) {
+    val c = Belfry.colors
+    AlertDialog(
+        onDismissRequest = {},
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+        title = { Text(SealedText.FRESH_DONE_TITLE, modifier = Modifier.testTag("seal-fresh-elsewhere-done")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(SealedText.freshDoneNames(names), fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
+                Text(SealedText.freshDoneEmail(email), fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
+                Text(SealedText.FRESH_DONE_START, fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
+            }
+        },
+        confirmButton = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BusyButton(SealedText.FRESH_DONE_SHOW_HOW, onClick = { onShowHow() }, modifier = Modifier.fillMaxWidth().testTag("seal-fresh-done-show-how"), kind = ButtonKind.Primary)
+                BusyButton(SealedText.FRESH_DONE_OK, onClick = { onDone() }, modifier = Modifier.fillMaxWidth().testTag("seal-fresh-done-ok"), kind = ButtonKind.Ghost)
             }
         },
         containerColor = c.bg,

@@ -214,26 +214,26 @@ class EncryptionService internal constructor(private val s: Session) {
 
     /**
      * The old-device notice's button: every session of mine but this one signed out (/me/sessions/revoke),
-     * then this device asks to be allowed again. Returns how many were signed out. Throws with a sentence.
+     * then this device asks to be allowed again. Returns the names of the devices signed out. Throws with a sentence.
      */
-    suspend fun signOutOthers(): Int {
+    suspend fun signOutOthers(): List<String> {
         s.checkWrite()
-        if (demo) { delay(400); _state.value = _state.value.copy(freshElsewhere = null); return 2 }
+        if (demo) { delay(400); _state.value = _state.value.copy(freshElsewhere = null); return listOf("Firefox on Windows", "Safari on Mac") }
         val rows = try { s.sessions() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) {
             throw ActionException("failed", "The list of devices could not be read. Try again.")
         }
-        var n = 0
+        val names = ArrayList<String>()
         var failed = 0
         for (r in rows) {
             if (s.isThisSession(r)) continue
-            try { s.revokeSession(r.bunkerPubkey); n++ } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { failed++ }
+            try { s.revokeSession(r.bunkerPubkey); names.add(r.device?.takeIf { it.isNotBlank() } ?: r.applicationName) } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { failed++ }
         }
-        if (failed > 0) throw ActionException("failed", "$failed ${if (failed == 1) "device was" else "devices were"} not signed out. Try again.")
+        if (failed > 0) throw ActionException("failed", SealedText.FRESH_ELSEWHERE_FAILED)
         val e = s.sealed
         e?.freshElsewhereSeen()
         try { e?.askAgain(s.linkSecret, force = true) } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
         refresh()
-        return n
+        return names
     }
 
     /** "It was me": the notice goes; this device asks to be allowed as before. */

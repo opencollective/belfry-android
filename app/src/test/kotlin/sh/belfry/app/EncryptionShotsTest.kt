@@ -358,8 +358,10 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoFreshElsewhere()
         demoScreenShot("encryption-fresh-elsewhere") { MessagesScreen(); sh.belfry.app.ui.people.FreshElsewhereHost() }
         compose.onNodeWithTag("seal-fresh-elsewhere").assertExists()
-        compose.onNodeWithText("Sealed conversations were started fresh on Firefox on Linux at", substring = true).assertExists()
-        compose.onNodeWithText("If this wasn't you, sign out every other device.", substring = true).assertExists()
+        compose.onNodeWithText("Sealed conversations were started fresh on \u201cFirefox on Linux\u201d").assertExists()
+        compose.onNodeWithText("Today at", substring = true).assertExists()
+        compose.onNodeWithText("This device can't read new sealed messages until it's allowed again.").assertExists()
+        compose.onNodeWithText("If this wasn't you, sign out every other device.").assertExists()
         compose.onNodeWithTag("seal-fresh-elsewhere-me").assertExists()
     }
 
@@ -371,5 +373,9 @@ class EncryptionShotsTest : DemoShots() {
             compose.waitForIdle()
         }) { MessagesScreen(); sh.belfry.app.ui.people.FreshElsewhereHost() }
         compose.onNodeWithTag("seal-fresh-elsewhere-done").assertExists()
+        compose.onNodeWithText("Firefox on Windows and Safari on Mac can't open your account any more.").assertExists()
+        compose.onNodeWithText("To read sealed conversations here again, start fresh on this device.").assertExists()
+        compose.onNodeWithTag("seal-fresh-done-show-how").performClick()
+        assertTrue(nav.went.contains(sh.belfry.app.ui.nav.Routes.UNLOCK_STEPS))
     }
 }
