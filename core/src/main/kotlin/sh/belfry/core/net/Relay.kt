@@ -146,6 +146,7 @@ class Relay(
                 authEventId = null
                 _state.value = RelayState.CONNECTING
                 socket = client.newWebSocket(Request.Builder().url(url).build(), Listener())
+                socketsMade++
                 d
             }
         }
@@ -279,11 +280,17 @@ class Relay(
         return Waiters(w, boxes, was)
     }
 
+    /** Drops seen: (handled, ignored as not the current socket, handled while not yet open). Tests print them. */
+    internal val dropCounts = IntArray(3)
+    /** Sockets opened by this client. */
+    @Volatile internal var socketsMade = 0
+
     private fun dropped(ws: WebSocket) {
         val w = synchronized(lock) {
-            if (socket !== ws) return
+            if (socket !== ws) { dropCounts[1]++; return }
             detach()
         }
+        if (w.wasOpen) dropCounts[0]++ else dropCounts[2]++
         w.list.forEach { it.completeExceptionally(RelayException("connection closed")) }
         w.boxes.forEach { it.done.complete(Unit) }
         _state.value = RelayState.DOWN

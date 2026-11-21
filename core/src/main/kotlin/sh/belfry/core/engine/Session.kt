@@ -441,6 +441,8 @@ class Session(
     private val groupsRelay: Relay? = if (localOnly) null else Relay(community.groupsRelay, http, scope)
     private val mainRelay: Relay? = if (localOnly) null else Relay(community.mainRelay, http, scope)
     private fun relay(t: Target): Relay? = if (t == Target.GROUPS) groupsRelay else mainRelay
+    /** Tests: what the main relay's client saw (drops handled / ignored / before open, sockets made). */
+    internal val mainRelayStats: String get() = mainRelay?.let { "drops ${it.dropCounts.toList()}, sockets ${it.socketsMade}, up ${it.isUp}" } ?: "none"
 
     private sealed interface Incoming {
         class Ev(val e: Event) : Incoming
