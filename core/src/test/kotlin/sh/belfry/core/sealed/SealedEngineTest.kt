@@ -354,4 +354,63 @@ class SealedEngineTest {
         val anchor = relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
         assertEquals(anchor.tag("root"), anchor.tag("head"), "the anchor still names the root: the change isn't done")
     }
+
+    /** c233eec §5.5: a device of the head without the head's secret asks again; a head device answers at once. */
+    @Test fun lostHandover() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        phone.allow(aliceLaptop.pubkey)
+        relay.events.removeAll { it.kind == 1059 && it.tag("p") == aliceLaptop.pubkey } // the hand-over is lost
+        val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
+        assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
+        val req = relay.events.last { it.kind == Sealing.REQUEST }
+        assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(req), "no prompt for a device already in the head")
+        relay.to(aliceLaptop.pubkey).forEach { laptop.onDeviceWrap(it) }
+        assertEquals(SealedEngine.Mine.IN_HEAD, laptop.mine)
+    }
+
+    /** c233eec §5.6: when the session list can't be read, a rotation does nothing. */
+    @Test fun noRotationWithoutSessions() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val head = phone.refresh(alice.pubkey)!!.head.id
+        server.odd = true
+        kotlin.test.assertFailsWith<SealedEngine.NotDone> { phone.remove(aliceLaptop.pubkey, revoke = false) }
+        server.odd = false
+        assertEquals(head, phone.refresh(alice.pubkey)!!.head.id)
+    }
+
+    /** c233eec §3.2: a roster of mine past the anchored end is anchored at the next upkeep (and start). */
+    @Test fun ownTailAnchored() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val chain = phone.refresh(alice.pubkey)!!
+        val r = alicePhone.signNow(Roster.template(alice.pubkey, chain.head.n + 1, chain.head.id, chain.head.lb, chain.devices, true, now))
+        relay.add(r) // published, its anchor lost
+        phone.upkeep()
+        val anchor = relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
+        assertEquals(r.id, anchor.tag("head"))
+    }
+
+    /** c233eec: a refused first roster reuses one key and stops trying. */
+    @Test fun refusedFirstRoster() = runBlocking<Unit> {
+        relay.refusing.add(Roster.KIND)
+        val phone = engine(alice, alicePhone)
+        phone.start("Pixel 8", "phone")
+        assertTrue(phone.firstRefused)
+        phone.start("Pixel 8", "phone")
+        assertEquals(1, phone.keys.size, "one pending key, not a new one per try")
+        relay.refusing.clear()
+    }
+
+    /** c233eec: knowledge is cleared when the connection drops. */
+    @Test fun knowledgeClearedOnDrop() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone"); phone.checkReady()
+        val carol = LocalSigner.random().pubkey
+        assertEquals(SealedEngine.Plan.OldWay, phone.plan(conv(alice.pubkey, carol), listOf(carol)))
+        phone.connectionLost()
+        relay.silent = true
+        assertEquals(SealedEngine.Plan.Hold, phone.plan(conv(alice.pubkey, carol), listOf(carol)))
+        relay.silent = false
+    }
 }

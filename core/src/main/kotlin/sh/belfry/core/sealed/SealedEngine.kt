@@ -121,13 +121,22 @@ class SealedEngine(
             known[account] = Known(null, clock())
         }
         when {
-            chain != null && device.pubkey in chain.devices -> mine = Mine.IN_HEAD
+            // in the head but without its letterbox's secret (a lost hand-over): ask too (c233eec, §5.5)
+            chain != null && device.pubkey in chain.devices && keys.secretFor(chain.head.lb) == null -> {
+                mine = Mine.WAITING
+                ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+            }
+            chain != null && device.pubkey in chain.devices -> {
+                mine = Mine.IN_HEAD
+                anchorOwnTail(chain)
+            }
             chain != null -> {
                 mine = Mine.WAITING
                 ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
             }
-            complete && Anchor.root(a.events, account) == null && !guest -> {
-                val (lbPub, lbSecret) = KeyChain.newLetterbox()
+            complete && Anchor.root(a.events, account) == null && !guest && !firstRefused -> {
+                // one pending key, reused on every try (no orphan keys; c233eec)
+                val (lbPub, lbSecret) = pendingFirst ?: KeyChain.newLetterbox().also { pendingFirst = it }
                 val root = device.signNow(Roster.template(account, 1, null, lbPub, listOf(device.pubkey), false, clock()))
                 // two devices at once: if an anchor appeared meanwhile, drop mine and ask
                 val again = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
@@ -137,8 +146,13 @@ class SealedEngine(
                 } else {
                     keys.add(lbPub, lbSecret); saveKeys()
                     val anchor = ports.signAsAccount(Anchor.template(root.id, root.id, clock()))
-                    ports.publish(root)
-                    ports.publish(anchor)
+                    if (!ports.publish(root) || !ports.publish(anchor)) {
+                        // refused: stop trying (the relay said no; not every few minutes)
+                        firstRefused = true
+                        mine = Mine.UNKNOWN
+                        return@withLock
+                    }
+                    pendingFirst = null
                     ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock())))
                     mine = Mine.IN_HEAD
                     known[account] = Known(Chain.of(account, listOf(anchor), listOf(root)), clock())
@@ -150,6 +164,35 @@ class SealedEngine(
     }
 
     private fun saveKeys() = ports.saveKeys(keys.toMap())
+
+    private var pendingFirst: Pair<String, String>? = null
+    /** The relay refused my first roster: don't try again in this run. */
+    var firstRefused = false
+        private set
+
+    /**
+     * A roster of mine past the anchored end (published, its anchor lost): anchored now (§3.2,
+     * c233eec), at start and at each upkeep. Lock held by the caller.
+     */
+    private suspend fun anchorOwnTail(chain: Chain) {
+        val anchored = anchoredHead() ?: return
+        if (chain.head.id == anchored || chain.head.signer != device.pubkey) return
+        if (chain.rosters.none { it.id == anchored }) return
+        val anchor = try { ports.signAsAccount(Anchor.template(chain.root.id, chain.head.id, clock())) } catch (e: Exception) { return }
+        ports.publish(anchor)
+    }
+
+    /** The 6-hour upkeep: gone sessions, ready, my own unanchored roster. */
+    suspend fun upkeep() {
+        lock.withLock { refresh(account)?.let { anchorOwnTail(it) } }
+        checkSessions()
+        checkReady()
+    }
+
+    /** The connection dropped: what the relay said no longer counts as knowledge (c233eec). */
+    fun connectionLost() {
+        for ((k, v) in known.entries.toList()) known[k] = Known(v.chain, null)
+    }
 
     /**
      * Roster n+1 after HEAD (lock held by the caller): signed here, the anchor naming it signed by
@@ -200,9 +243,15 @@ class SealedEngine(
     suspend fun onRequest(req: Event): OnRequest {
         val (dev, acc) = Sealing.readRequest(req) ?: return OnRequest.Ignore
         if (acc != account || mine != Mine.IN_HEAD) return OnRequest.Ignore
-        if (chainOf(account)?.devices?.contains(dev) == true) return OnRequest.Ignore
         val sessions = ports.sessions() ?: return OnRequest.Ignore
         val row = sessions.firstOrNull { it.clientPubkey == dev && it.chat } ?: return OnRequest.Ignore
+        val head = chainOf(account)
+        if (head != null && dev in head.devices) {
+            // a device of the head that lost its hand-over: the keys at once, no prompt (§5.5, c233eec)
+            if (keys.secretFor(head.head.lb) == null) return OnRequest.Ignore
+            Sealing.keysFor(device, account, dev, keys, clock()).forEach { ports.publish(it) }
+            return OnRequest.Allowed
+        }
         val now = clock()
         val live = linkSecrets.filterValues { now - it <= 15 * 60 }.keys
         if (Sealing.linkMatches(req, live)) { allow(dev); return OnRequest.Allowed }
@@ -248,7 +297,8 @@ class SealedEngine(
         if (dev !in chain.devices) return@withLock
         // a user's removal revokes the session FIRST and changes nothing when that fails (294c94f)
         if (revoke) ports.revoke(dev)
-        val live = ports.sessions()?.mapNotNull { it.clientPubkey }?.toSet() ?: emptySet()
+        // the session list can't be read: no rotation (never a letterbox handed to nobody; §5.6, c233eec)
+        val live = ports.sessions()?.mapNotNull { it.clientPubkey }?.toSet() ?: throw NotDone()
         var cur = chain
         repeat(3) {
             if (dev !in cur.devices) return@withLock
