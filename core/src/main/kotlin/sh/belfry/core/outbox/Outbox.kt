@@ -57,14 +57,42 @@ object Outbox {
         item.status == OutboxStatus.FAILED -> "Not sent"
         // the relay is connected: a send that is tried again says so (web 2026-11-11)
         item.tries > 0 && connected -> "Sending again…"
-        item.tries > 0 -> "Waiting for connection…"
+        item.tries > 0 -> "Waiting for the connection…"
         else -> "Sending…"
     }
 
     /**
+     * Which items keep their order among themselves (SPEC 19.50): a direct message's wraps by whom
+     * they go to, a group's events and API calls by the group (`h`), anything else by its kind
+     * (and `d`). A retrying item holds back only its own lane, so a message never waits behind a
+     * read marker or a settings call.
+     */
+    fun lane(item: OutboxItem): String {
+        if (item.dm != null) return "dm:" + (item.signed?.tag("p") ?: item.dm)
+        val h = item.tags.firstOrNull { it.size >= 2 && it[0] == "h" }?.get(1)
+        if (h != null) return "h:$h"
+        val d = item.tags.firstOrNull { it.size >= 2 && it[0] == "d" }?.get(1)
+        return "k:${item.kind}" + (d?.let { ":$it" } ?: "")
+    }
+
+    /** After this many transient failures an item holds back only its own lane, never its whole relay. */
+    const val STALLS_RELAY_UNTIL = 3
+
+    /** The signer did not answer: nothing else that needs a signature goes in this pass. */
+    fun signerDown(message: String): Boolean = message.startsWith("timeout: the signer")
+
+    /** The relay (or the API) did not answer or is not reachable: its other items would wait the same. */
+    fun connectionDown(message: String): Boolean = message.startsWith("timeout:") || message == "connection closed"
+
+    /**
      * One flush pass over [items]. [send] signs (unless pre-signed), uploads and publishes one
-     * item and says how it went. Items are walked by created_at; failed ones are skipped; after a
-     * retryable error the item's target is stalled for the rest of the pass (order kept per relay).
+     * item and says how it went. Items are walked by created_at; failed ones are skipped. After a
+     * retryable error (SPEC 5, 19.50):
+     * - the item's lane ([lane]) waits for the rest of the pass (order kept within it);
+     * - a signer that did not answer holds back every item that still needs signing;
+     * - a relay that did not answer holds back its other items, unless the item failed
+     *   [STALLS_RELAY_UNTIL] times already (then it stops holding back the others), and never a
+     *   direct message for another item's sake.
      */
     suspend fun run(items: List<OutboxItem>, send: suspend (OutboxItem) -> SendOutcome): PassResult {
         val box = items.toMutableList()
@@ -72,12 +100,21 @@ object Outbox {
         val sent = ArrayList<Sent>()
         val failed = ArrayList<OutboxItem>()
         val stalled = HashSet<Target>()
+        val lanes = HashSet<String>()
+        val relayDown = HashSet<Target>() // by a direct message: holds back everything on that relay
+        val relayDownForOthers = HashSet<Target>() // by anything else: direct messages still go
+        var signerOut = false
         fun replace(next: OutboxItem) {
             val i = box.indexOfFirst { it.localId == next.localId }
             if (i >= 0) box[i] = next
         }
         for (item in items.sortedBy { it.createdAt }) {
-            if (item.status == OutboxStatus.FAILED || item.target in stalled) continue
+            if (item.status == OutboxStatus.FAILED) continue
+            val lane = item.target.key + "/" + lane(item)
+            val isDm = item.dm != null
+            val held = lane in lanes || item.target in relayDown || (!isDm && item.target in relayDownForOthers) ||
+                (signerOut && item.signed == null)
+            if (held) { stalled.add(item.target); continue }
             attempted.add(item.localId)
             when (val outcome = send(item)) {
                 is SendOutcome.Ok -> {
@@ -97,6 +134,12 @@ object Outbox {
                     ErrorClass.RETRY -> {
                         replace(item.copy(tries = item.tries + 1, status = OutboxStatus.QUEUED, error = outcome.message))
                         stalled.add(item.target)
+                        lanes.add(lane)
+                        when {
+                            signerDown(outcome.message) -> signerOut = true
+                            connectionDown(outcome.message) && item.tries < STALLS_RELAY_UNTIL ->
+                                if (isDm) relayDown.add(item.target) else relayDownForOthers.add(item.target)
+                        }
                     }
                 }
             }
@@ -124,6 +167,6 @@ data class PassResult(
     val failed: List<OutboxItem>,
     /** What is left in the outbox, in the order given. */
     val items: List<OutboxItem>,
-    /** Relays that stalled: when not empty, do not run again at once. */
+    /** Relays with an item left to try again (it failed for now, or waited behind one that did): when not empty, run again soon, not at once. */
     val stalled: Set<Target>,
 )

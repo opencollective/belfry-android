@@ -192,8 +192,12 @@ object Actions {
         return Draft(Target.GROUPS, 30078, content, listOf(listOf("d", World.WEB_D + groupId), listOf("h", groupId), listOf("t", "belfry-web")))
     }
 
+    /**
+     * The shared inbox switch: d = `belfry:inbox:<channel>` + h (docs/mail.md @73a414f). Never the
+     * old d `belfry:inbox` alone: one admin's setting for a channel replaced theirs for every other.
+     */
     fun setInbox(groupId: String, on: Boolean): Draft =
-        Draft(Target.GROUPS, 30078, "{\"on\":$on}", listOf(listOf("d", World.INBOX_D), listOf("h", groupId)))
+        Draft(Target.GROUPS, 30078, "{\"on\":$on}", listOf(listOf("d", World.inboxD(groupId)), listOf("h", groupId)))
 
     /** Close or reopen an e-mail card. */
     fun setCardStatus(groupId: String, card: String, closed: Boolean): Draft =
@@ -390,9 +394,9 @@ object Actions {
 
     // ---- my profile ----
 
-    /** My tags and place (kind 30078, d = belfry:profile, on the community relay). */
-    fun saveExtras(tags: List<String>, share: Share, place: Place?): Draft =
-        Draft(Target.MAIN, 30078, People.extrasContent(tags, share, place), listOf(listOf("d", World.PROFILE_D)))
+    /** My tags and place (kind 30078, d = belfry:profile), the other keys of [current] (World.myExtrasJson) kept. */
+    fun saveExtras(tags: List<String>, share: Share, place: Place?, current: JsonObject = JsonObject(emptyMap())): Draft =
+        Draft(Target.MAIN, 30078, People.extrasContent(tags, share, place, current), listOf(listOf("d", World.PROFILE_D)))
 
     /** Name and about in my kind 0, the rest of it ([current], see World.myProfileJson) kept. */
     fun saveProfile(current: JsonObject, name: String, about: String, nip05: String? = null, picture: String? = null): Draft {

@@ -104,7 +104,7 @@ fun ThreadScreen(
             Box(Modifier.weight(1f)) { EmptyState("This message is gone", text = "It was deleted, or it has not reached this device yet.") }
             return@Column
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(vertical = 8.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + TYPING_ROOM)) {
             item(key = "root") { MessageRow(groupId, root, true, chat, announcement = world.isAnnouncement(root, g)) }
             item(key = "sep") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -131,6 +131,10 @@ fun ThreadScreen(
                 }
             }
         }
+        // canvas v110 messages/typing-thread: only typing events whose e is this root
+        val lastReply = remember(replies) { HashMap<String, Long>().also { m -> for (r in replies) if (r.at > (m[r.pubkey] ?: 0L)) m[r.pubkey] = r.at } }
+        WatchTyping(groupId)
+        TypingLine(sh.belfry.core.typing.TypingPlace.thread(groupId, rootId)) { lastReply[it] ?: 0L }
         val reading = session.guest.collectAsState().value?.reading == true
         if (reading) sh.belfry.app.ui.people.GuestBar(groupId)
         if (!reading) Hairline()
@@ -153,6 +157,7 @@ fun ThreadScreen(
             photos = editing == null,
             groupId = groupId,
             onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
+            typingPlace = sh.belfry.core.typing.TypingPlace.thread(groupId, rootId),
         )
     }
     val startEdit: (Message) -> Unit = { m ->

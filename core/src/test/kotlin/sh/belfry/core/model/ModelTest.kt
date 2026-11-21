@@ -6,6 +6,9 @@ import sh.belfry.core.outbox.OutboxItem
 import sh.belfry.core.outbox.OutboxStatus
 import sh.belfry.core.outbox.Target
 import java.time.ZoneId
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -192,6 +195,28 @@ class ModelTest {
         assertEquals(Target.MAIN, d.target)
     }
 
+    /** Saving tags / place keeps what the server and website put there (headline, links…). Lead, 2026-11-21. */
+    @Test
+    fun myProfileExtrasKeepOthersKeys() {
+        val links = "[{\"url\":\"https://example.org/a\",\"label\":\"Site\"}]"
+        val older = ev(alice, t0 - 10, 30078, "{\"headline\":\"old\"}", t("d", "belfry:profile"))
+        val mine = ev(alice, t0, 30078, "{\"tags\":[\"bikes\"],\"share\":\"city\",\"place\":{\"country\":\"BE\",\"name\":\"Gent\"},\"headline\":\"Gardener\",\"links\":$links,\"future\":{\"n\":1}}", t("d", "belfry:profile"))
+        val bobs = ev(bob, t0 + 5, 30078, "{\"headline\":\"Not mine\"}", t("d", "belfry:profile"))
+        val other = ev(alice, t0 + 5, 30078, "{\"headline\":\"Not this d\"}", t("d", "belfry:other"))
+        val w = world(listOf(older, mine, bobs, other))
+        assertEquals("Gardener", (w.myExtrasJson["headline"] as JsonPrimitive).content)
+        val d = Actions.saveExtras(listOf("Solar Power"), Share.NONE, Place("BE", name = "Gent"), w.myExtrasJson)
+        val out = Json.parseToJsonElement(d.content) as JsonObject
+        assertEquals(setOf("headline", "links", "future", "tags", "share"), out.keys) // place: mine, not shared now
+        assertEquals("\"Gardener\"", out["headline"].toString())
+        assertEquals(links, out["links"].toString())
+        assertEquals("{\"n\":1}", out["future"].toString())
+        assertEquals("[\"solar-power\"]", out["tags"].toString())
+        assertEquals("\"none\"", out["share"].toString())
+        // nothing published yet: the same content as before
+        assertEquals(JsonObject(emptyMap()), world(emptyList()).myExtrasJson)
+    }
+
     @Test
     fun calendarProposalsDropLinksTopics() {
         val create = ev(alice, t0 - 100, 9007, "", t("h", "general"))
@@ -253,6 +278,39 @@ class ModelTest {
         val on = Actions.setInbox("general", true)
         assertTrue(world(listOf(create, ev(alice, t0, on.kind, on.content, *on.tags.toTypedArray()))).isInbox(world(listOf(create)).group("general")))
         assertFalse(world(listOf(create, ev(bob, t0, on.kind, on.content, *on.tags.toTypedArray()))).isInbox(world(listOf(create)).group("general")))
+    }
+
+    /** docs/mail.md @73a414f: one admin, two channels: each channel keeps its own switch (OSV's #hello). */
+    @Test
+    fun inboxSettingPerChannel() {
+        val hello = ev(alice, t0 - 100, 9007, "", t("h", "hello"))
+        val sponsors = ev(alice, t0 - 99, 9007, "", t("h", "sponsors"))
+        val onHello = Actions.setInbox("hello", true)
+        assertEquals(listOf(t("d", "belfry:inbox:hello"), t("h", "hello")), onHello.tags)
+        val onSponsors = Actions.setInbox("sponsors", true)
+        val offSponsors = Actions.setInbox("sponsors", false)
+        val w = world(listOf(hello, sponsors, ev(alice, t0, 30078, onHello.content, *onHello.tags.toTypedArray()), ev(alice, t0 + 5, 30078, onSponsors.content, *onSponsors.tags.toTypedArray())))
+        assertTrue(w.isInbox(w.group("hello")))
+        assertTrue(w.isInbox(w.group("sponsors")))
+        // turning one off leaves the other on
+        val w2 = world(listOf(hello, sponsors, ev(alice, t0, 30078, onHello.content, *onHello.tags.toTypedArray()), ev(alice, t0 + 9, 30078, offSponsors.content, *offSponsors.tags.toTypedArray())))
+        assertTrue(w2.isInbox(w2.group("hello")))
+        assertFalse(w2.isInbox(w2.group("sponsors")))
+        // the old d is still read for the channel in its h; the latest of old and new wins
+        val old = ev(alice, t0, 30078, "{\"on\":true}", t("d", "belfry:inbox"), t("h", "hello"))
+        val w3 = world(listOf(hello, sponsors, old))
+        assertTrue(w3.isInbox(w3.group("hello")))
+        assertFalse(w3.isInbox(w3.group("sponsors")))
+        val newer = ev(alice, t0 + 1, 30078, "{\"on\":false}", *Actions.setInbox("hello", false).tags.toTypedArray())
+        val w4 = world(listOf(hello, sponsors, old, newer))
+        assertFalse(w4.isInbox(w4.group("hello")))
+        // a new d naming another channel than its h counts for neither; a non-admin's never
+        val crossed = ev(alice, t0 + 2, 30078, "{\"on\":true}", t("d", "belfry:inbox:sponsors"), t("h", "hello"))
+        val w5 = world(listOf(hello, sponsors, crossed))
+        assertFalse(w5.isInbox(w5.group("hello")))
+        assertFalse(w5.isInbox(w5.group("sponsors")))
+        val w6 = world(listOf(hello, ev(bob, t0, 30078, onHello.content, *onHello.tags.toTypedArray())))
+        assertFalse(w6.isInbox(w6.group("hello")))
     }
 
     @Test

@@ -115,7 +115,7 @@ Connection rules:
 - NIP-42: when a relay sends `["AUTH", challenge]`, sign kind 22242 with tags
   `[["relay", url], ["challenge", c]]` and send `["AUTH", event]`; after `["OK", id, true]`
   re-send the subscriptions. A publish answered `auth-required:` → authenticate, publish once more.
-- Reconnect with backoff `min(30 s, 0.8 s × 2^attempt)`; reset attempts on wake-ups.
+- Reconnect with backoff `min(30 s, 0.8 s × 2^attempt)`; reset attempts on wake-ups. (Android since 19.50: 1 s, 2 s, 4 s, 8 s, 16 s, then 30 s; dead sockets: 19.50.)
 - Wake-ups: network back online, app back in the foreground, a **15 s watchdog** while signed
   in (reconnect closed relays; flush if anything is queued). Going offline drops the sockets.
 
@@ -165,6 +165,7 @@ Every write is saved locally **before** anything goes on the network, and shows 
   - Anything else (timeouts, `auth-required:`, `rate-limited:`, no connection, upload errors) →
     stays `queued`, `tries+1`, and its target is stalled for this pass (order kept per relay;
     other relays continue).
+    (Android since 19.50: only its lane waits, see there.)
 - Flush runs on: enqueue, relay connected, online, foreground, and every 15 s while something is
   queued. The outbox and its attachments MUST survive app restarts.
 - Pre-signed gift wraps (DMs, e-mail) go through the same outbox (`enqueueSigned`). A DM counts
@@ -370,8 +371,11 @@ belfry.json `admins` (64-hex only) or in `access.admins`. Unknown channel → fa
 `can-admin.json`.
 
 Admins see **Settings**: name and description (9002 with `name`, `about`), and the **shared
-inbox** switch: kind 30078 `[["d","belfry:inbox"],["h",id]]` content `{"on":true|false}`; the
-setting counts only from the channel's own admins (latest wins). With it on, anyone can e-mail
+inbox** switch: kind 30078 `[["d","belfry:inbox:<id>"],["h",id]]` content `{"on":true|false}`; the
+setting counts only from the channel's own admins (latest wins). Until 2026-11-21 the `d` was
+`belfry:inbox` alone, so one admin's switch for a channel replaced theirs for every other (a 30078
+is keyed on kind + author + `d`; OSV's #hello lost its inbox): readers take the new `d`, or the old
+`d` whose `h` is the channel, latest wins; writers write only the new `d` (docs/mail.md @73a414f). With it on, anyone can e-mail
 `<id>@<domain>`; otherwise members can, and their mail shows as their message.
 Announcements: admins may tag a message `["t","announcement"]` ("📣 Announcement", e-mailed to
 followers); the tag counts only from the channel's admins.
@@ -578,7 +582,10 @@ versions: there is no `/api/guest-sessions` any more.
 - One replaceable event per member on the **community relay** (members only):
   `[["d","belfry:profile"]]`, content JSON
   `{"tags":[…],"share":"city"|"country"|"none","place":{"id","name","region","country","lat","lon"}}`.
-  The newest per author counts.
+  The newest per author counts. Other keys may be there (the server and website write
+  `headline`, a string, and `links`, `[{url, label}]`): saving starts from my latest event's
+  parsed content and overwrites only `tags`, `share`, `place` (`place` removed when not shared);
+  every other key is kept as it is (lead, 2026-11-21; iOS told).
 - Tags: trimmed, lowercased, leading `#` removed, whitespace runs → `-`, only letters, digits,
   `_`, `-` kept, at most 32 characters each, deduplicated, at most 30.
 - `share`: anything but `country` / `none` reads as `city`. `none` → no place. `country` → only
@@ -1085,7 +1092,7 @@ Short, for the iPhone app to port; the web's code is the reference for each.
   after 2 s. A publish without an answer drops the socket. A stalled outbox retries after 1.5,
   3, 6, then every 12 s. A signer request without an answer is asked once more on a fresh
   connection (10 s each). A queued item that was tried says "Sending again…" while the groups
-  relay is connected, "Waiting for connection…" when it is not.
+  relay is connected, "Waiting for the connection…" when it is not.
 - **The line and the pull-down**: the line's fallback is "N members"; its counts are events,
   proposals, pods, photos, then to-dos (done/total). The pull-down starts with the first
   non-empty line of the description (Markdown marks removed, 200 characters).
@@ -2208,3 +2215,68 @@ Outside the demo nothing is sealed, so no lock shows anywhere and every action r
   current mode's, following the system live; no `colors` = the raw primary as before. Never the raw
   primary or secondary for text or icons when `colors` is there.
 
+### 19.50 One owner for every socket; a send never waits on a dead one (2026-11-21; Xavier via the lead, after DMs stuck on "Sending…" on iOS; the same on Android; first written here, belfry-ios told)
+
+What was wrong (both apps): the NIP-46 signer's socket lived on its own, was never asked whether
+it lived, and after a sleep looked open and was dead: each signer request waited its whole
+timeout (a direct message = 4 requests: two seals signed, two encryptions). The outbox stalled a
+whole relay behind its oldest retrying item, so a stuck read marker held back direct messages.
+Android also did nothing when the phone changed network while online (Wi-Fi to mobile).
+
+- **One manager** (`core/net/Connections.kt`) holds the session's sockets: groups, main AND the
+  signer's (`BunkerSigner.relay`, made once and opened again as needed). Nothing else opens a
+  socket for a session (sign-in flows before a session have their own signer, closed after).
+  Signer requests queue while its socket (re)connects.
+- **Foreground and every network change** (also a new network while online): every open socket is
+  asked at once (a tiny REQ; any frame counts as an answer); no answer within **5 s** = dead:
+  dropped and opened again now (backoff forgotten); then the signer is said hello to ahead of the
+  next send. In the foreground, a socket quiet for **25 s** is asked the same way. Before a send
+  (a publish, a signer request), a socket quiet for more than **10 s** is asked first.
+- A publish with no `OK` in time, or a signer request with no answer, **drops its socket** (the
+  next try goes on a fresh one; the signer's request is asked once more on it).
+- Reconnects and transient retries: **1 s, 2 s, 4 s, 8 s, 16 s, then every 30 s**.
+- **Lanes** (`Outbox.lane`): a direct message's wraps by recipient, a group's events and API calls
+  by `h`, anything else by kind (+ `d`); per relay. A transient error holds back its own lane for
+  the pass. A signer that did not answer holds back every item still to sign (pre-signed wraps
+  go). A relay that did not answer (`timeout:`, `connection closed`) holds back that relay's other
+  items, except: never a direct message for a non-DM item's sake, and not once the item failed
+  transiently **3** times (then only its lane). Order within a lane is kept. `vectors/outbox.json`
+  passes unchanged.
+- **The line under a message not out yet** (the same words on the three apps, the lead
+  2026-11-21; belfry-ios writes them in its SPEC): "Sending…"; after **5 s** "Still sending… ·
+  connecting" / "· encrypting" / "· uploading 2.2 of 4.8 MB" / "· waiting for the server" (a
+  signer's or a relay's answer pending: never say signer or relay to people); after **30 s** "Not
+  sent yet · Retry" (Retry: every socket asked now, the backoff forgotten, a fresh 30 s, a pass at
+  once). Offline: "Waiting for the connection…" (the three apps; the web "Saved · waiting for the connection"). Refused: "Not sent: <reason> · Retry" as before.
+  `SendState.shown` maps the trace's exact steps to these words; `rememberSendLine` (app).
+- **Send trace** (`SendTrace`): per attempt `HH:mm:ss <kind> · <step> 0.3s · … → OK|retry (<class>)|refused 1.2s`,
+  plus a line for a signer request of 1 s or more and for a socket dropped after a publish timeout;
+  the last 20, never any content, name or key. About Belfry → Diagnostics shows them under each
+  socket's state and quiet time, with Copy.
+- Later (server, not yet): the signer will listen on the community relay too; then the signer's
+  relay is taken from the bunker URL and the manager can share that socket.
+
+### 19.51 Typing indicators (2026-11-21; Xavier via the lead; contract collective-belfry docs/typing.md @7750419; canvas v110 messages/typing-*)
+
+- Kind 20100, empty content, ephemeral (never stored, never through the outbox, never retried).
+  Channels, groups, event chats, proposals: signed by the person, on the groups relay, `["h", group]`,
+  and `["e", root]` inside a thread. DMs: the 20100 is an unsigned rumor tagged `p` for every other
+  participant, sealed (13) and put in a kind 21059 gift wrap to each of them on the community relay,
+  wrap and seal with the real `created_at`; no copy to oneself; never for e-mail or notes to self.
+  Optional `["status","stop"]`.
+- Reading: the groups relay is asked `{"kinds":[20100],"#h":[groups on screen],"since":now-5}` while
+  a channel or thread of them shows; the community relay `{"kinds":[21059],"#p":[me],"since":now-5}`.
+  A conversation shows events without `e`; a thread only those whose `e` is its root. A DM's place is
+  the rumor's author + `p` tags, as for kind 14.
+- Sending: on a keystroke that leaves the field non-blank, at most every 4 s per place; never for a
+  restored draft or an edit; a stop when the field is emptied without sending and a typing event
+  went out in the last 6 s; none after sending. Not in archived groups, not from reading guests,
+  not when this device's "Show others when I'm typing" is off. The signer gets 3 s; a relay that
+  answers `rate-limited` gets none for 30 s.
+- Showing: from an event until 6 s after the latest, a stop, or a message of theirs in that place made
+  at or after it. Ignore events more than 10 s off, my own (any device), reading guests, people not
+  in a closed group. "Lina is typing…" / "Lina and Tom are typing…" / "Several people are typing…"
+  ("Somebody" with no profile), names semibold, three dots (still when animations are off), 13 sp in
+  the secondary colour, one line, drawn over the feed's bottom so the feed never moves; a polite
+  live region. A one-to-one DM's row in the list says "typing…" in place of its preview.
+- Setting: Me → Privacy → "Show others when I'm typing", per device, on by default.

@@ -40,4 +40,28 @@ class AppUpdateTest {
         assertEquals(h, AppUpdate.sha256Of("$h  belfry-0.4.3.apk\n"))
         assertNull(AppUpdate.sha256Of("nope"))
     }
+
+    @Test fun whatUpdateDoes() {
+        val now = 10 * 3_600_000L
+        assertEquals(InstallStep.INSTALL, AppUpdate.installStep(canInstall = true, hasSetting = true, askedAtMs = 0, nowMs = now))
+        assertEquals(InstallStep.INSTALL, AppUpdate.installStep(canInstall = true, hasSetting = false, askedAtMs = now - 1000, nowMs = now))
+        assertEquals(InstallStep.ASK, AppUpdate.installStep(canInstall = false, hasSetting = true, askedAtMs = 0, nowMs = now))
+        // back from the setting, still off: belfry.sh is offered first
+        assertEquals(InstallStep.ASK_AGAIN, AppUpdate.installStep(canInstall = false, hasSetting = true, askedAtMs = now - 60_000, nowMs = now))
+        // a trip long ago counts no more
+        assertEquals(InstallStep.ASK, AppUpdate.installStep(canInstall = false, hasSetting = true, askedAtMs = now - AppUpdate.ASKED_FOR_MS - 1, nowMs = now))
+        assertEquals(InstallStep.WEB, AppUpdate.installStep(canInstall = false, hasSetting = false, askedAtMs = 0, nowMs = now))
+        assertEquals("https://belfry.sh/android", AppUpdate.WEB)
+    }
+
+    @Test fun aPendingUpdateComesBackChecked() {
+        val r = AppUpdate.latest("[${release("v0.7.4")}]")!!
+        assertEquals(r, AppUpdate.pendingFrom(AppUpdate.pendingOf(r)))
+        assertEquals(r.copy(sha256Url = null), AppUpdate.pendingFrom(AppUpdate.pendingOf(r.copy(sha256Url = null))))
+        assertNull(AppUpdate.pendingFrom(null))
+        assertNull(AppUpdate.pendingFrom("0.7.4 https://evil.example/belfry-0.7.4.apk -"))
+        assertNull(AppUpdate.pendingFrom("0.7.4 ${r.apkUrl.replace("0.7.4.apk", "0.7.5.apk")} -"))
+        assertNull(AppUpdate.pendingFrom("0.7.4 ${r.apkUrl} https://evil.example/x.sha256"))
+        assertNull(AppUpdate.pendingFrom("garbage"))
+    }
 }

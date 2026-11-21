@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -280,5 +281,46 @@ class EncryptionShotsTest : DemoShots() {
         }
         compose.onNodeWithText("Not allowed yet: waiting for your other device").assertExists()
         compose.onNodeWithTag("seal-not-me").assertExists()
+    }
+
+    /** canvas v117 messages/encryption-only-device (+ -dark): my only device asks before Sign out. */
+    @Test fun onlyDeviceSignOut() {
+        session.encryption.demoOnlyDevice()
+        assertTrue(session.encryption.state.value.onlyDevice)
+        demoScreenShot("encryption-only-device", act = { compose.onNodeWithTag("me-signout").performScrollTo().performClick() }) { MeScreen() }
+        compose.onNodeWithTag("seal-only-device").assertExists()
+        compose.onNodeWithText("This is your only device for sealed conversations").assertExists()
+        compose.onNodeWithText("If you sign out, your sealed messages can't be opened again, here or on a new device. Only what the people you write with share again comes back.").assertExists()
+        compose.onNodeWithText("To keep them, link another device first.").assertExists()
+        compose.onNodeWithText("Link a device").assertExists()
+        compose.onNodeWithText("Sign out anyway").assertExists()
+        compose.onNodeWithTag("seal-only-cancel").assertExists()
+    }
+
+    /** Link a device goes to Link a phone, and nobody is signed out. */
+    @Test fun onlyDeviceLink() {
+        session.encryption.demoOnlyDevice()
+        demoScreenShot("encryption-only-device-link", act = {
+            compose.onNodeWithTag("me-signout").performScrollTo().performClick()
+            compose.waitForIdle()
+            compose.onNodeWithTag("seal-only-link").performClick()
+        }) { MeScreen() }
+        assertTrue(nav.went.contains(sh.belfry.app.ui.nav.Routes.LINK_DEVICE))
+        compose.onNodeWithTag("seal-only-device").assertDoesNotExist()
+    }
+
+    /** With another device in my roster: the usual "Sign out?". */
+    @Test fun twoDevicesPlainSignOut() {
+        assertFalse(session.encryption.state.value.onlyDevice)
+        demoScreenShot("encryption-signout-two-devices", act = { compose.onNodeWithTag("me-signout").performScrollTo().performClick() }) { MeScreen() }
+        compose.onNodeWithTag("seal-only-device").assertDoesNotExist()
+        compose.onNodeWithText("Sign out?").assertExists()
+    }
+
+    /** Waiting to be allowed (no letterbox of mine on this device yet): no warning. */
+    @Test fun onlyDeviceNotWhileWaiting() {
+        session.encryption.demoOnlyDevice()
+        session.encryption.demoAsNewDevice()
+        assertFalse(session.encryption.state.value.onlyDevice)
     }
 }

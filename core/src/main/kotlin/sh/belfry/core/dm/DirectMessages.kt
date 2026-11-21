@@ -97,8 +97,13 @@ data class Dm(
     val notSealed: Boolean = false,
     /** From a history someone shared with this device (§8): who; not proven authentic. */
     val sharedBy: String? = null,
+    /** Kind 15: the file (vectors/dm-files.json). */
+    val file: DmFileRef? = null,
+    /** Pictures sent together, and their caption (a kind 14), share it. */
+    val group: String? = null,
 ) {
     val isMail: Boolean get() = kind == 1301
+    val isFile: Boolean get() = kind == DmFiles.KIND
 
     fun toJson(): JsonObject = buildJsonObject {
         put("rid", JsonPrimitive(rid))
@@ -130,6 +135,8 @@ data class Dm(
         if (heldWhy != null) put("heldWhy", JsonPrimitive(heldWhy))
         if (notSealed) put("notSealed", JsonPrimitive(true))
         if (sharedBy != null) put("sharedBy", JsonPrimitive(sharedBy))
+        if (file != null) put("file", file.toJson())
+        if (group != null) put("group", JsonPrimitive(group))
     }
 
     companion object {
@@ -160,7 +167,49 @@ data class Dm(
                 heldWhy = o.s("heldWhy"),
                 notSealed = o["notSealed"].bool() ?: false,
                 sharedBy = o.s("sharedBy"),
+                file = o["file"].obj()?.let(DmFileRef::fromJson),
+                group = o.s("group"),
             )
+        }
+    }
+}
+
+/**
+ * A file in a direct message (kind 15): where its ciphertext is and the rumor's tags (the key,
+ * nonce, x, ox… that [DmFiles.open] checks). LOCAL_BLOB: a file of mine not sent yet, its plain
+ * bytes in the store under that key.
+ */
+data class DmFileRef(val url: String, val tags: List<List<String>>, val localBlob: String? = null) {
+    private fun tag(n: String) = tags.firstOrNull { it.size >= 2 && it[0] == n }?.get(1)
+    val mime: String get() = (tag("file-type") ?: "application/octet-stream").lowercase()
+    val size: Long get() = tag("size")?.toLongOrNull() ?: 0
+    /** The name shown (never the raw tag). */
+    val name: String get() = DmFiles.shownName(tag("name"), mime)
+    val ox: String? get() = tag("ox")
+    val dim: Pair<Int, Int>? get() = tag("dim")?.split('x')?.takeIf { it.size == 2 }?.let { (w, h) -> w.toIntOrNull()?.let { a -> h.toIntOrNull()?.let { b -> a to b } } }
+    /** Seconds (recordings). */
+    val duration: Int? get() = tag("duration")?.toDoubleOrNull()?.toInt()
+    val isPicture: Boolean get() = mime.startsWith("image/")
+    val isAudio: Boolean get() = mime.startsWith("audio/")
+
+    fun toJson(): JsonObject = buildJsonObject {
+        put("url", JsonPrimitive(url))
+        put("tags", buildJsonArray { tags.forEach { t -> add(buildJsonArray { t.forEach { add(JsonPrimitive(it)) } }) } })
+        if (localBlob != null) put("blob", JsonPrimitive(localBlob))
+    }
+
+    companion object {
+        fun fromJson(o: JsonObject): DmFileRef = DmFileRef(
+            o.s("url") ?: "",
+            o["tags"].arr()?.map { t -> t.arr()?.mapNotNull { it.str() } ?: emptyList() } ?: emptyList(),
+            o.s("blob"),
+        )
+
+        /** From a kind 15 rumor (content = the blob URL); null when it is no https address. */
+        fun of(rumor: Event): DmFileRef? {
+            val url = rumor.content.trim()
+            if (!url.startsWith("https://") && !url.startsWith("http://")) return null
+            return DmFileRef(url, rumor.tags.filter { it.isNotEmpty() && it[0] != "p" })
         }
     }
 }
@@ -292,6 +341,20 @@ class DmSnapshot(
         else -> convName(conv, world)
     }
 
+    /**
+     * The conversation list's last line for a file (canvas v109): "Picture", "3 pictures",
+     * "File: Garden plan 2027.pdf", "Audio recording · 0:42"; null when D is no file.
+     */
+    fun fileLine(d: Dm): String? {
+        val f = d.file ?: return null
+        if (f.isPicture) {
+            val n = if (d.group == null) 1 else thread(d.conv).count { it.group == d.group && it.from == d.from && it.file?.isPicture == true }
+            return if (n <= 1) "Picture" else "$n pictures"
+        }
+        if (f.isAudio) return "Audio recording" + (f.duration?.let { " · %d:%02d".format(it / 60, it % 60) } ?: "")
+        return "File: " + f.name
+    }
+
     /** The line under a message of mine that is not out, or an e-mail's delivery state; null = nothing to say. */
     fun stateLine(d: Dm): String? {
         if (!d.mine) return null
@@ -355,7 +418,24 @@ interface DmHost {
     val sealed: sh.belfry.core.sealed.SealedEngine? get() = null
     /** The belfry's key from belfry.json: the only key whose seal a sealed mail (1301) may carry (§7; the review's 14). */
     fun belfryKey(): String? = null
+    /** The send trace (SPEC 19.50): message ID is being prepared (wrapped, its seals signed). */
+    fun preparing(id: String) {}
+    /** Message ID never reached the outbox. */
+    fun notPrepared(id: String) {}
+    /** A guest here (files: 5 MB at most instead of 25). */
+    val isGuest: Boolean get() = false
+    fun putBlob(key: String, bytes: ByteArray) {}
+    fun blob(key: String): ByteArray? = null
+    /** Puts ITEM in the outbox (a file to encrypt, upload and wrap when it goes). */
+    suspend fun enqueue(item: OutboxItem) {}
+    /** Uploads a file's ciphertext to the belfry's Blossom; its URL. PROGRESS: bytes sent, of. */
+    suspend fun uploadSealed(bytes: ByteArray, progress: (Long, Long) -> Unit): String = throw java.io.IOException("upload failed (no storage)")
+    /** The send trace: the message's id changed (a file's local id → its rumor's). */
+    fun renamed(from: String, to: String) {}
 }
+
+/** A file picked to send in a direct message. */
+class DmNewFile(val name: String, val mime: String, val bytes: ByteArray, val width: Int? = null, val height: Int? = null, val durationSec: Int? = null)
 
 /** Pure parts of reading a rumor, testable without an engine. */
 object DmReader {
@@ -378,7 +458,11 @@ object DmReader {
         val rid = rumor.id.ifEmpty { rumor.computedId() }
         val conv = convOf(rumor, me, bridge)
         val mine = rumor.pubkey == me
-        if (rumor.kind == 14) return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, 14, rumor.content)
+        if (rumor.kind == 14) return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, 14, rumor.content, group = rumor.tag("group"))
+        if (rumor.kind == DmFiles.KIND) {
+            val f = DmFileRef.of(rumor) ?: return null
+            return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, DmFiles.KIND, "", file = f, group = rumor.tag("group"))
+        }
         if (rumor.kind != 1301) return null
         val bridged = bridge != null && rumor.pubkey == bridge && !rumor.tag("mail-from").isNullOrEmpty()
         var d = Dm(
@@ -879,7 +963,13 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private suspend fun oldWay(rumor: Event, to: List<String>, self: Boolean) {
         val me = host.me
         val people = LinkedHashSet(to).apply { if (self) add(me) }
-        val wraps = people.map { GiftWrap.wrap(rumor, it, host.signer) }
+        host.preparing(rumor.id)
+        val wraps = try {
+            people.map { GiftWrap.wrap(rumor, it, host.signer) }
+        } catch (e: Exception) {
+            host.notPrepared(rumor.id)
+            throw e
+        }
         if (host.localOnly) {
             val own = wraps.filter { it.tag("p") == me }
             synchronized(lock) { own.forEach { seen.add(it.id) } }
@@ -896,13 +986,13 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
      * new e-mail, conv "m:<address>"). Returns the conversation the message is in (a new e-mail
      * becomes its subject's thread). Throws [DmException] with a message to show.
      */
-    suspend fun send(conv: String, text: String, subject: String? = null): String {
+    suspend fun send(conv: String, text: String, subject: String? = null, group: String? = null, at: Long? = null): String {
         val me = host.me
         if (!MailThreads.isMail(conv)) {
             val to = MailThreads.peers(conv)
             if (to.any { !Hex.isKey(it) }) throw DmException("This is not a valid Nostr key.")
-            val rumor = GiftWrap.rumor(14, me, to.filter { it != me }.map { listOf("p", it) }, text, host.now())
-            set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true))
+            val rumor = GiftWrap.rumor(14, me, to.filter { it != me }.map { listOf("p", it) } + listOfNotNull(group?.let { listOf("group", it) }), text, at ?: nextAt())
+            set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true, group = group))
             publish()
             try {
                 if (!deliver(rumor, to, conv = conv)) {
@@ -952,6 +1042,120 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         publish()
         return target
     }
+
+    @Volatile private var lastAt = 0L
+    /** A rumor's created_at: now, and strictly after the last one sent here (files of a group keep their order). */
+    private fun nextAt(): Long = synchronized(lock) { maxOf(lastAt + 1, host.now()).also { lastAt = it } }
+
+    /**
+     * Sends FILES in CONV (a Nostr conversation), then CAPTION (a kind 14) after them, all in one
+     * group when there are several pictures or a caption (vectors/dm-files.json). Each file goes
+     * through the outbox: encrypted, uploaded and wrapped when it goes ([prepareFile]). Throws
+     * [DmException] (too large, not a Nostr conversation) before anything is queued.
+     */
+    suspend fun sendFiles(conv: String, files: List<DmNewFile>, caption: String? = null) {
+        if (files.isEmpty()) { if (!caption.isNullOrBlank()) send(conv, caption); return }
+        if (MailThreads.isMail(conv)) throw DmException("Files go in a conversation on this belfry, not by e-mail.")
+        val to = MailThreads.peers(conv)
+        if (to.any { !Hex.isKey(it) }) throw DmException("This is not a valid Nostr key.")
+        val max = if (host.isGuest) DmFiles.MAX_GUEST else DmFiles.MAX
+        if (files.any { it.bytes.size > max }) throw DmException(DmFiles.tooLarge(host.isGuest))
+        val me = host.me
+        val others = to.filter { it != me }
+        val group = if (files.size > 1 || !caption.isNullOrBlank()) DmFiles.newGroup() else null
+        for (f in files) {
+            val id = "lf" + sh.belfry.core.crypto.Random.hex(10)
+            host.putBlob(id, f.bytes)
+            val at = nextAt()
+            val mime = f.mime.ifEmpty { "application/octet-stream" }
+            // the key and nonce are chosen now and kept with the item: a retry uploads the same ciphertext
+            val meta = buildList {
+                others.forEach { add(listOf("p", it)) }
+                add(listOf("file-type", mime))
+                add(listOf("_key", sh.belfry.core.crypto.Random.hex(32)))
+                add(listOf("_nonce", sh.belfry.core.crypto.Random.hex(12)))
+                if (!mime.startsWith("image/") && !mime.startsWith("audio/")) add(listOf("name", f.name))
+                if (f.width != null && f.height != null) add(listOf("dim", "${f.width}x${f.height}"))
+                f.durationSec?.let { add(listOf("duration", it.toString())) }
+                group?.let { add(listOf("group", it)) }
+            }
+            val shown = meta.filter { it[0] != "_key" && it[0] != "_nonce" && it[0] != "p" } + listOf(listOf("size", f.bytes.size.toString()))
+            set(Dm(id, conv, me, true, at, DmFiles.KIND, "", pending = true, group = group, file = DmFileRef("", shown, localBlob = id)))
+            host.enqueue(OutboxItem(
+                localId = id, target = Target.MAIN, kind = DmFiles.KIND, content = "", tags = meta, createdAt = at,
+                attachments = listOf(sh.belfry.core.outbox.Attachment(id, f.name, mime, f.bytes.size.toLong(), f.width, f.height)), dm = id,
+            ))
+        }
+        publish()
+        if (!caption.isNullOrBlank()) send(conv, caption, group = group)
+    }
+
+    /**
+     * A queued file goes (the outbox calls it): encrypt (STEP "encrypting"), upload the ciphertext
+     * ("uploading 2.2 of 4.8 MB"), make the kind 15 rumor and wrap it for everyone and me ("waiting
+     * for the server": the seals are signed). The message is now known by the rumor's id; its wraps
+     * are returned for the outbox. Throws with an outbox reason ("upload failed (413)"…).
+     */
+    suspend fun prepareFile(item: OutboxItem, step: (String) -> Unit): List<Event> {
+        val me = host.me
+        fun t(n: String) = item.tags.firstOrNull { it.size >= 2 && it[0] == n }?.get(1)
+        val a = item.attachments.firstOrNull() ?: throw IllegalStateException("invalid: no file")
+        val plain = host.blob(a.blobKey) ?: throw IllegalStateException("invalid: the file is gone")
+        val others = item.tags.filter { it.size >= 2 && it[0] == "p" }.map { it[1] }
+        // a sealed conversation: the file's message is sealed by the device like a kind 14 (§4, §6), decided
+        // before the upload; never the old way into it. Waiting (can't tell yet / their device not ready) retries.
+        val conv = synchronized(lock) { items[item.localId]?.conv } ?: MailThreads.nostrConv(me, others, me)
+        val eng = if (host.localOnly) null else host.sealed
+        val plan = eng?.plan(conv, others)
+        when (plan) {
+            is sh.belfry.core.sealed.SealedEngine.Plan.Refuse ->
+                if (plan.who != null) throw FileWaits("waiting: their new device isn't ready for the lock") else throw IllegalStateException("invalid: " + plan.why)
+            sh.belfry.core.sealed.SealedEngine.Plan.Hold -> throw FileWaits("waiting: can't check yet how to lock it")
+            else -> {}
+        }
+        step(sh.belfry.core.outbox.SendState.STEP_PREPARE)
+        val sealed = DmFiles.seal(plain, t("_key") ?: throw IllegalStateException("invalid: no key"), t("_nonce") ?: throw IllegalStateException("invalid: no nonce"))
+        val url = host.uploadSealed(sealed.ciphertext) { sent, total -> step(sh.belfry.core.outbox.SendState.uploading(sent, total)) }
+        val tags = DmFiles.tags(
+            others, t("file-type") ?: a.mime, sealed, name = t("name"), dim = t("dim"),
+            duration = t("duration")?.toIntOrNull(), group = t("group"),
+        )
+        val rumor = GiftWrap.rumor(DmFiles.KIND, me, tags, url, item.createdAt)
+        step("waiting for the server")
+        val wraps = if (plan is sh.belfry.core.sealed.SealedEngine.Plan.Seal && eng != null) {
+            val qs = eng.seal(rumor, plan)
+            synchronized(lock) {
+                for (q in qs) sealQ[q.wrap.id] = QueuedSeal(q.rumor, q.recipient, q.lb)
+            }
+            qs.map { it.wrap }
+        } else {
+            val people = LinkedHashSet(others).apply { add(me) }
+            people.map { GiftWrap.wrap(rumor, it, host.signer) }
+        }
+        // the message is the rumor from now on (its reactions, its copy coming back from the relay)
+        synchronized(lock) {
+            val old = items.remove(item.localId)
+            items[rumor.id] = (old ?: Dm(rumor.id, "", me, true, rumor.createdAt, DmFiles.KIND, "")).copy(
+                rid = rumor.id, file = DmFileRef(url, tags.filter { it[0] != "p" }, localBlob = a.blobKey), pending = true,
+            )
+        }
+        renames[item.localId] = rumor.id
+        host.renamed(item.localId, rumor.id)
+        if (host.localOnly) {
+            val own = wraps.filter { it.tag("p") == me }
+            synchronized(lock) { own.forEach { seen.add(it.id) } }
+        }
+        publish()
+        return wraps
+    }
+
+    /** A file that waits for the lock (sealed conversation, not decided yet): the outbox tries again later. */
+    class FileWaits(why: String) : Exception(why)
+
+    private val renames = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** A file's message id after [prepareFile] (its rumor's), from the outbox item's local id. */
+    fun idOf(localId: String): String? = renames[localId]
 
     /** My address here (`name@domain`), from my profile's nip05. */
     @Volatile var myAddressProvider: () -> String? = { null }

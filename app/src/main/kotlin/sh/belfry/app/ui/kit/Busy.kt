@@ -99,7 +99,7 @@ fun BusyButton(
     Button(
         onClick = { busy.run(onError, onClick) },
         enabled = enabled && !busy.busy,
-        modifier = modifier.defaultMinSize(minHeight = if (small) 36.dp else 46.dp),
+        modifier = modifier.defaultMinSize(minHeight = if (small) 36.dp else 48.dp),
         shape = RoundedCornerShape(Belfry.buttonRadius),
         border = if (kind == ButtonKind.Ghost) BorderStroke(1.dp, c.line) else null,
         colors = ButtonDefaults.buttonColors(

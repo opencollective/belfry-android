@@ -578,6 +578,9 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     /** The app came to the foreground. */
     fun wake() { _session.value?.wake() }
 
+    /** The app went to the background: quiet sockets are no longer asked (SPEC 19.50). */
+    fun background() { _session.value?.background() }
+
     fun setOnline(value: Boolean) {
         online = value
         _session.value?.setOnline(value)

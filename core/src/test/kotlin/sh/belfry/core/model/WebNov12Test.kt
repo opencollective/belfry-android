@@ -166,7 +166,7 @@ class WebNov12Test {
     @Test
     fun aRetriedSendSaysSoWhileConnected() {
         val item = OutboxItem(localId = "local-1", target = Target.GROUPS, kind = 9, content = "x", tags = emptyList(), createdAt = now, status = OutboxStatus.QUEUED, tries = 2)
-        assertEquals("Waiting for connection…", Outbox.stateText(item))
+        assertEquals("Waiting for the connection…", Outbox.stateText(item))
         assertEquals("Sending again…", Outbox.stateText(item, connected = true))
         assertEquals("Sending…", Outbox.stateText(item.copy(tries = 0), connected = true))
         assertEquals("Not sent", Outbox.stateText(item.copy(status = OutboxStatus.FAILED), connected = true))

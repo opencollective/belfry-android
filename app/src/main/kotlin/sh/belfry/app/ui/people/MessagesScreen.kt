@@ -127,8 +127,11 @@ private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, loc
     val c = Belfry.colors
     val mail = dms.isMail(t.conv)
     val title = if (mail) dms.threadName(t.conv) else if (dms.peers(t.conv).let { it.isEmpty() || it == listOf(world.me) }) "Notes to yourself" else dms.convName(t.conv, world)
-    val first = Markdown.plain(world.namedRefs(t.last.text)).lineSequence().firstOrNull { it.isNotBlank() } ?: if (t.last.attachments.isNotEmpty()) "Attachment" else ""
+    val first = LocalDms.current.fileLine(t.last) ?: Markdown.plain(world.namedRefs(t.last.text)).lineSequence().firstOrNull { it.isNotBlank() } ?: if (t.last.attachments.isNotEmpty()) "Attachment" else ""
     val preview = (if (mail) dms.convName(t.conv, world) + " · " else "") + (if (t.last.mine) "You: " else "") + first
+    val typing by sh.belfry.app.ui.nav.LocalSession.current.typing.collectAsState()
+    val oneToOne = !mail && dms.peers(t.conv).let { it.size == 1 && it[0] != world.me }
+    val typingHere = oneToOne && typing.who(sh.belfry.core.typing.TypingPlace.dm(t.conv)) { pk -> if (t.last.from == pk) t.last.at else 0L }.isNotEmpty()
     Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -142,6 +145,13 @@ private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, loc
                     androidx.compose.material3.Icon(BelfryIcons.Lock, contentDescription = null, tint = c.muted, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(sh.belfry.core.model.SealedText.LOCKED_HERE, fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            } else if (typingHere) {
+                // canvas v110 messages/typing-list: a one-to-one DM says "typing…" in place of its preview
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("dm-row-typing")) {
+                    sh.belfry.app.ui.chat.TypingDots(c.muted)
+                    Spacer(Modifier.width(6.dp))
+                    Text(sh.belfry.core.typing.Typing.LIST_WORD, fontSize = 14.sp, color = c.muted, maxLines = 1)
                 }
             } else {
                 Text(preview, fontSize = 14.sp, color = if (t.unread > 0) c.text else c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)

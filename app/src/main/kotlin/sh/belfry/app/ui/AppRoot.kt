@@ -77,6 +77,7 @@ fun AppRoot(state: AppState) {
         // A guest link being opened (SPEC 19.26): one loading screen over everything, from the link
         // until the channel can be drawn in full; nothing under it shows in between.
         opening?.let { o -> Over { OpeningScreen(o.channelName) } }
+        sh.belfry.app.update.UpdateSheetHost() // Update's sheet before Android's install setting
     }
 }
 

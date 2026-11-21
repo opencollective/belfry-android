@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.captureScreenRoboImage
@@ -43,13 +44,40 @@ class R5ShotsTest : DemoShots() {
         compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.WEBSITE, onMenu = {}) } } }
         compose.onNode(hasTestTag("button-publish") and hasAnyAncestor(hasTestTag("buttons-" + v4.id)), useUnmergedTree = true).performClick()
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("Publish this version as the website? Everyone will see it at https://${Demo.DOMAIN}.").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Publish this version as the website?").fetchSemanticsNodes().isNotEmpty()
         }
         captureScreenRoboImage("${Shots.DIR}/buttons-confirm.png")
         compose.onNodeWithTag("button-confirm").performClick()
         compose.waitUntil(10_000) { world.buttonState(v4).closed }
         assertEquals(session.me, world.buttonState(v4).myPress?.pubkey)
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Published by ${Demo.DEFAULT_NAME}.").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    private val requests: List<Message> get() = world.messages(Demo.REQUESTS).filter { world.buttons(it).isNotEmpty() }
+
+    /** #requests: a plain request closed by Maya (the answer's line in place of the button), one open with Close. */
+    @Test fun requestCards() {
+        val (closed, open) = requests
+        assertTrue(world.buttonState(closed).closed)
+        assertEquals("Closed by Maya Okafor.", world.buttonState(closed).closedText)
+        assertFalse(world.buttonState(open).closed)
+        assertEquals(sh.belfry.core.model.Buttons.REQUEST_CLOSE, world.buttons(open).single().action)
+        assertFalse(world.buttons(open).single().unknown)
+        demoShot("buttons-requests") { ChannelScreen(Demo.REQUESTS, onMenu = {}) }
+    }
+
+    /** Close asks with the app's own words (a question and a line under it), then the belfry's answer replaces the button. */
+    @Test fun requestCloseAsksThenCloses() {
+        val open = requests.last()
+        compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.REQUESTS, onMenu = {}) } } }
+        compose.onNode(hasTestTag("button-close") and hasAnyAncestor(hasTestTag("buttons-" + open.id)), useUnmergedTree = true).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Close this request?").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("It stays readable, and people can still comment.").assertExists()
+        captureScreenRoboImage("${Shots.DIR}/buttons-request-close-confirm.png")
+        compose.onNodeWithTag("button-confirm").performClick()
+        compose.waitUntil(10_000) { world.buttonState(open).closed }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText("Closed by ${Demo.DEFAULT_NAME}.").fetchSemanticsNodes().isNotEmpty() }
+        captureScreenRoboImage("${Shots.DIR}/buttons-request-closed.png")
     }
 
     /** #random: a refused change to its settings: the mark next to its name, then Discard brings back the relay's words. */

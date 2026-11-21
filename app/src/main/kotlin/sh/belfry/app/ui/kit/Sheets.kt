@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.kit
 
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -97,9 +98,10 @@ fun ConfirmSheet(
     danger: Boolean = true,
     cancelLabel: String = "Cancel",
     preview: (@Composable () -> Unit)? = null,
+    confirmTag: String? = null,
 ) {
     BelfrySheet(onDismiss = onDismiss) {
-        ConfirmContent(title, confirmLabel, onConfirm, onDismiss, message, danger, cancelLabel, preview)
+        ConfirmContent(title, confirmLabel, onConfirm, onDismiss, message, danger, cancelLabel, preview, confirmTag)
     }
 }
 
@@ -114,6 +116,7 @@ fun ConfirmContent(
     danger: Boolean = true,
     cancelLabel: String = "Cancel",
     preview: (@Composable () -> Unit)? = null,
+    confirmTag: String? = null,
 ) {
     val c = Belfry.colors
     val busy = rememberBusy()
@@ -138,7 +141,7 @@ fun ConfirmContent(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             BusyButton(cancelLabel, onClick = { onDismiss() }, modifier = Modifier.weight(1f), kind = ButtonKind.Ghost, enabled = !busy.busy)
             BusyButton(
-                confirmLabel, onClick = onConfirm, modifier = Modifier.weight(1f),
+                confirmLabel, onClick = onConfirm, modifier = Modifier.weight(1f).let { m -> if (confirmTag != null) m.testTag(confirmTag) else m },
                 kind = if (danger) ButtonKind.Danger else ButtonKind.Primary, busy = busy,
             )
         }

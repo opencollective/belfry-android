@@ -710,8 +710,8 @@ class EngineTest {
         assertEquals("alex.morgan@belfry.example", w.myAddress)
 
         val dms = s.dms.value
-        assertEquals(5, dms.threads.size, dms.threads.map { it.conv }.toString())
-        assertEquals(2, dms.unreadTotal)
+        assertEquals(6, dms.threads.size, dms.threads.map { it.conv }.toString()) // + Lena's pictures, file and recording (canvas v109)
+        assertEquals(3, dms.unreadTotal) // + Lena's conversation (canvas v109 demo)
         assertEquals(2, dms.threads.count { it.isMail })
         val mail = dms.threads.first { it.conv == "m:ana@example.org|visiting%20next%20week" }
         assertEquals(2, mail.count)
@@ -784,5 +784,20 @@ class EngineTest {
         second.start()
         until("the members-only message from before") { second.world.value.messages("board").any { it.text == "members only, long ago" } }
         until("the mark set after AUTH") { store.get(Session.K_GROUPS_MARK) != null }
+    }
+
+    /**
+     * The main relay's handlers are its own (not overwritten by the outbox's API target): its EOSE comes as
+     * MAIN, so the read state is published there (SPEC 19.27). Broken from 0d1cc0f to this fix.
+     */
+    @Test
+    fun mainRelayEoseLetsTheReadStatePublish() = runBlocking<Unit> {
+        val g = fake(); val m = fake()
+        val s = session(community(g, m), MemoryStore(), LocalSigner.random())
+        s.start()
+        s.markMentionsSeen(System.currentTimeMillis() / 1000)
+        until("the read state reaches the main relay", 20_000) {
+            m.published.any { it.kind == sh.belfry.core.read.ReadState.KIND && it.tag("d") == sh.belfry.core.read.ReadState.READ_D }
+        }
     }
 }

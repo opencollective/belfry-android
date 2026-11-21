@@ -24,6 +24,8 @@ import sh.belfry.core.crypto.Hex
 import sh.belfry.core.crypto.Random
 import sh.belfry.core.crypto.sha256Hex
 import sh.belfry.core.dm.DirectMessages
+import sh.belfry.core.dm.DmFiles
+import sh.belfry.core.dm.DmNewFile
 import sh.belfry.core.dm.Dm
 import sh.belfry.core.dm.DmCandidate
 import sh.belfry.core.dm.DmException
@@ -65,7 +67,9 @@ import sh.belfry.core.net.Branding
 import sh.belfry.core.net.Access
 import sh.belfry.core.net.ApiException
 import sh.belfry.core.net.BelfryApi
+import sh.belfry.core.net.Backoff
 import sh.belfry.core.net.BunkerSigner
+import sh.belfry.core.net.Connections
 import sh.belfry.core.net.ChannelGuest
 import sh.belfry.core.net.Community
 import sh.belfry.core.net.Discovery
@@ -98,6 +102,9 @@ import sh.belfry.core.outbox.Outbox
 import sh.belfry.core.outbox.OutboxItem
 import sh.belfry.core.outbox.OutboxStatus
 import sh.belfry.core.outbox.SendOutcome
+import sh.belfry.core.outbox.SendProgress
+import sh.belfry.core.outbox.SendState
+import sh.belfry.core.outbox.SendTrace
 import sh.belfry.core.outbox.Target
 import sh.belfry.core.store.Store
 import sh.belfry.core.read.ReadState
@@ -439,10 +446,26 @@ class Session(
     /** What I have read, on all my devices (SPEC 19.27): unread counts derive from it (`sh.belfry.core.read.Unread`). */
     val readState: StateFlow<ReadState> get() = readSync.state
 
-    private val groupsRelay: Relay? = if (localOnly) null else Relay(community.groupsRelay, http, scope)
-    private val mainRelay: Relay? = if (localOnly) null else Relay(community.mainRelay, http, scope)
-    /** The relay a target publishes to; none for [Target.API] (HTTP calls): the per-target loops would otherwise
-     *  set up the main relay a second time as "API", overwriting its handlers (main's fix, branch main-relay-handlers). */
+    /** The one owner of this session's sockets: groups, main and the signer's (SPEC 19.50). */
+    internal val connections = Connections(scope)
+    private val groupsRelay: Relay? = if (localOnly) null else connections.add("groups", Relay(community.groupsRelay, http, scope))
+    private val mainRelay: Relay? = if (localOnly) null else connections.add("main", Relay(community.mainRelay, http, scope))
+
+    /** Each send's steps and timing, the last 20 (About Belfry → Diagnostics; SPEC 19.50). No content. */
+    val trace = SendTrace({ Relay.nowMs() }, zone = zone)
+    /** Sends not out yet: since when and what they are doing (by direct message id, else outbox local id). */
+    val sending: StateFlow<Map<String, SendProgress>> get() = trace.progress
+
+    init {
+        val b = signer as? BunkerSigner
+        if (b != null && !localOnly) {
+            connections.add("signer", b.relay)
+            b.onRequest = { m, ms -> if (ms >= SLOW_SIGNER_MS) trace.note("signer $m ${SendTrace.secs(ms)}") }
+        }
+    }
+    /** The relay a target publishes to; none for [Target.API] (HTTP calls). It must stay none: every per-target
+     *  loop below (callbacks, subscriptions, status) would otherwise set up the main relay a second time as "API",
+     *  overwriting its handlers (since 0d1cc0f the main relay's EOSE came as API and the read state never published). */
     private fun relay(t: Target): Relay? = when (t) {
         Target.GROUPS -> groupsRelay
         Target.MAIN -> mainRelay
@@ -464,6 +487,31 @@ class Session(
     private val jobs = ArrayList<Job>()
     @Volatile private var started = false
     @Volatile private var stopped = false
+
+    private val typingEngine = SessionTyping(scope, signer.pubkey, signer, clock, { if (localOnly) clock().toDouble() else System.currentTimeMillis() / 1000.0 }, { relay(it) }, { _world.value }, { !reading && !localOnly && !stopped }, { c -> sealed?.sealedSince?.containsKey(c) == true })
+
+    /** Who is typing where (docs/typing.md; SPEC 19.51): for the line above the composer and the DM list. */
+    val typing: StateFlow<sh.belfry.core.typing.TypingState> get() = typingEngine.state
+
+    /** The device's "Show others when I'm typing" (the app keeps it, per device; on by default). */
+    var sendTyping: Boolean
+        get() = typingEngine.enabled
+        set(v) { typingEngine.enabled = v }
+
+    /** While a screen shows [group] (a channel or one of its threads): its typing events are asked for. Close when it goes. */
+    fun watchTyping(group: String): AutoCloseable = typingEngine.watch(group)
+
+    /** A keystroke in the composer of [place]; [restored] = a draft put back on open or an edit of an older message. */
+    fun typed(place: sh.belfry.core.typing.TypingPlace, text: String, restored: Boolean = false) = typingEngine.typed(place, text, restored)
+
+    /** The composer of [place] was emptied without sending. */
+    fun typingCleared(place: sh.belfry.core.typing.TypingPlace) = typingEngine.cleared(place)
+
+    /** A message went from [place]. */
+    fun typingSent(place: sh.belfry.core.typing.TypingPlace) = typingEngine.sent(place)
+
+    /** The demo and tests: PUBKEY types in PLACE now (shows for 6 s). */
+    fun showTyping(place: sh.belfry.core.typing.TypingPlace, pubkey: String) = typingEngine.show(place, pubkey)
     @Volatile private var firstChannelTried = false
     private val enqueueLock = Mutex()
     private val flushLock = Mutex()
@@ -726,7 +774,7 @@ class Session(
         for (t in Target.entries) {
             val r = relay(t) ?: continue
             r.authSigner = signer
-            r.onEvent = { _, e -> incoming.trySend(Incoming.Ev(e)) }
+            r.onEvent = { _, e -> if (!typingEngine.offer(e)) incoming.trySend(Incoming.Ev(e)) } // typing: live only, never stored
             r.known = { id -> synchronized(logLock) { id in logIds } }
             r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t, r.isAuthenticated || r.authSigner == null || localOnly)) } }
             r.onClosed = { sub, reason ->
@@ -748,6 +796,8 @@ class Session(
             jobs += scope.launch { r.state.collect { s -> setStatus { if (t == Target.GROUPS) it.copy(groups = s) else it.copy(main = s) } } }
             if (_status.value.online) r.keepConnected()
         }
+        connections.start()
+        typingEngine.start()
         jobs += scope.launch(Dispatchers.Default) {
             while (isActive) {
                 delay(WATCHDOG_MS)
@@ -809,38 +859,81 @@ class Session(
         }
     }
 
-    /** A relay socket that says it is open but does not answer is dropped and opened again at once. */
-    private fun probe() {
-        for (t in Target.entries) {
-            val r = relay(t) ?: continue
-            launchSafely { if (r.isUp && !r.probe()) r.wake() }
+    /**
+     * Every socket (groups, main, the signer's) is asked at once; the dead are dropped and opened
+     * again now; then the signer is said hello to ahead of the next send, and what waits goes.
+     */
+    private fun checkConnections() {
+        launchSafely {
+            connections.checkAll()
+            requestFlush()
+            (signer as? BunkerSigner)?.warm()
         }
     }
 
-    /** A wake-up: the app is back in the foreground. Reconnects now and sends what waits. */
+    /** A wake-up: the app is back in the foreground. Checks every socket, reconnects now and sends what waits. */
     fun wake() {
+        connections.foreground = true
         if (!started || stopped || localOnly) return
-        if (_status.value.online) { for (t in Target.entries) relay(t)?.wake(); probe() }
+        if (_status.value.online) checkConnections()
         launchSafely { dm.process() }
         requestFlush()
     }
 
-    /** The device's connectivity changed. Offline drops the sockets (they are dead anyway). */
+    /** The app went to the background: quiet sockets are no longer asked (the system decides now). */
+    fun background() { connections.foreground = false }
+
+    /**
+     * The device's connectivity changed (online or not; also a new network while online, Wi-Fi to
+     * mobile: the old sockets are dead then). Offline drops the sockets (they are dead anyway).
+     */
     fun setOnline(online: Boolean) {
-        if (_status.value.online == online) return
-        setStatus { it.copy(online = online) }
+        val was = _status.value.online
+        if (was != online) setStatus { it.copy(online = online) }
         if (!started || stopped || localOnly) return
-        for (t in Target.entries) {
-            val r = relay(t) ?: continue
-            if (online) { r.subscribe(SUB, filters(t)); r.keepConnected(); r.wake() } else r.stop()
+        if (!online) {
+            if (was) for (t in Target.entries) relay(t)?.stop()
+            return
         }
-        if (online) requestFlush()
+        if (!was) for (t in Target.entries) { val r = relay(t) ?: continue; r.subscribe(SUB, filters(t)); r.keepConnected() }
+        trace.restart()
+        checkConnections()
+        requestFlush()
+    }
+
+    /**
+     * "Retry" on a message that is not out after 30 s: every socket checked now, the backoff
+     * forgotten, a fresh 30 s, and a pass at once.
+     */
+    suspend fun sendNow() {
+        if (stopped) return
+        retryStep = 0
+        trace.restart()
+        if (!localOnly && _status.value.online) {
+            connections.checkAll()
+            (signer as? BunkerSigner)?.warm()
+        }
+        flush()
+    }
+
+    /** What About Belfry → Diagnostics shows (copyable): each socket's state, then the last sends' timing. No content, no keys. */
+    fun diagnostics(): String = buildString {
+        append("Connections\n")
+        if (localOnly) append("demo: no network\n")
+        for (e in connections.all) {
+            val q = e.relay.quietMs()
+            append("${e.role}: ${e.relay.state.value.name.lowercase()}" + (if (q > 0) ", quiet ${SendTrace.secs(q)}" else "") + "\n")
+        }
+        append("online: ${_status.value.online}, foreground: ${connections.foreground}\n")
+        append("\nLast sends\n")
+        val l = trace.lines()
+        if (l.isEmpty()) append("none yet\n") else l.forEach { append(it).append('\n') }
     }
 
     /** Closes the connections and stops the background work. The outbox stays in the store. */
     fun stop() {
         stopped = true
-        for (t in Target.entries) relay(t)?.stop()
+        connections.stop()
         val all = synchronized(jobs) { jobs.toList().also { jobs.clear() } }
         all.forEach { it.cancel() } // outside the lock: a finished job removes itself
         (signer as? BunkerSigner)?.disconnect()
@@ -1092,6 +1185,7 @@ class Session(
     suspend fun discard(localId: String) = withContext(Dispatchers.Default) {
         val item = store.outbox().firstOrNull { it.localId == localId } ?: return@withContext
         store.dropOutbox(localId)
+        trace.forget(item.dm ?: item.localId)
         item.attachments.forEach { store.dropBlob(it.blobKey) }
         rebuild()
     }
@@ -1125,8 +1219,18 @@ class Session(
                 val signedNow = HashMap<String, Event>()
                 val handled = HashSet<String>()
                 val result = Outbox.run(items) { item ->
-                    val outcome = sendOne(item, signedNow)
+                    val id = item.dm ?: item.localId
+                    val label = SendTrace.label(item)
+                    val outcome = sendOne(item, signedNow) { step -> trace.step(id, label, step) }
                     if (outcome is SendOutcome.Ok) { handled.add(item.localId); sent(item, outcome.event ?: item.signed) }
+                    val cls = (outcome as? SendOutcome.Error)?.let { Outbox.classify(it.message) }
+                    val said = when (cls) {
+                        null, ErrorClass.DUPLICATE -> "OK"
+                        ErrorClass.FAILED -> "refused"
+                        ErrorClass.RETRY -> "retry (" + (outcome as SendOutcome.Error).message.substringBefore(':').take(24) + ")"
+                    }
+                    val others = item.dm != null && store.outbox().any { it.dm == item.dm && it.localId != item.localId && it.status == OutboxStatus.QUEUED }
+                    trace.end(id, said, left = cls == ErrorClass.RETRY || others)
                     outcome
                 }
                 for (s in result.sent) if (s.item.localId !in handled) sent(s.item, signedNow[s.item.localId] ?: s.item.signed) // duplicates: out already
@@ -1142,12 +1246,12 @@ class Session(
     }
 
     // A send that failed for now (a dropped socket, a signer that was reconnecting) is tried again
-    // within seconds, not at the next watchdog tick: 1.5 s, 3 s, 6 s, then every 12 s (web sync.ts).
+    // within seconds, not at the next watchdog tick: 1 s, 2 s, 4 s, 8 s, 16 s, then every 30 s (SPEC 19.50).
     @Volatile private var retryStep = 0
     private val retryPending = java.util.concurrent.atomic.AtomicBoolean(false)
     private fun retrySoon() {
         if (stopped || !retryPending.compareAndSet(false, true)) return
-        val ms = minOf(12_000L, 1_500L shl minOf(retryStep, 4))
+        val ms = Backoff.delayMs(retryStep + 1) // 1 s, 2 s, 4 s, 8 s, 16 s, then 30 s (SPEC 19.50)
         retryStep += 1
         scope.launch(Dispatchers.Default) {
             try { delay(ms) } finally { retryPending.set(false) }
@@ -1160,7 +1264,8 @@ class Session(
 
     private fun sent(item: OutboxItem, event: Event?) {
         store.dropOutbox(item.localId)
-        if (!localOnly) item.attachments.forEach { store.dropBlob(it.blobKey); synchronized(uploaded) { uploaded.remove(it.blobKey) } }
+        // a direct message's file stays on the device: it is what my message shows (never uploaded in clear)
+        if (!localOnly && item.kind != DmFiles.KIND) item.attachments.forEach { store.dropBlob(it.blobKey); synchronized(uploaded) { uploaded.remove(it.blobKey) } }
         if (item.signed == null && event != null) {
             addToLog(listOf(event))
             if (localOnly) synthesizeRelayEvents(event)
@@ -1169,18 +1274,20 @@ class Session(
         markDirty()
     }
 
-    private suspend fun sendOne(item: OutboxItem, signedNow: MutableMap<String, Event>): SendOutcome {
-        if (item.target == Target.API) return sendApi(item)
+    private suspend fun sendOne(item: OutboxItem, signedNow: MutableMap<String, Event>, step: (String) -> Unit = {}): SendOutcome {
+        if (item.target == Target.API) { step(SendState.STEP_SIGN); return sendApi(item) }
+        if (item.kind == DmFiles.KIND && item.dm != null && item.signed == null) return sendDmFile(item, step)
         item.signed?.let { ev ->
             if (localOnly) return SendOutcome.Ok(ev)
-            return publish(item.target, ev)
+            return publish(item.target, ev, step)
         }
         var content = item.content
         val tags = ArrayList<Tag>(item.tags)
         for (a in item.attachments) {
             val bytes = store.blob(a.blobKey) ?: continue
+            step(SendState.STEP_UPLOAD)
             val url = if (localOnly) LOCAL_BLOB + a.blobKey else try {
-                synchronized(uploaded) { uploaded[a.blobKey] } ?: api().upload(signer, bytes, a.name, a.mime).also { u -> synchronized(uploaded) { uploaded[a.blobKey] = u } }
+                synchronized(uploaded) { uploaded[a.blobKey] } ?: api().upload(signer, bytes, a.name, a.mime) { sent, total -> step(SendState.uploading(sent, total)) }.also { u -> synchronized(uploaded) { uploaded[a.blobKey] = u } }
             } catch (e: SignerTimeout) {
                 setStatus { it.copy(signerTrouble = true) }
                 return SendOutcome.Error("timeout: the signer did not answer")
@@ -1196,6 +1303,7 @@ class Session(
             tags.add(imeta)
             content = if (content.isNotEmpty()) content + "\n" + url else url
         }
+        step(SendState.STEP_SIGN)
         val ev = try {
             signer.sign(EventTemplate(item.kind, content, tags, item.createdAt)).also { setStatus { s -> if (s.signerTrouble) s.copy(signerTrouble = false) else s } }
         } catch (e: SignerTimeout) {
@@ -1206,7 +1314,76 @@ class Session(
         }
         signedNow[item.localId] = ev
         if (localOnly) return SendOutcome.Ok(ev)
-        return publish(item.target, ev)
+        return publish(item.target, ev, step)
+    }
+
+    /**
+     * A file for a direct message (vectors/dm-files.json): encrypted, uploaded and wrapped now
+     * ([DirectMessages.prepareFile]); its wraps take its place in the outbox and go like any
+     * message's. A refused upload (4xx but 401 / 408 / 429) fails it.
+     */
+    private suspend fun sendDmFile(item: OutboxItem, step: (String) -> Unit): SendOutcome {
+        val wraps = try {
+            dm.prepareFile(item, step)
+        } catch (e: SignerTimeout) {
+            setStatus { it.copy(signerTrouble = true) }
+            return SendOutcome.Error("timeout: the signer did not answer")
+        } catch (e: sh.belfry.core.dm.DirectMessages.FileWaits) {
+            return SendOutcome.Error(e.message ?: "waiting") // not "invalid:": tried again
+        } catch (e: IllegalStateException) {
+            return SendOutcome.Error(e.message?.takeIf { it.startsWith("invalid:") } ?: "invalid: the file")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val said = e.message.orEmpty()
+            return SendOutcome.Error(if (said.startsWith("upload failed")) said else "upload failed" + (said.takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: ""))
+        }
+        val rid = dm.idOf(item.localId) ?: item.localId
+        for (w in wraps) enqueueSigned(Target.MAIN, w, rid)
+        return SendOutcome.Ok(null)
+    }
+
+    /**
+     * A file of a direct message, decrypted (null: "This file can't be opened"). Mine not sent yet
+     * comes from the device; another is downloaded once, checked (x, GCM, ox) and kept on the device
+     * (the app's private store) by its ox.
+     */
+    suspend fun dmFile(d: Dm): ByteArray? = withContext(Dispatchers.IO) {
+        val f = d.file ?: return@withContext null
+        f.localBlob?.let { k -> store.blob(k)?.let { return@withContext it } }
+        val ox = f.ox ?: return@withContext null
+        store.blob("dmf:$ox")?.let { return@withContext it }
+        val got = try {
+            if (f.url.startsWith(LOCAL_BLOB)) store.blob(f.url.removePrefix(LOCAL_BLOB)) else fetchCapped(f.url, DmFiles.MAX.toLong() + 1024)
+        } catch (e: Exception) { null } ?: return@withContext null
+        val plain = DmFiles.open(f.tags, got) ?: return@withContext null
+        store.putBlob("dmf:$ox", plain)
+        plain
+    }
+
+    private fun fetchCapped(url: String, max: Long): ByteArray? =
+        http.newCall(Request.Builder().url(url).build()).execute().use { res ->
+            if (!res.isSuccessful) return null
+            val body = res.body ?: return null
+            if (body.contentLength() > max) return null
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(64 * 1024)
+            body.byteStream().use { input ->
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    if (out.size() > max) return null
+                }
+            }
+            out.toByteArray()
+        }
+
+    /** Sends files (pictures, documents, a recording) in a direct message, with an optional caption after them. */
+    suspend fun sendDmFiles(conv: String, files: List<DmNewFile>, caption: String? = null) {
+        guard()
+        lastDmSentMs = System.currentTimeMillis()
+        dmCall { dm.sendFiles(conv, files, caption) }
     }
 
     /** A queued API call (SPEC 19.37): NIP-98 signed now, POSTed; the answer's status decides. */
@@ -1253,20 +1430,16 @@ class Session(
         for (item in _world.value.failedSettings(groupId)) discard(item.localId)
     }
 
-    private suspend fun publish(target: Target, ev: Event): SendOutcome {
+    private suspend fun publish(target: Target, ev: Event, step: (String) -> Unit = {}): SendOutcome {
         val r = relay(target) ?: return SendOutcome.Error("timeout: no relay")
         return try {
-            r.publish(ev, PUBLISH_TIMEOUT_MS)
+            // a quiet socket is asked first; no answer in time drops it (Relay, SPEC 19.50): its
+            // onDisconnect subscribes again from the last event seen, it reconnects within a second
+            r.publish(ev, PUBLISH_TIMEOUT_MS, step)
             SendOutcome.Ok(ev)
         } catch (e: RelayException) {
             if (e.reason.startsWith("restricted") && target == Target.GROUPS) noteRefusal(e.reason)
-            // no answer on a socket that says it is open: it is dead (a proxy restart can leave it so).
-            // Drop it and open a new one now; the outbox tries again on that one.
-            if (e.reason == "timeout: the relay did not answer" && r.isUp) {
-                r.close()
-                r.subscribe(SUB, filters(target))
-                r.wake()
-            }
+            if (e.reason == "timeout: the relay did not answer") trace.note("${target.key}: no answer in ${PUBLISH_TIMEOUT_MS / 1000}s, socket dropped")
             SendOutcome.Error(e.reason)
         } catch (e: SignerTimeout) {
             SendOutcome.Error("timeout: the signer did not answer")
@@ -1319,13 +1492,14 @@ class Session(
             if (out is SendOutcome.Error && Outbox.classify(out.message) != ErrorClass.DUPLICATE) throw ActionException("not_sent", Buttons.NOT_SENT)
         }
         addToLog(listOf(ev))
-        if (localOnly && button.action == Buttons.WEBSITE_PUBLISH) {
+        if (localOnly && (button.action == Buttons.WEBSITE_PUBLISH || button.action == Buttons.REQUEST_CLOSE)) {
             val key = Demo.groups
             val name = _world.value.realName(me).ifEmpty { "you" }
+            val said = if (button.action == Buttons.REQUEST_CLOSE) "Closed by $name." else "Published by $name."
             scope.launch(Dispatchers.Default) {
                 delay(DEMO_ANSWER_MS)
                 if (stopped) return@launch
-                addToLog(listOf(key.signNow(EventTemplate(1985, "Published by $name.", listOf(
+                addToLog(listOf(key.signNow(EventTemplate(1985, said, listOf(
                     listOf("L", Buttons.RESULT_NS), listOf("l", "ok", Buttons.RESULT_NS), listOf("e", m.id), listOf("press", ev.id),
                     listOf("p", me), listOf("h", groupId), listOf("closed", "1"),
                 ), clock()))))
@@ -1420,7 +1594,7 @@ class Session(
 
     /** My tags and place (kind 30078 `belfry:profile`). */
     suspend fun saveExtras(tags: List<String>, share: Share, place: Place?) {
-        send(Actions.saveExtras(tags, share, place))
+        send(Actions.saveExtras(tags, share, place, _world.value.myExtrasJson))
     }
 
     /**
@@ -1576,6 +1750,23 @@ class Session(
         override fun realName(pubkey: String): String = _world.value.realName(pubkey)
         override fun outbox(): List<OutboxItem> = store.outbox()
         override suspend fun enqueueSigned(target: Target, event: Event, dm: String?): String = this@Session.enqueueSigned(target, event, dm)
+        override fun preparing(id: String) { if (!localOnly) trace.step(id, "DM", SendState.STEP_PREPARE) }
+        override fun notPrepared(id: String) { trace.end(id, "not prepared", left = false) }
+        override val isGuest: Boolean get() = _guest.value != null
+        override fun putBlob(key: String, bytes: ByteArray) { store.putBlob(key, bytes) }
+        override fun blob(key: String): ByteArray? = store.blob(key)
+        override suspend fun enqueue(item: OutboxItem) {
+            guard()
+            store.putOutbox(item)
+            countOutbox()
+            requestFlush()
+        }
+        override suspend fun uploadSealed(bytes: ByteArray, progress: (Long, Long) -> Unit): String {
+            // the demo plays the storage: the ciphertext stays on the device under a local address
+            if (localOnly) { val k = "dmc:" + sha256Hex(bytes); progress(bytes.size.toLong(), bytes.size.toLong()); store.putBlob(k, bytes); return LOCAL_BLOB + k }
+            return api().upload(signer, bytes, "file", "application/octet-stream", progress)
+        }
+        override fun renamed(from: String, to: String) { trace.rename(from, to) }
         override suspend fun requeue(items: List<OutboxItem>) {
             for (o in items) store.putOutbox(o.copy(status = OutboxStatus.QUEUED, error = null))
             countOutbox()
@@ -1982,6 +2173,8 @@ class Session(
         const val K_SEALED_STATE = "sealed-state"
         /** Tests shorten it. */
         @Volatile var PUBLISH_TIMEOUT_MS = 15_000L
+        /** A signer request at least this slow gets a line of its own in the send trace. */
+        const val SLOW_SIGNER_MS = 1_000L
         /** How long the demo's belfry takes to answer a button. */
         @Volatile var DEMO_ANSWER_MS = 900L
     }

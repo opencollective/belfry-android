@@ -241,7 +241,7 @@ fun ChannelScreen(
     val pinnedIds = remember(world, groupId) { world.pinned(groupId).map { it.id }.toSet() }
     val todos = remember(world, groupId) { world.todosBySource(groupId) }
     // A message right after one that is still queued or was refused starts its own block, so the
-    // "Waiting for connection…" / "Not sent" line never sits between two texts of one block.
+    // "Waiting for the connection…" / "Not sent" line never sits between two texts of one block.
     val afterPending = remember(rows, world) {
         val out = HashSet<String>()
         for (i in 1 until rows.size) {
@@ -322,7 +322,7 @@ fun ChannelScreen(
                     }
                 }
                 CompositionLocalProvider(LocalWorld provides feedWorld) {
-                    LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp)) {
+                    LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + TYPING_ROOM)) {
                         items(reversed, key = { it.item.key }, contentType = { it.item::class }) { row ->
                             FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, feedNow, row.item.key in afterPending, row.item.key in pinnedIds, todos[row.item.key], openThread)
                         }
@@ -357,6 +357,8 @@ fun ChannelScreen(
             }
         }
 
+        // canvas v110 messages/typing-channel: drawn over the feed's bottom, the feed doesn't move
+        ChannelTyping(groupId)
         // a recording that runs, or one that was not posted (the web's RecordingBar)
         RecordingBar(groupId)
         SaveAccountBar(session)
@@ -425,6 +427,7 @@ fun ChannelScreen(
                 onPlus = if (editing == null) ({ chat.plusOpen = true }) else null,
                 groupId = groupId,
                 onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
+                typingPlace = sh.belfry.core.typing.TypingPlace.channel(groupId),
             )
         } else if (!guestReading) {
             Spacer(Modifier.navigationBarsPadding())

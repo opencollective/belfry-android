@@ -403,26 +403,30 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 }
             }
 
+            // canvas v113 events/event-full-address: the address, then Copy link · Share… (the QR code is in the event's menu)
             if (e.isNew) {
                 Column(Modifier.testTag("event-url")) {
-                    SectionTitle("URL")
-                    Text(url, fontSize = 13.sp, color = c.text, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Gap(8)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        BusyButton("Copy", onClick = { copyText(context, url, e.title) }, kind = ButtonKind.Ghost, small = true, icon = BelfryIcons.Copy)
-                        BusyButton("Share…", onClick = { shareText(context, url, e.title) }, kind = ButtonKind.Ghost, small = true, icon = BelfryIcons.Share)
-                        BusyButton("QR code", onClick = { sheet = EventSheet.Qr }, kind = ButtonKind.Ghost, small = true, icon = BelfryIcons.Qr)
+                    SectionTitle("Address")
+                    Text(url, fontSize = 14.sp, color = c.muted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("event-address"))
+                    Gap(10)
+                    sh.belfry.app.ui.kit.CopyShareButtons(url, e.title, copyTag = "event-copy", shareTag = "event-share")
+                }
+            }
+
+            if (host && e.isNew) {
+                Column {
+                    SectionTitle("For hosts")
+                    ActionGroup {
+                        ActionRow(
+                            "Guest list", onClick = { sheet = EventSheet.Guests }, modifier = Modifier.testTag("event-guests"), icon = BelfryIcons.Users,
+                            sub = "$going going" + if (asking > 0) " · $asking asking" else "", chevron = true,
+                        )
+                        ActionRow("Edit the event", onClick = { nav.go(Routes.editEvent(e.coord)) }, modifier = Modifier.testTag("event-edit"), icon = BelfryIcons.Edit, chevron = true)
                     }
                 }
             }
 
             ActionGroup {
-                if (host && e.isNew) {
-                    ActionRow(
-                        "Guest list", onClick = { sheet = EventSheet.Guests }, modifier = Modifier.testTag("event-guests"), icon = BelfryIcons.Users,
-                        sub = "$going going" + if (asking > 0) " · $asking asking" else "", chevron = true,
-                    )
-                }
                 when {
                     g != null && inside -> ActionRow("Open the event's chat", onClick = { nav.openChannel(e.groupId) }, modifier = Modifier.testTag("event-chat"), icon = BelfryIcons.Thread, sub = "Members, files, todos", chevron = true)
                     g == null && !e.isNew && !e.remote -> BusyRow(
@@ -440,11 +444,6 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                     )
                 }
                 ActionRow("All events", onClick = { nav.go(Routes.events(null)) }, icon = BelfryIcons.Calendar, chevron = true)
-            }
-            if (host && e.isNew) {
-                ActionGroup {
-                    ActionRow("Edit the event", onClick = { nav.go(Routes.editEvent(e.coord)) }, modifier = Modifier.testTag("event-edit"), icon = BelfryIcons.Edit, chevron = true)
-                }
             }
             if (!e.isNew && e.author == world.me) {
                 ActionGroup { ActionRow("Delete event", onClick = { sheet = EventSheet.Delete }, modifier = Modifier.testTag("event-delete"), icon = BelfryIcons.Trash, danger = true) }
@@ -625,7 +624,7 @@ internal fun RsvpControl(mine: Rsvp?, busy: BusyState, onAnswer: suspend (Rsvp) 
             Box(
                 Modifier
                     .weight(1f)
-                    .heightIn(min = 44.dp)
+                    .heightIn(min = 48.dp)
                     .clip(shape)
                     .background(if (on) c.accent else c.bg)
                     .border(1.dp, if (on) c.accent else c.line, shape)

@@ -64,9 +64,9 @@ object Filters {
     }
 }
 
-/** SPEC 4: reconnect after min(30 s, 0.8 s × 2^attempt). */
+/** SPEC 4 / 19.50: reconnect, and try a send again, after 1 s, 2 s, 4 s, 8 s, 16 s, then every 30 s. */
 object Backoff {
-    fun delayMs(attempt: Int): Long = minOf(30_000L, 800L * (1L shl attempt.coerceIn(0, 16)))
+    fun delayMs(attempt: Int): Long = minOf(30_000L, 1_000L shl (attempt - 1).coerceIn(0, 15))
 }
 
 /** SPEC 4: does this refusal mean "no access (yet)"? Only the groups relay's verdict counts. */
@@ -126,6 +126,19 @@ class Relay(
 
     private var keep = false
     private var probing = false
+    /** When something last came on the socket (or it opened), ms on a clock that only goes on. */
+    @Volatile private var heardAt = 0L
+
+    /** How long a probe waits for an answer (a seam for tests). */
+    @Volatile var probeMs: Long = PROBE_MS
+    /** A socket quiet longer than this is asked before a send goes into it (a seam for tests). */
+    @Volatile var sendQuietMs: Long = SEND_QUIET_MS
+
+    /** How long the open socket has been quiet (ms); 0 when it is not open. */
+    fun quietMs(): Long = if (openSocket() == null) 0 else nowMs() - heardAt
+
+    /** The socket is not known to be alive: open and quiet for longer than MS. */
+    fun quietFor(ms: Long): Boolean = openSocket() != null && quietMs() > ms
     private var attempts = 0
     private var reconnectJob: Job? = null
 
@@ -178,14 +191,16 @@ class Relay(
      * no answer in [timeoutMs] = dead: the socket is dropped and, when [keepConnected], opened again
      * (the caller's [onDisconnect] runs, as for any drop). Returns false when it was dropped.
      */
-    suspend fun probe(timeoutMs: Long = 6_000): Boolean {
+    suspend fun probe(timeoutMs: Long = probeMs): Boolean {
         val ws = synchronized(lock) { if (isOpen && !probing) { probing = true; socket } else null } ?: return true
         try {
             val id = "p" + Random.hex(4)
             val box = QueryBox()
             synchronized(lock) { if (socket === ws) queries[id] = box }
+            val asked = nowMs()
             ws.send(req(id, listOf(Filters.of(kinds = listOf(39000), limit = 1))))
-            val answered = withTimeoutOrNull(timeoutMs) { box.done.await() } != null
+            // its answer, or anything else that came meanwhile: the socket lives
+            val answered = withTimeoutOrNull(timeoutMs) { box.done.await() } != null || heardAt >= asked
             val still = synchronized(lock) { queries.remove(id) != null }
             if (answered) { if (still) ws.send(closeMsg(id)); return true }
             if (synchronized(lock) { socket !== ws }) return true // dropped meanwhile: handled there
@@ -195,6 +210,13 @@ class Relay(
         } finally {
             synchronized(lock) { probing = false }
         }
+    }
+
+    /** Drops the socket as dead (a publish or a request that got no answer): who waits fails, [onDisconnect] runs, and it reconnects when kept. */
+    fun drop() {
+        val ws = synchronized(lock) { socket } ?: return
+        ws.cancel()
+        dropped(ws)
     }
 
     /** Stop reconnecting and close. */
@@ -231,6 +253,7 @@ class Relay(
             val all: Map<String, List<JsonObject>> = synchronized(lock) {
                 if (socket !== webSocket) return
                 isOpen = true
+                heardAt = nowMs()
                 opening?.complete(Unit)
                 opening = null
                 LinkedHashMap(subs)
@@ -242,6 +265,7 @@ class Relay(
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             if (synchronized(lock) { socket !== webSocket }) return
+            heardAt = nowMs()
             try {
                 handle(webSocket, text)
             } catch (e: Exception) {
@@ -345,12 +369,17 @@ class Relay(
     }
 
     /**
-     * Publishes the event and waits for OK. Connects first if needed ([timeoutMs] for the
-     * connection, [timeoutMs] for the answer; SPEC 5: 15 s each). On `auth-required:` it
-     * authenticates and publishes once more. Throws [RelayException] with the relay's reason.
+     * Publishes the event and waits for OK. A socket quiet for more than [sendQuietMs] is asked
+     * first ([probe]): a dead one is dropped before the event goes into it (SPEC 19.50). Connects
+     * first if needed ([timeoutMs] for the connection, [timeoutMs] for the answer; SPEC 5: 15 s
+     * each). No answer in time drops the socket (it is dead). On `auth-required:` it authenticates
+     * and publishes once more. Throws [RelayException] with the relay's reason. [step] hears what
+     * it is doing ("checking the connection", "connecting", "waiting for the relay").
      */
-    suspend fun publish(event: Event, timeoutMs: Long = 15_000) {
-        if (openSocket() == null) connect(timeoutMs)
+    suspend fun publish(event: Event, timeoutMs: Long = 15_000, step: (String) -> Unit = {}) {
+        if (quietFor(sendQuietMs)) { step(STEP_CHECK); probe() }
+        if (openSocket() == null) { step(STEP_CONNECT); connect(timeoutMs) }
+        step(STEP_WAIT)
         try {
             publishOnce(event, timeoutMs)
         } catch (e: RelayException) {
@@ -374,7 +403,10 @@ class Relay(
         try {
             withTimeout(timeoutMs) { d.await() }
         } catch (e: TimeoutCancellationException) {
-            synchronized(lock) { if (pendingOk[event.id] === d) pendingOk.remove(event.id) }
+            val same = synchronized(lock) { if (pendingOk[event.id] === d) pendingOk.remove(event.id); socket === ws }
+            // an open socket that does not answer is dead (a phone that slept, a proxy restart): drop it now,
+            // it reconnects in a second and the next try goes on a fresh one (SPEC 19.50)
+            if (same) { ws.cancel(); dropped(ws) }
             throw RelayException("timeout: the relay did not answer")
         }
     }
@@ -529,6 +561,17 @@ class Relay(
     }
 
     companion object {
+        /** An answer to a probe within this, or the socket is dead (SPEC 19.50). */
+        const val PROBE_MS = 5_000L
+        /** A socket quiet for longer is asked before a send goes into it. */
+        const val SEND_QUIET_MS = 10_000L
+        const val STEP_CHECK = "checking the connection"
+        const val STEP_CONNECT = "connecting"
+        const val STEP_WAIT = "waiting for the relay"
+
+        /** A clock for durations: never jumps with the wall clock. */
+        fun nowMs(): Long = System.nanoTime() / 1_000_000
+
         /** A client suited to relays: pings keep phone connections honest. */
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .pingInterval(25, TimeUnit.SECONDS)

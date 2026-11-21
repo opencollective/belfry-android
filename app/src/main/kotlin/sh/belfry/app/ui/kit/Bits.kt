@@ -277,7 +277,7 @@ fun EmptyState(
 
 enum class BannerKind { Info, Warning, Error }
 
-/** A strip under the top bar: "Waiting for connection…", "Not sent", "You're a guest"… */
+/** A strip under the top bar: "Waiting for the connection…", "Not sent", "You're a guest"… */
 @Composable
 fun Banner(
     text: String,

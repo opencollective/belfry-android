@@ -11,8 +11,8 @@ import java.util.Locale
  * End-to-end encrypted conversations, as people see them (canvas "Messages · encryption",
  * approved 2026-11-20). Screens only: what is sealed, which of my devices can read it, how many
  * devices the others have. No key, npub or id is ever text here: devices have plain names
- * (only mine), people are pubkeys the screens turn into names. The wire comes with the lead's
- * contract (docs/sealed.md); until then only the demo fills this.
+ * (only mine), people are pubkeys the screens turn into names. Filled by the sealed engine
+ * (docs/sealed.md) through EncryptionService, or by the demo.
  */
 enum class DeviceKind { PHONE, TABLET, COMPUTER }
 
@@ -77,7 +77,7 @@ data class SharedBlock(val by: String, val from: Long, val to: Long) {
 /** A new device of mine asking for access, shown on my other devices. */
 data class AccessAsk(val id: String, val device: String, val kind: DeviceKind, val at: Long)
 
-/** The whole picture on this device. Empty (nothing sealed) until the contract arrives, outside the demo. */
+/** The whole picture on this device. Empty for a guest or without a device key (nothing sealed). */
 data class SealState(
     val myDevices: List<MyDevice> = emptyList(),
     val sealed: Map<String, ConvSeal> = emptyMap(),
@@ -93,6 +93,13 @@ data class SealState(
 ) {
     fun seal(conv: String): ConvSeal? = sealed[conv]
     val thisDevice: MyDevice? get() = myDevices.firstOrNull { it.thisDevice }
+
+    /**
+     * This device is the only one in my roster (canvas v117 messages/encryption-only-device): losing it
+     * makes my sealed messages unreadable until Start fresh. False with no roster yet (no letterbox),
+     * when this device is still waiting to be allowed, and for guests (no devices at all).
+     */
+    val onlyDevice: Boolean get() = !earlierLocked && !waitingKeys && myDevices.size == 1 && myDevices[0].thisDevice
 }
 
 /** The fixed words of the encryption screens, so every screen and test say the same. */
@@ -117,6 +124,16 @@ object SealedText {
     }
 
     fun devices(n: Int): String = if (n == 1) "1 device" else "$n devices"
+
+    /** canvas v117: the only device in my roster, about to go (sign out, forget, remove). */
+    const val ONLY_DEVICE_TITLE = "This is your only device for sealed conversations"
+    enum class Leaving(val verb: String, val anyway: String) {
+        SIGN_OUT("sign out", "Sign out anyway"), FORGET("forget this device", "Forget anyway"), REMOVE("remove this device", "Remove anyway"),
+    }
+    fun onlyDeviceText(how: Leaving): String =
+        "If you ${how.verb}, your sealed messages can't be opened again, here or on a new device. Only what the people you write with share again comes back."
+    const val ONLY_DEVICE_KEEP = "To keep them, link another device first."
+    const val ONLY_DEVICE_LINK = "Link a device"
 
     /** "5 people · 11 devices", under the Encryption title of a group. */
     fun peopleLine(people: Int, devices: Int): String = "$people people · ${devices(devices)}"

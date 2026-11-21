@@ -123,7 +123,7 @@ fun MeScreen() {
             ActionRow("Members", onClick = { nav.go(Routes.MEMBERS) }, icon = BelfryIcons.Users, sub = "Everyone in ${session.community.name}", chevron = true)
             ActionRow("Messages", onClick = { nav.go(Routes.MESSAGES) }, icon = BelfryIcons.Mail, sub = "Direct messages and e-mail", chevron = true)
             ActionRow("Notifications", onClick = { nav.go(Routes.NOTIFICATIONS) }, icon = BelfryIcons.Bell, sub = "On this phone: messages, mentions, announcements", chevron = true, modifier = Modifier.testTag("me-notifications"))
-            // canvas v88 shows it always; until the sealed wiring ships (the lead, 0.7.1) only the demo has it
+            // canvas v88: wherever this device has sealed conversations (not a guest, a device key)
             if (session.localOnly || session.sealed != null) {
                 ActionRow("Devices", onClick = { nav.go(Routes.DEVICES) }, icon = BelfryIcons.Phone, sub = "Where you're signed in", chevron = true, modifier = Modifier.testTag("me-devices"))
             }
@@ -142,6 +142,7 @@ fun MeScreen() {
         SectionTitle("App")
         ActionGroup {
             ActionRow("Appearance", onClick = null, value = "Follows the system")
+            ActionRow("Privacy", onClick = { nav.go(Routes.PRIVACY) }, icon = BelfryIcons.Shield, sub = "On this phone: whether others see you typing", chevron = true, modifier = Modifier.testTag("me-privacy"))
             ActionRow("Community", onClick = null, icon = BelfryIcons.Globe, value = domain)
             ActionRow("Version", onClick = null, value = BuildConfig.VERSION_NAME + if (status.localOnly) " · demo" else "")
             sh.belfry.app.update.UpdateRows()
@@ -163,7 +164,17 @@ fun MeScreen() {
             ActionRow("Sign out", onClick = { leaving = true }, icon = BelfryIcons.Logout, danger = true, modifier = Modifier.testTag("me-signout"))
         }
     }
-    if (leaving) {
+    // canvas v117: my only device for sealed conversations asks first (the state is refreshed on the way)
+    val seal by session.encryption.state.collectAsState()
+    LaunchedEffect(leaving) { if (leaving && !session.localOnly) try { session.encryption.refresh() } catch (e: Exception) { } }
+    if (leaving && seal.onlyDevice && guest == null) {
+        OnlyDeviceSheet(
+            sh.belfry.core.model.SealedText.Leaving.SIGN_OUT,
+            onLink = { leaving = false; nav.go(Routes.LINK_DEVICE) },
+            onAnyway = { signOut(); leaving = false },
+            onDismiss = { leaving = false },
+        )
+    } else if (leaving) {
         val unsent = status.queued + status.failed
         ConfirmSheet(
             title = "Sign out?",

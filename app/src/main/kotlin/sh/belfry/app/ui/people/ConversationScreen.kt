@@ -76,6 +76,7 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.dm.Dm
+import sh.belfry.core.dm.DmNewFile
 import sh.belfry.core.dm.DmSnapshot
 import sh.belfry.core.model.DeviceNotice
 import sh.belfry.core.model.SharedBlock
@@ -134,16 +135,16 @@ fun ConversationScreen(conv: String) {
     val lockedHere = seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
     val rows: List<Any> = remember(list, seal, until) {
-        val shown = list.filter { it.at < until }
+        val shown = DmGroups.collapse(list.filter { it.at < until })
         val merged = if (seal == null || seal.notices.isEmpty()) shown
-        else (shown.map { it.at to it } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
+        else (shown.map { r -> (if (r is DmGroup) r.at else (r as Dm).at) to r } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
         // history someone shared with this device (canvas v86): a "Shared by" line above each block
         val out = ArrayList<Any>()
         var open: SharedBlock? = null
         for (r in merged) {
-            val block = if (r is Dm) seal?.shared?.firstOrNull { it.holds(r.at) } else null
+            val block = when (r) { is Dm -> seal?.shared?.firstOrNull { it.holds(r.at) }; is DmGroup -> seal?.shared?.firstOrNull { it.holds(r.at) }; else -> null }
             if (block != null && block != open) out.add(block)
-            open = block ?: open.takeIf { r !is Dm }
+            open = block ?: open.takeIf { r !is Dm && r !is DmGroup }
             out.add(r)
         }
         if (lockedHere) out.add(LockedHere)
@@ -151,12 +152,15 @@ fun ConversationScreen(conv: String) {
     }
     fun atOf(r: Any): Long? = when (r) {
         is Dm -> r.at
+        is DmGroup -> r.at
         is DeviceNotice -> r.at
         is SharedBlock -> r.from
         else -> null
     }
     var why by remember(conv) { mutableStateOf<SharedBlock?>(null) }
     var notSealedOpen by remember(conv) { mutableStateOf(false) }
+    var plusOpen by remember(conv) { mutableStateOf(false) }
+    var recording by remember(conv) { mutableStateOf(false) }
 
     LaunchedEffect(conv, rows.size) {
         if (rows.isNotEmpty()) state.scrollToItem(rows.size - 1)
@@ -194,10 +198,11 @@ fun ConversationScreen(conv: String) {
                 )
             }
         } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(bottom = 10.dp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(bottom = 10.dp + sh.belfry.app.ui.chat.TYPING_ROOM)) {
                 itemsIndexed(rows, key = { _, r ->
                     when (r) {
                         is Dm -> r.rid
+                        is DmGroup -> "group:" + r.key
                         is DeviceNotice -> "notice:" + r.id
                         is SharedBlock -> "shared:" + r.by + ":" + r.from
                         else -> "locked"
@@ -216,12 +221,20 @@ fun ConversationScreen(conv: String) {
                                 Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false })
                             }
                         }
+                        is DmGroup -> FilesBubble(r, dms, world, group = peers.size > 1, onMenu = { rid, emojiOnly -> acting = rid to emojiOnly }) {
+                            Bubble(it, dms, world, group = false, onMenu = { emojiOnly -> acting = it.rid to emojiOnly })
+                        }
                         is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
                         is SharedBlock -> SharedByRow(r, world) { why = r }
                         else -> LockedBlock(seal?.since, world, now) { nav.go(Routes.UNLOCK_STEPS) }
                     }
                 }
             }
+        }
+        // canvas v110 messages/typing-dm (never for e-mail)
+        if (!mail) {
+            val lastDm = remember(list) { HashMap<String, Long>().also { m -> for (d in list) if (d.at > (m[d.from] ?: 0L)) m[d.from] = d.at } }
+            sh.belfry.app.ui.chat.TypingLine(sh.belfry.core.typing.TypingPlace.dm(conv)) { lastDm[it] ?: 0L }
         }
         why?.let { b -> SharedWhySheet(b, world) { why = null } }
         if (notSealedOpen) NotSealedSheet { notSealedOpen = false }
@@ -255,7 +268,12 @@ fun ConversationScreen(conv: String) {
         } else Composer(
             composer,
             placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else "Message",
-            onSend = { text, _, _, _ ->
+            onSend = { text, files, _, _ ->
+                if (files.isNotEmpty() && !mail) {
+                    // pictures with the text as their caption (canvas v109)
+                    session.sendDmFiles(conv, files.map { DmNewFile(it.name, it.mime, it.bytes, it.width, it.height) }, text.takeIf { it.isNotBlank() })
+                    return@Composer
+                }
                 if (newMail && subject.isBlank()) throw ActionException("subject", "Give it a subject: it names the thread.")
                 val target = session.sendDm(conv, text, if (newMail) subject.trim() else null)
                 subject = ""
@@ -266,8 +284,12 @@ fun ConversationScreen(conv: String) {
                 }
             },
             modifier = Modifier.navigationBarsPadding(),
-            photos = false,
+            photos = !mail,
+            onPlus = if (!mail) ({ plusOpen = true }) else null,
+            typingPlace = if (mail) null else sh.belfry.core.typing.TypingPlace.dm(conv),
         )
+        if (plusOpen) DmPlusSheet(conv, composer, onClose = { plusOpen = false }, onRecord = { recording = true })
+        if (recording) DmRecorderSheet(conv) { recording = false }
     }
 }
 
@@ -324,10 +346,23 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu:
                     }
                 }
                 // a held message says so under the bubble (canvas v98), not here
-                val line = if (waiting) null else dms.stateLine(d) ?: if (d.mine && d.isMail) "Sent" else null
+                // a direct message not out yet: Sending… → Still sending… · <step> → Not sent yet · Retry (SPEC 19.50)
+                val sendLine = if (!waiting && d.mine && d.pending && d.failed == null && !d.isMail) sh.belfry.app.ui.chat.rememberSendLine(d.rid, 0) else null
+                val line = if (waiting) null else sendLine?.text ?: dms.stateLine(d) ?: if (d.mine && d.isMail) "Sent" else null
                 if (line != null) {
                     Spacer(Modifier.width(8.dp))
                     Text(line, fontSize = 11.sp, color = if (d.failed != null) c.danger else c.muted, modifier = Modifier.weight(1f, fill = false))
+                }
+                if (sendLine?.retry == true) {
+                    Spacer(Modifier.width(6.dp))
+                    if (retry.busy) {
+                        Spinner(size = 12.dp)
+                    } else {
+                        Text(
+                            "Retry", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                            modifier = Modifier.clickable(role = Role.Button) { retry.run { session.sendNow() } }.padding(horizontal = 4.dp, vertical = 2.dp).testTag("dm-send-retry"),
+                        )
+                    }
                 }
                 if (d.failed != null) {
                     Spacer(Modifier.width(6.dp))

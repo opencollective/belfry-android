@@ -24,6 +24,13 @@
          person to confirm, and installs it only when it is signed with the same key. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Update: is Android's "Install unknown apps" setting there? (else belfry.sh/android) -->
+    <queries>
+        <intent>
+            <action android:name="android.settings.MANAGE_UNKNOWN_APP_SOURCES" />
+        </intent>
+    </queries>
+
     <application
         android:name=".BelfryApp"
         android:allowBackup="false"
@@ -93,5 +100,16 @@
             android:name=".rec.RecordingService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- a direct message's file, decrypted, handed to the phone's viewer (only this app's cache/open/) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

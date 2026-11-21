@@ -17,10 +17,10 @@ import sh.belfry.core.model.SealedText
 import sh.belfry.core.model.SharedBlock
 
 /**
- * End-to-end encrypted conversations (canvas "Messages · encryption", 2026-11-20): SCREENS ONLY.
- * No key, no crypto and no wire until the lead's contract (collective-belfry docs/sealed.md and
- * its vectors) arrives. Outside the demo nothing is sealed, so no lock shows anywhere and every
- * action refuses. The demo seals its own conversations and answers on the device.
+ * End-to-end encrypted conversations (canvas "Messages · encryption"; collective-belfry docs/sealed.md):
+ * the screens' state. On a real account it comes from the sealed engine ([refresh]); a guest, or a
+ * session without a device key, has none (nothing sealed, no lock). The demo seals its own
+ * conversations and answers on the device.
  */
 class EncryptionService internal constructor(private val s: Session) {
     private val demo: Boolean get() = s.localOnly
@@ -215,6 +215,12 @@ class EncryptionService internal constructor(private val s: Session) {
         if (!demo) return
         val now = s.now()
         _state.value = _state.value.let { st -> st.copy(asks = st.asks + AccessAsk("ask-${st.asks.size + 1}", device, kind, now - 120)) }
+    }
+
+    /** Demo and tests: this phone is my only device (canvas v117: sign out warns first). */
+    fun demoOnlyDevice() {
+        if (!demo) return
+        _state.value = _state.value.let { st -> st.copy(myDevices = st.myDevices.filter { it.thisDevice }, earlierLocked = false, locked = emptySet()) }
     }
 
     /** Demo and tests: a device just linked by scanning my code. */

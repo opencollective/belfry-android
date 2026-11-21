@@ -1,5 +1,6 @@
 package sh.belfry.app.ui.chat
 
+import sh.belfry.app.ui.kit.ConfirmSheet
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -14,13 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -141,17 +140,16 @@ fun MessageButtons(groupId: String, m: Message) {
         }
 
         asking?.let { b ->
-            val question = if (b.belfry) Buttons.confirmText(b.action, world.ctx.domain) else "${b.label}?"
-            AlertDialog(
-                onDismissRequest = { asking = null },
-                text = { Text(question ?: "${b.label}?", fontSize = 16.sp) },
-                confirmButton = {
-                    TextButton(onClick = { asking = null; press(b) }, modifier = Modifier.testTag("button-confirm")) {
-                        Text(if (b.belfry) Buttons.confirmLabel(b.action) else b.label, color = if (b.danger) c.danger else c.text, fontWeight = FontWeight.SemiBold)
-                    }
-                },
-                dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel", color = c.text) } },
-                containerColor = c.bg,
+            // the app's own confirmation (a sheet, never a system dialog): the question, then the line under it
+            val (question, detail) = Buttons.confirmParts((if (b.belfry) Buttons.confirmText(b.action, world.ctx.domain) else null) ?: "${b.label}?")
+            ConfirmSheet(
+                title = question,
+                confirmLabel = if (b.belfry) Buttons.confirmLabel(b.action) else b.label,
+                onConfirm = { asking = null; press(b) },
+                onDismiss = { asking = null },
+                message = detail,
+                danger = b.danger,
+                confirmTag = "button-confirm",
             )
         }
     }

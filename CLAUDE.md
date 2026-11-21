@@ -160,6 +160,11 @@ minSdk 26, JDK 17.
   the same key) and commits it through `PackageInstaller` (`UpdateReceiver` opens the system's
   confirmation). Release builds only (`Updater.enabled`). `UpdateBar` stands at the top of Home,
   `UpdateRows` in Me. Only the version number is shown, never a release's text.
+  Update goes through `Updater.tap` (`AppUpdate.installStep`): install when Android lets Belfry
+  install packages; else `UpdateSheetHost` (in `AppRoot`) says why before it opens Android's
+  "Install unknown apps" setting, and `Updater.resume` (every start) goes on once the person is
+  back with it on (the release waits in the preferences: the app may be killed meanwhile); still
+  off, no such setting, or the installer failed → belfry.sh/android in the browser (`AppUpdate.WEB`).
 
 - Parity with the iPhone app (2026-11-17, branch `parity`; SPEC 19.28–19.35, PARITY.md's first
   table). Core: `model/Archive.kt` (deleted / archived, `GroupLock`, presence questions),
@@ -209,6 +214,21 @@ minSdk 26, JDK 17.
   belfry.sh through `AccountsUi.discover / charterOf / applyTo`). The updater downloads a newer APK
   ahead on an unmetered connection (`Updater.prefetch`), so Update opens the installer at once. The
   drawer has no search field (search is in each channel's header).
+
+- Connections (SPEC 19.50, 2026-11-21): `core/net/Connections.kt` owns the session's sockets (groups,
+  main, the signer's `BunkerSigner.relay`); `Session.wake / background / setOnline / sendNow /
+  diagnostics`. `Relay.publish` asks a quiet socket first and drops one that gave no `OK`
+  (`probeMs` / `sendQuietMs` are test seams). The outbox holds back by lane (`Outbox.lane`), not
+  by relay. `SendTrace` = `Session.sending` (the lines under unsent messages, `rememberSendLine`)
+  and About Belfry → Diagnostics. A new socket for a session goes through `Connections.add`.
+
+- Typing indicators (SPEC 19.51, docs/typing.md): pure rules `core/typing/Typing.kt` (`TypingSender`
+  when to send, `TypingBoard` who shows, `TypingState.who`), `engine/SessionTyping.kt` (subscriptions,
+  ephemeral sends, `GiftWrap.wrapEphemeral`; typing events never reach the log: `Relay.onEvent` hands
+  them over first). `Session.typing / watchTyping / typed / typingCleared / typingSent / sendTyping /
+  showTyping` (demo and tests). App: `Composer(typingPlace =)`, `ui/chat/TypingLine.kt` (`TypingLine`,
+  zero layout height, drawn over the feed; `ChannelTyping`, `WatchTyping`), the DM list's "typing…",
+  `ui/people/PrivacyScreen.kt` (`TypingSetting`, per device).
 
 ## UI rules (the owner's, not negotiable)
 

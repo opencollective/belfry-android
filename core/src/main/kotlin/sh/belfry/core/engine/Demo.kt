@@ -60,6 +60,7 @@ object Demo {
     const val HELLO = "hello-b04e"
     const val WEBSITE = "website-5d1c"
     const val RANDOM = "random-9e77"
+    const val REQUESTS = "requests-4c2d"
     /** A closed channel I'm not in (round 6): Tomás its steward, Lena asking to join. */
     const val TOOLS = "tools-5d1e"
     const val POD_OPEN = "pod-reading-circle-a1b2"
@@ -155,6 +156,7 @@ object Demo {
         channel(maya, HELLO, "hello", "Our front desk: e-mails to hello@$DOMAIN land here.", t0 + 500, listOf(maya, me), listOf(maya, me, lena, kofi))
         channel(kofi, WEBSITE, "website", "What is on $DOMAIN, and what should be.", t0 + 600, listOf(kofi), listOf(kofi, maya, me))
         channel(sam, RANDOM, "random", "Anything else.", t0 + 700, listOf(sam), listOf(sam, tomas, me, joris, kofi))
+        channel(maya, REQUESTS, "requests", "What people ask of $NAME through the website.", t0 + 750, listOf(maya, me), listOf(maya, me, kofi))
         run {
             val about = "Drills, ladders and the sander: who has what, and when it comes back."
             Actions.createChannel(TOOLS, "Tool library", about).forEachIndexed { i, d -> post(tomas, t0 + 800 + i, d) }
@@ -337,6 +339,26 @@ object Demo {
             listOf("button", "publish", "Approve and publish", "primary", "belfry:website-publish"),
             listOf("button", "later", "Not now"),
         ), "Version 4 has the new photos of the garden (https://preview.$DOMAIN/p/${Bech32.npub(kofi.pubkey)}@website). Approve it below, or tell me what to change.")
+        // plain requests from the website (collective-belfry requests.md §4b): each card is signed by the
+        // asker's website account (not a member), with a Close button for the admins; one closed by Maya, one open
+        val visitors = listOf(key("Hana Sato") to "Hana Sato", key("Ruth Adeyemi") to "Ruth Adeyemi")
+        visitors.forEachIndexed { i, (k, n) -> post(k, now - 6 * day + i, Actions.saveProfile(JsonObject(emptyMap()), n, "")) }
+        var nextVisitor = 0
+        fun request(at: Long, type: String, typeName: String, title: String, text: String): Event = raw(visitors[nextVisitor++].first, at, 9, listOf(
+            listOf("h", REQUESTS), listOf("subject", title), listOf("request-type", type),
+            listOf("button", "close", "Close", "", "belfry:request-close"),
+        ), "**$title**\n\n_${typeName}_\n\n$text")
+        val r1 = request(now - 5 * day, "talk", "Talk or workshop", "A workshop on mending clothes", "I run a small repair café and could give a two-hour workshop on mending, any Saturday in January. I bring needles and thread.")
+        fun requestAnswer(at: Long, msg: Event, press: Event, text: String) = raw(groups, at, 1985, listOf(
+            listOf("L", "belfry/action-result"), listOf("l", "ok", "belfry/action-result"), listOf("e", msg.id),
+            listOf("press", press.id), listOf("p", press.pubkey), listOf("h", REQUESTS), listOf("closed", "1"),
+        ), text)
+        val p1 = post(maya, now - 4 * day, sh.belfry.core.model.Buttons.press(r1.id, r1.pubkey, REQUESTS, "close"))
+        requestAnswer(now - 4 * day + 2, r1, p1, "Closed by Maya Okafor.")
+        raw(groups, now - 4 * day + 3, 1985, listOf(
+            listOf("L", "belfry/inbox"), listOf("l", "closed", "belfry/inbox"), listOf("e", r1.id), listOf("h", REQUESTS), listOf("by", maya.pubkey),
+        ), "")
+        request(now - 3 * h, "enquiry", "General enquiry", "Room for a choir rehearsal?", "Our choir of 14 is looking for a room on Tuesday evenings from February. Is the hall free then, and what would it cost?")
         say(sam, RANDOM, now - 6 * day, "Found a blue bike helmet by the gate. It's on the shelf in the hall.")
         say(tomas, RANDOM, now - 26 * h, "Does anyone want a box of *very* ripe pears?")
         // references (SPEC 19.44): one inside the text (a name), one at the end (a preview box), one I can't open
@@ -404,6 +426,25 @@ object Demo {
         dm(me, listOf(maya), now - 25 * h, "Sure. Where is the key these days?", listOf(maya to "🙏"))
         dm(maya, listOf(me), now - 25 * h + 300, "In the **blue box** behind the seed shelf.", listOf(me to "👍"))
         dm(maya, listOf(me), now - 35 * 60, "The new gate code is 4417. Please don't post it in a channel 🙏")
+        // files in a direct message (canvas v109): encrypted like real ones, the ciphertext kept on the device
+        suspend fun dmFile(from: LocalSigner, to: List<LocalSigner>, at: Long, res: String, mime: String, name: String? = null, dim: String? = null, duration: Int? = null, group: String? = null) {
+            val plain = Demo::class.java.getResourceAsStream("/demo/$res")?.use { it.readBytes() } ?: return
+            val sealed = sh.belfry.core.dm.DmFiles.seal(plain)
+            store.putBlob("dmc:" + sealed.x, sealed.ciphertext)
+            val tags = sh.belfry.core.dm.DmFiles.tags(to.filter { it !== from }.map { it.pubkey }, mime, sealed, name = name, dim = dim, duration = duration, group = group)
+            val rumor = GiftWrap.rumor(sh.belfry.core.dm.DmFiles.KIND, from.pubkey, tags, Session.LOCAL_BLOB + "dmc:" + sealed.x, at)
+            wraps.add(GiftWrap.wrap(rumor, me.pubkey, from))
+        }
+        val seedlings = "5eed1e95a1b2c3d4"
+        dmFile(me, listOf(lena), now - 30 * 60, "seedlings-1.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        dmFile(me, listOf(lena), now - 30 * 60 + 1, "seedlings-2.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        dmFile(me, listOf(lena), now - 30 * 60 + 2, "seedlings-3.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        run {
+            val caption = GiftWrap.rumor(14, me.pubkey, listOf(listOf("p", lena.pubkey), listOf("group", seedlings)), "The seedlings came up!", now - 30 * 60 + 3)
+            wraps.add(GiftWrap.wrap(caption, me.pubkey, me))
+        }
+        dmFile(lena, listOf(me), now - 25 * 60, "garden-plan.pdf", "application/pdf", name = "Garden plan 2027.pdf")
+        dmFile(lena, listOf(me), now - 20 * 60, "recording.m4a", "audio/mp4", duration = 7)
         val trio = listOf(tomas, lena, me)
         dm(tomas, trio, now - 3 * day, "Shall we buy the wood for the pantry shelves together?")
         dm(lena, trio, now - 3 * day + 600, "Yes. The budget allows 150 EUR.")

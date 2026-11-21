@@ -64,6 +64,7 @@ fun InlineThread(groupId: String, root: Message, chat: ChatState, focus: Boolean
                 autoFocus = focus,
                 groupId = groupId,
                 onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
+                typingPlace = sh.belfry.core.typing.TypingPlace.thread(groupId, root.ev.id),
             )
             Row {
                 Text("Hide", fontSize = 13.sp, color = c.muted, modifier = Modifier.clickable(role = Role.Button, onClick = onHide).padding(vertical = 4.dp))

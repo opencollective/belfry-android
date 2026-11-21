@@ -66,13 +66,19 @@ class BelfryApp : Application() {
         state.unreadAccounts = { AndroidPush.unread(this) }
         state.clearUnread = { id -> AndroidPush.clearUnread(this, id) }
         state.beforeSignOut = { s -> AndroidPush.unregister(this@BelfryApp, s) }
+        // "Show others when I'm typing" belongs to the device (docs/typing.md §4): every session hears it
+        scope.launch { state.session.collect { s -> s?.sendTyping = sh.belfry.app.ui.people.TypingSetting.on(this@BelfryApp) } }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 AndroidPush.foreground = true; state.wake()
-                scope.launch { try { sh.belfry.app.update.Updater.check(this@BelfryApp) } catch (e: Exception) { } } // a newer version? (at most hourly)
+                scope.launch {
+                    try { sh.belfry.app.update.Updater.resume(this@BelfryApp) } catch (e: Exception) { } // back from the install setting: go on
+                    try { sh.belfry.app.update.Updater.check(this@BelfryApp) } catch (e: Exception) { } // a newer version? (at most hourly)
+                }
             }
             override fun onStop(owner: LifecycleOwner) {
                 AndroidPush.foreground = false
+                state.background()
                 try { state.session.value?.flushRead() } catch (e: Exception) { } // what I read goes to my other devices now
             }
         })
@@ -80,6 +86,7 @@ class BelfryApp : Application() {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             state.setOnline(cm.activeNetwork != null)
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                // also a new network while online (Wi-Fi to mobile): every socket is asked then (SPEC 19.50)
                 override fun onAvailable(network: Network) = state.setOnline(true)
                 override fun onLost(network: Network) = state.setOnline(false)
             })

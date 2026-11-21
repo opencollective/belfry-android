@@ -55,11 +55,13 @@ object Buttons {
     const val RESULT_NS = "belfry/action-result"
     const val BELFRY_PREFIX = "belfry:"
     const val WEBSITE_PUBLISH = "belfry:website-publish"
+    /** An admin closes a plain request from its card in the requests channel (collective-belfry docs/actions.md §4, requests.md §4b). */
+    const val REQUEST_CLOSE = "belfry:request-close"
     const val MAX = 4
     const val TIMEOUT_S = 20L
 
     /** The `belfry:` actions this app knows (and asks to confirm with its own text). */
-    val KNOWN_ACTIONS: Set<String> = setOf(WEBSITE_PUBLISH)
+    val KNOWN_ACTIONS: Set<String> = setOf(WEBSITE_PUBLISH, REQUEST_CLOSE)
 
     private val ID = Regex("^[a-z0-9-]{1,32}$")
 
@@ -83,12 +85,20 @@ object Buttons {
     /** The app's own question before a `belfry:` action, null for one it doesn't know. */
     fun confirmText(action: String, domain: String): String? = when (action) {
         WEBSITE_PUBLISH -> "Publish this version as the website? Everyone will see it at https://$domain."
+        REQUEST_CLOSE -> "Close this request? It stays readable, and people can still comment."
         else -> null
+    }
+
+    /** A confirmation shown as a dialog: its question (up to the first "? ") as the title, the rest under it. */
+    fun confirmParts(text: String): Pair<String, String?> {
+        val i = text.indexOf("? ")
+        return if (i < 0) text to null else text.substring(0, i + 1) to text.substring(i + 2).trim().ifEmpty { null }
     }
 
     /** The confirm button's word for a `belfry:` action. */
     fun confirmLabel(action: String): String = when (action) {
         WEBSITE_PUBLISH -> "Publish"
+        REQUEST_CLOSE -> "Close"
         else -> "OK"
     }
 
