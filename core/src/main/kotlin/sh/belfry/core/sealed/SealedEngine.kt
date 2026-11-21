@@ -164,7 +164,6 @@ class SealedEngine(
         (o["oldLb"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(oldLetterboxes::add) }
     }
 
-    init { loadState() }
 
     /**
      * Shares a conversation's sealed messages with PERSON's new head (§8, from the amber line): kinds
@@ -690,6 +689,9 @@ class SealedEngine(
 
     /** Is DEVICE removable from this device's list (not this one, and this device is in the head)? */
     fun canRemove(dev: String): Boolean = mine == Mine.IN_HEAD && dev != device.pubkey && chainOf(account)?.devices?.contains(dev) == true
+
+    // last: every field above exists before the saved state is read (Kotlin runs initialisers in order)
+    init { loadState() }
 }
 
 /** A relay query (only what sealed conversations ask; never `#lb`). */
