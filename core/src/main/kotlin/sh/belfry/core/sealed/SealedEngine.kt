@@ -137,7 +137,8 @@ class SealedEngine(
                 })
             })
             put("sealed", buildJsonObject { sealedSince.forEach { (c, t) -> put(c, JsonPrimitive(t)) } })
-            put("untrusted", JsonArray(untrusted.map { JsonPrimitive(it) }))
+            put("trusted", JsonArray(trusted.map { JsonPrimitive(it) }))
+            put("trustSeen", JsonArray(trustSeen.map { JsonPrimitive(it) }))
             put("oldLb", JsonArray(oldLetterboxes.map { JsonPrimitive(it) }))
         }
         ports.saveState(o.toString())
@@ -158,7 +159,8 @@ class SealedEngine(
             if (chain != null) { known[p] = Known(chain, null); lastHead[p] = chain.head.lb }
         }
         (o["sealed"] as? JsonObject)?.forEach { (c, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { sealedSince[c] = it } }
-        (o["untrusted"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(untrusted::add) }
+        (o["trusted"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(trusted::add) }
+        (o["trustSeen"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(trustSeen::add) }
         (o["oldLb"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(oldLetterboxes::add) }
     }
 
@@ -182,8 +184,23 @@ class SealedEngine(
     /** When each person started fresh or their chain was switched: the amber notice (§3.4, §3.3). */
     val resetAt = HashMap<String, Long>()
 
-    /** After a switch of my own chain: devices of the new head this client never held, never answered without a prompt. */
-    private val untrusted = HashSet<String>()
+    /**
+     * My devices this client trusts for the no-prompt hand-over (the lead, after 2a1b30e): the
+     * devices of the head it held; a device joins when the person allows it here, or when a later
+     * roster on the followed chain that adds or keeps it is signed by a device already trusted.
+     * Kept across a switch as it was (the switched-to head's new devices go through Allow).
+     */
+    private val trusted = HashSet<String>()
+    /** The rosters of my chain already looked at for trust. */
+    private val trustSeen = HashSet<String>()
+
+    private fun extendTrust(chain: Chain) {
+        if (trusted.isEmpty()) { trusted.addAll(chain.rosters.first().devices); }
+        for (r in chain.rosters) {
+            if (!trustSeen.add(r.id)) continue
+            if (r.signer in trusted) trusted.addAll(r.devices)
+        }
+    }
 
     /**
      * A SWITCH (sealed.md 2a1b30e): the anchor names another branch of the same root while the head
@@ -195,16 +212,22 @@ class SealedEngine(
         val marks = seenAnchored.getOrPut(person) { HashSet() }
         val anchoredId = anchor?.let { it.second ?: it.first }
         val freshStart = before != null && before.root.id != after.root.id
-        val switched = before != null && !freshStart && before.rosters.any { it.id in marks } &&
-            before.head.id !in after.rosters.map { it.id } && after.rosters.none { it.id == before.head.id }
+        // a switch only when the head this client held had been seen anchored; my provisional tail moves silently
+        val switched = before != null && !freshStart && before.head.id in marks && after.rosters.none { it.id == before.head.id }
         if (freshStart || switched) {
             resetAt[person] = clock()
-            saveState()
             if (person == account) {
-                if (switched) untrusted.addAll(after.devices - before!!.devices.toSet())
+                if (switched) {
+                    // trust stays what this client held: the other branch's rosters don't extend it
+                    trusted.retainAll(before!!.devices.toSet())
+                    trustSeen.addAll(after.rosters.map { it.id })
+                }
+                if (freshStart) { trusted.clear(); trustSeen.clear() }
                 if (device.pubkey !in after.devices) mine = Mine.WAITING
             }
+            saveState()
         }
+        if (person == account && !switched) extendTrust(after)
         if (anchoredId != null && after.rosters.any { it.id == anchoredId }) marks.add(anchoredId)
     }
 
@@ -387,7 +410,7 @@ class SealedEngine(
         val sessions = ports.sessions() ?: return OnRequest.Ignore
         val row = sessions.firstOrNull { it.clientPubkey == dev && it.chat } ?: return OnRequest.Ignore
         val head = chainOf(account)
-        if (head != null && dev in head.devices && dev !in untrusted) {
+        if (head != null && dev in head.devices && dev in trusted) {
             // a device of the head this device holds (its pinned head, never an older roster an anchor
             // points back to) that lost its hand-over: the keys at once, no prompt (§5.5, f28220c) —
             // only for a request newer than the roster that added it and than my last hand-over to it
@@ -421,6 +444,7 @@ class SealedEngine(
             if (publishNext(cur, (cur.devices + newDevice).distinct(), cur.head.lb, cur.ready)) {
                 Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
                 ports.saveNote("handover:$newDevice", clock().toString())
+                trusted.add(newDevice); saveState() // allowed here: trusted
                 return@withLock
             }
             cur = refresh(account) ?: throw NotDone()

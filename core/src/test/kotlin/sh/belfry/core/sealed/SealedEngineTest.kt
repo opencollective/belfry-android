@@ -555,4 +555,24 @@ class SealedEngineTest {
         val chain = Chain.of(bob.pubkey, relay.events.filter { it.kind == 30078 }, relay.events.filter { it.kind == Roster.KIND })
         assertEquals(rumors.map { it.id }, Sealing.acceptShared(opened.rumor, opened.sealPubkey, chain, alice.pubkey).map { it.id })
     }
+
+    /** The lead after 2a1b30e: a pinned head never seen anchored (a provisional tail) moves silently. */
+    @Test fun provisionalTailMovesSilently() = runBlocking<Unit> {
+        val (_, _, b) = world()
+        val chain = b.refresh(alice.pubkey)!!
+        // a roster past the anchored end (published, not anchored): Bob follows it provisionally
+        val tail = alicePhone.signNow(Roster.template(alice.pubkey, chain.head.n + 1, chain.head.id, chain.head.lb, chain.devices, true, now + 1))
+        relay.add(tail)
+        assertEquals(tail.id, b.refresh(alice.pubkey)!!.head.id)
+        // then the anchor names a sibling of that tail: not a switch, no amber notice
+        val sibling = aliceLaptop.signNow(Roster.template(alice.pubkey, chain.head.n + 1, chain.head.id, chain.head.lb, chain.devices + aliceTablet().pubkey, true, now + 2))
+        relay.add(sibling)
+        now += 5
+        relay.add(alice.signNow(Anchor.template(chain.root.id, sibling.id, now)))
+        assertEquals(sibling.id, b.refresh(alice.pubkey)!!.head.id)
+        assertTrue(alice.pubkey !in b.resetAt)
+    }
+
+    private val tablet = LocalSigner.random()
+    private fun aliceTablet() = tablet
 }
