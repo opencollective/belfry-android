@@ -575,4 +575,37 @@ class SealedEngineTest {
 
     private val tablet = LocalSigner.random()
     private fun aliceTablet() = tablet
+
+    /** sealed.md 52808c2: after a switch a rotation's new secret goes only to trusted devices; Allow by hand gives keys. */
+    @Test fun rotationAfterASwitchOnlyToTrusted() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val chain = phone.refresh(alice.pubkey)!!
+        val x = LocalSigner.random(); val y = LocalSigner.random()
+        server.live(alice.pubkey, x.pubkey, "Newcomer"); server.live(alice.pubkey, y.pubkey, "Kept")
+        // the server anchors a sibling branch (signed by the laptop) with two devices this phone never held
+        val parent = chain.rosters[chain.rosters.size - 2]
+        val sibling = aliceLaptop.signNow(Roster.template(alice.pubkey, parent.n + 1, parent.id, parent.lb, parent.devices + x.pubkey + y.pubkey, true, now + 1))
+        relay.add(sibling)
+        now += 5
+        relay.add(alice.signNow(Anchor.template(chain.root.id, sibling.id, now)))
+        assertEquals(sibling.id, phone.refresh(alice.pubkey)!!.head.id)
+        assertTrue(alice.pubkey in phone.resetAt, "a switch")
+        assertEquals(SealedEngine.Mine.IN_HEAD, phone.mine)
+        // Not me on the newcomer: dropped, a new letterbox
+        phone.remove(x.pubkey)
+        val newLb = phone.chainOf(alice.pubkey)!!.head.lb
+        assertTrue(relay.to(y.pubkey).isEmpty(), "the merely-kept untrusted device gets nothing")
+        assertTrue(relay.to(aliceLaptop.pubkey).isNotEmpty(), "the trusted laptop gets the new secret")
+        // it asks again: still nothing without a prompt
+        now += 10
+        val req = y.signNow(Sealing.request(alice.pubkey, y.pubkey, null, now))
+        assertTrue(phone.onRequest(req) is SealedEngine.OnRequest.Ask)
+        assertTrue(relay.to(y.pubkey).isEmpty())
+        // Allow by hand: keys
+        phone.allow(y.pubkey)
+        val yWraps = relay.to(y.pubkey)
+        assertTrue(yWraps.isNotEmpty())
+        val got = Sealing.openKeys(yWraps.last(), y)!!
+        assertTrue(newLb in got.keys)
+    }
 }

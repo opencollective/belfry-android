@@ -392,7 +392,15 @@ class SealedEngine(
     /** Allow: keys to the new device, then roster n+1 (same lb, devices + it), then the anchor. Refused at 20. */
     suspend fun allow(newDevice: String) = lock.withLock {
         val chain = refresh(account) ?: throw IllegalStateException("no chain")
-        if (newDevice in chain.devices) return@withLock
+        if (newDevice in chain.devices) {
+            // in the head but not trusted here (after a switch): Allow by hand gives the keys and trusts it
+            val sessions = ports.sessions() ?: throw IllegalStateException("The list of sessions could not be read. Try again.")
+            if (sessions.none { it.clientPubkey == newDevice && it.chat }) throw IllegalStateException("That device is no longer signed in.")
+            Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
+            ports.saveNote("handover:$newDevice", clock().toString())
+            pins[account]?.let { pins[account] = Follow.allowLocally(it, newDevice) }; saveState()
+            return@withLock
+        }
         if (chain.devices.size >= Roster.MAX_DEVICES) throw TooMany()
         // the session is still live (294c94f)
         val sessions = ports.sessions() ?: throw IllegalStateException("The list of sessions could not be read. Try again.")
@@ -436,8 +444,11 @@ class SealedEngine(
             val (lbPub, lbSecret) = KeyChain.newLetterbox()
             val remaining = cur.devices - dev
             val withNew = KeyChain(keys.toMap()).also { it.add(lbPub, lbSecret) }
-            // new keys only to devices that stay AND have a live session
-            val wraps = remaining.filter { it != device.pubkey && it in live }.flatMap { d -> Sealing.keysFor(device, account, d, withNew, clock()) }
+            // new keys only to devices that stay, have a live session AND are trusted here (after a switch,
+            // never a head device this device wouldn't answer without a prompt; sealed.md 52808c2)
+            val trusted = pins[account]?.trusted?.toSet()
+            val wraps = remaining.filter { it != device.pubkey && it in live && (trusted == null || it in trusted) }
+                .flatMap { d -> Sealing.keysFor(device, account, d, withNew, clock()) }
             // roster and anchor both signed before anything goes; the keys go first, then the two as one unit
             val r = device.signNow(Roster.template(account, cur.head.n + 1, cur.head.id, lbPub, remaining, cur.ready, clock()))
             val anchor = ports.signAsAccount(Anchor.template(cur.root.id, r.id, clock()))
