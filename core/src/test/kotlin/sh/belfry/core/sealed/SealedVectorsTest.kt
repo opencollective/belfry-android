@@ -262,4 +262,27 @@ class SealedVectorsTest {
         }
         assertEquals(27, asks)
     }
+
+    /** vectors `reports` (belfry-sh d076753, sha256 32f97764…986db09a): the 7679 of a sealed sender. */
+    @Test fun reports() {
+        val r = v["reports"] as JsonObject
+        val belfry = r.s("belfry")!!
+        val cases = (r["cases"] as JsonArray).map { it as JsonObject }
+        assertTrue(cases.size >= 4)
+        for (c in cases) {
+            val name = c.s("name")!!
+            val want = c["expected"] as JsonObject
+            val chain = KeyChain().also { k -> (c["key_chain"] as JsonArray).forEach { e -> e as JsonObject; k.add(e.s("lb")!!, e.s("secret")!!) } }
+            val got = Sealing.openReport(ev(c["report"] as JsonObject), belfry, chain)
+            when (want.s("state")) {
+                "opened" -> assertEquals(want["body"], (got as Sealing.Report.Opened).body, name)
+                "signer" -> assertEquals(Sealing.Report.Signer, got, name)
+                "locked" -> assertEquals(Sealing.Report.Locked, got, name)
+                "error" -> assertEquals(Sealing.Report.Invalid, got, name)
+                else -> error(name)
+            }
+        }
+        // not the belfry's: refused
+        assertEquals(Sealing.Report.Invalid, Sealing.openReport(ev(cases[0]["report"] as JsonObject), "aa".repeat(32), KeyChain()))
+    }
 }

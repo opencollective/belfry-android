@@ -1053,7 +1053,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         if (open.isEmpty()) return
         val filter = buildJsonObject {
             put("kinds", buildJsonArray { add(JsonPrimitive(7679)) })
-            put("authors", buildJsonArray { add(JsonPrimitive(bridge)) })
+            put("authors", buildJsonArray { listOfNotNull(bridge, host.belfryKey()).distinct().forEach { add(JsonPrimitive(it)) } })
             put("#r", buildJsonArray { open.takeLast(50).forEach { add(JsonPrimitive(it)) } })
         }
         var changed = false
@@ -1061,13 +1061,15 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             try {
                 val r = e.tag("r") ?: continue
                 val peer = e.tag("ephemeral-pubkey") ?: continue
-                // a sealed sender's report is encrypted to the head letterbox, tagged lb (§7; the review's 10)
-                val lb = e.tag("lb")
-                val plain = if (lb != null) {
-                    val secret = host.sealed?.keys?.secretFor(lb) ?: continue
-                    sh.belfry.core.crypto.Nip44.decryptFrom(secret, peer, e.content)
-                } else host.signer.nip44Decrypt(peer, e.content)
-                val body = parseJsonOrNull(plain).obj() ?: continue
+                // a sealed sender's report is encrypted to the head letterbox, tagged lb (§7; vectors `reports`):
+                // opened with that letterbox's secret, never the signer; without lb the old kind, for the signer
+                val body: JsonObject = if (e.tag("lb") != null || e.pubkey == host.belfryKey() && host.belfryKey() != bridge) {
+                    when (val got = sh.belfry.core.sealed.Sealing.openReport(e, host.belfryKey(), host.sealed?.keys ?: sh.belfry.core.sealed.KeyChain())) {
+                        is sh.belfry.core.sealed.Sealing.Report.Opened -> got.body
+                        sh.belfry.core.sealed.Sealing.Report.Signer -> parseJsonOrNull(host.signer.nip44Decrypt(peer, e.content)).obj() ?: continue
+                        else -> continue // locked: tried again at the next check; invalid: dropped
+                    }
+                } else parseJsonOrNull(host.signer.nip44Decrypt(peer, e.content)).obj() ?: continue
                 val status = body.s("status") ?: continue
                 if (status !in setOf(Report.DELIVERED, Report.FAILED, Report.DELAYED, Report.QUEUED)) continue
                 // the bridge's own words about a delivery (an SMTP answer); kept short

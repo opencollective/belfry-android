@@ -174,6 +174,31 @@ object Sealing {
      */
     fun needsReseal(sealedTo: String, currentHead: String?): Boolean = currentHead != null && currentHead != sealedTo
 
+    // ---- §7 delivery reports (7679) ------------------------------------------------------------
+
+    sealed interface Report {
+        data class Opened(val body: JsonObject) : Report
+        /** No lb: the old kind, for the signer as before (never tried with a letterbox). */
+        data object Signer : Report
+        /** Its letterbox isn't in the key chain: kept, tried again when keys arrive. */
+        data object Locked : Report
+        /** Not a report of the belfry, or it doesn't open with its own lb's secret: dropped. */
+        data object Invalid : Report
+    }
+
+    /** What a device does with a kind 7679 of BELFRY (the reference's open_report; vectors `reports`). */
+    fun openReport(e: Event, belfry: String?, keys: KeyChain): Report {
+        if (e.kind != 7679 || !e.isValid() || belfry == null || e.pubkey != belfry) return Report.Invalid
+        val peer = e.tags.singleValue("ephemeral-pubkey")?.takeIf { Hex.isKey(it) } ?: return Report.Invalid
+        val lbs = e.tags.filter { it.size >= 2 && it[0] == "lb" }.map { it[1] }
+        if (lbs.isEmpty()) return Report.Signer
+        if (lbs.size != 1 || !Hex.isKey(lbs[0])) return Report.Invalid
+        val secret = keys.secretFor(lbs[0]) ?: return Report.Locked
+        return try {
+            (parseJsonOrNull(Nip44.decryptFrom(secret, peer, e.content)) as? JsonObject)?.let { Report.Opened(it) } ?: Report.Invalid
+        } catch (x: Exception) { Report.Invalid }
+    }
+
     // ---- §5.5 handing keys over ---------------------------------------------------------------
 
     /**
