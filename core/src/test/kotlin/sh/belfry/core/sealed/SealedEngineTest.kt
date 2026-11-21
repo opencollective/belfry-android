@@ -700,4 +700,64 @@ class SealedEngineTest {
         // the saved state is whole: a restart reads it back
         assertEquals(phone.chainOf(bob.pubkey)!!.head.id, engine(alice, alicePhone).chainOf(bob.pubkey)!!.head.id)
     }
+
+    /** Third review P1: a wrap to MY letterbox whose secret I lack is kept however long; it opens when the keys come. */
+    @Test fun myLetterboxKeptBeyond30Days() = runBlocking<Unit> {
+        val (phone, laptop, b) = world()
+        val tablet = LocalSigner.random()
+        server.live(alice.pubkey, tablet.pubkey, "Tab")
+        phone.allow(tablet.pubkey)
+        val before = relay.to(aliceLaptop.pubkey).map { it.id }.toSet()
+        phone.remove(tablet.pubkey)
+        val lost = relay.to(aliceLaptop.pubkey).filter { it.id !in before }
+        relay.events.removeAll(lost.toSet())
+        val c = "n:" + listOf(alice.pubkey, bob.pubkey).sorted().joinToString(",")
+        val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
+        val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "five weeks ago", now)
+        val wrap = b.seal(rumor, plan).single { it.recipient == alice.pubkey }.wrap
+        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(wrap, null) { c }.verdict)
+        now += 35 * 86400L
+        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(wrap, null) { c }.verdict, "still kept after 35 days")
+        lost.forEach { relay.add(it); laptop.onDeviceWrap(it) }
+        assertTrue(laptop.later.any { it.first.id == rumor.id })
+    }
+
+    /** Third review P3: when the own-chain re-read is throttled, a wrap to an unknown lb is kept, not judged on an older read. */
+    @Test fun throttledReReadKeeps() = runBlocking<Unit> {
+        val (phone, laptop, b) = world()
+        val stranger = KeyChain.newLetterbox().first
+        val junk = Sealing.seal(GiftWrap.rumor(14, bob.pubkey, emptyList(), "junk", now), bobPhone, alice.pubkey, stranger, now)
+        assertEquals(Sealing.Verdict.DROP, laptop.receive(junk, null) { "c" }.verdict, "a fresh read: not my lb")
+        // within the minute: a rotation the laptop missed, and a wrap to the new letterbox
+        val tablet = LocalSigner.random(); server.live(alice.pubkey, tablet.pubkey, "Tab")
+        phone.allow(tablet.pubkey); phone.remove(tablet.pubkey)
+        relay.events.removeAll(relay.to(aliceLaptop.pubkey).toSet())
+        val c = "n:" + listOf(alice.pubkey, bob.pubkey).sorted().joinToString(",")
+        val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
+        val toNew = b.seal(GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "new lb", now), plan).single { it.recipient == alice.pubkey }.wrap
+        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(toNew, null) { c }.verdict, "throttled: kept, not dropped")
+    }
+
+    /** Third review P2: a passing Ignore isn't remembered; the next look asks. A linked request never flashes an Ask. */
+    @Test fun answerRequestsPassingAndLinked() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        val laptop = engine(alice, aliceLaptop)
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        laptop.start("Firefox on Linux", "computer")
+        val req = relay.events.last { it.kind == Sealing.REQUEST && it.pubkey == aliceLaptop.pubkey }
+        server.odd = true // the session list can't be read: a passing Ignore
+        assertEquals(SealedEngine.OnRequest.Ignore, phone.answerRequests(listOf(req)).single().second)
+        server.odd = false
+        now += 31 // past the cache
+        assertTrue(phone.answerRequests(listOf(req)).single().second is SealedEngine.OnRequest.Ask, "asked again, not remembered")
+        // a linked request (older) and an unlinked newer one from another device: the linked one first, no Ask for it
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Tab")
+        val secret = phone.newLinkSecret()
+        val linked = tab.signNow(Sealing.request(alice.pubkey, tab.pubkey, secret, now))
+        val unlinked = tab.signNow(Sealing.request(alice.pubkey, tab.pubkey, null, now + 1))
+        val answers = phone.answerRequests(listOf(unlinked, linked))
+        assertEquals(linked.id, answers.first().first.id, "the linked request first")
+        assertTrue(answers.none { it.second is SealedEngine.OnRequest.Ask }, "no Ask flashes for a device the link allows")
+    }
 }

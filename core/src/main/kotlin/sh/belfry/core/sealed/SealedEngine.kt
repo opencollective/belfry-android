@@ -301,6 +301,7 @@ class SealedEngine(
                 if (again.complete && Anchor.root(again.events, account) != null) {
                     mine = Mine.WAITING
                     ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+                    lastAsk = clock()
                 } else {
                     keys.add(lbPub, lbSecret)
                     if (!saveKeys()) { mine = Mine.UNKNOWN; return@locked } // never a roster whose secret isn't on disk
@@ -461,7 +462,9 @@ class SealedEngine(
             // prompt, only as the reference's answer_without_prompt allows (§5.5: on the anchored end,
             // in the pinned head, trusted after a switch, a live chat session, a strictly newer request)
             if (keys.secretFor(head.head.lb) == null) return OnRequest.Ignore
-            val live = sessions.filter { it.chat }.mapNotNull { it.clientPubkey }
+            // "live" for a no-prompt hand-over is read fresh, never from the cache (P4)
+            val fresh = ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return OnRequest.Ignore
+            val live = fresh.filter { it.chat }.mapNotNull { it.clientPubkey }
             val lastGiven = ports.loadNote("handover:$dev")?.toLongOrNull()
             if (!Follow.answerWithoutPrompt(head, pins[account], dev, live, req.createdAt, addedLast(head, dev), lastGiven)) {
                 return if (dev in (pins[account]?.trusted ?: head.devices)) OnRequest.Ignore else OnRequest.Ask(dev, row.device?.ifEmpty { null } ?: row.applicationName)
@@ -491,7 +494,9 @@ class SealedEngine(
     suspend fun answerRequests(reqs: List<Event>): List<Pair<Event, OnRequest>> = kotlinx.coroutines.withContext(confined) {
         val live = linkSecrets.filterValues { clock() - it <= 15 * 60 }.keys
         val ordered = reqs.sortedWith(compareByDescending<Event> { Sealing.linkMatches(it, live) }.thenByDescending { it.createdAt })
-        ordered.map { r -> r to onRequestHere(r).also { a -> if (a !is OnRequest.Ask) answered[r.id] = a } }
+        // only a final answer is remembered: an Allowed (keys given); an Ignore may be passing (a list not read,
+        // a session not listed yet, this device without the head key right now) and is asked again (P2)
+        ordered.map { r -> r to onRequestHere(r).also { a -> if (a == OnRequest.Allowed) answered[r.id] = a } }
     }
 
     class TooMany : IllegalStateException("A roster holds at most 20 devices: remove one first.")
@@ -699,12 +704,15 @@ class SealedEngine(
         // complete means keep (re-review (2))
         var myLbs: Set<String>? = myLetterboxesIfCurrent()
         if (o is Opening.Locked && myLbs?.contains(o.lb) != true) {
-            if (clock() - lastOwnReread >= 60) { lastOwnReread = clock(); refreshHere(account) }
-            myLbs = if (lastReadComplete[account] == true) myLetterboxesIfCurrent() else null
+            myLbs = if (clock() - lastOwnReread >= 60) {
+                lastOwnReread = clock()
+                refreshHere(account)
+                if (lastReadComplete[account] == true) myLetterboxesIfCurrent() else null
+            } else null // throttled: no fresh read, so no judging: kept (P3)
         }
         var v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry, myLetterboxes = myLbs)
-        // a wrap to my letterbox whose secret never arrives: given up after 30 days like the others (N7)
-        if (v == Sealing.Verdict.LOCKED && clock() - firstSeen >= Sealing.KEEP_FOR) v = Sealing.Verdict.DROP
+        // a wrap to MY letterbox whose secret I lack is kept, never dropped, however long (§4 / §5.3; the third
+        // review's P1): the hand-over gives every key, and the message opens then
         when (v) {
             Sealing.Verdict.ACCEPT -> {
                 pending.remove(wrap.id)

@@ -83,6 +83,10 @@ class FakeRelay(
     val refuse = HashMap<String, String>()
     /** Handles an event itself (the remote signer); true = handled, no OK sent by the relay. */
     @Volatile var onPublished: ((WebSocket, Event) -> Unit)? = null
+    /** Every REQ as sent (to check what a client asks for). */
+    val reqTexts = CopyOnWriteArrayList<String>()
+    /** CLOSE every REQ even after AUTH (a relay that refuses the query): a CLOSED is no answer. */
+    @Volatile var closeReqs = false
 
     val url: String get() = server.url("/").toString().replace("http://", "ws://")
 
@@ -128,6 +132,8 @@ class FakeRelay(
             "REQ" -> {
                 val sub = arr[1].str()!!
                 reqs.add(sub)
+                reqTexts.add(text)
+                if (closeReqs) { send(webSocket, "CLOSED", sub, "error: not now"); return }
                 val filters = arr.drop(2).mapNotNull { it as? JsonObject }
                 if (requireAuth && authedAs == null) {
                     val pub = publicBeforeAuth
@@ -213,6 +219,11 @@ class RelayTest {
         val known = relay.queryKnown(listOf(Filters.of(kinds = listOf(8560))))!!
         assertTrue(known.second, "EOSE after AUTH on the same socket")
         assertEquals(1, known.first.size)
+        // authenticated, and the relay CLOSEs the query: still no answer (the old code counted it complete)
+        f.closeReqs = true
+        val refused = relay.queryKnown(listOf(Filters.of(kinds = listOf(8560))))!!
+        assertTrue(!refused.second, "a CLOSED after AUTH is no answer either")
+        f.closeReqs = false
         relay.close()
     }
 

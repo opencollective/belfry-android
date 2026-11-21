@@ -486,6 +486,11 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             val r = o["rumor"].obj()?.let { Event.fromJson(it) } ?: return@forEach
             sealQ[wid] = QueuedSeal(r, o.s("to") ?: return@forEach, o.s("lb") ?: return@forEach)
         }
+        parseJsonOrNull(store.get(K_REFUSED) ?: "").obj()?.forEach { (rid, v) ->
+            val o = v.obj() ?: return@forEach
+            val r = o["rumor"].obj()?.let { Event.fromJson(it) } ?: return@forEach
+            refused[rid] = Held(r, o["to"].arr()?.mapNotNull { it.str() } ?: emptyList(), o["self"].bool() ?: true, o.s("conv") ?: return@forEach)
+        }
         parseJsonOrNull(store.get(K_SEALED_RUMORS) ?: "").arr()?.forEach { el -> el.obj()?.let { Event.fromJson(it) }?.let { sealedRumors[it.id] = it } }
         backlog.addAll(kept.values) // tried again at each start
         // a message marked pending whose wraps are gone from the outbox is out
@@ -505,6 +510,11 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 store.set(K_GONE, buildJsonObject { for ((k, v) in gone) put(k, JsonPrimitive(v)) }.toString())
                 store.set(K_KEPT, JsonArray(kept.values.map { it.toJson() }).toString())
                 store.set(K_SEALED_RUMORS, JsonArray(sealedRumors.values.map { it.toJson() }).toString())
+                store.set(K_REFUSED, buildJsonObject {
+                    for ((rid, h) in refused) put(rid, buildJsonObject {
+                        put("rumor", h.rumor.toJson()); put("to", JsonArray(h.to.map { JsonPrimitive(it) })); put("self", JsonPrimitive(h.self)); put("conv", JsonPrimitive(h.conv))
+                    })
+                }.toString())
                 store.set(K_HELD, buildJsonObject {
                     for ((rid, h) in held) put(rid, buildJsonObject {
                         put("rumor", h.rumor.toJson()); put("to", JsonArray(h.to.map { JsonPrimitive(it) })); put("self", JsonPrimitive(h.self)); put("conv", JsonPrimitive(h.conv))
@@ -997,7 +1007,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     }
 
     /** Mails refused before any wrap was queued (no head yet…): Retry plans them again from the kept rumor (N7). */
-    private val refused = HashMap<String, Held>()
+    private val refused = LinkedHashMap<String, Held>()
 
     /** Puts a refused message back in the outbox. */
     suspend fun retry(rid: String) {
@@ -1117,7 +1127,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         if (v.startsWith("npub1")) sh.belfry.core.crypto.Bech32.npubToHex(v)?.let { return "n:$it" }
         val m = ADDRESS.matchEntire(v) ?: return null
         if (m.groupValues[2] == host.domain && !host.localOnly) {
-            val pk = try { host.nip05(m.groupValues[1]) } catch (e: Exception) { null }
+            // an address on this belfry: a failed lookup never downgrades a member to e-mail in clear (P5)
+            val pk = try { host.nip05(m.groupValues[1]) } catch (e: Exception) {
+                throw DmException("No answer from the belfry about this address yet. Check your connection and try again.")
+            }
             if (pk != null) return "n:$pk"
         }
         return "m:$v"
@@ -1148,6 +1161,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         const val K_HELD = "dm-held"
         const val K_SEALQ = "dm-sealed-queue"
         const val K_SEALED_RUMORS = "dm-sealed-rumors"
+        const val K_REFUSED = "dm-refused"
         private val ADDRESS = Regex("^([^@\\s]+)@([^@\\s]+\\.[^@\\s]+)$")
     }
 }

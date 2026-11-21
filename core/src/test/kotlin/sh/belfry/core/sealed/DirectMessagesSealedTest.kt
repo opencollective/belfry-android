@@ -65,7 +65,8 @@ class DirectMessagesSealedTest {
         override fun addLocalEvents(events: List<Event>) {}
         override suspend fun queryMain(filter: JsonObject): List<Event> = emptyList()
         override suspend fun fetchBytes(url: String): ByteArray = ByteArray(0)
-        override suspend fun nip05(name: String): String? = null
+        var nip05Down = false
+        override suspend fun nip05(name: String): String? = if (nip05Down) throw java.io.IOException("offline") else null
         override fun later(delayMs: Long, block: suspend () -> Unit) {}
     }
 
@@ -241,5 +242,15 @@ class DirectMessagesSealedTest {
         assertEquals(0, sa.calls, "never the signer")
         assertTrue(host.queued.any { it.signed!!.tag("p") == host.bridge && it.signed!!.tag("lb") == null }, "sealed by the device to the mail key")
         assertTrue(host.queued.any { it.signed!!.tag("lb") != null }, "the self-copy sealed to my head")
+    }
+
+    /** Third review P5: a failed lookup of an address on this belfry never turns a direct message into e-mail in clear. */
+    @Test fun ownDomainLookupFailureRefuses() = runBlocking<Unit> {
+        val (a, _) = ready()
+        val host = hosts.getValue(a.second)
+        host.nip05Down = true
+        kotlin.test.assertFailsWith<sh.belfry.core.dm.DmException> { a.second.convFor("lina@belfry.example", emptyList()) }
+        host.nip05Down = false
+        assertEquals("m:ana@example.org", a.second.convFor("ana@example.org", emptyList()), "another domain is e-mail")
     }
 }

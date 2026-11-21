@@ -106,6 +106,12 @@ class SealedSessionTest {
         until("the laptop waits") { b.sealed?.mine == SealedEngine.Mine.WAITING }
         delay(2_000) // several polls and the post-AUTH steps
         assertEquals(1, requestsBy(laptop), "one 8562, not two")
+        // a reconnect, past the once-a-minute limit: exactly one more, then none
+        skew += 120
+        m.dropAll()
+        until("asked again after the reconnect", 20_000) { requestsBy(laptop) == 2 }
+        delay(2_000)
+        assertEquals(2, requestsBy(laptop), "one per connection")
     }
 
     /** N4: an IN_HEAD device that misses a rotation's hand-over asks for the keys. */
@@ -129,22 +135,31 @@ class SealedSessionTest {
         assertTrue(b.sealed!!.inHeadWithoutKey)
     }
 
-    /** N3: a correspondent's new roster arriving live is routed to the engine. */
+    /**
+     * N3: a correspondent becomes part of a sealed conversation through a real sealed message;
+     * the live subscription is sent again and names them; their new roster arriving live moves the engine.
+     */
     @Test fun liveRosterRefreshesThePerson() = runBlocking<Unit> {
         val a = session(alice, phone)
         until("the phone makes the first roster") { a.sealed?.mine == SealedEngine.Mine.IN_HEAD }
-        // Bob's chain on the relay (made by hand: his device and his account key)
+        until("Alice's chain is ready") { a.sealed?.chainOf(alice.pubkey)?.ready == true }
+        // Bob's ready chain on the relay (his device, his account key)
         val bob = LocalSigner.random(); val bobPhone = LocalSigner.random(); val bobTab = LocalSigner.random()
         val (lb, _) = KeyChain.newLetterbox()
-        val now = System.currentTimeMillis() / 1000
-        val r1 = bobPhone.signNow(Roster.template(bob.pubkey, 1, null, lb, listOf(bobPhone.pubkey), true, now))
-        val a1 = bob.signNow(Anchor.template(r1.id, r1.id, now))
+        val t = System.currentTimeMillis() / 1000 + skew
+        val r1 = bobPhone.signNow(Roster.template(bob.pubkey, 1, null, lb, listOf(bobPhone.pubkey), true, t))
+        val a1 = bob.signNow(Anchor.template(r1.id, r1.id, t))
         m.stored.add(r1); m.stored.add(a1)
-        a.sealed!!.refresh(bob.pubkey)
-        a.sealed!!.sealedSince["n:" + bob.pubkey] = now
-        delay(1_000) // the poll sends the subscription again to cover Bob
-        val r2 = bobPhone.signNow(Roster.template(bob.pubkey, 2, r1.id, lb, listOf(bobPhone.pubkey, bobTab.pubkey), true, now + 1))
-        val a2 = bob.signNow(Anchor.template(r1.id, r2.id, now + 1))
+        // Bob writes to Alice, sealed to her head: received live, the conversation becomes sealed
+        val aliceLb = a.sealed!!.chainOf(alice.pubkey)!!.head.lb
+        val rumor = sh.belfry.core.dm.GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "hello", t)
+        val wrap = Sealing.seal(rumor, bobPhone, alice.pubkey, aliceLb, t)
+        m.stored.add(wrap)
+        for (ws in m.sockets) m.send(ws, "EVENT", "main", wrap)
+        until("the conversation is sealed") { a.sealed!!.sealedSince.containsKey("n:" + bob.pubkey) }
+        until("the subscription names Bob", 10_000) { m.reqTexts.any { it.contains("\"#p\"") && it.contains(bob.pubkey) && it.contains("8560") } }
+        val r2 = bobPhone.signNow(Roster.template(bob.pubkey, 2, r1.id, lb, listOf(bobPhone.pubkey, bobTab.pubkey), true, t + 1))
+        val a2 = bob.signNow(Anchor.template(r1.id, r2.id, t + 1))
         m.stored.add(r2); m.stored.add(a2)
         for (ws in m.sockets) { m.send(ws, "EVENT", "main", r2); m.send(ws, "EVENT", "main", a2) }
         until("Alice's phone follows Bob's new head") { a.sealed?.chainOf(bob.pubkey)?.head?.id == r2.id }

@@ -299,13 +299,23 @@ class Session(
     private val chainReads = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** A live roster / anchor of WHO: their chain read again (at most every 5 s each). */
+    private val chainReadDue = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** A live roster / anchor of WHO: their chain read again, at most every 5 s each; one that comes sooner is deferred, not lost. */
     private fun sealedChainMoved(who: String) {
         val now = System.currentTimeMillis()
-        val last = chainReads[who]
-        if (last != null && now - last < 5_000) return
-        chainReads[who] = now
-        launchSafely { delay(1_000); sealed?.refresh(who) }
+        val last = chainReads[who] ?: 0L
+        val wait = if (now - last >= 5_000) 1_000L else 5_000L - (now - last)
+        if (!chainReadDue.add(who)) return // one read already scheduled covers this one
+        launchSafely {
+            delay(wait)
+            chainReadDue.remove(who)
+            chainReads[who] = System.currentTimeMillis()
+            sealed?.refresh(who)
+        }
     }
+
+    private val upkeepRunning = java.util.concurrent.atomic.AtomicBoolean(false)
 
     @Volatile private var subscribedPeers: Set<String> = emptySet()
 
@@ -358,7 +368,8 @@ class Session(
             writeNameOnce(e)
             // the post-AUTH flush first, then the partners' chains (N6)
             requestFlush()
-            launchSafely { delay(2_000); e.upkeep() }
+            // one partner upkeep at a time, however many AUTHs (P6)
+            if (upkeepRunning.compareAndSet(false, true)) launchSafely { try { delay(2_000); e.upkeep() } finally { upkeepRunning.set(false) } }
         }
         // a first roster made in this run: read once more 5 s later (a race lost late; re-review (7))
         if (e.createdFirst) { e.createdFirst = false; launchSafely { delay(5_000); e.askAgain(linkSecret, force = true) } }

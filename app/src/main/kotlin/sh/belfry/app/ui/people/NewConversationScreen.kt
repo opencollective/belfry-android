@@ -69,8 +69,9 @@ fun NewConversationScreen() {
         BusyButton(
             if (mail) "Write an e-mail" else "Write",
             onClick = {
-                val conv = try { session.convFor(to.trim()) } catch (e: ActionException) { null }
-                if (conv != null) open(conv) else error = "Type a member’s name, or an e-mail address."
+                var why: String? = null
+                val conv = try { session.convFor(to.trim()) } catch (e: ActionException) { null } catch (e: sh.belfry.core.dm.DmException) { why = e.message; null }
+                if (conv != null) open(conv) else error = why ?: "Type a member’s name, or an e-mail address."
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = q.isNotEmpty(),
