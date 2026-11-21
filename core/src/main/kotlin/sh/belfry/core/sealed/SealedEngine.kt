@@ -382,8 +382,10 @@ class SealedEngine(
         // at most once a minute, and once per connection (N2); else every 24 h
         // force (AUTH, a new state): once per connection and once a minute; any call: once a day (§5.2)
         val since = clock() - lastAsk
-        val due = (force && !askedThisConnection && since >= 60) || since >= 86_400
-        if (!due) trace("not due (force=$force asked=$askedThisConnection since=${clock() - lastAsk})")
+        // asked on this connection for this head: a new head (a rotation whose hand-over I missed) is a new state
+        val askedHere = askedThisConnection && askedForHead == c.head.lb
+        val due = (force && !askedHere && since >= 60) || since >= 86_400
+        if (!due) trace("not due (force=$force asked=$askedHere since=${clock() - lastAsk})")
         if (due && asking) trace("in flight")
         if (due && !asking) {
             asking = true // the confined dispatcher interleaves at suspensions: one request in flight
@@ -393,6 +395,7 @@ class SealedEngine(
             if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))) {
                 lastAsk = clock()
                 askedThisConnection = true
+                askedForHead = c.head.lb
                 trace("sent")
             } else trace("publish refused")
             } finally { asking = false }
@@ -405,11 +408,14 @@ class SealedEngine(
         if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))) {
             lastAsk = clock()
             askedThisConnection = true
+            askedForHead = known[account]?.chain?.head?.lb
             trace("sent at start")
         } else trace("start: publish refused")
     }
 
     @Volatile private var askedThisConnection = false
+    /** The head letterbox the last request on this connection was for. */
+    @Volatile private var askedForHead: String? = null
 
     /** The 6-hour upkeep: gone sessions, ready, my own unanchored roster. */
     suspend fun upkeep() {
