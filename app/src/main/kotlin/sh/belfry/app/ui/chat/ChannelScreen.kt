@@ -322,7 +322,7 @@ fun ChannelScreen(
                     }
                 }
                 CompositionLocalProvider(LocalWorld provides feedWorld) {
-                    LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(vertical = 8.dp)) {
+                    LazyColumn(Modifier.fillMaxSize(), state = list, reverseLayout = true, contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp + TYPING_ROOM)) {
                         items(reversed, key = { it.item.key }, contentType = { it.item::class }) { row ->
                             FeedRowView(groupId, row, chat, threads[row.item.key], highlight == row.item.key, feedNow, row.item.key in afterPending, row.item.key in pinnedIds, todos[row.item.key], openThread)
                         }

@@ -47,10 +47,13 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.typing.Typing
 import sh.belfry.core.typing.TypingPlace
 
+/** Room left under every feed's last row for the typing line, so it never covers a message (nor moves the feed). */
+val TYPING_ROOM = 22.dp
+
 /**
  * canvas v110 messages/typing-channel, typing-dm, typing-thread: "Lina is typing…" under the last
- * message, above the composer (docs/typing.md §3). It takes no room: it is drawn over the bottom
- * 22 dp of the feed, so the feed never moves when it comes and goes. [lastMessageAt] = the
+ * message, above the composer (docs/typing.md §3). It takes no room of its own: it is drawn over
+ * the feed's bottom [TYPING_ROOM], which the feeds always leave empty, so nothing moves or hides. [lastMessageAt] = the
  * created_at of a person's latest message in this place (their message ends their typing).
  */
 @Composable

@@ -195,7 +195,7 @@ fun ConversationScreen(conv: String) {
                 )
             }
         } else {
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(bottom = 10.dp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(bottom = 10.dp + sh.belfry.app.ui.chat.TYPING_ROOM)) {
                 itemsIndexed(rows, key = { _, r ->
                     when (r) {
                         is Dm -> r.rid
