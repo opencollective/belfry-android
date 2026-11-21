@@ -348,6 +348,7 @@ class Session(
     /** Starts (or retries, after a late AUTH) the sealed side; then the upkeep. Never throws. */
     private suspend fun sealedStart() {
         val e = sealed ?: return
+        e.trace("sealedStart mine=${e.mine} headNoKey=${e.inHeadWithoutKey}")
         if (e.onKeys == null) e.onKeys = { launchSafely { rereadWraps() } }
         // a correspondent's (or my own) chain moved: the wraps kept for it are tried again (§4; the review's 1)
         if (e.onChain == null) e.onChain = { who ->
@@ -729,11 +730,12 @@ class Session(
             r.onAuthRefused = { reason -> if (t == Target.GROUPS) noteRefusal(reason) }
             r.onAuthenticated = {
                 // sealed: first device / request again when AUTH lands late (64a07fa); chains before the flush
+                if (t == Target.MAIN) sealed?.trace("auth (session)")
                 if (t == Target.MAIN && sealed != null) launchSafely { sealedStart(); requestFlush() } else requestFlush()
             }
             r.onConnected = { requestFlush() }
             r.onDisconnect = {
-                if (t == Target.MAIN) sealed?.connectionLost() // knowledge needs a live connection (c233eec)
+                if (t == Target.MAIN) { sealed?.trace("disconnect (session)"); sealed?.connectionLost() } // knowledge needs a live connection (c233eec)
                 r.subscribe(SUB, filters(t)) // catch up from the last event seen
             }
             r.subscribe(SUB, filters(t))

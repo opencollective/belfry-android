@@ -370,10 +370,10 @@ class SealedEngine(
 
     /** Why the last asks did or didn't send (tests read it to say what they saw). */
     internal val askTrace = java.util.concurrent.ConcurrentLinkedDeque<String>()
-    private fun trace(s: String) {
+    internal fun trace(s: String) = synchronized(askTrace) {
         val key = s.substringBefore(" since=")
         if (askTrace.peekLast()?.substringBefore(" since=") == key) askTrace.pollLast() // repeats kept once, the latest
-        askTrace.addLast(s); while (askTrace.size > 12) askTrace.pollFirst()
+        askTrace.addLast(s); while (askTrace.size > 16) askTrace.pollFirst()
     }
 
     private suspend fun askAgainHere(link: String?, force: Boolean) {
