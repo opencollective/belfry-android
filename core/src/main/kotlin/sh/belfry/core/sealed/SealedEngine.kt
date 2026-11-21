@@ -101,6 +101,11 @@ class SealedEngine(
         val r = SealedEngine.Answer((qr.events + pathEvents[person].orEmpty()).distinctBy { it.id }, qr.complete)
         val chain = followRead(person, a, r)
         lastReadComplete[person] = complete
+        // my chain read complete without this device (a removal it missed, a fresh start elsewhere): out at once,
+        // never sealing as a member (the web's hole, 0.7.7)
+        if (person == account && complete && chain != null && device.pubkey !in chain.devices && mine == Mine.IN_HEAD) {
+            mine = Mine.WAITING; trace("out of my head (read)")
+        }
         if (person == account && complete) ownReadBegan = began
         val prev = known[person]
         known[person] = Known(chain ?: prev?.chain?.takeIf { !complete || lastEvent[person] == Follow.Change.IGNORED_BACK }, if (complete) clock() else prev?.completeAt)
@@ -765,6 +770,8 @@ class SealedEngine(
         data class Refuse(val why: String, val who: String? = null) : Plan
         /** Can't tell yet: hold it undecided and plan again at the first complete answer (64a07fa). */
         data object Hold : Plan
+        /** This device isn't in my head: held with the locked thread's words until it is allowed. */
+        data object Locked : Plan
     }
 
     /** How to send in CONV to PARTICIPANTS (me included): every chain asked again first (≤ 3 s). */
@@ -778,7 +785,8 @@ class SealedEngine(
         if (!sealed && Sealing.canSeal(people, chains)) { sealedSince[conv] = clock(); saveState() }
         if (sealedSince.containsKey(conv)) {
             val heads = people.associateWith { chains[it]?.head?.lb ?: lastHead[it] }
-            if (mine != Mine.IN_HEAD) return Plan.Refuse("Not sent: the lock for this conversation isn't ready on this device. Try again in a moment.")
+            // nothing sealed or sent into a sealed conversation while this device isn't in my head (0.7.7)
+            if (!inHeadNow()) return Plan.Locked
             heads.entries.firstOrNull { it.value == null }?.let { return Plan.Refuse("Not sent yet: their new device isn't ready.", who = it.key) }
             return Plan.Seal(heads.mapValues { it.value!! })
         }
@@ -949,6 +957,9 @@ class SealedEngine(
     }
 
     /** This device is in my head but has no secret for it (a lost hand-over): "Waiting for another of your devices". */
+    /** In my head with its letterbox's secret, from my chain as last read (and [mine] says so). */
+    fun inHeadNow(): Boolean = mine == Mine.IN_HEAD && chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) != null } == true
+
     val inHeadWithoutKey: Boolean get() = chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) == null } == true
 
     /** Wraps kept (tests). */

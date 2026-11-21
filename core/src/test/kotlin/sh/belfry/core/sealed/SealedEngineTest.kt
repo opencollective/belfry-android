@@ -304,7 +304,7 @@ class SealedEngineTest {
         assertTrue(phone.canRemove(aliceLaptop.pubkey).not(), "the laptop isn't in the head yet")
         // and a locked device can't send in a sealed conversation
         laptop.sealedSince["n:x"] = now
-        assertIs<SealedEngine.Plan.Refuse>(laptop.plan("n:x", listOf(bob.pubkey)))
+        assertEquals(SealedEngine.Plan.Locked, laptop.plan("n:x", listOf(bob.pubkey)))
     }
 
     /** A message from an author's device not in the chain known yet: kept, accepted once the new roster is seen. */
@@ -902,5 +902,21 @@ class SealedEngineTest {
         now += 120
         laptop.askAgain(null, force = false) // nothing more owed on this connection
         assertEquals(2, asks())
+    }
+
+    /**
+     * The web's hole (0.7.7): a device out of my head (a removal it missed) never seals or sends into a
+     * sealed conversation, whatever the others' state: the plan is Locked, and it learns it is out.
+     */
+    @Test fun outOfMyHeadIsLocked() = runBlocking<Unit> {
+        val (phone, laptop, _) = world()
+        val c = conv(alice.pubkey, bob.pubkey)
+        assertIs<SealedEngine.Plan.Seal>(phone.plan(c, listOf(bob.pubkey)))
+        now += 5
+        laptop.remove(alicePhone.pubkey, revoke = false) // the phone misses it: no hand-over, no notice
+        assertEquals(SealedEngine.Mine.IN_HEAD, phone.mine, "not known yet")
+        assertEquals(SealedEngine.Plan.Locked, phone.plan(c, listOf(bob.pubkey)))
+        assertEquals(SealedEngine.Mine.WAITING, phone.mine)
+        assertFalse(phone.inHeadNow())
     }
 }

@@ -362,6 +362,7 @@ class DmSnapshot(
         val held = d.heldSince
         if (held != null) return when {
             d.heldWhy == "too_long" -> HELD_TOO_LONG
+            d.heldWhy == DirectMessages.LOCKED -> sh.belfry.core.model.SealedText.WRITE_LATER
             d.heldWhy?.startsWith("device:") == true -> null // named by the screen ("‹Name›'s new device isn't ready.")
             now - held >= 60 -> HELD_LONG
             else -> HELD_FIRST
@@ -840,6 +841,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                     is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> { mailSealed(rumor, to, self, plan); return true }
                     is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> throw DmException(plan.why)
                     sh.belfry.core.sealed.SealedEngine.Plan.Hold -> { hold(rumor, to, self, conv ?: "mail", null); return false }
+                    sh.belfry.core.sealed.SealedEngine.Plan.Locked -> { hold(rumor, to, self, conv ?: "mail", LOCKED); return false }
                     sh.belfry.core.sealed.SealedEngine.Plan.OldWay -> {}
                 }
             } else if (conv != null) {
@@ -855,6 +857,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                         // a reaction or a take-back has no bubble to wait in: not sent, said at once (the review's 16)
                         if (rumor.kind == 7 || rumor.kind == 5) throw DmException("Not sent yet: this device can't reach the belfry to check how to lock it. Try again in a moment.")
                         hold(rumor, to, self, conv, null); return false
+                    }
+                    sh.belfry.core.sealed.SealedEngine.Plan.Locked -> {
+                        if (rumor.kind == 7 || rumor.kind == 5) throw DmException(sh.belfry.core.model.SealedText.WRITE_LATER)
+                        hold(rumor, to, self, conv, LOCKED); return false
                     }
                     sh.belfry.core.sealed.SealedEngine.Plan.OldWay -> {}
                 }
@@ -896,6 +902,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             val plan = try { eng.plan(h.conv, who) } catch (e: Exception) { continue }
             when (plan) {
                 sh.belfry.core.sealed.SealedEngine.Plan.Hold -> update(rid) { it.copy(heldWhy = null) }
+                sh.belfry.core.sealed.SealedEngine.Plan.Locked -> update(rid) { it.copy(heldWhy = LOCKED) }
                 is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> if (plan.who != null) update(rid) { it.copy(heldWhy = "device:${plan.who}") } else {
                     synchronized(lock) { held.remove(rid) }
                     update(rid) { it.copy(heldSince = null, pending = false, failed = plan.why) }
@@ -948,7 +955,15 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val ours = items.filter { it.signed?.let { w -> w.id in synchronized(lock) { sealQ.keys } } == true }
         if (ours.isEmpty()) return items
         val people = ours.mapNotNull { synchronized(lock) { sealQ[it.signed!!.id]?.recipient } }.toSet()
-        kotlinx.coroutines.withTimeoutOrNull(3_000) { people.forEach { eng.refresh(it) } }
+        kotlinx.coroutines.withTimeoutOrNull(3_000) { (people + host.me).forEach { eng.refresh(it) } }
+        // out of my head: nothing sealed goes out (0.7.7); its messages say so, and they go once allowed (resealed)
+        if (!eng.inHeadNow()) {
+            val rids = ours.mapNotNull { it.dm }.toSet()
+            for (rid in rids) update(rid) { if (it.heldWhy == null || it.heldWhy == LOCKED) it.copy(heldSince = it.heldSince ?: host.now(), heldWhy = LOCKED) else it }
+            publish()
+            return items - ours.toSet()
+        }
+        for (rid in ours.mapNotNull { it.dm }.toSet()) update(rid) { if (it.heldWhy == LOCKED && synchronized(lock) { rid !in held }) it.copy(heldSince = null, heldWhy = null) else it }
         return items.map { item ->
             val w = item.signed ?: return@map item
             val q = synchronized(lock) { sealQ[w.id] } ?: return@map item
@@ -1111,6 +1126,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             is sh.belfry.core.sealed.SealedEngine.Plan.Refuse ->
                 if (plan.who != null) throw FileWaits("waiting: their new device isn't ready for the lock") else throw IllegalStateException("invalid: " + plan.why)
             sh.belfry.core.sealed.SealedEngine.Plan.Hold -> throw FileWaits("waiting: can't check yet how to lock it")
+            sh.belfry.core.sealed.SealedEngine.Plan.Locked -> throw FileWaits("waiting: this device isn't allowed yet")
             else -> {}
         }
         step(sh.belfry.core.outbox.SendState.STEP_PREPARE)
@@ -1379,6 +1395,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     }
 
     companion object {
+        /** heldWhy: this device isn't in my head (the locked thread's words). */
+        const val LOCKED = "locked"
         const val K_ITEMS = "dm-items"
         const val K_SEEN = "dm-seen"
         const val K_REPORTS = "dm-reports"
