@@ -131,12 +131,13 @@ class ShellBehaviourTest : DemoShots() {
         compose.onNodeWithTag("composer-field").performTextReplacement("See you on Thursday")
         compose.waitUntil(5_000) { composer.value.text == "See you on Thursday" }
         compose.onNodeWithTag("composer-send").performClick()
-        compose.waitUntil(10_000) { chat.editing == null }
+        // 30 s: the edit goes through the outbox, slow on a busy runner (timed out twice at 10 s on 2026-11-20)
+        compose.waitUntil(30_000) { chat.editing == null }
         // the draft is back in the box, and still kept
-        compose.waitUntil(10_000) { composer.value.text == "Half a thought" }
+        compose.waitUntil(30_000) { composer.value.text == "Half a thought" }
         settle()
         assertEquals("Half a thought", runBlocking { session.draft(key) }?.text)
-        compose.waitUntil(10_000) { world.message(general, mine.id)?.text == "See you on Thursday" }
+        compose.waitUntil(30_000) { world.message(general, mine.id)?.text == "See you on Thursday" }
     }
 
     /** A new channel's fields come back when the form is opened again, and go once it is made. */
