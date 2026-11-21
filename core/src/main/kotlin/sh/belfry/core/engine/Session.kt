@@ -1518,7 +1518,7 @@ class Session(
         }
         override suspend fun uploadSealed(bytes: ByteArray, progress: (Long, Long) -> Unit): String {
             // the demo plays the storage: the ciphertext stays on the device under a local address
-            if (localOnly) { val k = "dmc:" + sha256Hex(bytes); store.putBlob(k, bytes); return LOCAL_BLOB + k }
+            if (localOnly) { val k = "dmc:" + sha256Hex(bytes); progress(bytes.size.toLong(), bytes.size.toLong()); store.putBlob(k, bytes); return LOCAL_BLOB + k }
             return api().upload(signer, bytes, "file", "application/octet-stream", progress)
         }
         override fun renamed(from: String, to: String) { trace.rename(from, to) }

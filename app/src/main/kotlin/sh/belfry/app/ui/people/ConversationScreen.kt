@@ -134,7 +134,7 @@ fun ConversationScreen(conv: String) {
     val rows: List<Any> = remember(list, seal, until) {
         val shown = DmGroups.collapse(list.filter { it.at < until })
         val merged = if (seal == null || seal.notices.isEmpty()) shown
-        else (shown.map { it.at to it } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
+        else (shown.map { r -> (if (r is DmGroup) r.at else (r as Dm).at) to r } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
         // history someone shared with this device (canvas v86): a "Shared by" line above each block
         val out = ArrayList<Any>()
         var open: SharedBlock? = null
