@@ -24,6 +24,8 @@ import sh.belfry.core.crypto.Hex
 import sh.belfry.core.crypto.Random
 import sh.belfry.core.crypto.sha256Hex
 import sh.belfry.core.dm.DirectMessages
+import sh.belfry.core.dm.DmFiles
+import sh.belfry.core.dm.DmNewFile
 import sh.belfry.core.dm.Dm
 import sh.belfry.core.dm.DmCandidate
 import sh.belfry.core.dm.DmException
@@ -1027,7 +1029,8 @@ class Session(
 
     private fun sent(item: OutboxItem, event: Event?) {
         store.dropOutbox(item.localId)
-        if (!localOnly) item.attachments.forEach { store.dropBlob(it.blobKey); synchronized(uploaded) { uploaded.remove(it.blobKey) } }
+        // a direct message's file stays on the device: it is what my message shows (never uploaded in clear)
+        if (!localOnly && item.kind != DmFiles.KIND) item.attachments.forEach { store.dropBlob(it.blobKey); synchronized(uploaded) { uploaded.remove(it.blobKey) } }
         if (item.signed == null && event != null) {
             addToLog(listOf(event))
             if (localOnly) synthesizeRelayEvents(event)
@@ -1038,6 +1041,7 @@ class Session(
 
     private suspend fun sendOne(item: OutboxItem, signedNow: MutableMap<String, Event>, step: (String) -> Unit = {}): SendOutcome {
         if (item.target == Target.API) { step(SendState.STEP_SIGN); return sendApi(item) }
+        if (item.kind == DmFiles.KIND && item.dm != null && item.signed == null) return sendDmFile(item, step)
         item.signed?.let { ev ->
             if (localOnly) return SendOutcome.Ok(ev)
             return publish(item.target, ev, step)
@@ -1076,6 +1080,73 @@ class Session(
         signedNow[item.localId] = ev
         if (localOnly) return SendOutcome.Ok(ev)
         return publish(item.target, ev, step)
+    }
+
+    /**
+     * A file for a direct message (vectors/dm-files.json): encrypted, uploaded and wrapped now
+     * ([DirectMessages.prepareFile]); its wraps take its place in the outbox and go like any
+     * message's. A refused upload (4xx but 401 / 408 / 429) fails it.
+     */
+    private suspend fun sendDmFile(item: OutboxItem, step: (String) -> Unit): SendOutcome {
+        val wraps = try {
+            dm.prepareFile(item, step)
+        } catch (e: SignerTimeout) {
+            setStatus { it.copy(signerTrouble = true) }
+            return SendOutcome.Error("timeout: the signer did not answer")
+        } catch (e: IllegalStateException) {
+            return SendOutcome.Error(e.message?.takeIf { it.startsWith("invalid:") } ?: "invalid: the file")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val said = e.message.orEmpty()
+            return SendOutcome.Error(if (said.startsWith("upload failed")) said else "upload failed" + (said.takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: ""))
+        }
+        val rid = dm.idOf(item.localId) ?: item.localId
+        for (w in wraps) enqueueSigned(Target.MAIN, w, rid)
+        return SendOutcome.Ok(null)
+    }
+
+    /**
+     * A file of a direct message, decrypted (null: "This file can't be opened"). Mine not sent yet
+     * comes from the device; another is downloaded once, checked (x, GCM, ox) and kept on the device
+     * (the app's private store) by its ox.
+     */
+    suspend fun dmFile(d: Dm): ByteArray? = withContext(Dispatchers.IO) {
+        val f = d.file ?: return@withContext null
+        f.localBlob?.let { k -> store.blob(k)?.let { return@withContext it } }
+        val ox = f.ox ?: return@withContext null
+        store.blob("dmf:$ox")?.let { return@withContext it }
+        val got = try {
+            if (f.url.startsWith(LOCAL_BLOB)) store.blob(f.url.removePrefix(LOCAL_BLOB)) else fetchCapped(f.url, DmFiles.MAX.toLong() + 1024)
+        } catch (e: Exception) { null } ?: return@withContext null
+        val plain = DmFiles.open(f.tags, got) ?: return@withContext null
+        store.putBlob("dmf:$ox", plain)
+        plain
+    }
+
+    private fun fetchCapped(url: String, max: Long): ByteArray? =
+        http.newCall(Request.Builder().url(url).build()).execute().use { res ->
+            if (!res.isSuccessful) return null
+            val body = res.body ?: return null
+            if (body.contentLength() > max) return null
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(64 * 1024)
+            body.byteStream().use { input ->
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    if (out.size() > max) return null
+                }
+            }
+            out.toByteArray()
+        }
+
+    /** Sends files (pictures, documents, a recording) in a direct message, with an optional caption after them. */
+    suspend fun sendDmFiles(conv: String, files: List<DmNewFile>, caption: String? = null) {
+        guard()
+        lastDmSentMs = System.currentTimeMillis()
+        dmCall { dm.sendFiles(conv, files, caption) }
     }
 
     /** A queued API call (SPEC 19.37): NIP-98 signed now, POSTed; the answer's status decides. */
@@ -1436,6 +1507,21 @@ class Session(
         override suspend fun enqueueSigned(target: Target, event: Event, dm: String?): String = this@Session.enqueueSigned(target, event, dm)
         override fun preparing(id: String) { if (!localOnly) trace.step(id, "DM", SendState.STEP_PREPARE) }
         override fun notPrepared(id: String) { trace.end(id, "not prepared", left = false) }
+        override val isGuest: Boolean get() = _guest.value != null
+        override fun putBlob(key: String, bytes: ByteArray) = store.putBlob(key, bytes)
+        override fun blob(key: String): ByteArray? = store.blob(key)
+        override suspend fun enqueue(item: OutboxItem) {
+            guard()
+            store.putOutbox(item)
+            countOutbox()
+            requestFlush()
+        }
+        override suspend fun uploadSealed(bytes: ByteArray, progress: (Long, Long) -> Unit): String {
+            // the demo plays the storage: the ciphertext stays on the device under a local address
+            if (localOnly) { val k = "dmc:" + sha256Hex(bytes); store.putBlob(k, bytes); return LOCAL_BLOB + k }
+            return api().upload(signer, bytes, "file", "application/octet-stream", progress)
+        }
+        override fun renamed(from: String, to: String) = trace.rename(from, to)
         override suspend fun requeue(items: List<OutboxItem>) {
             for (o in items) store.putOutbox(o.copy(status = OutboxStatus.QUEUED, error = null))
             countOutbox()

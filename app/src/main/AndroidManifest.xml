@@ -93,5 +93,16 @@
             android:name=".rec.RecordingService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- a direct message's file, decrypted, handed to the phone's viewer (only this app's cache/open/) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

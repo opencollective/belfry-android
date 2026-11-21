@@ -426,6 +426,25 @@ object Demo {
         dm(me, listOf(maya), now - 25 * h, "Sure. Where is the key these days?", listOf(maya to "🙏"))
         dm(maya, listOf(me), now - 25 * h + 300, "In the **blue box** behind the seed shelf.", listOf(me to "👍"))
         dm(maya, listOf(me), now - 35 * 60, "The new gate code is 4417. Please don't post it in a channel 🙏")
+        // files in a direct message (canvas v109): encrypted like real ones, the ciphertext kept on the device
+        suspend fun dmFile(from: LocalSigner, to: List<LocalSigner>, at: Long, res: String, mime: String, name: String? = null, dim: String? = null, duration: Int? = null, group: String? = null) {
+            val plain = Demo::class.java.getResourceAsStream("/demo/$res")?.use { it.readBytes() } ?: return
+            val sealed = sh.belfry.core.dm.DmFiles.seal(plain)
+            store.putBlob("dmc:" + sealed.x, sealed.ciphertext)
+            val tags = sh.belfry.core.dm.DmFiles.tags(to.filter { it !== from }.map { it.pubkey }, mime, sealed, name = name, dim = dim, duration = duration, group = group)
+            val rumor = GiftWrap.rumor(sh.belfry.core.dm.DmFiles.KIND, from.pubkey, tags, Session.LOCAL_BLOB + "dmc:" + sealed.x, at)
+            wraps.add(GiftWrap.wrap(rumor, me.pubkey, from))
+        }
+        val seedlings = "5eed1e95a1b2c3d4"
+        dmFile(me, listOf(maya), now - 30 * 60, "seedlings-1.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        dmFile(me, listOf(maya), now - 30 * 60 + 1, "seedlings-2.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        dmFile(me, listOf(maya), now - 30 * 60 + 2, "seedlings-3.jpg", "image/jpeg", dim = "640x480", group = seedlings)
+        run {
+            val caption = GiftWrap.rumor(14, me.pubkey, listOf(listOf("p", maya.pubkey), listOf("group", seedlings)), "The seedlings came up!", now - 30 * 60 + 3)
+            wraps.add(GiftWrap.wrap(caption, me.pubkey, me))
+        }
+        dmFile(maya, listOf(me), now - 25 * 60, "garden-plan.pdf", "application/pdf", name = "Garden plan 2027.pdf")
+        dmFile(maya, listOf(me), now - 20 * 60, "recording.m4a", "audio/mp4", duration = 7)
         val trio = listOf(tomas, lena, me)
         dm(tomas, trio, now - 3 * day, "Shall we buy the wood for the pantry shelves together?")
         dm(lena, trio, now - 3 * day + 600, "Yes. The budget allows 150 EUR.")

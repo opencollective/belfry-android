@@ -127,7 +127,7 @@ private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, loc
     val c = Belfry.colors
     val mail = dms.isMail(t.conv)
     val title = if (mail) dms.threadName(t.conv) else if (dms.peers(t.conv).let { it.isEmpty() || it == listOf(world.me) }) "Notes to yourself" else dms.convName(t.conv, world)
-    val first = Markdown.plain(world.namedRefs(t.last.text)).lineSequence().firstOrNull { it.isNotBlank() } ?: if (t.last.attachments.isNotEmpty()) "Attachment" else ""
+    val first = LocalDms.current.fileLine(t.last) ?: Markdown.plain(world.namedRefs(t.last.text)).lineSequence().firstOrNull { it.isNotBlank() } ?: if (t.last.attachments.isNotEmpty()) "Attachment" else ""
     val preview = (if (mail) dms.convName(t.conv, world) + " · " else "") + (if (t.last.mine) "You: " else "") + first
     Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),

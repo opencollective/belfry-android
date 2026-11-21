@@ -337,6 +337,24 @@ object Recorder {
         discard(c, meta.id)
     }
 
+    /**
+     * A stopped recording goes to a direct message (canvas v109): one .m4a file (the .aac when
+     * making it fails), encrypted and sent like any file there; 25 MB at most (a guest 5 MB).
+     */
+    suspend fun postToDm(context: Context, session: Session, meta: RecMeta, conv: String) = withContext(Dispatchers.IO) {
+        val c = context.applicationContext
+        val f = audio(c, meta.id)
+        val adts = try { f.readBytes() } catch (e: Exception) { throw RecException(RecNotice.EMPTY) }
+        val sum = try { adts.inputStream().buffered().use { Adts.read(it) } } catch (e: Exception) { throw RecException(RecNotice.EMPTY) }
+        if (sum.frames == 0L) throw RecException(RecNotice.EMPTY)
+        val m4a = try { M4a.mux(adts) } catch (e: Throwable) { null }
+        val zone = ZoneId.systemDefault()
+        val file = if (m4a != null) sh.belfry.core.dm.DmNewFile(Recordings.fileName(meta.startedAt, zone, 1, 1, "m4a"), "audio/mp4", m4a, durationSec = (sum.durationMs / 1000).toInt())
+        else sh.belfry.core.dm.DmNewFile(Recordings.fileName(meta.startedAt, zone, 1, 1, "aac"), "audio/aac", adts, durationSec = (sum.durationMs / 1000).toInt())
+        session.sendDmFiles(conv, listOf(file))
+        discard(c, meta.id)
+    }
+
     /** For the notification's clock: when a recording that has run for [elapsed] would have begun. */
     fun chronometerBase(): Long = now() - elapsed()
 }

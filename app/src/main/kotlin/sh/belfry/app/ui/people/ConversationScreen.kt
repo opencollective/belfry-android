@@ -75,6 +75,7 @@ import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.nav.Routes
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.dm.Dm
+import sh.belfry.core.dm.DmNewFile
 import sh.belfry.core.dm.DmSnapshot
 import sh.belfry.core.model.DeviceNotice
 import sh.belfry.core.model.SharedBlock
@@ -131,16 +132,16 @@ fun ConversationScreen(conv: String) {
     val lockedHere = seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
     val rows: List<Any> = remember(list, seal, until) {
-        val shown = list.filter { it.at < until }
+        val shown = DmGroups.collapse(list.filter { it.at < until })
         val merged = if (seal == null || seal.notices.isEmpty()) shown
         else (shown.map { it.at to it } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
         // history someone shared with this device (canvas v86): a "Shared by" line above each block
         val out = ArrayList<Any>()
         var open: SharedBlock? = null
         for (r in merged) {
-            val block = if (r is Dm) seal?.shared?.firstOrNull { it.holds(r.at) } else null
+            val block = when (r) { is Dm -> seal?.shared?.firstOrNull { it.holds(r.at) }; is DmGroup -> seal?.shared?.firstOrNull { it.holds(r.at) }; else -> null }
             if (block != null && block != open) out.add(block)
-            open = block ?: open.takeIf { r !is Dm }
+            open = block ?: open.takeIf { r !is Dm && r !is DmGroup }
             out.add(r)
         }
         if (lockedHere) out.add(LockedHere)
@@ -148,12 +149,15 @@ fun ConversationScreen(conv: String) {
     }
     fun atOf(r: Any): Long? = when (r) {
         is Dm -> r.at
+        is DmGroup -> r.at
         is DeviceNotice -> r.at
         is SharedBlock -> r.from
         else -> null
     }
     var why by remember(conv) { mutableStateOf<SharedBlock?>(null) }
     var notSealedOpen by remember(conv) { mutableStateOf(false) }
+    var plusOpen by remember(conv) { mutableStateOf(false) }
+    var recording by remember(conv) { mutableStateOf(false) }
 
     LaunchedEffect(conv, rows.size) {
         if (rows.isNotEmpty()) state.scrollToItem(rows.size - 1)
@@ -195,6 +199,7 @@ fun ConversationScreen(conv: String) {
                 itemsIndexed(rows, key = { _, r ->
                     when (r) {
                         is Dm -> r.rid
+                        is DmGroup -> "group:" + r.key
                         is DeviceNotice -> "notice:" + r.id
                         is SharedBlock -> "shared:" + r.by + ":" + r.from
                         else -> "locked"
@@ -212,6 +217,9 @@ fun ConversationScreen(conv: String) {
                             } else {
                                 Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true) ({ notSealedOpen = true }) else null)
                             }
+                        }
+                        is DmGroup -> FilesBubble(r, dms, world, group = peers.size > 1, onMenu = { rid, emojiOnly -> acting = rid to emojiOnly }) {
+                            Bubble(it, dms, world, group = false, onMenu = { emojiOnly -> acting = it.rid to emojiOnly })
                         }
                         is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
                         is SharedBlock -> SharedByRow(r, world) { why = r }
@@ -242,7 +250,12 @@ fun ConversationScreen(conv: String) {
         } else Composer(
             composer,
             placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else "Message",
-            onSend = { text, _, _, _ ->
+            onSend = { text, files, _, _ ->
+                if (files.isNotEmpty() && !mail) {
+                    // pictures with the text as their caption (canvas v109)
+                    session.sendDmFiles(conv, files.map { DmNewFile(it.name, it.mime, it.bytes, it.width, it.height) }, text.takeIf { it.isNotBlank() })
+                    return@Composer
+                }
                 if (newMail && subject.isBlank()) throw ActionException("subject", "Give it a subject: it names the thread.")
                 val target = session.sendDm(conv, text, if (newMail) subject.trim() else null)
                 subject = ""
@@ -253,8 +266,11 @@ fun ConversationScreen(conv: String) {
                 }
             },
             modifier = Modifier.navigationBarsPadding(),
-            photos = false,
+            photos = !mail,
+            onPlus = if (!mail) ({ plusOpen = true }) else null,
         )
+        if (plusOpen) DmPlusSheet(conv, composer, onClose = { plusOpen = false }, onRecord = { recording = true })
+        if (recording) DmRecorderSheet(conv) { recording = false }
     }
 }
 

@@ -18,6 +18,11 @@ object DmFiles {
     const val KIND = 15
     const val ALGORITHM = "aes-gcm"
     const val UNREADABLE = "This file can't be opened"
+    /** A file at most (the storage's limit for members), and for guests (canvas v109). */
+    const val MAX = 25 * 1024 * 1024
+    const val MAX_GUEST = 5 * 1024 * 1024
+
+    fun tooLarge(guest: Boolean): String = "This file is too large (${if (guest) 5 else 25} MB at most)"
 
     /** A file sealed for upload: what the rumor's tags carry. */
     class Sealed(val key: String, val nonce: String, val ciphertext: ByteArray, val x: String, val ox: String, val size: Long)

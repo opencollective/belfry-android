@@ -124,6 +124,13 @@ class SendTrace(private val nowMs: () -> Long, private val wallMs: () -> Long = 
         }
     }
 
+    /** Send FROM is now known as TO (a file's local id → its rumor's id): its run and its time go on. */
+    fun rename(from: String, to: String) = synchronized(lock) {
+        runs.remove(from)?.let { runs[to] = it }
+        val p = _progress.value
+        p[from]?.let { _progress.value = (p - from) + (to to it) }
+    }
+
     /** Forgets ID (out, discarded). */
     fun forget(id: String) = synchronized(lock) {
         runs.remove(id)
