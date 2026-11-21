@@ -18,13 +18,13 @@ class DmFilesShotsTest : DemoShots() {
     /** Three pictures sent together (2 × 2, no bubble) with their caption, Lena's PDF and her recording. */
     @Test fun thread() {
         demoShot("dm-files-thread", act = {
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("dm-picture-grid").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("dm-picture-grid", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         }) { ConversationScreen(conv) }
-        compose.onNodeWithTag("dm-file").assertExists()
-        compose.onNodeWithText("Garden plan 2027.pdf").assertExists()
+        compose.onNodeWithTag("dm-file", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Garden plan 2027.pdf", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("The seedlings came up!").assertExists()
-        compose.onNodeWithTag("dm-recording").assertExists()
-        compose.onNodeWithText("0:07").assertExists()
+        compose.onNodeWithTag("dm-recording", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("0:07", useUnmergedTree = true).assertExists()
     }
 
     /** The ＋: Photos, File, Audio recording. */
