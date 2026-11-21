@@ -37,13 +37,14 @@ def plain(n, size):
     return out[:size]
 
 
-def file_rumor(n, *, mime, data, others, at, dim=None, blurhash=None, thumb=None, duration=None, group=None):
+def file_rumor(n, *, mime, data, others, at, name=None, dim=None, blurhash=None, thumb=None, duration=None, group=None):
     k, iv = key(n), nonce(n)
     ct = seal(data, k, iv)
     url = BLOSSOM + sha(ct)
     tags = [["p", p] for p in others]
     tags += [["file-type", mime], ["encryption-algorithm", "aes-gcm"], ["decryption-key", k], ["decryption-nonce", iv],
              ["x", sha(ct)], ["ox", sha(data)], ["size", str(len(data))]]
+    if name: tags.append(["name", name])
     thumb_case = None
     if dim: tags.append(["dim", dim])
     if blurhash: tags.append(["blurhash", blurhash])
@@ -72,7 +73,9 @@ def main():
             "to the ciphertext; it uploads the CIPHERTEXT to the belfry's Blossom (Content-Type application/octet-stream; same "
             "limits as channels). Rumor content = the blob URL. Tags in this order: p per other participant; [\"file-type\", mime]; "
             "[\"encryption-algorithm\", \"aes-gcm\"]; [\"decryption-key\", hex]; [\"decryption-nonce\", hex]; [\"x\", sha256 of the "
-            "ciphertext]; [\"ox\", sha256 of the plain file]; [\"size\", bytes of the plain file]; then optional [\"dim\", \"WxH\"], "
+            "ciphertext]; [\"ox\", sha256 of the plain file]; [\"size\", bytes of the plain file]; then optional [\"name\", file name] "
+            "(sent for files; inside the sealed rumor, so the server never sees it; shown as in the names section: the last path "
+            "segment, no control characters or direction marks, trimmed, at most 200 UTF-16 units, else File / Picture / Audio recording), [\"dim\", \"WxH\"], "
             "[\"blurhash\", ...], [\"thumb\", url] + [\"thumb-nonce\", hex] (the thumbnail encrypted with the file's key and its own "
             "nonce), [\"duration\", seconds] (audio: m4a/AAC as in channels), [\"group\", 16 hex]. Several pictures sent together: "
             "kind 15s in order sharing one group tag, created_at strictly increasing (the outbox rule max(last + 1, now)); a caption "
@@ -100,7 +103,7 @@ def main():
     at = 1_800_000_000
     picture = file_rumor(10, mime="image/jpeg", data=plain(10, 600), others=[ANA], at=at, dim="1200x800",
                          blurhash="LEHV6nWB2yk8pyo0adR*.7kCMdnj", thumb=plain(11, 120))
-    pdf = file_rumor(12, mime="application/pdf", data=plain(12, 900), others=[ANA, BEN], at=at + 10)
+    pdf = file_rumor(12, mime="application/pdf", data=plain(12, 900), others=[ANA, BEN], at=at + 10, name="Garden plan 2027.pdf")
     audio = file_rumor(13, mime="audio/mp4", data=plain(13, 700), others=[ANA], at=at + 20, duration=42)
     group = "5f0c3a9e1b7d2c48"
     g1 = file_rumor(14, mime="image/png", data=plain(14, 300), others=[ANA], at=at + 30, dim="640x480", group=group)
@@ -167,6 +170,25 @@ def main():
             {"files": [h1["rumor"]["id"]], "caption": None},
         ],
     }
+
+    # 5. the name shown (the lead, 2026-11-21): the last path segment (after / or \\), without control
+    # characters (Unicode Cc) and direction marks (U+200E, U+200F, U+202A-202E, U+2066-2069), trimmed, at most 200
+    # characters (UTF-16 units, never splitting a pair); none or empty: "File", a picture "Picture", a recording "Audio recording"
+    out["names"] = [
+        {"name": "Garden plan 2027.pdf", "mime": "application/pdf", "shown": "Garden plan 2027.pdf"},
+        {"name": "../../etc/passwd", "mime": "text/plain", "shown": "passwd"},
+        {"name": "C:\\Users\\ana\\Desktop\\notes.txt", "mime": "text/plain", "shown": "notes.txt"},
+        {"name": "bad\u0000na\u0007me\n.pdf", "mime": "application/pdf", "shown": "badname.pdf"},
+        {"name": "a" * 250 + ".pdf", "mime": "application/pdf", "shown": "a" * 200},
+        {"name": "", "mime": "application/pdf", "shown": "File"},
+        {"name": None, "mime": "application/zip", "shown": "File"},
+        {"name": None, "mime": "image/jpeg", "shown": "Picture"},
+        {"name": None, "mime": "audio/mp4", "shown": "Audio recording"},
+        {"name": "dir/", "mime": "video/mp4", "shown": "File"},
+        {"name": "photo\u202egnp.exe", "mime": "application/octet-stream", "shown": "photognp.exe"},
+        {"name": "\u202e\u0001", "mime": "image/png", "shown": "Picture"},
+        {"name": "  spaced  .txt  ", "mime": "text/plain", "shown": "spaced  .txt"},
+    ]
 
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "vectors", "dm-files.json")
     with open(path, "w") as f:

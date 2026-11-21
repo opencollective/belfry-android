@@ -46,7 +46,7 @@ class DmFilesTest {
             val s = DmFiles.seal(hex(c.s("plain_hex")), tag("decryption-key")!!, tag("decryption-nonce")!!)
             assertEquals(c.s("ciphertext_hex"), Hex.encode(s.ciphertext))
             val built = DmFiles.tags(
-                t.filter { it[0] == "p" }.map { it[1] }, tag("file-type")!!, s,
+                t.filter { it[0] == "p" }.map { it[1] }, tag("file-type")!!, s, name = tag("name"),
                 dim = tag("dim"), blurhash = tag("blurhash"), thumbUrl = tag("thumb"), thumbNonce = tag("thumb-nonce"),
                 duration = tag("duration")?.toInt(), group = tag("group"),
             )
@@ -72,6 +72,11 @@ class DmFilesTest {
         }
         assertEquals("This file can't be opened", v.s("unreadable"))
         assertEquals(DmFiles.UNREADABLE, v.s("unreadable"))
+    }
+
+    @Test
+    fun names() {
+        for (c in v["names"].arr()!!.map { it.obj()!! }) assertEquals(c.s("shown"), DmFiles.shownName(c.s("name"), c.s("mime")!!), c.s("name"))
     }
 
     @Test

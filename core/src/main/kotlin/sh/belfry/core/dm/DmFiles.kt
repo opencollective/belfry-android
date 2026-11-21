@@ -37,7 +37,7 @@ object DmFiles {
 
     /** The rumor's tags, in the contract's order. */
     fun tags(
-        others: List<String>, mime: String, s: Sealed,
+        others: List<String>, mime: String, s: Sealed, name: String? = null,
         dim: String? = null, blurhash: String? = null, thumbUrl: String? = null, thumbNonce: String? = null,
         duration: Int? = null, group: String? = null,
     ): List<Tag> = buildList {
@@ -49,11 +49,31 @@ object DmFiles {
         add(listOf("x", s.x))
         add(listOf("ox", s.ox))
         add(listOf("size", s.size.toString()))
+        name?.let { add(listOf("name", it)) }
         dim?.let { add(listOf("dim", it)) }
         blurhash?.let { add(listOf("blurhash", it)) }
         if (thumbUrl != null && thumbNonce != null) { add(listOf("thumb", thumbUrl)); add(listOf("thumb-nonce", thumbNonce)) }
         duration?.let { add(listOf("duration", it.toString())) }
         group?.let { add(listOf("group", it)) }
+    }
+
+    private val MARKS = setOf('\u200e', '\u200f', '\u202a', '\u202b', '\u202c', '\u202d', '\u202e', '\u2066', '\u2067', '\u2068', '\u2069')
+
+    /**
+     * The name shown for a file (the lead 2026-11-21): the last path segment, without control
+     * characters and direction marks, trimmed, at most 200 UTF-16 units (never half a pair); none:
+     * "File", a picture "Picture", a recording "Audio recording".
+     */
+    fun shownName(name: String?, mime: String): String {
+        var n = (name ?: "").split('/', '\\').last()
+        n = n.filter { !(it.code < 32 || it.code in 0x7f..0x9f || it in MARKS) }.trim()
+        if (n.length > 200) n = n.substring(0, if (Character.isHighSurrogate(n[199])) 199 else 200)
+        if (n.isNotEmpty()) return n
+        return when {
+            mime.startsWith("image/") -> "Picture"
+            mime.startsWith("audio/") -> "Audio recording"
+            else -> "File"
+        }
     }
 
     /** A fresh group tag for several pictures sent together. */
