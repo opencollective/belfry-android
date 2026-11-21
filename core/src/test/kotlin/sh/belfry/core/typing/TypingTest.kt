@@ -18,9 +18,9 @@ class TypingTest {
     private val th = TypingPlace.thread("garden", "root1")
 
     @Test fun groupEvents() {
-        val a = Typing.groupTemplate(ch, now = (t0).toDouble())
+        val a = Typing.groupTemplate(ch, now = t0)
         assertEquals(20100, a.kind); assertEquals("", a.content); assertEquals(listOf(listOf("h", "garden")), a.tags); assertEquals(t0, a.createdAt)
-        val b = Typing.groupTemplate(th, stop = true, now = (t0).toDouble())
+        val b = Typing.groupTemplate(th, stop = true, now = t0)
         assertEquals(listOf(listOf("h", "garden"), listOf("e", "root1"), listOf("status", "stop")), b.tags)
         val ev = Event("x", "pk", t0, 20100, b.tags, "", "")
         assertEquals(th, Typing.placeOfGroupEvent(ev))
@@ -37,9 +37,9 @@ class TypingTest {
         assertEquals(setOf(lina.pubkey, tom.pubkey), to.toSet())
         assertEquals(emptyList(), Typing.recipients("m:someone@example.org", me.pubkey))
         assertEquals(emptyList(), Typing.recipients("n:${me.pubkey}", me.pubkey)) // notes to myself
-        val rumor = Typing.dmRumor(me.pubkey, to, now = (t0).toDouble())
+        val rumor = Typing.dmRumor(me.pubkey, to, now = t0)
         assertEquals("", rumor.sig); assertEquals(20100, rumor.kind)
-        val wrap = GiftWrap.wrapEphemeral(rumor, lina.pubkey, me, now = (t0).toDouble())
+        val wrap = GiftWrap.wrapEphemeral(rumor, lina.pubkey, me, now = t0)
         assertEquals(21059, wrap.kind); assertEquals(t0, wrap.createdAt); assertTrue(wrap.isValid())
         assertEquals(listOf(listOf("p", lina.pubkey)), wrap.tags)
         val opened = GiftWrap.unwrap(wrap, lina)!!
