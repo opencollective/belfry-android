@@ -366,13 +366,19 @@ class SealedEngine(
      */
     suspend fun askAgain(link: String?, force: Boolean) = kotlinx.coroutines.withContext(confined) { askAgainHere(link, force) }
 
+    /** Why the last asks did or didn't send (tests read it to say what they saw). */
+    internal val askTrace = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    private fun trace(s: String) { askTrace.addLast(s); while (askTrace.size > 12) askTrace.pollFirst() }
+
     private suspend fun askAgainHere(link: String?, force: Boolean) {
-        if (mine == Mine.UNKNOWN) return
-        val c = refresh(account) ?: return
-        if (device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; return }
+        if (mine == Mine.UNKNOWN) { trace("unknown"); return }
+        val c = refreshHere(account) ?: run { trace("no chain (complete=${lastReadComplete[account]})"); return }
+        if (device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; trace("in head"); return }
         mine = Mine.WAITING
         // at most once a minute, and once per connection (N2); else every 24 h
         val due = if (force) !askedThisConnection && clock() - lastAsk >= 60 else clock() - lastAsk >= 86_400
+        if (!due) trace("not due (force=$force asked=$askedThisConnection since=${clock() - lastAsk})")
+        if (due && asking) trace("in flight")
         if (due && !asking) {
             asking = true // the confined dispatcher interleaves at suspensions: one request in flight
             try {
@@ -381,7 +387,8 @@ class SealedEngine(
             if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))) {
                 lastAsk = clock()
                 askedThisConnection = true
-            }
+                trace("sent")
+            } else trace("publish refused")
             } finally { asking = false }
         }
     }
@@ -399,6 +406,7 @@ class SealedEngine(
 
     /** The connection dropped: what the relay said no longer counts as knowledge (c233eec). */
     fun connectionLost() {
+        trace("connection lost")
         askedThisConnection = false
         for ((k, v) in known.entries.toList()) known[k] = Known(v.chain, null)
     }
