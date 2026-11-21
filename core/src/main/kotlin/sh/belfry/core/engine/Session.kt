@@ -1357,7 +1357,7 @@ class Session(
 
     /** My tags and place (kind 30078 `belfry:profile`). */
     suspend fun saveExtras(tags: List<String>, share: Share, place: Place?) {
-        send(Actions.saveExtras(tags, share, place))
+        send(Actions.saveExtras(tags, share, place, _world.value.myExtrasJson))
     }
 
     /**

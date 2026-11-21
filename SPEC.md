@@ -579,7 +579,10 @@ versions: there is no `/api/guest-sessions` any more.
 - One replaceable event per member on the **community relay** (members only):
   `[["d","belfry:profile"]]`, content JSON
   `{"tags":[…],"share":"city"|"country"|"none","place":{"id","name","region","country","lat","lon"}}`.
-  The newest per author counts.
+  The newest per author counts. Other keys may be there (the server and website write
+  `headline`, a string, and `links`, `[{url, label}]`): saving starts from my latest event's
+  parsed content and overwrites only `tags`, `share`, `place` (`place` removed when not shared);
+  every other key is kept as it is (lead, 2026-11-21; iOS told).
 - Tags: trimmed, lowercased, leading `#` removed, whitespace runs → `-`, only letters, digits,
   `_`, `-` kept, at most 32 characters each, deduplicated, at most 30.
 - `share`: anything but `country` / `none` reads as `city`. `none` → no place. `country` → only

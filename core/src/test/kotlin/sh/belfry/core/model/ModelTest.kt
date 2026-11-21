@@ -6,6 +6,9 @@ import sh.belfry.core.outbox.OutboxItem
 import sh.belfry.core.outbox.OutboxStatus
 import sh.belfry.core.outbox.Target
 import java.time.ZoneId
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -190,6 +193,28 @@ class ModelTest {
         assertEquals("{\"tags\":[\"solar-power\"],\"share\":\"country\",\"place\":{\"country\":\"BE\"}}", d.content)
         assertEquals(listOf(t("d", "belfry:profile")), d.tags)
         assertEquals(Target.MAIN, d.target)
+    }
+
+    /** Saving tags / place keeps what the server and website put there (headline, links…). Lead, 2026-11-21. */
+    @Test
+    fun myProfileExtrasKeepOthersKeys() {
+        val links = "[{\"url\":\"https://example.org/a\",\"label\":\"Site\"}]"
+        val older = ev(alice, t0 - 10, 30078, "{\"headline\":\"old\"}", t("d", "belfry:profile"))
+        val mine = ev(alice, t0, 30078, "{\"tags\":[\"bikes\"],\"share\":\"city\",\"place\":{\"country\":\"BE\",\"name\":\"Gent\"},\"headline\":\"Gardener\",\"links\":$links,\"future\":{\"n\":1}}", t("d", "belfry:profile"))
+        val bobs = ev(bob, t0 + 5, 30078, "{\"headline\":\"Not mine\"}", t("d", "belfry:profile"))
+        val other = ev(alice, t0 + 5, 30078, "{\"headline\":\"Not this d\"}", t("d", "belfry:other"))
+        val w = world(listOf(older, mine, bobs, other))
+        assertEquals("Gardener", (w.myExtrasJson["headline"] as JsonPrimitive).content)
+        val d = Actions.saveExtras(listOf("Solar Power"), Share.NONE, Place("BE", name = "Gent"), w.myExtrasJson)
+        val out = Json.parseToJsonElement(d.content) as JsonObject
+        assertEquals(setOf("headline", "links", "future", "tags", "share"), out.keys) // place: mine, not shared now
+        assertEquals("\"Gardener\"", out["headline"].toString())
+        assertEquals(links, out["links"].toString())
+        assertEquals("{\"n\":1}", out["future"].toString())
+        assertEquals("[\"solar-power\"]", out["tags"].toString())
+        assertEquals("\"none\"", out["share"].toString())
+        // nothing published yet: the same content as before
+        assertEquals(JsonObject(emptyMap()), world(emptyList()).myExtrasJson)
     }
 
     @Test

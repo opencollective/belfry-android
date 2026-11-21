@@ -72,14 +72,23 @@ object People {
     }
 
     /** The content of the event that saves my tags and place. */
-    fun extrasContent(tags: List<String>, share: Share, place: Place?): String {
+    /**
+     * The content of my belfry:profile. [current] = the latest one's parsed content: every key the
+     * app doesn't own (the server's and website's `headline`, `links`…) is kept as it is; only
+     * `tags`, `share` and `place` are written (`place` left out when not shared). Lead, 2026-11-21.
+     */
+    fun extrasContent(tags: List<String>, share: Share, place: Place?, current: JsonObject = JsonObject(emptyMap())): String {
         val kept = if (share == Share.NONE || place == null) null else if (share == Share.COUNTRY) Place(place.country) else place
         return buildJsonObject {
+            for ((k, v) in current) if (k !in OWN_KEYS) put(k, v)
             put("tags", buildJsonArray { cleanTags(tags).forEach { add(JsonPrimitive(it)) } })
             put("share", JsonPrimitive(share.key))
             if (kept != null) put("place", placeJson(kept))
         }.toString()
     }
+
+    /** The keys of belfry:profile this app writes; anything else in it is someone else's. */
+    val OWN_KEYS = setOf("tags", "share", "place")
 
     // ---- countries (ISO 3166-1 alpha-2), named in the reader's language ----
 

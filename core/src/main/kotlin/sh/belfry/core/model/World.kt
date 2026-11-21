@@ -1379,6 +1379,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         mine?.let { parseJsonOrNull(it.content).obj() } ?: JsonObject(emptyMap())
     }
 
+    /** My latest belfry:profile content as JSON (to keep the keys the app doesn't own), or an empty object. */
+    val myExtrasJson: JsonObject by lazy {
+        val mine = ofKind(30078).filter { it.pubkey == me && it.hasTag("d", PROFILE_D) }.maxByOrNull { it.createdAt }
+        mine?.let { parseJsonOrNull(it.content).obj() } ?: JsonObject(emptyMap())
+    }
+
     /** People who can be mentioned or messaged: (pubkey, name) of everyone with a name, me left out. */
     val people: List<Pair<String, String>> by lazy {
         profiles.entries.filter { it.key != me && !it.value.name.isNullOrEmpty() && it.key !in readingOnly }.map { it.key to it.value.name!! }

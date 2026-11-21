@@ -390,9 +390,9 @@ object Actions {
 
     // ---- my profile ----
 
-    /** My tags and place (kind 30078, d = belfry:profile, on the community relay). */
-    fun saveExtras(tags: List<String>, share: Share, place: Place?): Draft =
-        Draft(Target.MAIN, 30078, People.extrasContent(tags, share, place), listOf(listOf("d", World.PROFILE_D)))
+    /** My tags and place (kind 30078, d = belfry:profile), the other keys of [current] (World.myExtrasJson) kept. */
+    fun saveExtras(tags: List<String>, share: Share, place: Place?, current: JsonObject = JsonObject(emptyMap())): Draft =
+        Draft(Target.MAIN, 30078, People.extrasContent(tags, share, place, current), listOf(listOf("d", World.PROFILE_D)))
 
     /** Name and about in my kind 0, the rest of it ([current], see World.myProfileJson) kept. */
     fun saveProfile(current: JsonObject, name: String, about: String, nip05: String? = null, picture: String? = null): Draft {
