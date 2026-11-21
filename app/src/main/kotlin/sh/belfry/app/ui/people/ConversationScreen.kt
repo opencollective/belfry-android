@@ -228,6 +228,11 @@ fun ConversationScreen(conv: String) {
                 }
             }
         }
+        // canvas v110 messages/typing-dm (never for e-mail)
+        if (!mail) {
+            val lastDm = remember(list) { HashMap<String, Long>().also { m -> for (d in list) if (d.at > (m[d.from] ?: 0L)) m[d.from] = d.at } }
+            sh.belfry.app.ui.chat.TypingLine(sh.belfry.core.typing.TypingPlace.dm(conv)) { lastDm[it] ?: 0L }
+        }
         why?.let { b -> SharedWhySheet(b, world) { why = null } }
         if (notSealedOpen) NotSealedSheet { notSealedOpen = false }
         Hairline()
@@ -248,6 +253,7 @@ fun ConversationScreen(conv: String) {
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),
             )
         } else Composer(
+            typingPlace = if (mail) null else sh.belfry.core.typing.TypingPlace.dm(conv),
             composer,
             placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else "Message",
             onSend = { text, files, _, _ ->

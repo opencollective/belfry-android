@@ -131,12 +131,17 @@ fun ThreadScreen(
                 }
             }
         }
+        // canvas v110 messages/typing-thread: only typing events whose e is this root
+        val lastReply = remember(replies) { HashMap<String, Long>().also { m -> for (r in replies) if (r.at > (m[r.pubkey] ?: 0L)) m[r.pubkey] = r.at } }
+        WatchTyping(groupId)
+        TypingLine(sh.belfry.core.typing.TypingPlace.thread(groupId, rootId)) { lastReply[it] ?: 0L }
         val reading = session.guest.collectAsState().value?.reading == true
         if (reading) sh.belfry.app.ui.people.GuestBar(groupId)
         if (!reading) Hairline()
         val editing = chat.editing
         if (editing != null && !reading) EditingBar(onCancel = { chat.editing = null; composer.clear() })
         if (!reading) Composer(
+            typingPlace = sh.belfry.core.typing.TypingPlace.thread(groupId, rootId),
             composer,
             placeholder = if (editing != null) "Edit your message" else "Reply in the thread",
             onSend = { text, files, picked, _ ->

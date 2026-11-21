@@ -57,6 +57,7 @@ fun InlineThread(groupId: String, root: Message, chat: ChatState, focus: Boolean
             }
             // guest mode: no reply box (the channel's bar says Join)
             if (session.guest.collectAsState().value?.reading != true) Composer(
+                typingPlace = sh.belfry.core.typing.TypingPlace.thread(groupId, root.ev.id),
                 composer,
                 placeholder = if (shown.isNotEmpty() || hidden > 0) "Reply in the thread" else "Reply (starts a thread)",
                 onSend = { text, files, picked, _ -> session.replyInThread(groupId, root.ev, text, files, picked) },

@@ -150,8 +150,11 @@ fun Composer(
     /** A mode's colour (an e-mail thread: blue for an e-mail, yellow for a comment): the field's border and Send. */
     tint: androidx.compose.ui.graphics.Color? = null,
     onTint: androidx.compose.ui.graphics.Color? = null,
+    /** Where typing here is told to others (docs/typing.md): keystrokes only, never a restored draft or an edit. Null: never. */
+    typingPlace: sh.belfry.core.typing.TypingPlace? = null,
 ) {
     val c = Belfry.colors
+    val typingSession = LocalSession.current
     if (draftKey != null) ComposerDraftKeeper(state, draftKey, draftPaused)
     val world = LocalWorld.current
     val context = LocalContext.current
@@ -271,7 +274,14 @@ fun Composer(
                 if (v.text.isEmpty()) Text(placeholder, fontSize = 16.sp, color = c.faint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 BasicTextField(
                     value = v,
-                    onValueChange = { state.value = it; state.error = null },
+                    onValueChange = {
+                        val before = state.value.text
+                        state.value = it; state.error = null
+                        if (typingPlace != null && it.text != before) {
+                            if (it.text.isBlank()) typingSession.typingCleared(typingPlace)
+                            else typingSession.typed(typingPlace, it.text, restored = draftPaused())
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).testTag("composer-field"),
                     textStyle = TextStyle(color = c.text, fontSize = 16.sp, lineHeight = 22.sp),
                     cursorBrush = SolidColor(c.text),
@@ -290,6 +300,7 @@ fun Composer(
                         val files = state.photos.map { it.attachment }
                         if (text.isNotEmpty() || files.isNotEmpty()) {
                             onSend(text, files, state.picked.toList(), state.announce)
+                            typingPlace?.let { typingSession.typingSent(it) }
                             state.clear()
                         }
                     },

@@ -142,6 +142,7 @@ fun MeScreen() {
         SectionTitle("App")
         ActionGroup {
             ActionRow("Appearance", onClick = null, value = "Follows the system")
+            ActionRow("Privacy", onClick = { nav.go(Routes.PRIVACY) }, icon = BelfryIcons.Shield, sub = "On this phone: whether others see you typing", chevron = true, modifier = Modifier.testTag("me-privacy"))
             ActionRow("Community", onClick = null, icon = BelfryIcons.Globe, value = domain)
             ActionRow("Version", onClick = null, value = BuildConfig.VERSION_NAME + if (status.localOnly) " · demo" else "")
             sh.belfry.app.update.UpdateRows()

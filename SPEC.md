@@ -2255,3 +2255,28 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   socket's state and quiet time, with Copy.
 - Later (server, not yet): the signer will listen on the community relay too; then the signer's
   relay is taken from the bunker URL and the manager can share that socket.
+
+### 19.51 Typing indicators (2026-11-21; Xavier via the lead; contract collective-belfry docs/typing.md @7750419; canvas v110 messages/typing-*)
+
+- Kind 20100, empty content, ephemeral (never stored, never through the outbox, never retried).
+  Channels, groups, event chats, proposals: signed by the person, on the groups relay, `["h", group]`,
+  and `["e", root]` inside a thread. DMs: the 20100 is an unsigned rumor tagged `p` for every other
+  participant, sealed (13) and put in a kind 21059 gift wrap to each of them on the community relay,
+  wrap and seal with the real `created_at`; no copy to oneself; never for e-mail or notes to self.
+  Optional `["status","stop"]`.
+- Reading: the groups relay is asked `{"kinds":[20100],"#h":[groups on screen],"since":now-5}` while
+  a channel or thread of them shows; the community relay `{"kinds":[21059],"#p":[me],"since":now-5}`.
+  A conversation shows events without `e`; a thread only those whose `e` is its root. A DM's place is
+  the rumor's author + `p` tags, as for kind 14.
+- Sending: on a keystroke that leaves the field non-blank, at most every 4 s per place; never for a
+  restored draft or an edit; a stop when the field is emptied without sending and a typing event
+  went out in the last 6 s; none after sending. Not in archived groups, not from reading guests,
+  not when this device's "Show others when I'm typing" is off. The signer gets 3 s; a relay that
+  answers `rate-limited` gets none for 30 s.
+- Showing: from an event until 6 s after the latest, a stop, or a message of theirs in that place made
+  at or after it. Ignore events more than 10 s off, my own (any device), reading guests, people not
+  in a closed group. "Lina is typing…" / "Lina and Tom are typing…" / "Several people are typing…"
+  ("Somebody" with no profile), names semibold, three dots (still when animations are off), 13 sp in
+  the secondary colour, one line, drawn over the feed's bottom so the feed never moves; a polite
+  live region. A one-to-one DM's row in the list says "typing…" in place of its preview.
+- Setting: Me → Privacy → "Show others when I'm typing", per device, on by default.

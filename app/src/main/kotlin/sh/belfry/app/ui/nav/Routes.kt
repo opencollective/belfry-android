@@ -95,6 +95,8 @@ object Routes {
     const val DEVICES = "devices"
     /** Me → Notifications (push). */
     const val NOTIFICATIONS = "notifications"
+    /** Me → Privacy: "Show others when I'm typing" (canvas v110 messages/typing-setting). */
+    const val PRIVACY = "privacy"
     /** Me → Branding (admins of the belfry): its logo, cover and colours. */
     const val BRANDING = "branding"
     /** Everyone in the community. */

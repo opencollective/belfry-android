@@ -350,6 +350,31 @@ class Session(
     private val jobs = ArrayList<Job>()
     @Volatile private var started = false
     @Volatile private var stopped = false
+
+    private val typingEngine = SessionTyping(scope, signer.pubkey, signer, clock, { relay(it) }, { _world.value }, { !reading && !localOnly && !stopped })
+
+    /** Who is typing where (docs/typing.md; SPEC 19.51): for the line above the composer and the DM list. */
+    val typing: StateFlow<sh.belfry.core.typing.TypingState> get() = typingEngine.state
+
+    /** The device's "Show others when I'm typing" (the app keeps it, per device; on by default). */
+    var sendTyping: Boolean
+        get() = typingEngine.enabled
+        set(v) { typingEngine.enabled = v }
+
+    /** While a screen shows [group] (a channel or one of its threads): its typing events are asked for. Close when it goes. */
+    fun watchTyping(group: String): AutoCloseable = typingEngine.watch(group)
+
+    /** A keystroke in the composer of [place]; [restored] = a draft put back on open or an edit of an older message. */
+    fun typed(place: sh.belfry.core.typing.TypingPlace, text: String, restored: Boolean = false) = typingEngine.typed(place, text, restored)
+
+    /** The composer of [place] was emptied without sending. */
+    fun typingCleared(place: sh.belfry.core.typing.TypingPlace) = typingEngine.cleared(place)
+
+    /** A message went from [place]. */
+    fun typingSent(place: sh.belfry.core.typing.TypingPlace) = typingEngine.sent(place)
+
+    /** The demo and tests: PUBKEY types in PLACE now (shows for 6 s). */
+    fun showTyping(place: sh.belfry.core.typing.TypingPlace, pubkey: String) = typingEngine.show(place, pubkey)
     @Volatile private var firstChannelTried = false
     private val enqueueLock = Mutex()
     private val flushLock = Mutex()
@@ -593,7 +618,7 @@ class Session(
         for (t in Target.entries) {
             val r = relay(t) ?: continue
             r.authSigner = signer
-            r.onEvent = { _, e -> incoming.trySend(Incoming.Ev(e)) }
+            r.onEvent = { _, e -> if (!typingEngine.offer(e)) incoming.trySend(Incoming.Ev(e)) } // typing: live only, never stored
             r.known = { id -> synchronized(logLock) { id in logIds } }
             r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t, r.isAuthenticated || r.authSigner == null || localOnly)) } }
             r.onClosed = { sub, reason ->
@@ -609,6 +634,7 @@ class Session(
             if (_status.value.online) r.keepConnected()
         }
         connections.start()
+        typingEngine.start()
         jobs += scope.launch(Dispatchers.Default) {
             while (isActive) {
                 delay(WATCHDOG_MS)

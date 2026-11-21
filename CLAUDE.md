@@ -222,6 +222,14 @@ minSdk 26, JDK 17.
   by relay. `SendTrace` = `Session.sending` (the lines under unsent messages, `rememberSendLine`)
   and About Belfry → Diagnostics. A new socket for a session goes through `Connections.add`.
 
+- Typing indicators (SPEC 19.51, docs/typing.md): pure rules `core/typing/Typing.kt` (`TypingSender`
+  when to send, `TypingBoard` who shows, `TypingState.who`), `engine/SessionTyping.kt` (subscriptions,
+  ephemeral sends, `GiftWrap.wrapEphemeral`; typing events never reach the log: `Relay.onEvent` hands
+  them over first). `Session.typing / watchTyping / typed / typingCleared / typingSent / sendTyping /
+  showTyping` (demo and tests). App: `Composer(typingPlace =)`, `ui/chat/TypingLine.kt` (`TypingLine`,
+  zero layout height, drawn over the feed; `ChannelTyping`, `WatchTyping`), the DM list's "typing…",
+  `ui/people/PrivacyScreen.kt` (`TypingSetting`, per device).
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

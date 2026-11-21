@@ -16,6 +16,7 @@ fun NavGraphBuilder.peopleRoutes() {
     composable(Routes.SESSIONS) { SessionsScreen() }
     composable(Routes.DEVICES) { DevicesScreen() }
     composable(Routes.NOTIFICATIONS) { NotificationsScreen() }
+    composable(Routes.PRIVACY) { PrivacyScreen() }
     composable(Routes.BRANDING) { BrandingScreen() }
     composable(Routes.MEMBERS) { MembersScreen() }
     composable(Routes.MESSAGES) { MessagesScreen() }

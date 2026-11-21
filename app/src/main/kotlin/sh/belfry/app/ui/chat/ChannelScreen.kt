@@ -357,6 +357,8 @@ fun ChannelScreen(
             }
         }
 
+        // canvas v110 messages/typing-channel: drawn over the feed's bottom, the feed doesn't move
+        ChannelTyping(groupId)
         // a recording that runs, or one that was not posted (the web's RecordingBar)
         RecordingBar(groupId)
         SaveAccountBar(session)
@@ -398,6 +400,7 @@ fun ChannelScreen(
             if (!isPub) Hairline()
             if (editing != null) EditingBar(onCancel = { chat.editing = null; composer.clear() })
             Composer(
+                typingPlace = sh.belfry.core.typing.TypingPlace.channel(groupId),
                 composer,
                 placeholder = when {
                     editing != null -> "Edit your message"

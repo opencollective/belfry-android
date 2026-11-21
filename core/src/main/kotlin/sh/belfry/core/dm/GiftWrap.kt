@@ -30,6 +30,21 @@ object GiftWrap {
         return oneTime.signNow(EventTemplate(1059, content, listOf(listOf("p", to)), backdate()))
     }
 
+    /**
+     * A live signal (typing, docs/typing.md): RUMOR sealed and put in a kind 21059 ephemeral gift
+     * wrap for TO, both with the real time (readers ask with `since` and drop old ones).
+     */
+    suspend fun wrapEphemeral(rumor: Event, to: String, signer: Signer, now: Long = unixNow()): Event {
+        if (!Hex.isKey(to)) throw IllegalArgumentException("not a key")
+        val sealed = signer.nip44Encrypt(to, rumor.copy(sig = "").toJsonString())
+        val seal = signer.sign(EventTemplate(13, sealed, emptyList(), now))
+        val oneTime = LocalSigner.random()
+        val content = oneTime.nip44EncryptNow(to, seal.toJsonString())
+        return oneTime.signNow(EventTemplate(EPHEMERAL_KIND, content, listOf(listOf("p", to)), now))
+    }
+
+    const val EPHEMERAL_KIND = 21059
+
     class Opened(val rumor: Event, val sealPubkey: String)
 
     /**

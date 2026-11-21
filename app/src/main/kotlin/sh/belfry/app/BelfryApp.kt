@@ -66,6 +66,8 @@ class BelfryApp : Application() {
         state.unreadAccounts = { AndroidPush.unread(this) }
         state.clearUnread = { id -> AndroidPush.clearUnread(this, id) }
         state.beforeSignOut = { s -> AndroidPush.unregister(this@BelfryApp, s) }
+        // "Show others when I'm typing" belongs to the device (docs/typing.md §4): every session hears it
+        scope.launch { state.session.collect { s -> s?.sendTyping = sh.belfry.app.ui.people.TypingSetting.on(this@BelfryApp) } }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 AndroidPush.foreground = true; state.wake()
