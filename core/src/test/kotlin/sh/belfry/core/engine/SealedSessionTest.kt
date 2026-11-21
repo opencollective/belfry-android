@@ -108,8 +108,10 @@ class SealedSessionTest {
         assertEquals(1, requestsBy(laptop), "one 8562, not two")
         // a reconnect, past the once-a-minute limit: exactly one more, then none
         skew += 120
+        val opens = m.opens
         m.dropAll()
-        until("asked again after the reconnect", 20_000) { requestsBy(laptop) >= 2 }
+        until("both devices reconnected (opens ${'$'}opens → ?)", 30_000) { m.opens >= opens + 2 }
+        until("asked again after the reconnect (requests: ${'$'}{requestsBy(laptop)}, mine: ${'$'}{b.sealed?.mine})", 20_000) { requestsBy(laptop) >= 2 }
         delay(2_000)
         assertEquals(2, requestsBy(laptop), "one per connection")
     }
