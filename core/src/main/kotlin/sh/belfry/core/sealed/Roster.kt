@@ -89,7 +89,7 @@ data class RosterChange(val device: String, val added: Boolean, val at: Long)
  * A person's valid chain (§3.3), root first. Its head's `lb` is where to seal for them; its
  * devices are theirs.
  */
-class Chain(val account: String, val rosters: List<Roster>) {
+class Chain(val account: String, val rosters: List<Roster>, /** The end of the anchored path (the root at least). */ val anchored: String = rosters.first().id) {
     val root: Roster get() = rosters.first()
     val head: Roster get() = rosters.last()
     val devices: List<String> get() = head.devices
@@ -150,6 +150,7 @@ class Chain(val account: String, val rosters: List<Roster>) {
             if (root.n != 1 || root.prev != null || root.signer !in root.devices) return null
 
             var path = pathTo(anchorHead ?: rootId, root, all) ?: listOf(root)
+            val anchoredEnd = path.last().id
             // no going back: an anchor naming an ancestor of the head I pinned keeps the pinned head
             if (pinned != null && pinned != path.last().id) {
                 val p = pathTo(pinned, root, all)
@@ -164,7 +165,7 @@ class Chain(val account: String, val rosters: List<Roster>) {
                 out.add(next)
                 seenLb.add(next.lb)
             }
-            return Chain(account, out)
+            return Chain(account, out, anchoredEnd)
         }
 
         /** The valid path root → TARGET, or null when TARGET isn't a valid descendant of the root. */

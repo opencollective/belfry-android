@@ -196,4 +196,70 @@ class SealedVectorsTest {
             assertEquals(strs(e["added_ids"]), added.map { it.id }, name)
         }
     }
+
+    // ---- follow and trust (belfry-sh 6b6ca54, sha256 a1daadbd…07e35286) -------------------------
+
+    private fun summary(c: Chain?): JsonObject = kotlinx.serialization.json.buildJsonObject {
+        if (c == null) {
+            put("valid_ids", JsonArray(emptyList())); put("head", JsonNull); put("devices", JsonArray(emptyList())); put("lb", JsonNull); put("ready", JsonPrimitive(false))
+        } else {
+            put("valid_ids", JsonArray(c.rosters.map { JsonPrimitive(it.id) }))
+            put("head", JsonPrimitive(c.head.id))
+            put("devices", JsonArray(c.devices.map { JsonPrimitive(it) }))
+            put("lb", JsonPrimitive(c.head.lb))
+            put("ready", JsonPrimitive(c.ready))
+        }
+    }
+
+    /** The steps of a follow / trust case; each step's event, pin and chain checked; the pin through JSON each time. */
+    private fun runSteps(case: JsonObject): Pair<Chain?, Pin?> {
+        var pin = Pin.fromJson(case["pin"] as? JsonObject)
+        var c: Chain? = null
+        for ((i, step) in (case["steps"] as JsonArray).withIndex()) {
+            step as JsonObject
+            val r = Follow.follow((step["anchor"] as? JsonObject)?.let { ev(it) }, evs(step["rosters"]), pin)
+            c = r.chain; pin = r.pin
+            (step["allow_locally"] as? JsonArray)?.forEach { d -> pin = pin?.let { Follow.allowLocally(it, d.jsonPrimitive.content) } }
+            val want = step["expected"] as JsonObject
+            val where = "${case.s("name")}, step ${i + 1}"
+            assertEquals(want.s("event"), r.event.wire, where)
+            assertEquals(want["pin"], pin?.toJson() ?: JsonNull, where)
+            assertEquals(want["chain"], summary(c), where)
+            pin = Pin.fromJson(pin?.toJson())
+        }
+        return c to pin
+    }
+
+    @Test fun follow() {
+        val cases = ((v["follow"] as JsonObject)["cases"] as JsonArray).map { it as JsonObject }
+        assertTrue(cases.size >= 17)
+        val events = HashSet<String>()
+        for (case in cases) {
+            runSteps(case)
+            (case["steps"] as JsonArray).forEach { events.add(((it as JsonObject)["expected"] as JsonObject).s("event")!!) }
+        }
+        assertEquals(Follow.Change.entries.map { it.wire }.toSet(), events)
+    }
+
+    @Test fun trust() {
+        val cases = ((v["trust"] as JsonObject)["cases"] as JsonArray).map { it as JsonObject }
+        assertTrue(cases.size >= 13)
+        var asks = 0
+        for (case in cases) {
+            val (c, pin) = runSteps(case)
+            for (a in (case["asks"] as JsonArray).map { it as JsonObject }) {
+                val given = (a["added_at"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.long
+                for (addedAt in listOf(given, null)) {
+                    if (addedAt == null && given == null) continue // as the reference: only checked when given
+                    val got = Follow.answerWithoutPrompt(
+                        c, pin, a.s("device")!!, strs(a["live_chat_devices"]), a["request_created_at"]!!.jsonPrimitive.long,
+                        addedAt, (a["last_handover_at"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.long,
+                    )
+                    assertEquals(a["expected"]!!.jsonPrimitive.boolean, got, "${case.s("name")}: ${a.s("device_name")}")
+                }
+                asks++
+            }
+        }
+        assertEquals(27, asks)
+    }
 }
