@@ -124,7 +124,7 @@ fun MeScreen() {
             ActionRow("Messages", onClick = { nav.go(Routes.MESSAGES) }, icon = BelfryIcons.Mail, sub = "Direct messages and e-mail", chevron = true)
             ActionRow("Notifications", onClick = { nav.go(Routes.NOTIFICATIONS) }, icon = BelfryIcons.Bell, sub = "On this phone: messages, mentions, announcements", chevron = true, modifier = Modifier.testTag("me-notifications"))
             // canvas v88 shows it always; until the sealed wiring ships (the lead, 0.7.1) only the demo has it
-            if (session.localOnly) {
+            if (session.localOnly || session.sealed != null) {
                 ActionRow("Devices", onClick = { nav.go(Routes.DEVICES) }, icon = BelfryIcons.Phone, sub = "Where you're signed in", chevron = true, modifier = Modifier.testTag("me-devices"))
             }
             ActionRow("Signed-in devices", onClick = { nav.go(Routes.SESSIONS) }, icon = BelfryIcons.Lock, sub = "The apps and devices signed in as you", chevron = true)

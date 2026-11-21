@@ -184,6 +184,7 @@ fun EncryptionScreen(conv: String) {
     val world = LocalWorld.current
     val st by session.encryption.state.collectAsState()
     val seal = st.seal(conv)
+    androidx.compose.runtime.LaunchedEffect(conv) { try { session.encryption.refresh() } catch (e: Exception) { } }
     Page("Encryption") {
         if (seal == null) {
             Hint("This conversation isn't locked.")

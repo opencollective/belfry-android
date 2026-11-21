@@ -1300,6 +1300,9 @@ class Session(
      * Sends TEXT in a conversation (see [DmSnapshot]); SUBJECT is needed for a new e-mail
      * ("m:<address>"). Returns the conversation it is in now. Throws [ActionException].
      */
+    /** Cancels a message held undecided (sealed.md §6): its text, for the composer. */
+    fun cancelHeldDm(rid: String): String? = dm.cancelHeld(rid)
+
     suspend fun sendDm(conv: String, text: String, subject: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject) } }
 
     /** When this phone last sent a DM or e-mail (ms): a "dm" push right after it is my own copy (SPEC 19.19). */

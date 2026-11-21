@@ -170,6 +170,7 @@ fun SessionsContent(
 fun DevicesScreen() {
     val session = LocalSession.current
     val st by session.encryption.state.collectAsState()
+    LaunchedEffect(Unit) { try { session.encryption.refresh() } catch (e: Exception) { } }
     if (st.myDevices.isEmpty()) SessionsScreen() else Page("Devices") { SealDevices() }
 }
 
