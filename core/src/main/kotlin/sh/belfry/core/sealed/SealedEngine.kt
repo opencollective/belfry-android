@@ -54,8 +54,8 @@ class SealedEngine(
     private class Known(val chain: Chain?, val completeAt: Long?)
     private val known = HashMap<String, Known>()
     /** Per person: the root first accepted and the head last accepted (§3.4). */
-    private val pinnedRoot = HashMap<String, String>()
-    private val pinnedHead = HashMap<String, String>()
+    /** Per person: the pin (sealed.md §3.3 / §3.4; the reference's follow), kept for good. */
+    private val pins = HashMap<String, Pin>()
     /** The last valid head this device knew per person, kept when a chain disappears (§6). */
     private val lastHead = HashMap<String, String>()
 
@@ -82,26 +82,44 @@ class SealedEngine(
         // the pin holds even when the relay no longer has its events: the stored path and anchor join in
         val a = SealedEngine.Answer((qa.events + listOfNotNull(anchors[person])).distinctBy { it.id }, qa.complete)
         val r = SealedEngine.Answer((qr.events + pathEvents[person].orEmpty()).distinctBy { it.id }, qr.complete)
-        val anchorRoot = Anchor.root(a.events, person)
-        if (anchorRoot != null && pinnedRoot[person] != null && pinnedRoot[person] != anchorRoot) {
-            pinnedHead.remove(person) // started fresh
-            if (person == account) known[person]?.chain?.letterboxes?.let { oldLetterboxes.addAll(it) }
-        }
-        val before = known[person]?.chain
-        val chain = Chain.of(person, a.events, r.events, pinned = pinnedHead[person])
-        if (chain != null) {
-            noteSwitch(person, before, chain, Anchor.read(a.events, person))
-            pinnedRoot[person] = chain.root.id
-            pinnedHead[person] = chain.head.id
-            lastHead[person] = chain.head.lb
-        }
+        val chain = followRead(person, a, r)
         val prev = known[person]
-        known[person] = Known(chain ?: prev?.chain?.takeIf { !complete }, if (complete) clock() else prev?.completeAt)
+        known[person] = Known(chain ?: prev?.chain?.takeIf { !complete || lastEvent[person] == Follow.Change.IGNORED_BACK }, if (complete) clock() else prev?.completeAt)
         if (chain != null) {
             remember(person, chain, a.events, r.events)
             retryPending()
         }
         return known[person]?.chain
+    }
+
+    private val lastEvent = HashMap<String, Follow.Change>()
+
+    /** The newest valid anchor of PERSON among EVENTS. */
+    private fun newestAnchor(events: List<Event>, person: String): Event? = events
+        .filter { it.kind == Anchor.KIND && it.pubkey == person && it.tags.singleValue("d") == Anchor.D && Anchor.root(listOf(it), person) != null }
+        .sortedWith(compareByDescending<Event> { it.createdAt }.thenBy { it.id }).firstOrNull()
+
+    /**
+     * One read of PERSON's chain through the pin (the reference's follow): the chain followed, the
+     * pin kept; a fresh start or a switch gives the amber notice, and on my own account this device
+     * re-checks its place.
+     */
+    private fun followRead(person: String, a: SealedEngine.Answer, r: SealedEngine.Answer): Chain? {
+        val res = Follow.follow(newestAnchor(a.events, person), r.events, pins[person])
+        lastEvent[person] = res.event
+        val before = known[person]?.chain
+        res.pin?.let { pins[person] = it }
+        val c = res.chain
+        if (res.event == Follow.Change.FRESH_START || res.event == Follow.Change.SWITCH) {
+            resetAt[person] = clock()
+            if (person == account) {
+                if (res.event == Follow.Change.FRESH_START) before?.letterboxes?.let { oldLetterboxes.addAll(it) }
+                if (c != null && device.pubkey !in c.devices) mine = Mine.WAITING
+            }
+            saveState()
+        }
+        if (c != null) lastHead[person] = c.head.lb
+        return c ?: before.takeIf { res.event == Follow.Change.IGNORED_BACK }
     }
 
     // ---- pins kept across restarts (sealed.md §3.4, durable) -------------------------------------
@@ -126,19 +144,15 @@ class SealedEngine(
         val o = buildJsonObject {
             put("v", JsonPrimitive(1))
             put("pins", buildJsonObject {
-                for (p in (pinnedRoot.keys + pinnedHead.keys).toSet()) put(p, buildJsonObject {
-                    pinnedRoot[p]?.let { put("root", JsonPrimitive(it)) }
-                    pinnedHead[p]?.let { put("head", JsonPrimitive(it)) }
+                for (p in pins.keys + anchors.keys) put(p, buildJsonObject {
+                    pins[p]?.let { put("pin", it.toJson()) }
                     anchors[p]?.let { put("anchor", it.toJson()) }
                     put("path", JsonArray(pathEvents[p].orEmpty().map { it.toJson() }))
-                    put("marks", JsonArray(seenAnchored[p].orEmpty().map { JsonPrimitive(it) }))
                     resetAt[p]?.let { put("reset", JsonPrimitive(it)) }
                     sharedAfter[p]?.let { put("shared", JsonPrimitive(it)) }
                 })
             })
             put("sealed", buildJsonObject { sealedSince.forEach { (c, t) -> put(c, JsonPrimitive(t)) } })
-            put("trusted", JsonArray(trusted.map { JsonPrimitive(it) }))
-            put("trustSeen", JsonArray(trustSeen.map { JsonPrimitive(it) }))
             put("oldLb", JsonArray(oldLetterboxes.map { JsonPrimitive(it) }))
         }
         ports.saveState(o.toString())
@@ -148,19 +162,15 @@ class SealedEngine(
         val o = parseJsonOrNull(ports.loadState() ?: return) as? JsonObject ?: return
         (o["pins"] as? JsonObject)?.forEach { (p, v) ->
             val pin = v as? JsonObject ?: return@forEach
-            (pin["root"] as? JsonPrimitive)?.content?.let { pinnedRoot[p] = it }
-            (pin["head"] as? JsonPrimitive)?.content?.let { pinnedHead[p] = it }
+            Pin.fromJson(pin["pin"] as? JsonObject)?.let { pins[p] = it }
             (pin["anchor"] as? JsonObject)?.let { Event.fromJson(it) }?.let { anchors[p] = it }
             pathEvents[p] = (pin["path"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { e -> Event.fromJson(e) } }.orEmpty()
-            seenAnchored[p] = (pin["marks"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content }.orEmpty().toMutableSet()
             (pin["reset"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { resetAt[p] = it }
             (pin["shared"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { sharedAfter[p] = it }
-            val chain = anchors[p]?.let { Chain.of(p, listOf(it), pathEvents[p].orEmpty(), pinned = pinnedHead[p]) }
+            val chain = anchors[p]?.let { Chain.of(p, listOf(it), pathEvents[p].orEmpty(), pinned = pins[p]?.head) }
             if (chain != null) { known[p] = Known(chain, null); lastHead[p] = chain.head.lb }
         }
         (o["sealed"] as? JsonObject)?.forEach { (c, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { sealedSince[c] = it } }
-        (o["trusted"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(trusted::add) }
-        (o["trustSeen"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(trustSeen::add) }
         (o["oldLb"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(oldLetterboxes::add) }
     }
 
@@ -177,73 +187,8 @@ class SealedEngine(
         saveState()
     }
 
-    /** Rosters this client saw named by the anchor, per person (the pin's "seen anchored" mark, 2a1b30e). */
-    private val seenAnchored = HashMap<String, MutableSet<String>>()
-
     /** When each person started fresh or their chain was switched: the amber notice (§3.4, §3.3). */
     val resetAt = HashMap<String, Long>()
-
-    /**
-     * My devices this client trusts for the no-prompt hand-over (the lead, after 2a1b30e): the
-     * devices of the head it held; a device joins when the person allows it here, or when a later
-     * roster on the followed chain that adds or keeps it is signed by a device already trusted.
-     * Kept across a switch as it was (the switched-to head's new devices go through Allow).
-     */
-    private val trusted = HashSet<String>()
-    /** The rosters of my chain already looked at for trust. */
-    private val trustSeen = HashSet<String>()
-
-    /**
-     * sealed.md a6ac9a0: a later roster signed by a trusted device vouches only for the devices it
-     * ADDS (a roster that merely keeps one vouches for nothing: our devices publish such rosters by
-     * themselves); a device a roster drops leaves trust, and comes back untrusted.
-     */
-    private fun extendTrust(chain: Chain) {
-        if (trusted.isEmpty() && trustSeen.isEmpty()) {
-            // the head this client first holds
-            trusted.addAll(chain.head.devices)
-            trustSeen.addAll(chain.rosters.map { it.id })
-            return
-        }
-        for (i in chain.rosters.indices) {
-            val r = chain.rosters[i]
-            if (!trustSeen.add(r.id)) continue
-            val prev = chain.rosters.getOrNull(i - 1)?.devices.orEmpty().toSet()
-            val added = r.devices.filter { it !in prev }
-            val dropped = prev.filter { it !in r.devices }
-            trusted.removeAll(dropped.toSet())
-            if (r.signer in trusted) trusted.addAll(added)
-        }
-    }
-
-    /**
-     * A SWITCH (sealed.md 2a1b30e): the anchor names another branch of the same root while the head
-     * this client held had been seen anchored. Followed, but treated like a fresh start: the amber
-     * notice; for my own account, this device re-checks its place, and the devices new to the head
-     * go through Allow (the server holds the key that signs anchors).
-     */
-    private fun noteSwitch(person: String, before: Chain?, after: Chain, anchor: Pair<String, String?>?) {
-        val marks = seenAnchored.getOrPut(person) { HashSet() }
-        val anchoredId = anchor?.let { it.second ?: it.first }
-        val freshStart = before != null && before.root.id != after.root.id
-        // a switch only when the head this client held had been seen anchored; my provisional tail moves silently
-        val switched = before != null && !freshStart && before.head.id in marks && after.rosters.none { it.id == before.head.id }
-        if (freshStart || switched) {
-            resetAt[person] = clock()
-            if (person == account) {
-                if (switched) {
-                    // trust stays what this client held: the other branch's rosters don't extend it
-                    trusted.retainAll(before!!.devices.toSet())
-                    trustSeen.addAll(after.rosters.map { it.id })
-                }
-                if (freshStart) { trusted.clear(); trustSeen.clear() }
-                if (device.pubkey !in after.devices) mine = Mine.WAITING
-            }
-            saveState()
-        }
-        if (person == account && !switched) extendTrust(after)
-        if (anchoredId != null && after.rosters.any { it.id == anchoredId }) marks.add(anchoredId)
-    }
 
     /** Letterboxes of earlier pinned chains of mine (a fresh start keeps them mine, §5.3). */
     private val oldLetterboxes = HashSet<String>()
@@ -284,14 +229,10 @@ class SealedEngine(
         val complete = qa.complete && qr.complete
         val a = SealedEngine.Answer((qa.events + listOfNotNull(anchors[account])).distinctBy { it.id }, qa.complete)
         val r = SealedEngine.Answer((qr.events + pathEvents[account].orEmpty()).distinctBy { it.id }, qr.complete)
-        val chain = Chain.of(account, a.events, r.events, pinned = pinnedHead[account])
+        val chain = followRead(account, a, r)
         if (chain != null) {
-            noteSwitch(account, known[account]?.chain, chain, Anchor.read(a.events, account))
             known[account] = Known(chain, if (complete) clock() else null)
             remember(account, chain, a.events, r.events)
-            pinnedRoot[account] = chain.root.id
-            pinnedHead[account] = chain.head.id
-            lastHead[account] = chain.head.lb
         } else if (complete) {
             known[account] = Known(null, clock())
         }
@@ -333,7 +274,8 @@ class SealedEngine(
                     val first = Chain.of(account, listOf(anchor), listOf(root))
                     known[account] = Known(first, clock())
                     if (first != null) remember(account, first, listOf(anchor), listOf(root))
-                    pinnedRoot[account] = root.id; pinnedHead[account] = root.id; lastHead[account] = lbPub
+                    first?.let { pins[account] = Follow.follow(anchor, listOf(root), null).pin ?: return@let }
+                    lastHead[account] = lbPub
                     saveState()
                 }
             }
@@ -424,14 +366,16 @@ class SealedEngine(
         val sessions = ports.sessions() ?: return OnRequest.Ignore
         val row = sessions.firstOrNull { it.clientPubkey == dev && it.chat } ?: return OnRequest.Ignore
         val head = chainOf(account)
-        if (head != null && dev in head.devices && dev in trusted) {
-            // a device of the head this device holds (its pinned head, never an older roster an anchor
-            // points back to) that lost its hand-over: the keys at once, no prompt (§5.5, f28220c) —
-            // only for a request newer than the roster that added it and than my last hand-over to it
+        if (head != null && dev in head.devices) {
+            // a device of the head this device holds that lost its hand-over: the keys at once, no
+            // prompt, only as the reference's answer_without_prompt allows (§5.5: on the anchored end,
+            // in the pinned head, trusted after a switch, a live chat session, a strictly newer request)
             if (keys.secretFor(head.head.lb) == null) return OnRequest.Ignore
-            val addedAt = addedLast(head, dev) ?: return OnRequest.Ignore
-            val lastGiven = ports.loadNote("handover:$dev")?.toLongOrNull() ?: 0L
-            if (req.createdAt <= addedAt || req.createdAt <= lastGiven) return OnRequest.Ignore
+            val live = sessions.filter { it.chat }.mapNotNull { it.clientPubkey }
+            val lastGiven = ports.loadNote("handover:$dev")?.toLongOrNull()
+            if (!Follow.answerWithoutPrompt(head, pins[account], dev, live, req.createdAt, addedLast(head, dev), lastGiven)) {
+                return if (dev in (pins[account]?.trusted ?: head.devices)) OnRequest.Ignore else OnRequest.Ask(dev, row.device?.ifEmpty { null } ?: row.applicationName)
+            }
             Sealing.keysFor(device, account, dev, keys, clock()).forEach { ports.publish(it) }
             ports.saveNote("handover:$dev", clock().toString())
             return OnRequest.Allowed
@@ -458,7 +402,7 @@ class SealedEngine(
             if (publishNext(cur, (cur.devices + newDevice).distinct(), cur.head.lb, cur.ready)) {
                 Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
                 ports.saveNote("handover:$newDevice", clock().toString())
-                trusted.add(newDevice); saveState() // allowed here: trusted
+                pins[account]?.let { pins[account] = Follow.allowLocally(it, newDevice) }; saveState() // allowed here: trusted
                 return@withLock
             }
             cur = refresh(account) ?: throw NotDone()
