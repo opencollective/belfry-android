@@ -821,7 +821,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun failedSettings(groupId: String): List<OutboxItem> = outboxItems.filter { o ->
         o.status == sh.belfry.core.outbox.OutboxStatus.FAILED && o.signed == null &&
             o.tags.any { it.size >= 2 && it[0] == "h" && it[1] == groupId } &&
-            (o.kind == 9002 || (o.kind == 30078 && o.tags.any { it.size >= 2 && it[0] == "d" && (it[1] == INBOX_D || it[1].startsWith(WEB_D)) }))
+            (o.kind == 9002 || (o.kind == 30078 && o.tags.any { it.size >= 2 && it[0] == "d" && (it[1] == INBOX_D || it[1].startsWith("$INBOX_D:") || it[1].startsWith(WEB_D)) }))
     }
 
     // ---- buttons on messages (SPEC 19.36, Buttons.kt) ------------------------------------------
@@ -845,10 +845,15 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     // ---- shared inbox --------------------------------------------------------------------------
 
-    /** Is the channel's shared inbox on: the latest `belfry:inbox` setting by one of its admins. */
+    /**
+     * Is the channel's shared inbox on: the latest setting by one of its admins, d =
+     * `belfry:inbox:<channel>`, or the old d `belfry:inbox` with this channel in its h (docs/mail.md
+     * @73a414f; read both, write only the new one).
+     */
     fun isInbox(g: Group?): Boolean {
         if (g == null) return false
-        val own = inGroupSorted(g.id).lastOrNull { it.kind == 30078 && it.t("d") == INBOX_D && it.pubkey in g.admins } ?: return false
+        val newD = inboxD(g.id)
+        val own = inGroupSorted(g.id).lastOrNull { it.kind == 30078 && it.t("h") == g.id && (it.t("d") == newD || it.t("d") == INBOX_D) && it.pubkey in g.admins } ?: return false
         val on = parseJsonOrNull(own.content.ifEmpty { "{}" }).obj()?.get("on") ?: return false
         return truthy(on)
     }
@@ -1410,7 +1415,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
         const val EDIT_KIND = 1010
         const val ACTIVE_DAYS = 30
+        /** The shared inbox's old d (read only, with h); write [inboxD]. */
         const val INBOX_D = "belfry:inbox"
+        fun inboxD(groupId: String) = "$INBOX_D:$groupId"
         const val WEB_D = "belfry:web:"
         const val ORDER_D = "belfry:channel-order"
         const val INBOX_NS = "belfry/inbox"

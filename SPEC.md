@@ -371,8 +371,11 @@ belfry.json `admins` (64-hex only) or in `access.admins`. Unknown channel → fa
 `can-admin.json`.
 
 Admins see **Settings**: name and description (9002 with `name`, `about`), and the **shared
-inbox** switch: kind 30078 `[["d","belfry:inbox"],["h",id]]` content `{"on":true|false}`; the
-setting counts only from the channel's own admins (latest wins). With it on, anyone can e-mail
+inbox** switch: kind 30078 `[["d","belfry:inbox:<id>"],["h",id]]` content `{"on":true|false}`; the
+setting counts only from the channel's own admins (latest wins). Until 2026-11-21 the `d` was
+`belfry:inbox` alone, so one admin's switch for a channel replaced theirs for every other (a 30078
+is keyed on kind + author + `d`; OSV's #hello lost its inbox): readers take the new `d`, or the old
+`d` whose `h` is the channel, latest wins; writers write only the new `d` (docs/mail.md @73a414f). With it on, anyone can e-mail
 `<id>@<domain>`; otherwise members can, and their mail shows as their message.
 Announcements: admins may tag a message `["t","announcement"]` ("📣 Announcement", e-mailed to
 followers); the tag counts only from the channel's admins.

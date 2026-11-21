@@ -192,8 +192,12 @@ object Actions {
         return Draft(Target.GROUPS, 30078, content, listOf(listOf("d", World.WEB_D + groupId), listOf("h", groupId), listOf("t", "belfry-web")))
     }
 
+    /**
+     * The shared inbox switch: d = `belfry:inbox:<channel>` + h (docs/mail.md @73a414f). Never the
+     * old d `belfry:inbox` alone: one admin's setting for a channel replaced theirs for every other.
+     */
     fun setInbox(groupId: String, on: Boolean): Draft =
-        Draft(Target.GROUPS, 30078, "{\"on\":$on}", listOf(listOf("d", World.INBOX_D), listOf("h", groupId)))
+        Draft(Target.GROUPS, 30078, "{\"on\":$on}", listOf(listOf("d", World.inboxD(groupId)), listOf("h", groupId)))
 
     /** Close or reopen an e-mail card. */
     fun setCardStatus(groupId: String, card: String, closed: Boolean): Draft =
