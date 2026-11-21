@@ -134,6 +134,8 @@ class DirectMessagesSealedTest {
         a.second.process()
         assertEquals(1 + 1, outbox(a.second).size, "decided: the old way for someone with no chain (and my copy)")
         assertNull(a.second.snapshot.value.thread(conv(carol)).single().heldSince)
+        // the connection drops: what the relay said no longer counts (knowledge needs a live connection)
+        a.first.connectionLost()
         relay.silent = true
         a.second.send(conv(carol), "Second thought")
         val rid = a.second.snapshot.value.thread(conv(carol)).last().rid
