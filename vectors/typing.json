@@ -1,0 +1,542 @@
+{
+ "about": "Typing indicators (collective-belfry docs/typing.md @7750419; SPEC 19.66 on iOS). Kind 20100, empty content: in a channel, group, event chat or proposal signed by the person with [\"h\", group] (and [\"e\", root] inside a thread; absent = the conversation itself) on the groups relay; in a direct message an unsigned 20100 rumor tagged p for every other participant, sealed (kind 13) and wrapped in a kind 21059 ephemeral gift wrap (created_at = the real time) to each other participant on the community relay, no copy to oneself. Optional [\"status\", \"stop\"]. Send on a keystroke that leaves the field non-empty when nothing went out for this place in the last 4 s; never for a restored draft, an edit, or only spaces; a stop when the field is emptied without sending and an event went out in the last 6 s; never through the outbox, never retried, dropped when the socket is down or the signer takes over 3 s; a refused one (rate limited) pauses that relay 30 s; off with the device setting \"Show others when I'm typing\". Show a person from an event until 6 s after their latest one, their stop, or a message of theirs (kind 9, 1111, 14 or 15) landing in that place; ignore events more than 10 s in the past or future, one's own (any device), and people muted, removed or not in the group. Order: who started first. Times in seconds; \"now\" is the reader's clock when it arrives.",
+ "generated_by": "tools/vectors/typing.py (belfry-ios)",
+ "constants": {
+  "send_gap": 4,
+  "show_for": 6,
+  "skew": 10,
+  "stop_window": 6,
+  "refused_pause": 30,
+  "signer_wait": 3,
+  "kind": 20100,
+  "wrap_kind": 21059
+ },
+ "names": {
+  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": "Lina Moreau",
+  "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc": "Ben Okafor",
+  "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd": "Chloé Martin"
+ },
+ "texts": [
+  {
+   "names": [],
+   "text": ""
+  },
+  {
+   "names": [
+    "Lina Moreau"
+   ],
+   "text": "Lina Moreau is typing…"
+  },
+  {
+   "names": [
+    "Lina Moreau",
+    "Ben Okafor"
+   ],
+   "text": "Lina Moreau and Ben Okafor are typing…"
+  },
+  {
+   "names": [
+    "Lina Moreau",
+    "Ben Okafor",
+    "Chloé Martin"
+   ],
+   "text": "Several people are typing…"
+  },
+  {
+   "names": [
+    "Somebody"
+   ],
+   "text": "Somebody is typing…"
+  }
+ ],
+ "accept": [
+  {
+   "created_at": 1000,
+   "now": 1000,
+   "accepted": true,
+   "note": "now"
+  },
+  {
+   "created_at": 990,
+   "now": 1000,
+   "accepted": true,
+   "note": "10 s old: kept"
+  },
+  {
+   "created_at": 989,
+   "now": 1000,
+   "accepted": false,
+   "note": "11 s old: stale"
+  },
+  {
+   "created_at": 1010,
+   "now": 1000,
+   "accepted": true,
+   "note": "10 s ahead: kept"
+  },
+  {
+   "created_at": 1011,
+   "now": 1000,
+   "accepted": false,
+   "note": "11 s ahead: from the future"
+  },
+  {
+   "created_at": 700,
+   "now": 1000,
+   "accepted": false,
+   "note": "a replay 5 minutes old"
+  }
+ ],
+ "board": [
+  {
+   "note": "one person: shown for 6 s after their latest event",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 100
+    },
+    {
+     "type": "query",
+     "now": 103
+    },
+    {
+     "type": "query",
+     "now": 105.9
+    },
+    {
+     "type": "query",
+     "now": 106
+    }
+   ],
+   "expect": [
+    [
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    [
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    []
+   ]
+  },
+  {
+   "note": "events every 4 s keep it on",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 100
+    },
+    {
+     "type": "event",
+     "now": 104,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 104
+    },
+    {
+     "type": "query",
+     "now": 109
+    },
+    {
+     "type": "query",
+     "now": 110
+    }
+   ],
+   "expect": [
+    [
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    []
+   ]
+  },
+  {
+   "note": "a stop ends it at once",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 100
+    },
+    {
+     "type": "event",
+     "now": 102,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 102,
+     "stop": true
+    },
+    {
+     "type": "query",
+     "now": 102.5
+    }
+   ],
+   "expect": [
+    []
+   ]
+  },
+  {
+   "note": "their message ends it",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 100
+    },
+    {
+     "type": "message",
+     "now": 101,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+     "type": "query",
+     "now": 101.5
+    }
+   ],
+   "expect": [
+    []
+   ]
+  },
+  {
+   "note": "someone else's message doesn't",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 100
+    },
+    {
+     "type": "message",
+     "now": 101,
+     "author": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    },
+    {
+     "type": "query",
+     "now": 101.5
+    }
+   ],
+   "expect": [
+    [
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+   ]
+  },
+  {
+   "note": "two, then three people: ordered by who started first",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "created_at": 100
+    },
+    {
+     "type": "event",
+     "now": 101,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 101
+    },
+    {
+     "type": "query",
+     "now": 102
+    },
+    {
+     "type": "event",
+     "now": 102,
+     "author": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+     "created_at": 102
+    },
+    {
+     "type": "query",
+     "now": 103
+    },
+    {
+     "type": "query",
+     "now": 106.5
+    }
+   ],
+   "expect": [
+    [
+     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ],
+    [
+     "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    ],
+    [
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    ]
+   ]
+  },
+  {
+   "note": "stale and future events are ignored; my own too",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 80
+    },
+    {
+     "type": "event",
+     "now": 100,
+     "author": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "created_at": 115
+    },
+    {
+     "type": "event",
+     "now": 100,
+     "author": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "created_at": 100
+    },
+    {
+     "type": "query",
+     "now": 100.5
+    }
+   ],
+   "expect": [
+    []
+   ]
+  },
+  {
+   "note": "a replayed event 5 minutes old shows nothing",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 400,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 100
+    },
+    {
+     "type": "query",
+     "now": 400.5
+    }
+   ],
+   "expect": [
+    []
+   ]
+  },
+  {
+   "note": "typing again after it ended starts a new turn",
+   "me": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "steps": [
+    {
+     "type": "event",
+     "now": 100,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 100
+    },
+    {
+     "type": "event",
+     "now": 101,
+     "author": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+     "created_at": 101
+    },
+    {
+     "type": "query",
+     "now": 107.5
+    },
+    {
+     "type": "event",
+     "now": 108,
+     "author": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "created_at": 108
+    },
+    {
+     "type": "query",
+     "now": 108.5
+    }
+   ],
+   "expect": [
+    [],
+    [
+     "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    ]
+   ]
+  }
+ ],
+ "sender": [
+  {
+   "note": "one event per 4 s while typing",
+   "steps": [
+    {
+     "type": "key",
+     "now": 0,
+     "text": "h"
+    },
+    {
+     "type": "key",
+     "now": 1,
+     "text": "hh"
+    },
+    {
+     "type": "key",
+     "now": 2,
+     "text": "hhh"
+    },
+    {
+     "type": "key",
+     "now": 3.9,
+     "text": "hhhh"
+    },
+    {
+     "type": "key",
+     "now": 4,
+     "text": "hhhhh"
+    },
+    {
+     "type": "key",
+     "now": 5,
+     "text": "hhhhhh"
+    },
+    {
+     "type": "key",
+     "now": 7.9,
+     "text": "hhhhhhh"
+    },
+    {
+     "type": "key",
+     "now": 8.5,
+     "text": "hhhhhhhh"
+    }
+   ],
+   "expect": [
+    [
+     "typing",
+     0
+    ],
+    [
+     "typing",
+     4
+    ],
+    [
+     "typing",
+     8.5
+    ]
+   ]
+  },
+  {
+   "note": "only spaces, a restored draft, an edit: nothing",
+   "steps": [
+    {
+     "type": "key",
+     "now": 0,
+     "text": "   "
+    },
+    {
+     "type": "key",
+     "now": 1,
+     "text": "draft",
+     "restored": true
+    },
+    {
+     "type": "key",
+     "now": 2,
+     "text": "fixed typo",
+     "editing": true
+    }
+   ],
+   "expect": []
+  },
+  {
+   "note": "cleared within 6 s of the last event: a stop",
+   "steps": [
+    {
+     "type": "key",
+     "now": 0,
+     "text": "h"
+    },
+    {
+     "type": "key",
+     "now": 2,
+     "text": "he"
+    },
+    {
+     "type": "clear",
+     "now": 5
+    }
+   ],
+   "expect": [
+    [
+     "typing",
+     0
+    ],
+    [
+     "stop",
+     5
+    ]
+   ]
+  },
+  {
+   "note": "cleared later: no stop",
+   "steps": [
+    {
+     "type": "key",
+     "now": 0,
+     "text": "h"
+    },
+    {
+     "type": "clear",
+     "now": 6
+    }
+   ],
+   "expect": [
+    [
+     "typing",
+     0
+    ]
+   ]
+  },
+  {
+   "note": "sending needs no stop; the next keystroke sends at once",
+   "steps": [
+    {
+     "type": "key",
+     "now": 0,
+     "text": "hi"
+    },
+    {
+     "type": "send",
+     "now": 1
+    },
+    {
+     "type": "key",
+     "now": 2,
+     "text": "a"
+    },
+    {
+     "type": "clear",
+     "now": 3
+    }
+   ],
+   "expect": [
+    [
+     "typing",
+     0
+    ],
+    [
+     "typing",
+     2
+    ],
+    [
+     "stop",
+     3
+    ]
+   ]
+  }
+ ]
+}

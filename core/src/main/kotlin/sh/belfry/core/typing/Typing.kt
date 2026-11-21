@@ -47,7 +47,8 @@ object Typing {
 
     const val STOP = "stop"
 
-    fun fresh(createdAt: Long, now: Long): Boolean = abs(now - createdAt) <= SKEW_S
+    /** [now] in seconds (fractions allowed: the vectors and the board work below the second). */
+    fun fresh(createdAt: Long, now: Double): Boolean = abs(now - createdAt) <= SKEW_S
 
     fun isStop(tags: List<Tag>): Boolean = tags.any { it.size >= 2 && it[0] == "status" && it[1] == STOP }
 
@@ -105,17 +106,18 @@ object Typing {
 }
 
 /**
- * When to send (docs/typing.md §2). Pure: the caller says what the field holds and when; the
- * answer is what to send now, if anything.
+ * When to send (docs/typing.md §2). Pure: the caller says what the field holds and when (seconds,
+ * fractions allowed); the answer is what to send now, if anything. vectors/typing.json "sender".
  */
 class TypingSender {
-    private val lastSent = HashMap<TypingPlace, Long>()
+    private val lastSent = HashMap<TypingPlace, Double>()
 
     /**
      * The field of [place] changed to [text] by a keystroke at [now]. [restored]: a draft put back on
      * open, or an edit of an older message (never sent for). Returns true when a typing event goes now.
      */
-    fun onText(place: TypingPlace, text: String, now: Long, restored: Boolean = false, enabled: Boolean = true): Boolean {
+    @Synchronized
+    fun onText(place: TypingPlace, text: String, now: Double, restored: Boolean = false, enabled: Boolean = true): Boolean {
         if (!enabled || restored) return false
         if (text.isBlank()) return false
         val last = lastSent[place]
@@ -125,34 +127,41 @@ class TypingSender {
     }
 
     /** The field was emptied without sending: true when a stop goes (a typing event went out in the last 6 s). */
-    fun onCleared(place: TypingPlace, now: Long, enabled: Boolean = true): Boolean {
+    @Synchronized
+    fun onCleared(place: TypingPlace, now: Double, enabled: Boolean = true): Boolean {
         val last = lastSent.remove(place) ?: return false
         return enabled && now - last < Typing.SHOW_S
     }
 
     /** The message was sent: no stop needed (the message clears it), and the next keystroke may send at once. */
+    @Synchronized
     fun onSent(place: TypingPlace) { lastSent.remove(place) }
 }
 
 /**
- * Who types where (docs/typing.md §3): from a typing event until 6 s after it, their stop, or a
- * message of theirs in that place (the caller says when their latest one was).
+ * Who types where (docs/typing.md §3; vectors/typing.json "board"): from a typing event until 6 s
+ * after their latest one, their stop, or a message of theirs in that place. Ordered by who started
+ * first (a turn starts with the first event after the last one ran out). [me]'s events (any of my
+ * devices) are ignored.
  */
-class TypingBoard {
-    private class Seen(val at: Long, val heard: Long)
+class TypingBoard(private val me: String = "") {
+    private class Seen(val at: Long, val heard: Double, val started: Double)
     private val byPlace = HashMap<TypingPlace, HashMap<String, Seen>>()
+
+    private fun live(s: Seen, now: Double) = now - s.heard < Typing.SHOW_S
 
     /**
      * A typing event from [pubkey] in [place], made at [createdAt], heard at [now]. False when it is
-     * ignored (too old or too far ahead).
+     * ignored (mine, too old, too far ahead, or older than one already heard).
      */
     @Synchronized
-    fun apply(place: TypingPlace, pubkey: String, createdAt: Long, stop: Boolean, now: Long): Boolean {
-        if (!Typing.fresh(createdAt, now)) return false
+    fun apply(place: TypingPlace, pubkey: String, createdAt: Long, stop: Boolean, now: Double): Boolean {
+        if (pubkey == me || !Typing.fresh(createdAt, now)) return false
         val m = byPlace.getOrPut(place) { HashMap() }
         val old = m[pubkey]
         if (old != null && old.at > createdAt) return false // an older one arriving late
-        if (stop) m.remove(pubkey) else m[pubkey] = Seen(createdAt, now)
+        if (stop) m.remove(pubkey)
+        else m[pubkey] = Seen(createdAt, now, if (old != null && live(old, now)) old.started else now)
         if (m.isEmpty()) byPlace.remove(place)
         return true
     }
@@ -163,39 +172,33 @@ class TypingBoard {
      * typing event ends it.
      */
     @Synchronized
-    fun typers(place: TypingPlace, now: Long, lastMessageAt: (String) -> Long = { 0L }): List<String> {
-        val m = byPlace[place] ?: return emptyList()
-        return m.entries
-            .filter { (pk, s) -> now - s.heard < Typing.SHOW_S && lastMessageAt(pk) < s.at }
-            .sortedBy { it.value.at }
-            .map { it.key }
-    }
+    fun typers(place: TypingPlace, now: Double, lastMessageAt: (String) -> Long = { 0L }): List<String> = snapshot(now).who(place, lastMessageAt)
 
     /** Who shows where at [now] (before the message rule, which [TypingState.who] applies). */
     @Synchronized
-    fun snapshot(now: Long): TypingState = TypingState(
-        byPlace.mapValues { (_, m) -> m.entries.filter { now - it.value.heard < Typing.SHOW_S }.sortedBy { it.value.at }.map { TypingSeen(it.key, it.value.at) } }
+    fun snapshot(now: Double): TypingState = TypingState(
+        byPlace.mapValues { (_, m) -> m.entries.filter { live(it.value, now) }.sortedBy { it.value.started }.map { TypingSeen(it.key, it.value.at) } }
             .filterValues { it.isNotEmpty() },
     )
 
     /** Every place with someone typing at [now] (for the conversations list). */
     @Synchronized
-    fun places(now: Long): Set<TypingPlace> = byPlace.filterValues { m -> m.values.any { now - it.heard < Typing.SHOW_S } }.keys.toSet()
+    fun places(now: Double): Set<TypingPlace> = snapshot(now).places.keys
 
     /** Forgets what has run out. */
     @Synchronized
-    fun prune(now: Long) {
+    fun prune(now: Double) {
         val it = byPlace.values.iterator()
         while (it.hasNext()) {
             val m = it.next()
-            m.values.removeAll { now - it.heard >= Typing.SHOW_S }
+            m.values.removeAll { !live(it, now) }
             if (m.isEmpty()) it.remove()
         }
     }
 
-    /** When the next person stops showing (to redraw then), or null when nobody shows. */
+    /** When the next person stops showing (seconds; to redraw then), or null when nobody shows. */
     @Synchronized
-    fun nextChange(now: Long): Long? = byPlace.values.flatMap { it.values }.map { it.heard + Typing.SHOW_S }.filter { it > now }.minOrNull()
+    fun nextChange(now: Double): Double? = byPlace.values.flatMap { it.values }.map { it.heard + Typing.SHOW_S }.filter { it > now }.minOrNull()
 }
 
 /** Someone typing, with the created_at of their latest typing event. */

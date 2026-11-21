@@ -37,13 +37,16 @@ internal class SessionTyping(
     private val scope: CoroutineScope,
     private val me: String,
     private val signer: Signer,
+    /** Seconds (event times, `since`). */
     private val clock: () -> Long,
+    /** Seconds with fractions (who shows until when). */
+    private val nowS: () -> Double,
     private val relay: (Target) -> Relay?,
     private val world: () -> World,
     /** False in guest mode (reading guests have no name), the demo, or after stop. */
     private val canSend: () -> Boolean,
 ) {
-    private val board = TypingBoard()
+    private val board = TypingBoard(me)
     private val sender = TypingSender()
     private val _state = MutableStateFlow(TypingState())
     val state: StateFlow<TypingState> = _state
@@ -102,18 +105,18 @@ internal class SessionTyping(
         val g = w.group(place.group!!) ?: return // a group I don't know
         if (e.pubkey in w.readingOnly) return
         if (g.members.isNotEmpty() && g.closed && e.pubkey !in g.members) return
-        if (board.apply(place, e.pubkey, e.createdAt, Typing.isStop(e.tags), clock())) changed()
+        if (board.apply(place, e.pubkey, e.createdAt, Typing.isStop(e.tags), nowS())) changed()
     }
 
     private fun onWrap(e: Event) {
-        if (!e.hasTag("p", me) || !Typing.fresh(e.createdAt, clock())) return // replays cost no signer call
+        if (!e.hasTag("p", me) || !Typing.fresh(e.createdAt, nowS())) return // replays cost no signer call
         scope.launch(Dispatchers.Default) {
             try {
                 val opened = withTimeout(Typing.SIGNER_MS) { GiftWrap.unwrap(e, signer) } ?: return@launch
                 val r = opened.rumor
                 if (r.pubkey == me) return@launch
                 val place = Typing.placeOfRumor(r, me) ?: return@launch
-                if (board.apply(place, r.pubkey, r.createdAt, Typing.isStop(r.tags), clock())) changed()
+                if (board.apply(place, r.pubkey, r.createdAt, Typing.isStop(r.tags), nowS())) changed()
             } catch (x: kotlinx.coroutines.CancellationException) {
                 if (x is kotlinx.coroutines.TimeoutCancellationException) return@launch
                 throw x
@@ -122,14 +125,14 @@ internal class SessionTyping(
     }
 
     private fun changed() {
-        val now = clock()
+        val now = nowS()
         board.prune(now)
         _state.value = board.snapshot(now)
         val next = board.nextChange(now) ?: return
         synchronized(this) {
             expiry?.cancel()
             expiry = scope.launch(Dispatchers.Default) {
-                delay(((next - clock()).coerceAtLeast(0) * 1000) + 50)
+                delay(((next - nowS()).coerceAtLeast(0.0) * 1000).toLong() + 50)
                 changed()
             }
         }
@@ -137,7 +140,7 @@ internal class SessionTyping(
 
     /** The demo and the screenshot tests: [pubkey] types in [place] now. */
     fun show(place: TypingPlace, pubkey: String) {
-        if (board.apply(place, pubkey, clock(), stop = false, now = clock())) changed()
+        if (board.apply(place, pubkey, clock(), stop = false, now = nowS())) changed()
     }
 
     // ---- writing ----
@@ -145,12 +148,12 @@ internal class SessionTyping(
     /** A keystroke left [text] in the field of [place]; [restored] = a draft put back or an edit (never sent for). */
     fun typed(place: TypingPlace, text: String, restored: Boolean = false) {
         if (!allowed(place)) return
-        if (sender.onText(place, text, clock(), restored, enabled)) send(place, stop = false)
+        if (sender.onText(place, text, nowS(), restored, enabled)) send(place, stop = false)
     }
 
     /** The field was emptied without sending. */
     fun cleared(place: TypingPlace) {
-        if (sender.onCleared(place, clock(), enabled) && allowed(place)) send(place, stop = true)
+        if (sender.onCleared(place, nowS(), enabled) && allowed(place)) send(place, stop = true)
     }
 
     /** The message went: no stop needed. */

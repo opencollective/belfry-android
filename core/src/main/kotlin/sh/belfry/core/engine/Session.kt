@@ -351,7 +351,7 @@ class Session(
     @Volatile private var started = false
     @Volatile private var stopped = false
 
-    private val typingEngine = SessionTyping(scope, signer.pubkey, signer, clock, { relay(it) }, { _world.value }, { !reading && !localOnly && !stopped })
+    private val typingEngine = SessionTyping(scope, signer.pubkey, signer, clock, { if (localOnly) clock().toDouble() else System.currentTimeMillis() / 1000.0 }, { relay(it) }, { _world.value }, { !reading && !localOnly && !stopped })
 
     /** Who is typing where (docs/typing.md; SPEC 19.51): for the line above the composer and the DM list. */
     val typing: StateFlow<sh.belfry.core.typing.TypingState> get() = typingEngine.state
