@@ -168,6 +168,7 @@ private fun SignedIn(state: AppState, session: Session) {
                 AppNav(controller, shell)
                 GuestJoinHost(onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) })
                 sh.belfry.app.ui.people.SealAskHost()
+                sh.belfry.app.ui.people.FreshElsewhereHost()
                 OpenAfterSignIn(state)
                 JoinOffer(state)
                 ChooseAccount(state)

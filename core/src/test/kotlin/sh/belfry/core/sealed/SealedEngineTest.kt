@@ -839,6 +839,13 @@ class SealedEngineTest {
         assertEquals(fresh.root.id, seen.root.id)
         assertEquals(SealedEngine.Mine.WAITING, phone.mine)
         assertTrue(phone.resetAt.containsKey(alice.pubkey))
+        // an old device, still signed in, is told where and when (never quietly; the lead, 0.7.7), across a restart
+        assertEquals(aliceLaptop.pubkey, phone.freshElsewhere?.device)
+        assertEquals(fresh.root.createdAt, phone.freshElsewhere?.at)
+        assertNull(laptop.freshElsewhere)
+        assertEquals(aliceLaptop.pubkey, engine(alice, alicePhone).freshElsewhere?.device, "kept across a restart")
+        phone.freshElsewhereSeen()
+        assertNull(phone.freshElsewhere)
         // §5.4: the laptop allows the old phone; the phone hands its old key chain back: the old letterbox opens on the laptop
         assertNull(laptop.keys.secretFor(oldHead.head.lb))
         now += 5

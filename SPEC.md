@@ -2171,10 +2171,9 @@ third-party Nostr app on the app's relays; the phone answers nothing and holds n
 
 ### 19.48 End-to-end encrypted conversations: the screens (canvas "Messages · encryption", approved 2026-11-20, v80–v82)
 
-Screens only, filled by the demo (`core/engine/Encryption.kt`, words in `core/model/Sealed.kt`
-`SealedText`). **No wire, key or crypto yet**: that waits for the lead's contract
-(collective-belfry docs/sealed.md + vectors), and nothing of it ships before the lead reviewed it.
-Outside the demo nothing is sealed, so no lock shows anywhere and every action refuses.
+The screens, on the sealed engine since v0.7.6 (contract collective-belfry docs/sealed.md + vectors;
+`core/sealed/`, `core/engine/Encryption.kt`, words in `core/model/Sealed.kt` `SealedText`); the demo
+fills them on the device. A guest, or a session without a device key, has nothing sealed.
 
 - A sealed conversation (direct, group, notes to self, an e-mail thread) has a small lock after its
   title; it opens the Encryption screen. Channels never have a lock. A conversation that isn't
@@ -2280,3 +2279,24 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   the secondary colour, one line, drawn over the feed's bottom so the feed never moves; a polite
   live region. A one-to-one DM's row in the list says "typing…" in place of its preview.
 - Setting: Me → Privacy → "Show others when I'm typing", per device, on by default.
+
+### 19.52 Sealed conversations: files, typing, only device, Start fresh (2026-11-21; Xavier via the lead; canvas v84, v117)
+
+- A file (kind 15) in a sealed conversation is sealed by the device like a kind 14; its plan is
+  decided before the upload, waiting retries in the outbox, never the old way. Not in Share history
+  (§8 shares 14 / 7 / 5).
+- No typing events in a sealed conversation: none sent, none shown.
+- Only device (canvas v117 messages/encryption-only-device): Sign out on my only device for sealed
+  conversations asks first, as a dialog: Link a device / Sign out anyway / Cancel. Android has no
+  Forget, and This device is never removed (Sign out), so sign-out is the one place.
+- Start fresh (canvas v84 messages/encryption-start-fresh + -confirm; sealed.md §5.4): only on a
+  device out of my existing chain, my chain read complete on this connection. A new letterbox, a
+  root n = 1 (this device), the anchor replaced; the old chain's letterboxes stay mine. A device of
+  the old chain, allowed in again, hands its old key chain to the device that let it in, once.
+- An old device after a fresh start elsewhere (the lead, 0.7.7): a dialog over any screen, kept
+  across restarts until answered: "Sealed conversations were started fresh on <device> at <time>.
+  If this wasn't you, sign out every other device." Sign out every other device (every session but
+  this one, /me/sessions/revoke) then asks to be allowed again; It was me closes it. Texts until the
+  canvas board arrives are the lead's.
+- **Known limit:** a second fresh start forgets the first chain (only the previous pinned chain is
+  remembered), so devices of the first chain can no longer hand their keys back.

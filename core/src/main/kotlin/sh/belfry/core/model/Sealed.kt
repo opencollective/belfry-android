@@ -77,6 +77,9 @@ data class SharedBlock(val by: String, val from: Long, val to: Long) {
 /** A new device of mine asking for access, shown on my other devices. */
 data class AccessAsk(val id: String, val device: String, val kind: DeviceKind, val at: Long)
 
+/** Where and when my sealed conversations were started fresh (DEVICE: its signed-in name, null if unknown). */
+data class FreshElsewhere(val device: String?, val at: Long)
+
 /** The whole picture on this device. Empty for a guest or without a device key (nothing sealed). */
 data class SealState(
     val myDevices: List<MyDevice> = emptyList(),
@@ -90,6 +93,8 @@ data class SealState(
     val linked: String? = null,
     /** This device is in my head without its secret (a lost hand-over, f28220c): waiting for another of my devices. */
     val waitingKeys: Boolean = false,
+    /** My sealed conversations were started fresh on another device, leaving this one out (the lead, 0.7.7). */
+    val freshElsewhere: FreshElsewhere? = null,
 ) {
     fun seal(conv: String): ConvSeal? = sealed[conv]
     val thisDevice: MyDevice? get() = myDevices.firstOrNull { it.thisDevice }
@@ -248,5 +253,15 @@ object SealedText {
     const val START_FRESH_TEXT = "Earlier sealed messages stay locked here unless someone shares them with you or an old device comes back."
     const val START_FRESH_SEEN = "The people you write with will see that you started on a new device."
     const val START_FRESH = "Start fresh"
+    /** An old device of mine after a fresh start elsewhere (the lead's text, 0.7.7; canvas board asked for). */
+    const val FRESH_ELSEWHERE_TITLE = "Sealed conversations were started fresh"
+    fun freshElsewhereText(device: String?, at: Long, zone: ZoneId): String {
+        val t = Instant.ofEpochSecond(at).atZone(zone)
+        val time = TIME.format(t) + " on " + DAY_MONTH.format(t)
+        return "Sealed conversations were started fresh on ${device ?: "another device"} at $time. If this wasn't you, sign out every other device."
+    }
+    const val FRESH_ELSEWHERE_SIGN_OUT = "Sign out every other device"
+    const val FRESH_ELSEWHERE_ME = "It was me"
+    const val FRESH_ELSEWHERE_DONE = "Every other device is signed out. This device now asks to be allowed again."
     const val FRESH_ALREADY_ALLOWED = "This device was just allowed: its key is on the way. No need to start fresh."
 }

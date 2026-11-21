@@ -140,7 +140,14 @@ class SealedEngine(
                     previousChain = before
                     prevAnchor = anchors[person]; prevPath = pathEvents[person].orEmpty()
                 }
-                if (c != null && device.pubkey !in c.devices) mine = Mine.WAITING
+                if (c != null && device.pubkey !in c.devices) {
+                    // an OLD device of mine, still signed in, left out by a fresh start elsewhere: never quietly
+                    // (it is also what someone who got into the account would do; the lead, 0.7.7)
+                    if (res.event == Follow.Change.FRESH_START && before?.devices?.contains(device.pubkey) == true) {
+                        freshElsewhere = FreshElsewhere(c.root.devices.firstOrNull() ?: "", c.root.createdAt)
+                    }
+                    mine = Mine.WAITING
+                }
             }
             saveState()
         }
@@ -180,6 +187,7 @@ class SealedEngine(
             })
             put("sealed", buildJsonObject { sealedSince.forEach { (c, t) -> put(c, JsonPrimitive(t)) } })
             put("oldLb", JsonArray(oldLetterboxes.map { JsonPrimitive(it) }))
+            freshElsewhere?.let { f -> put("freshElsewhere", buildJsonObject { put("device", JsonPrimitive(f.device)); put("at", JsonPrimitive(f.at)) }) }
             put("firstSeen", buildJsonObject { firstSeenStored.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
             // my previously pinned chain after a fresh start (its devices may still hand over keys)
             previousChain?.let { pc -> put("previous", buildJsonObject {
@@ -205,6 +213,10 @@ class SealedEngine(
         }
         (o["sealed"] as? JsonObject)?.forEach { (c, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { sealedSince[c] = it } }
         (o["oldLb"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(oldLetterboxes::add) }
+        (o["freshElsewhere"] as? JsonObject)?.let { f ->
+            val d = (f["device"] as? JsonPrimitive)?.content; val at = (f["at"] as? JsonPrimitive)?.content?.toLongOrNull()
+            if (d != null && at != null) freshElsewhere = FreshElsewhere(d, at)
+        }
         (o["firstSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { firstSeenStored[k] = it } }
         (o["previous"] as? JsonObject)?.let { pv ->
             val anchor = (pv["anchor"] as? JsonObject)?.let { Event.fromJson(it) }
@@ -234,6 +246,16 @@ class SealedEngine(
 
     /** Letterboxes of earlier pinned chains of mine (a fresh start keeps them mine, §5.3). */
     private val oldLetterboxes: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** My chain was started fresh on DEVICE at AT (its root's time), leaving this old device out. */
+    data class FreshElsewhere(val device: String, val at: Long)
+
+    /** Shown on this old device until the person answers (sign out the others, or it was me); kept across restarts. */
+    @Volatile var freshElsewhere: FreshElsewhere? = null
+        private set
+
+    /** The person answered the notice. */
+    fun freshElsewhereSeen() { freshElsewhere = null; saveState() }
 
     /**
      * My chain's letterboxes (valid rosters of the current chain and the previously pinned one),

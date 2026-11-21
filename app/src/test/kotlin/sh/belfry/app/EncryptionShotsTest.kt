@@ -352,4 +352,24 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-unlock-in-head") { UnlockStepsScreen() }
         compose.onNodeWithTag("seal-no-other").assertDoesNotExist()
     }
+
+    /** An old device after a fresh start elsewhere: where and when, Sign out every other device / It was me. */
+    @Test fun freshElsewhere() {
+        session.encryption.demoFreshElsewhere()
+        demoScreenShot("encryption-fresh-elsewhere") { MessagesScreen(); sh.belfry.app.ui.people.FreshElsewhereHost() }
+        compose.onNodeWithTag("seal-fresh-elsewhere").assertExists()
+        compose.onNodeWithText("Sealed conversations were started fresh on Firefox on Linux at", substring = true).assertExists()
+        compose.onNodeWithText("If this wasn't you, sign out every other device.", substring = true).assertExists()
+        compose.onNodeWithTag("seal-fresh-elsewhere-me").assertExists()
+    }
+
+    @Test fun freshElsewhereSignOut() {
+        session.encryption.demoFreshElsewhere()
+        demoScreenShot("encryption-fresh-elsewhere-done", act = {
+            compose.onNodeWithTag("seal-fresh-elsewhere-signout").performClick()
+            compose.waitUntil(5_000) { session.encryption.state.value.freshElsewhere == null }
+            compose.waitForIdle()
+        }) { MessagesScreen(); sh.belfry.app.ui.people.FreshElsewhereHost() }
+        compose.onNodeWithTag("seal-fresh-elsewhere-done").assertExists()
+    }
 }

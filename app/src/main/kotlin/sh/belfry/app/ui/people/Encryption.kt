@@ -622,3 +622,58 @@ fun OnlyDeviceDialog(how: SealedText.Leaving, onLink: () -> Unit, onAnyway: susp
         containerColor = c.bg,
     )
 }
+
+/**
+ * An old device of mine, still signed in, after my sealed conversations were started fresh on another
+ * device (the lead, 0.7.7): never quiet, since it is also what someone who got into the account would
+ * do. Over any screen, like the Allow prompt, until answered.
+ */
+@Composable
+fun FreshElsewhereHost() {
+    val session = LocalSession.current
+    val st by session.encryption.state.collectAsState()
+    val f = st.freshElsewhere
+    var done by remember { mutableStateOf(false) }
+    if (done) {
+        AlertDialog(
+            onDismissRequest = { done = false },
+            text = { Text(SealedText.FRESH_ELSEWHERE_DONE, fontSize = 15.sp, lineHeight = 21.sp, color = Belfry.colors.text, modifier = Modifier.testTag("seal-fresh-elsewhere-done")) },
+            confirmButton = { BusyButton("OK", onClick = { done = false }, small = true) },
+            containerColor = Belfry.colors.bg,
+        )
+        return
+    }
+    if (f == null) return
+    FreshElsewhereDialog(f, LocalWorld.current.ctx.zone, onSignOut = { session.encryption.signOutOthers(); done = true }, onMine = { session.encryption.freshElsewhereMine() })
+}
+
+@Composable
+fun FreshElsewhereDialog(f: sh.belfry.core.model.FreshElsewhere, zone: java.time.ZoneId, onSignOut: suspend () -> Unit, onMine: () -> Unit) {
+    val c = Belfry.colors
+    val busy = rememberBusy()
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = {}, // answered, not dismissed
+        title = { Text(SealedText.FRESH_ELSEWHERE_TITLE, modifier = Modifier.testTag("seal-fresh-elsewhere")) },
+        text = {
+            Column {
+                Text(SealedText.freshElsewhereText(f.device, f.at, zone), fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
+                if (error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(error!!, fontSize = 14.sp, color = c.danger, modifier = Modifier.testTag("seal-fresh-elsewhere-error"))
+                }
+            }
+        },
+        confirmButton = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BusyButton(
+                    SealedText.FRESH_ELSEWHERE_SIGN_OUT,
+                    onClick = { error = null; try { onSignOut() } catch (e: sh.belfry.core.engine.ActionException) { error = e.message } },
+                    modifier = Modifier.fillMaxWidth().testTag("seal-fresh-elsewhere-signout"), kind = ButtonKind.Danger, busy = busy,
+                )
+                BusyButton(SealedText.FRESH_ELSEWHERE_ME, onClick = { onMine() }, modifier = Modifier.fillMaxWidth().testTag("seal-fresh-elsewhere-me"), kind = ButtonKind.Ghost, enabled = !busy.busy)
+            }
+        },
+        containerColor = c.bg,
+    )
+}

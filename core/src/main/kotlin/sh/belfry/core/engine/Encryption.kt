@@ -111,7 +111,12 @@ class EncryptionService internal constructor(private val s: Session) {
         // usual, no banner, the composer waits; only "not in my head" locks (294c94f (1))
         val noKey = e.inHeadWithoutKey
         val waiting = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING && !noKey
+        val fe = e.freshElsewhere?.let { f ->
+            val name = try { s.sessions().firstOrNull { it.clientPubkey == f.device }?.device } catch (x: Exception) { null }
+            sh.belfry.core.model.FreshElsewhere(name ?: names[f.device]?.name, f.at)
+        }
         _state.value = SealState(
+            freshElsewhere = fe,
             myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
             locked = if (waiting) sealed.keys else emptySet(),
             asks = asks, linked = linked, waitingKeys = e.inHeadWithoutKey,
@@ -205,6 +210,44 @@ class EncryptionService internal constructor(private val s: Session) {
         val st = _state.value
         val me = st.thisDevice ?: MyDevice("d-new", s.deviceName, DeviceKind.PHONE, s.now(), from = null, thisDevice = true, active = s.now())
         _state.value = st.copy(earlierLocked = false, locked = emptySet(), myDevices = listOf(me.copy(added = s.now(), from = null)))
+    }
+
+    /**
+     * The old-device notice's button: every session of mine but this one signed out (/me/sessions/revoke),
+     * then this device asks to be allowed again. Returns how many were signed out. Throws with a sentence.
+     */
+    suspend fun signOutOthers(): Int {
+        s.checkWrite()
+        if (demo) { delay(400); _state.value = _state.value.copy(freshElsewhere = null); return 2 }
+        val rows = try { s.sessions() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) {
+            throw ActionException("failed", "The list of devices could not be read. Try again.")
+        }
+        var n = 0
+        var failed = 0
+        for (r in rows) {
+            if (s.isThisSession(r)) continue
+            try { s.revokeSession(r.bunkerPubkey); n++ } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { failed++ }
+        }
+        if (failed > 0) throw ActionException("failed", "$failed ${if (failed == 1) "device was" else "devices were"} not signed out. Try again.")
+        val e = s.sealed
+        e?.freshElsewhereSeen()
+        try { e?.askAgain(s.linkSecret, force = true) } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
+        refresh()
+        return n
+    }
+
+    /** "It was me": the notice goes; this device asks to be allowed as before. */
+    fun freshElsewhereMine() {
+        if (demo) { _state.value = _state.value.copy(freshElsewhere = null); return }
+        s.sealed?.freshElsewhereSeen()
+        _state.value = _state.value.copy(freshElsewhere = null)
+    }
+
+    /** Demo and tests: my sealed conversations were started fresh on another device. */
+    fun demoFreshElsewhere() {
+        if (!demo) return
+        demoAsNewDevice()
+        _state.value = _state.value.copy(freshElsewhere = sh.belfry.core.model.FreshElsewhere("Firefox on Linux", s.now() - 600))
     }
 
     /** A one-time secret for the Link-a-phone QR (only in the QR, never stored; §5.2). Null: no sealed side. */
