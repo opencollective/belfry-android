@@ -83,7 +83,8 @@ private fun rememberPicture(d: Dm, side: Int): Pair<Boolean, ImageBitmap?> {
     val got = rememberFile(d)
     // null: still decoding; Failed: not a picture this phone can show
     val bmp by produceState<Any?>(null, got) {
-        val b = (got as? Got.Bytes)?.b ?: return@produceState
+        val b = (got as? Got.Bytes)?.b
+        if (b == null) { value = null; return@produceState }
         value = withContext(Dispatchers.Default) {
             try {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

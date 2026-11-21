@@ -711,7 +711,7 @@ class EngineTest {
 
         val dms = s.dms.value
         assertEquals(6, dms.threads.size, dms.threads.map { it.conv }.toString()) // + Lena's pictures, file and recording (canvas v109)
-        assertEquals(2, dms.unreadTotal)
+        assertEquals(3, dms.unreadTotal) // + Lena's conversation (canvas v109 demo)
         assertEquals(2, dms.threads.count { it.isMail })
         val mail = dms.threads.first { it.conv == "m:ana@example.org|visiting%20next%20week" }
         assertEquals(2, mail.count)
