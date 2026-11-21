@@ -374,9 +374,10 @@ class SealedEngine(
         // at most once a minute, and once per connection (N2); else every 24 h
         val due = if (force) !askedThisConnection && clock() - lastAsk >= 60 else clock() - lastAsk >= 86_400
         if (due) {
-            ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+            // marked before publishing: two calls overlapping (a reconnect) never send two
             lastAsk = clock()
             askedThisConnection = true
+            ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
         }
     }
 

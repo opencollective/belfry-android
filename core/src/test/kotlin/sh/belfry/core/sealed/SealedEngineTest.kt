@@ -455,6 +455,7 @@ class SealedEngineTest {
         assertEquals(Sealing.Verdict.LOCKED, phone.receive(wrap, null) { "c" }.verdict, "kept: my chain isn't current on this connection")
         relay.silent = false
         phone.refresh(alice.pubkey) // current now: the lb is not mine
+        now += 61 // past the once-a-minute re-read limit (a throttled read keeps, P3)
         assertEquals(Sealing.Verdict.DROP, phone.receive(wrap, null) { "c" }.verdict)
     }
 

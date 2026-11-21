@@ -109,7 +109,7 @@ class SealedSessionTest {
         // a reconnect, past the once-a-minute limit: exactly one more, then none
         skew += 120
         m.dropAll()
-        until("asked again after the reconnect", 20_000) { requestsBy(laptop) == 2 }
+        until("asked again after the reconnect", 20_000) { requestsBy(laptop) >= 2 }
         delay(2_000)
         assertEquals(2, requestsBy(laptop), "one per connection")
     }
