@@ -93,7 +93,12 @@ class FakeRelay(
 
     /** Sockets that stay open and answer nothing any more (a phone that slept: the socket looks up, it is dead). */
     val deaf: MutableSet<WebSocket> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-    fun deafen() { deaf.addAll(sockets) }
+    fun deafen() {
+        // the server sees a socket a moment after the client does: wait for it, or it would stay deaf to nothing
+        val end = System.currentTimeMillis() + 5000
+        while (sockets.size < opens || sockets.isEmpty()) { if (System.currentTimeMillis() > end) error("no socket to deafen"); Thread.sleep(10) }
+        deaf.addAll(sockets)
+    }
 
     fun send(ws: WebSocket, vararg parts: Any) {
         ws.send(buildJsonArray {

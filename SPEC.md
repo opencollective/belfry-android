@@ -2209,7 +2209,7 @@ Outside the demo nothing is sealed, so no lock shows anywhere and every action r
   current mode's, following the system live; no `colors` = the raw primary as before. Never the raw
   primary or secondary for text or icons when `colors` is there.
 
-### 19.50 One owner for every socket; a send never waits on a dead one (2026-11-21; Xavier via the lead, after DMs stuck on "Sending…" on iOS; the same on Android; number to be agreed with belfry-ios)
+### 19.50 One owner for every socket; a send never waits on a dead one (2026-11-21; Xavier via the lead, after DMs stuck on "Sending…" on iOS; the same on Android; first written here, belfry-ios told)
 
 What was wrong (both apps): the NIP-46 signer's socket lived on its own, was never asked whether
 it lived, and after a sleep looked open and was dead: each signer request waited its whole
