@@ -521,7 +521,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     /** Decrypts what is waiting. Stops when the signer does not answer (the rest waits for the next call). */
     suspend fun process() = busy.withLock {
         val todo = synchronized(lock) { backlog.sortedByDescending { it.createdAt } }
-        if (todo.isEmpty()) return@withLock
+        // held messages and wraps the engine accepted later are looked at even when nothing new came
+        if (todo.isEmpty() && synchronized(lock) { held.isEmpty() } && host.sealed?.later.isNullOrEmpty()) return@withLock
         var changed = false
         val eng = host.sealed
         for (e in todo) {
