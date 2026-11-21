@@ -35,12 +35,14 @@ class SealedKeyStore(private val vault: Vault, private val name: String, private
         return keys.mapNotNull { (lb, s) -> (s as? JsonPrimitive)?.content?.takeIf { Hex.isKey(lb) && Hex.isKey(it) }?.let { lb to it } }.toMap()
     }
 
-    fun save(keys: Map<String, String>) {
-        if (closed || !known) return
-        vault.set(name, buildJsonObject {
+    /** True only when written and read back the same (a commit; the review's 15). */
+    fun save(keys: Map<String, String>): Boolean {
+        if (closed || !known) return false
+        val v = buildJsonObject {
             put("account", JsonPrimitive(account))
             put("keys", buildJsonObject { keys.forEach { (k, v) -> put(k, JsonPrimitive(v)) } })
-        }.toString())
+        }.toString()
+        return vault.setChecked(name, v)
     }
 
     /** Small records of the account's sealed side (not secrets), kept beside the keys. */
@@ -96,6 +98,7 @@ internal object Paging {
         var complete = true
         var until: Long? = null
         var answered = false
+        var exhausted = true
         for (page in 0 until 200) {
             val f = JsonObject(base + mapOf("limit" to JsonPrimitive(PAGE)) + (until?.let { mapOf("until" to JsonPrimitive(it)) } ?: emptyMap()))
             val a = ask(f)
@@ -103,11 +106,12 @@ internal object Paging {
             answered = true
             complete = complete && a.second
             val fresh = a.first.filter { it.id !in seen }
-            if (fresh.isEmpty()) break
+            if (fresh.isEmpty()) { exhausted = false; break }
             fresh.forEach { seen[it.id] = it }
             until = a.first.minOf { it.createdAt } // inclusive: the same second may hold more
         }
-        SealedEngine.Answer(seen.values.toList(), complete && answered)
+        // 200 pages without an empty one: not known to be complete (the review's 16)
+        SealedEngine.Answer(seen.values.toList(), complete && answered && !exhausted)
     }
 }
 
@@ -147,12 +151,13 @@ internal class SessionSealedPorts(
 
     /** Revokes the session whose client key is CLIENT_PUBKEY (the belfry names sessions by their bunker key). */
     override suspend fun revoke(clientPubkey: String) {
-        val row = listSessions().firstOrNull { it.clientPubkey == clientPubkey } ?: throw IllegalStateException("That device's session was not found.")
+        // already gone: nothing to revoke (the device can still be removed by hand; the review's 12)
+        val row = listSessions().firstOrNull { it.clientPubkey == clientPubkey } ?: return
         revokeSession(row.bunkerPubkey)
     }
 
     override fun loadNote(name: String): String? = keys.loadNote(name)
     override fun saveNote(name: String, value: String) = keys.saveNote(name, value)
     override fun loadKeys(): Map<String, String> = keys.load()
-    override fun saveKeys(keys: Map<String, String>) = this.keys.save(keys)
+    override fun saveKeys(keys: Map<String, String>): Boolean = this.keys.save(keys)
 }

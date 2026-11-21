@@ -264,7 +264,7 @@ class Session(
         else sh.belfry.core.sealed.SealedEngine(
             SessionSealedPorts({ mainRelay }, { t -> signer.sign(t) }, { api().sessions(signer) }, { b -> api().revokeSession(signer, b) }, ks,
                 // pins and sealed conversations beside the conversation data (wiped with the account), one value
-                { store.get(K_SEALED_STATE) } to { v -> store.set(K_SEALED_STATE, v) }),
+                { store.get(K_SEALED_STATE) } to { v -> if (!stopped) store.set(K_SEALED_STATE, v) }), // never after sign-out's wipe
             device, me, clock = clock, guest = false,
         )
     }
@@ -280,6 +280,25 @@ class Session(
         try { encryption.refresh() } catch (x: Exception) { }
     }
 
+    @Volatile private var nameWritten = false
+
+    /** My device name record, once per run once this device is in my head (also after keys arrived later). */
+    private suspend fun writeNameOnce(e: sh.belfry.core.sealed.SealedEngine) {
+        if (nameWritten) return
+        val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
+        e.writeMyName(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind)
+        nameWritten = true
+    }
+
+    /** A sealed conversation opened: its people's chains asked again, kept wraps tried again (§4; the review's 1). */
+    fun sealedOpened(conv: String) {
+        val e = sealed ?: return
+        launchSafely {
+            for (p in sh.belfry.core.mail.MailThreads.peers(conv)) if (p != me) e.refresh(p)
+            dm.retryKept(); dm.process()
+        }
+    }
+
     /** After a roster change ended "not done": upkeep again in 10 s, 1 min and 5 min (not the 6-hour timer). */
     fun sealedFollowUps() {
         if (sealed == null) return
@@ -293,13 +312,17 @@ class Session(
     private suspend fun sealedStart() {
         val e = sealed ?: return
         if (e.onKeys == null) e.onKeys = { launchSafely { rereadWraps() } }
+        // a correspondent's (or my own) chain moved: the wraps kept for it are tried again (§4; the review's 1)
+        if (e.onChain == null) e.onChain = { launchSafely { dm.retryKept(); dm.process() } }
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN && !e.firstRefused) {
             val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
             e.start(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind, link = linkSecret)
             if (e.mine != sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN) linkSecret = null
             if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) e.writeMyName(sh.belfry.core.sealed.DeviceNames.myName(own, deviceName), deviceKind)
         }
-        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) e.upkeep()
+        // a waiting device asks again at each (re)connect, and reads its chain again (§5.2 / §5.5; the review's 4)
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING) e.askAgain(linkSecret, force = true)
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) { e.upkeep(); writeNameOnce(e) }
         try { encryption.refresh() } catch (x: Exception) { }
         launchSafely { dm.process() }
     }
@@ -526,11 +549,18 @@ class Session(
         if (fresh.any { it.kind == 1059 || it.kind == 4 }) launchSafely { dm.process() }
     }
 
+    /** Background work that stop() cancels (the review's 9: a task asleep must not write after sign-out). */
     private fun launchSafely(block: suspend () -> Unit) {
-        scope.launch(Dispatchers.Default) {
+        if (stopped) return
+        val job = scope.launch(Dispatchers.Default) {
             try { block() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { /* next wake-up tries again */ }
         }
+        synchronized(jobs) { jobs += job }
+        job.invokeOnCompletion { synchronized(jobs) { jobs.remove(job) } }
     }
+
+    /** The people of my sealed conversations (their chains on the live subscription). */
+    private fun sealedPeers(): List<String> = sealed?.sealedSince?.keys?.flatMap { sh.belfry.core.mail.MailThreads.peers(it) }?.filter { it != me }?.distinct().orEmpty()
 
     private suspend fun intake() {
         while (scope.isActive) {
@@ -668,7 +698,17 @@ class Session(
         if (sealed != null) jobs += scope.launch(Dispatchers.Default) {
             while (isActive) {
                 delay(120_000)
-                try { if (_status.value.online) { if (sealed?.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN) sealedStart() else encryption.refresh() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+                try {
+                    if (_status.value.online) {
+                        val e = sealed
+                        when (e?.mine) {
+                            sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN -> sealedStart()
+                            sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h
+                            sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> { writeNameOnce(e); encryption.refresh() }
+                            null -> {}
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
             }
         }
         // a guest on this device: is that still so? (a member link, an admin, an accepted request)
@@ -726,7 +766,8 @@ class Session(
     fun stop() {
         stopped = true
         for (t in Target.entries) relay(t)?.stop()
-        synchronized(jobs) { jobs.forEach { it.cancel() }; jobs.clear() }
+        val all = synchronized(jobs) { jobs.toList().also { jobs.clear() } }
+        all.forEach { it.cancel() } // outside the lock: a finished job removes itself
         (signer as? BunkerSigner)?.disconnect()
     }
 
@@ -823,10 +864,13 @@ class Session(
             Filters.of(kinds = listOf(30078), since = extras, limit = 2000, tags = mapOf("d" to listOf(World.PROFILE_D))),
             // my read state (SPEC 19.27): one replaceable event, always the exact d
             Filters.of(kinds = listOf(ReadState.KIND), authors = listOf(me), limit = 5, tags = mapOf("d" to listOf(ReadState.READ_D))),
-            Filters.of(kinds = listOf(1059), since = wraps, limit = 1000, tags = mapOf("p" to listOf(me))),
+            Filters.of(kinds = listOf(1059), since = wraps, limit = 300, tags = mapOf("p" to listOf(me))), // the relay's max limit
         ) + listOfNotNull(
             // sealed: key hand-overs come to this DEVICE's key (§5.5), not to the account
             (signer as? BunkerSigner)?.device?.pubkey?.takeIf { sealed != null }?.let { Filters.of(kinds = listOf(1059), limit = 300, tags = mapOf("p" to listOf(it))) },
+            // sealed: my correspondents' rosters and anchors on the live subscription (§4; the review's 1)
+            sealedPeers().takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(sh.belfry.core.sealed.Roster.KIND), limit = 300, tags = mapOf("p" to it)) },
+            sealedPeers().takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(30078), authors = it, limit = 300, tags = mapOf("d" to listOf(sh.belfry.core.sealed.Anchor.D))) },
         ) + listOf(
             Filters.of(kinds = listOf(4), since = old, limit = 500, tags = mapOf("p" to listOf(me))),
             Filters.of(kinds = listOf(4), authors = listOf(me), since = old, limit = 500),
@@ -995,9 +1039,12 @@ class Session(
                 val queued = store.outbox().filter { !held(it) }
                 if (queued.none { it.status == OutboxStatus.QUEUED }) break
                 if (!localOnly && !_status.value.online) break
-                // sealed wraps whose recipient's head moved are sealed again first (§9), under this lock
-                val items = if (sealed == null) queued else dm.resealQueued(queued).also { again ->
-                    for ((a, b) in queued.zip(again)) if (a.signed?.id != b.signed?.id) store.putOutbox(b)
+                // sealed wraps whose recipient's head moved are sealed again first (§9), under this lock; and
+                // only once the community relay is authenticated (a refresh before AUTH learns nothing; the review's 8)
+                val authed = mainRelay?.isAuthenticated == true
+                val items = if (sealed == null) queued else dm.resealQueued(queued.filter { authed || !dm.isSealedQueued(it) }).also { again ->
+                    val before = queued.associateBy { it.localId }
+                    for (b in again) if (before[b.localId]?.signed?.id != b.signed?.id) store.putOutbox(b)
                 }
                 val before = items.associateBy { it.localId }
                 val signedNow = HashMap<String, Event>()
@@ -1443,6 +1490,7 @@ class Session(
 
     private inner class Host : DmHost {
         override val sealed: sh.belfry.core.sealed.SealedEngine? get() = this@Session.sealed
+        override fun belfryKey(): String? = community.belfryPubkey
         override val me: String get() = this@Session.me
         override val domain: String get() = community.domain
         override val blossom: String get() = community.blossom

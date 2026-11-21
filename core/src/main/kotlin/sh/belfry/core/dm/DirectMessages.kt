@@ -353,6 +353,8 @@ interface DmHost {
     fun later(delayMs: Long, block: suspend () -> Unit)
     /** Sealed conversations on this device (null: the demo, a guest, not started). */
     val sealed: sh.belfry.core.sealed.SealedEngine? get() = null
+    /** The belfry's key from belfry.json: the only key whose seal a sealed mail (1301) may carry (§7; the review's 14). */
+    fun belfryKey(): String? = null
 }
 
 /** Pure parts of reading a rumor, testable without an engine. */
@@ -546,7 +548,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             if (e.kind == 1059 && sh.belfry.core.sealed.Sealing.isSealed(e)) {
                 // sealed (§4): never the signer; kept until the engine can open and accept it
                 if (eng == null) continue
-                val got = try { eng.receive(e, host.bridgeKey()) { DmReader.convOf(it, host.me, host.bridgeKey()) } } catch (x: Exception) { continue }
+                val got = try { eng.receive(e, host.belfryKey()) { DmReader.convOf(it, host.me, host.bridgeKey()) } } catch (x: Exception) { continue }
                 when (got.verdict) {
                     sh.belfry.core.sealed.Sealing.Verdict.ACCEPT -> {
                         try { takeSealed(got.rumor!!, got.sealPubkey) } catch (x: Exception) { }
@@ -579,8 +581,12 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         }
         // accepted later by the engine (the author's new roster, keys that arrived)
         if (eng != null) {
-            val later = synchronized(eng.later) { eng.later.toList().also { eng.later.clear() } }
-            for (r in later) { try { takeSealed(r, null) } catch (x: Exception) { }; changed = true }
+            val later = eng.later.toList().also { eng.later.removeAll(it.toSet()) }
+            for ((r, seal) in later) {
+                try { takeSealed(r, seal) } catch (x: Exception) { }
+                DmReader.convOf(r, host.me, host.bridgeKey()).let { eng.markSealed(it) } // its conversation is sealed too
+                changed = true
+            }
             if (held.isNotEmpty()) { retryHeld(); changed = true }
         }
         if (changed) {
@@ -710,12 +716,13 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val eng = host.sealed
         if (eng != null && !host.localOnly) {
             if (rumor.kind == 1301) {
-                // §7: with a ready chain, outgoing mail is always sealed by the device; the self-copy to my head
-                val mine = eng.chainOf(host.me)
-                if (mine?.ready == true && eng.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) {
-                    for (t in to) host.enqueueSigned(Target.MAIN, GiftWrap.wrap(rumor, t, eng.device), rumor.id)
-                    if (self) enqueueSealed(eng.seal(rumor, sh.belfry.core.sealed.SealedEngine.Plan.Seal(mapOf(host.me to mine.head.lb))), rumor.id)
-                    return true
+                // §7, the same plan as a message (the review's 3): sealed by the device, the old way only on
+                // knowledge, else held or refused; never the signer for a sealed thread
+                when (val plan = eng.plan(conv ?: "mail", emptyList())) {
+                    is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> { mailSealed(rumor, to, self, plan); return true }
+                    is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> throw DmException(plan.why)
+                    sh.belfry.core.sealed.SealedEngine.Plan.Hold -> { hold(rumor, to, self, conv ?: "mail", null); return false }
+                    sh.belfry.core.sealed.SealedEngine.Plan.OldWay -> {}
                 }
             } else if (conv != null) {
                 when (val plan = eng.plan(conv, to.filter { it != host.me })) {
@@ -726,7 +733,11 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                     }
                     // a sealed conversation with nobody to seal to for someone: it waits (canvas v98), never the old way
                     is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> if (plan.who != null) { hold(rumor, to, self, conv, "device:${plan.who}"); return false } else throw DmException(plan.why)
-                    sh.belfry.core.sealed.SealedEngine.Plan.Hold -> { hold(rumor, to, self, conv, null); return false }
+                    sh.belfry.core.sealed.SealedEngine.Plan.Hold -> {
+                        // a reaction or a take-back has no bubble to wait in: not sent, said at once (the review's 16)
+                        if (rumor.kind == 7 || rumor.kind == 5) throw DmException("Not sent yet: this device can't reach the belfry to check how to lock it. Try again in a moment.")
+                        hold(rumor, to, self, conv, null); return false
+                    }
                     sh.belfry.core.sealed.SealedEngine.Plan.OldWay -> {}
                 }
             }
@@ -736,6 +747,14 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     }
 
     private val heldWhyNow = HashMap<String, String?>()
+
+    /** A mail sealed by the device to the belfry's mail key (§7), the self-copy to my head. */
+    private suspend fun mailSealed(rumor: Event, to: List<String>, self: Boolean, plan: sh.belfry.core.sealed.SealedEngine.Plan.Seal) {
+        val eng = host.sealed ?: return
+        for (t in to) host.enqueueSigned(Target.MAIN, GiftWrap.wrap(rumor, t, eng.device), rumor.id)
+        val mine = plan.heads[host.me]
+        if (self && mine != null) enqueueSealed(eng.seal(rumor, sh.belfry.core.sealed.SealedEngine.Plan.Seal(mapOf(host.me to mine))), rumor.id)
+    }
 
     private fun hold(rumor: Event, to: List<String>, self: Boolean, conv: String, why: String?) {
         synchronized(lock) { held[rumor.id] = Held(rumor, to, self, conv); heldWhyNow[rumor.id] = why }
@@ -764,7 +783,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> {
                     // decided after waiting, but too long to lock: it stays with its line and Cancel
                     if (!sh.belfry.core.sealed.Sealing.fits(h.rumor)) { update(rid) { it.copy(heldWhy = "too_long") }; continue }
-                    enqueueSealed(eng.seal(h.rumor, plan), rid)
+                    if (h.rumor.kind == 1301) mailSealed(h.rumor, h.to, h.self, plan) else enqueueSealed(eng.seal(h.rumor, plan), rid)
                     synchronized(lock) { held.remove(rid) }
                     update(rid) { it.copy(heldSince = null) }
                 }
@@ -781,6 +800,9 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     fun sealedRumorsOf(conv: String): List<Event> = synchronized(lock) {
         sealedRumors.values.filter { DmReader.convOf(it, host.me, host.bridgeKey()) == conv }.sortedBy { it.createdAt }
     }
+
+    /** A sealed wrap in the outbox (flushed only after AUTH and a head refresh; the review's 8). */
+    fun isSealedQueued(item: OutboxItem): Boolean = item.signed?.let { w -> synchronized(lock) { w.id in sealQ } } == true
 
     /** Keys arrived or my chain moved: the wraps kept as locked are tried again at the next [process]. */
     fun retryKept() {
@@ -880,9 +902,9 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         synchronized(lock) { reports[emailId] = Report(Report.QUEUED, "Waiting for the connection…") }
         publish()
         try {
-            deliver(rumor, listOf(bridge))
+            if (!deliver(rumor, listOf(bridge), conv = target)) update(rumor.id) { it.copy(heldSince = host.now()) }
         } catch (e: Exception) {
-            val why = if (e is SignerTimeout) "Your signer did not answer." else "It could not be prepared."
+            val why = if (e is DmException) e.message ?: "It could not be prepared." else if (e is SignerTimeout) "Your signer did not answer." else "It could not be prepared."
             synchronized(lock) { reports[emailId] = Report(Report.FAILED, why) }
             update(rumor.id) { it.copy(pending = false, failed = why) }
         }
@@ -924,7 +946,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             return emailId
         }
         try {
-            deliver(rumor, listOf(bridge), self = false)
+            deliver(rumor, listOf(bridge), self = false, conv = "channel:$channel")
         } catch (e: Exception) {
             synchronized(lock) { reports[emailId] = Report(Report.FAILED, "It could not be prepared."); channelSends.remove(emailId) }
             publish()
@@ -1039,7 +1061,13 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             try {
                 val r = e.tag("r") ?: continue
                 val peer = e.tag("ephemeral-pubkey") ?: continue
-                val body = parseJsonOrNull(host.signer.nip44Decrypt(peer, e.content)).obj() ?: continue
+                // a sealed sender's report is encrypted to the head letterbox, tagged lb (§7; the review's 10)
+                val lb = e.tag("lb")
+                val plain = if (lb != null) {
+                    val secret = host.sealed?.keys?.secretFor(lb) ?: continue
+                    sh.belfry.core.crypto.Nip44.decryptFrom(secret, peer, e.content)
+                } else host.signer.nip44Decrypt(peer, e.content)
+                val body = parseJsonOrNull(plain).obj() ?: continue
                 val status = body.s("status") ?: continue
                 if (status !in setOf(Report.DELIVERED, Report.FAILED, Report.DELAYED, Report.QUEUED)) continue
                 // the bridge's own words about a delivery (an SMTP answer); kept short

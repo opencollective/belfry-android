@@ -37,4 +37,24 @@ class SealedWiringTest {
         SealedKeyStore(vault, SealedKeyStore.V_KEYS, "").save(mapOf(pair))
         assertNull(vault.get(SealedKeyStore.V_KEYS))
     }
+
+    /** The review: paging by 300 from 0 on a relay that caps limit; stops on a page with nothing new; CLOSED = not complete. */
+    @Test fun pagingOnACappedRelay() = kotlinx.coroutines.runBlocking<Unit> {
+        val relay = SealedEngineTest.FakeRelay()
+        val author = sh.belfry.core.nostr.LocalSigner.random()
+        repeat(750) { relay.add(author.signNow(sh.belfry.core.nostr.EventTemplate(1059, "x$it", emptyList(), 1_795_000_000L + it / 3))) }
+        val got = sh.belfry.core.engine.Paging.all { f -> relay.page(f) }(sh.belfry.core.net.Filters.of(kinds = listOf(1059)))
+        assertEquals(750, got.events.size, "every event, past the 300 cap")
+        assertTrue(got.complete)
+        relay.closing = true
+        assertTrue(!sh.belfry.core.engine.Paging.all { f -> relay.page(f) }(sh.belfry.core.net.Filters.of(kinds = listOf(1059))).complete, "CLOSED is no answer")
+    }
+
+    /** The review's 12: revoking a device whose session is already gone is no error. */
+    @Test fun revokeGoneSession() = kotlinx.coroutines.runBlocking<Unit> {
+        val ports = sh.belfry.core.engine.SessionSealedPorts({ null }, { t -> sh.belfry.core.nostr.LocalSigner.random().signNow(t) }, { emptyList() }, { error("not called") },
+            SealedKeyStore(MemoryVault(), "k", "aa".repeat(32)))
+        ports.revoke("bb".repeat(32))
+        assertNull(sh.belfry.core.engine.SessionSealedPorts({ null }, { t -> sh.belfry.core.nostr.LocalSigner.random().signNow(t) }, { error("offline") }, { }, SealedKeyStore(MemoryVault(), "k", "aa".repeat(32))).sessions(), "no answer is not \"no sessions\"")
+    }
 }

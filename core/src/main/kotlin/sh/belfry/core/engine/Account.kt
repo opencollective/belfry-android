@@ -47,6 +47,8 @@ interface Vault {
     fun get(name: String): String?
     fun set(name: String, value: String)
     fun remove(name: String)
+    /** Written for good, or false (the sealed keys check before publishing what depends on them). */
+    fun setChecked(name: String, value: String): Boolean = try { set(name, value); get(name) == value } catch (e: Exception) { false }
 }
 
 class MemoryVault : Vault {

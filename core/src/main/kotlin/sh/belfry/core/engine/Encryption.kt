@@ -59,6 +59,7 @@ class EncryptionService internal constructor(private val s: Session) {
             MyDevice(
                 d, n?.name ?: if (d == e.device.pubkey) s.deviceName else "A device", kindOf(n?.kind ?: if (d == e.device.pubkey) s.deviceKind else null),
                 mine!!.addedAt(d) ?: 0, mine.addedFrom(d)?.let { names[it]?.name }, thisDevice = d == e.device.pubkey,
+                removable = e.canRemove(d),
             )
         }
         val dms = s.dms.value

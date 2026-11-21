@@ -52,30 +52,45 @@ class SealedEngine(
     val keys: KeyChain = KeyChain(ports.loadKeys())
 
     private class Known(val chain: Chain?, val completeAt: Long?)
-    private val known = HashMap<String, Known>()
+    private val known = java.util.concurrent.ConcurrentHashMap<String, Known>()
     /** Per person: the root first accepted and the head last accepted (§3.4). */
     /** Per person: the pin (sealed.md §3.3 / §3.4; the reference's follow), kept for good. */
-    private val pins = HashMap<String, Pin>()
+    private val pins = java.util.concurrent.ConcurrentHashMap<String, Pin>()
     /** The last valid head this device knew per person, kept when a chain disappears (§6). */
-    private val lastHead = HashMap<String, String>()
+    private val lastHead = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     /** Conversations this device saw sealed, with when it first saw each (§6). */
-    val sealedSince = HashMap<String, Long>()
+    val sealedSince = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** Wraps kept for later: locked here, or waiting for the author's chain (≤ 30 days). */
-    private val pending = LinkedHashMap<String, Pair<Event, Long>>()
+    private val pending = java.util.concurrent.ConcurrentHashMap<String, Pair<Event, Long>>()
     /** Hand-overs that came before my own chain was there. */
-    private val pendingKeys = LinkedHashMap<String, Event>()
+    private val pendingKeys = java.util.concurrent.ConcurrentHashMap<String, Event>()
 
     /** The link secrets this device showed, with when (15 minutes). */
-    private val linkSecrets = HashMap<String, Long>()
+    private val linkSecrets = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     // ---- chains -------------------------------------------------------------------------------
 
     fun chainOf(person: String): Chain? = known[person]?.chain
 
+    /**
+     * All engine state is touched on one confined thread (the review's 9): the public suspend
+     * functions switch to it; nested calls stay on it.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val confined = kotlinx.coroutines.Dispatchers.Default.limitedParallelism(1)
+
+    /** The roster changes, one at a time, on the confined thread (never holding the lock through a wait outside it). */
+    private suspend fun <T> locked(block: suspend () -> T): T = kotlinx.coroutines.withContext(confined) { lock.withLock { block() } }
+
+    /** Told when a person's chain moved (a new roster, a switch, a fresh start): kept wraps are retried. */
+    @Volatile var onChain: ((String) -> Unit)? = null
+
     /** Asks the relay again for PERSON's anchor and rosters (never by `#lb`). */
-    suspend fun refresh(person: String): Chain? {
+    suspend fun refresh(person: String): Chain? = kotlinx.coroutines.withContext(confined) { refreshHere(person) }
+
+    private suspend fun refreshHere(person: String): Chain? {
         val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(person), d = listOf(Anchor.D)))
         val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(person)))
         val complete = qa.complete && qr.complete
@@ -87,13 +102,15 @@ class SealedEngine(
         val prev = known[person]
         known[person] = Known(chain ?: prev?.chain?.takeIf { !complete || lastEvent[person] == Follow.Change.IGNORED_BACK }, if (complete) clock() else prev?.completeAt)
         if (chain != null) {
+            val moved = prev?.chain?.head?.id != chain.head.id
             remember(person, chain, a.events, r.events)
             retryPending()
+            if (moved) onChain?.invoke(person)
         }
         return known[person]?.chain
     }
 
-    private val lastEvent = HashMap<String, Follow.Change>()
+    private val lastEvent = java.util.concurrent.ConcurrentHashMap<String, Follow.Change>()
 
     /** The newest valid anchor of PERSON among EVENTS. */
     private fun newestAnchor(events: List<Event>, person: String): Event? = events
@@ -114,7 +131,7 @@ class SealedEngine(
         if (res.event == Follow.Change.FRESH_START || res.event == Follow.Change.SWITCH) {
             resetAt[person] = clock()
             if (person == account) {
-                if (res.event == Follow.Change.FRESH_START) before?.letterboxes?.let { oldLetterboxes.addAll(it) }
+                if (res.event == Follow.Change.FRESH_START) { before?.letterboxes?.let { oldLetterboxes.addAll(it) }; previousChain = before }
                 if (c != null && device.pubkey !in c.devices) mine = Mine.WAITING
             }
             saveState()
@@ -125,15 +142,15 @@ class SealedEngine(
 
     // ---- pins kept across restarts (sealed.md §3.4, durable) -------------------------------------
 
-    private val anchors = HashMap<String, Event>()
-    private val pathEvents = HashMap<String, List<Event>>()
+    private val anchors = java.util.concurrent.ConcurrentHashMap<String, Event>()
+    private val pathEvents = java.util.concurrent.ConcurrentHashMap<String, List<Event>>()
 
     /** Shared history sent after someone's reset (the amber line becomes plain): person → when. */
-    val sharedAfter = HashMap<String, Long>()
+    val sharedAfter = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** Keeps PERSON's pin: the newest valid anchor and the roster events of the chain's path. */
     private fun remember(person: String, chain: Chain, anchorEvents: List<Event>, rosterEvents: List<Event>) {
-        val newest = anchorEvents.filter { it.pubkey == person && it.kind == Anchor.KIND }.maxByOrNull { it.createdAt }
+        val newest = newestAnchor(anchorEvents, person)
         if (newest != null) anchors[person] = newest
         val byId = rosterEvents.associateBy { it.id }
         pathEvents[person] = chain.rosters.mapNotNull { byId[it.id] }
@@ -155,6 +172,7 @@ class SealedEngine(
             })
             put("sealed", buildJsonObject { sealedSince.forEach { (c, t) -> put(c, JsonPrimitive(t)) } })
             put("oldLb", JsonArray(oldLetterboxes.map { JsonPrimitive(it) }))
+            put("firstSeen", buildJsonObject { firstSeenStored.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
         }
         ports.saveState(o.toString())
     }
@@ -173,6 +191,7 @@ class SealedEngine(
         }
         (o["sealed"] as? JsonObject)?.forEach { (c, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { sealedSince[c] = it } }
         (o["oldLb"] as? JsonArray)?.forEach { (it as? JsonPrimitive)?.content?.let(oldLetterboxes::add) }
+        (o["firstSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { firstSeenStored[k] = it } }
     }
 
 
@@ -180,7 +199,9 @@ class SealedEngine(
      * Shares a conversation's sealed messages with PERSON's new head (§8, from the amber line): kinds
      * 14 / 7 / 5 only, packed under the ceiling, each 8564 sealed to their head. The line becomes plain.
      */
-    suspend fun shareHistory(person: String, rumors: List<Event>) {
+    suspend fun shareHistory(person: String, rumors: List<Event>) = kotlinx.coroutines.withContext(confined) { shareHistoryHere(person, rumors) }
+
+    private suspend fun shareHistoryHere(person: String, rumors: List<Event>) {
         val chain = refresh(person) ?: throw NotDone()
         val shares = Sealing.shareRumors(account, person, rumors.filter { it.kind in Sealing.SHARED_KINDS }.sortedBy { it.createdAt }, clock())
         for (sh in shares) if (!ports.publish(Sealing.seal(sh, device, person, chain.head.lb, clock()))) throw NotDone()
@@ -189,10 +210,10 @@ class SealedEngine(
     }
 
     /** When each person started fresh or their chain was switched: the amber notice (§3.4, §3.3). */
-    val resetAt = HashMap<String, Long>()
+    val resetAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** Letterboxes of earlier pinned chains of mine (a fresh start keeps them mine, §5.3). */
-    private val oldLetterboxes = HashSet<String>()
+    private val oldLetterboxes: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
      * My chain's letterboxes (valid rosters of the current chain and the previously pinned one),
@@ -217,14 +238,14 @@ class SealedEngine(
     /** My chain's state on this device. */
     enum class Mine { UNKNOWN, NONE, IN_HEAD, WAITING }
 
-    var mine: Mine = Mine.UNKNOWN
+    @Volatile var mine: Mine = Mine.UNKNOWN
         private set
 
     /**
      * At start: read my chain; with a complete answer and no anchor, make the first roster (§5.1);
      * when a chain exists and this device isn't in its head, ask (§5.2).
      */
-    suspend fun start(myName: String, kind: String, link: String? = null) = lock.withLock {
+    suspend fun start(myName: String, kind: String, link: String? = null) = locked {
         val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
         val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(account)))
         val complete = qa.complete && qr.complete
@@ -242,6 +263,7 @@ class SealedEngine(
             chain != null && device.pubkey in chain.devices && keys.secretFor(chain.head.lb) == null -> {
                 mine = Mine.WAITING
                 ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+                lastAsk = clock()
             }
             chain != null && device.pubkey in chain.devices -> {
                 mine = Mine.IN_HEAD
@@ -250,6 +272,7 @@ class SealedEngine(
             chain != null -> {
                 mine = Mine.WAITING
                 ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+                lastAsk = clock()
             }
             complete && Anchor.root(a.events, account) == null && !guest && !firstRefused -> {
                 // one pending key, reused on every try (no orphan keys; c233eec)
@@ -261,21 +284,26 @@ class SealedEngine(
                     mine = Mine.WAITING
                     ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
                 } else {
-                    keys.add(lbPub, lbSecret); saveKeys()
-                    val anchor = ports.signAsAccount(Anchor.template(root.id, root.id, clock()))
+                    keys.add(lbPub, lbSecret)
+                    if (!saveKeys()) { mine = Mine.UNKNOWN; return@locked } // never a roster whose secret isn't on disk
+                    val anchor = ports.signAsAccount(Anchor.template(root.id, root.id, anchorTime()))
                     if (!ports.publish(root) || !ports.publish(anchor)) {
                         // refused: stop trying (the relay said no; not every few minutes)
                         firstRefused = true
                         mine = Mine.UNKNOWN
-                        return@withLock
+                        return@locked
                     }
                     pendingFirst = null
+                    // done only from a read-back (two devices at first sign-in: the loser asks; the review's 7)
+                    val back = refreshHere(account)
+                    if (back == null || back.root.id != root.id || anchoredHead() != root.id) {
+                        mine = Mine.WAITING
+                        ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+                        lastAsk = clock()
+                        return@locked
+                    }
                     ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock())))
                     mine = Mine.IN_HEAD
-                    val first = Chain.of(account, listOf(anchor), listOf(root))
-                    known[account] = Known(first, clock())
-                    if (first != null) remember(account, first, listOf(anchor), listOf(root))
-                    first?.let { pins[account] = Follow.follow(anchor, listOf(root), null).pin ?: return@let }
                     lastHead[account] = lbPub
                     saveState()
                 }
@@ -284,7 +312,11 @@ class SealedEngine(
         }
     }
 
-    private fun saveKeys() = ports.saveKeys(keys.toMap())
+    /** Saved for good before anything that depends on it is published (the review's 15). */
+    private fun saveKeys(): Boolean = ports.saveKeys(keys.toMap())
+
+    /** An anchor's date: after the standing one (replaceable: the same second keeps the lower id; §3.2, 14a505a). */
+    private fun anchorTime(): Long = maxOf(clock(), (anchors[account]?.createdAt ?: 0L) + 1)
 
     private var pendingFirst: Pair<String, String>? = null
     /** The relay refused my first roster: don't try again in this run. */
@@ -299,13 +331,34 @@ class SealedEngine(
         val anchored = anchoredHead() ?: return
         if (chain.head.id == anchored || chain.head.signer != device.pubkey) return
         if (chain.rosters.none { it.id == anchored }) return
-        val anchor = try { ports.signAsAccount(Anchor.template(chain.root.id, chain.head.id, clock())) } catch (e: Exception) { return }
+        val anchor = try { ports.signAsAccount(Anchor.template(chain.root.id, chain.head.id, anchorTime())) } catch (e: Exception) { return }
         ports.publish(anchor)
+    }
+
+    private var lastAsk = 0L
+
+    /**
+     * A device waiting for its keys asks again (§5.2 / §5.5; the review's 4): every 24 h, and at
+     * once when FORCE (a reconnect). My chain is read again first: a device added meanwhile with its
+     * hand-over lost shows "Waiting for another of your devices", one with keys becomes IN_HEAD.
+     */
+    suspend fun askAgain(link: String?, force: Boolean) = kotlinx.coroutines.withContext(confined) { askAgainHere(link, force) }
+
+    private suspend fun askAgainHere(link: String?, force: Boolean) {
+        if (mine == Mine.UNKNOWN) return
+        val c = refresh(account) ?: return
+        if (device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; return }
+        mine = Mine.WAITING
+        if (force || clock() - lastAsk >= 86_400) {
+            ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
+            lastAsk = clock()
+        }
     }
 
     /** The 6-hour upkeep: gone sessions, ready, my own unanchored roster. */
     suspend fun upkeep() {
-        lock.withLock { refresh(account)?.let { anchorOwnTail(it) } }
+        for (p in known.keys.toList()) if (p != account) try { refresh(p) } catch (e: Exception) { }
+        locked { refresh(account)?.let { anchorOwnTail(it) } }
         checkSessions()
         checkReady()
     }
@@ -322,7 +375,7 @@ class SealedEngine(
      */
     private suspend fun publishNext(head: Chain, devices: List<String>, lb: String, ready: Boolean): Boolean {
         val r = device.signNow(Roster.template(account, head.head.n + 1, head.head.id, lb, devices, ready, clock()))
-        val anchor = ports.signAsAccount(Anchor.template(head.root.id, r.id, clock()))
+        val anchor = ports.signAsAccount(Anchor.template(head.root.id, r.id, anchorTime()))
         return land(r, anchor)
     }
 
@@ -334,6 +387,7 @@ class SealedEngine(
     private suspend fun land(r: Event, anchor: Event): Boolean {
         if (!ports.publish(r)) return false
         if (!ports.publish(anchor)) return false
+        anchors[account] = anchor
         refresh(account) ?: return false
         return anchoredHead() == r.id
     }
@@ -361,7 +415,9 @@ class SealedEngine(
         data class Ask(val device: String, val name: String) : OnRequest
     }
 
-    suspend fun onRequest(req: Event): OnRequest {
+    suspend fun onRequest(req: Event): OnRequest = kotlinx.coroutines.withContext(confined) { onRequestHere(req) }
+
+    private suspend fun onRequestHere(req: Event): OnRequest {
         val (dev, acc) = Sealing.readRequest(req) ?: return OnRequest.Ignore
         if (acc != account || mine != Mine.IN_HEAD) return OnRequest.Ignore
         val sessions = ports.sessions() ?: return OnRequest.Ignore
@@ -390,16 +446,17 @@ class SealedEngine(
     class TooMany : IllegalStateException("A roster holds at most 20 devices: remove one first.")
 
     /** Allow: keys to the new device, then roster n+1 (same lb, devices + it), then the anchor. Refused at 20. */
-    suspend fun allow(newDevice: String) = lock.withLock {
+    suspend fun allow(newDevice: String) = locked {
         val chain = refresh(account) ?: throw IllegalStateException("no chain")
-        if (newDevice in chain.devices) {
+        if (mine != Mine.IN_HEAD) throw IllegalStateException("This device can't allow others yet.")
+        if (newDevice in anchoredDevices(chain)) {
             // in the head but not trusted here (after a switch): Allow by hand gives the keys and trusts it
             val sessions = ports.sessions() ?: throw IllegalStateException("The list of sessions could not be read. Try again.")
             if (sessions.none { it.clientPubkey == newDevice && it.chat }) throw IllegalStateException("That device is no longer signed in.")
             Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
             ports.saveNote("handover:$newDevice", clock().toString())
             pins[account]?.let { pins[account] = Follow.allowLocally(it, newDevice) }; saveState()
-            return@withLock
+            return@locked
         }
         if (chain.devices.size >= Roster.MAX_DEVICES) throw TooMany()
         // the session is still live (294c94f)
@@ -412,11 +469,11 @@ class SealedEngine(
                 Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
                 ports.saveNote("handover:$newDevice", clock().toString())
                 pins[account]?.let { pins[account] = Follow.allowLocally(it, newDevice) }; saveState() // allowed here: trusted
-                return@withLock
+                return@locked
             }
             cur = refresh(account) ?: throw NotDone()
-            val anchored = anchoredHead()?.let { id -> cur.rosters.firstOrNull { it.id == id } }
-            if (anchored != null && newDevice in anchored.devices) { Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }; return@withLock }
+            val anchored = anchoredHead()?.let { id -> cur.rosters.firstOrNull { it.id == id } } // the anchored path only (the review's 11)
+            if (anchored != null && newDevice in anchored.devices) { Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }; return@locked }
             if (cur.devices.size >= Roster.MAX_DEVICES) throw TooMany()
         }
         throw NotDone()
@@ -430,17 +487,20 @@ class SealedEngine(
     // ---- removal (§5.6) -----------------------------------------------------------------------
 
     /** Remove DEVICE (never this one): a new letterbox, keys to each remaining device, roster n+1, anchor. */
-    suspend fun remove(dev: String, revoke: Boolean = true) = lock.withLock {
+    suspend fun remove(dev: String, revoke: Boolean = true) = locked {
         require(dev != device.pubkey) { "this device signs out instead" }
-        val chain = refresh(account) ?: return@withLock
-        if (dev !in chain.devices) return@withLock
+        if (mine != Mine.IN_HEAD) throw IllegalStateException("This device can't remove devices yet.") // the review's 12
+        val chain = refresh(account) ?: return@locked
+        if (dev !in chain.devices) return@locked
         // a user's removal revokes the session FIRST and changes nothing when that fails (294c94f)
         if (revoke) ports.revoke(dev)
-        // the session list can't be read: no rotation (never a letterbox handed to nobody; §5.6, c233eec)
-        val live = ports.sessions()?.mapNotNull { it.clientPubkey }?.toSet() ?: throw NotDone()
+        // the session list must be well formed and hold my own session: else no rotation (a letterbox handed to nobody)
+        val rows = ports.sessions() ?: throw NotDone()
+        if (rows.none { it.clientPubkey == device.pubkey }) throw NotDone()
+        val live = rows.mapNotNull { it.clientPubkey }.toSet()
         var cur = chain
         repeat(3) {
-            if (dev !in cur.devices) return@withLock
+            if (dev !in cur.devices) return@locked
             val (lbPub, lbSecret) = KeyChain.newLetterbox()
             val remaining = cur.devices - dev
             val withNew = KeyChain(keys.toMap()).also { it.add(lbPub, lbSecret) }
@@ -451,10 +511,11 @@ class SealedEngine(
                 .flatMap { d -> Sealing.keysFor(device, account, d, withNew, clock()) }
             // roster and anchor both signed before anything goes; the keys go first, then the two as one unit
             val r = device.signNow(Roster.template(account, cur.head.n + 1, cur.head.id, lbPub, remaining, cur.ready, clock()))
-            val anchor = ports.signAsAccount(Anchor.template(cur.root.id, r.id, clock()))
-            keys.add(lbPub, lbSecret); saveKeys()
+            val anchor = ports.signAsAccount(Anchor.template(cur.root.id, r.id, anchorTime()))
+            keys.add(lbPub, lbSecret)
+            if (!saveKeys()) { keys.forget(lbPub); throw NotDone() } // the new secret on disk before anything goes
             wraps.forEach { ports.publish(it) }
-            if (land(r, anchor)) return@withLock
+            if (land(r, anchor)) return@locked
             cur = refresh(account) ?: throw NotDone()
         }
         throw NotDone()
@@ -483,9 +544,9 @@ class SealedEngine(
     /** Publishes a roster with `ready` when every counted chat session is a device of my head. */
     suspend fun checkReady() {
         val sessions = ports.sessions() ?: return
-        lock.withLock {
-            val chain = refresh(account) ?: return@withLock
-            if (chain.ready || device.pubkey !in chain.devices) return@withLock
+        locked {
+            val chain = refresh(account) ?: return@locked
+            if (chain.ready || device.pubkey !in chain.devices) return@locked
             val counted = Sealing.countedSessions(sessions.map { Triple(it.clientPubkey, it.chat, it.lastSeen) }, clock())
             if (Sealing.readyFor(chain.devices, counted)) publishNext(chain, chain.devices, chain.head.lb, true)
         }
@@ -494,17 +555,19 @@ class SealedEngine(
     // ---- keys arriving (§5.5) -----------------------------------------------------------------
 
     /** A wrap to this device: a hand-over. Kept and retried when my chain isn't there yet. */
-    suspend fun onDeviceWrap(wrap: Event): Boolean {
-        val h = Sealing.openKeys(wrap, device) ?: return false
+    suspend fun onDeviceWrap(wrap: Event): Boolean = kotlinx.coroutines.withContext(confined) {
+        val h = Sealing.openKeys(wrap, device) ?: return@withContext false
         val mineChain = chainOf(account)
-        if (mineChain == null) { pendingKeys[wrap.id] = wrap; return false }
-        if (!Sealing.acceptHandover(h, account, listOf(mineChain))) return false
+        if (mineChain == null) { pendingKeys[wrap.id] = wrap; return@withContext false }
+        // from a device of my current chain, or (after a fresh start) of the previously pinned one
+        if (!Sealing.acceptHandover(h, account, listOfNotNull(mineChain, previousChain))) return@withContext false
         val added = keys.merge(h.keys)
         if (added > 0) { saveKeys(); onKeys?.invoke() }
         pendingKeys.remove(wrap.id)
-        if (device.pubkey in (refresh(account)?.devices ?: emptyList())) mine = Mine.IN_HEAD
+        val c = refreshHere(account)
+        if (c != null && device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) mine = Mine.IN_HEAD
         retryPending()
-        return true
+        true
     }
 
     // ---- sending (§4, §6) ---------------------------------------------------------------------
@@ -521,7 +584,9 @@ class SealedEngine(
     }
 
     /** How to send in CONV to PARTICIPANTS (me included): every chain asked again first (≤ 3 s). */
-    suspend fun plan(conv: String, participants: Collection<String>): Plan {
+    suspend fun plan(conv: String, participants: Collection<String>): Plan = kotlinx.coroutines.withContext(confined) { planHere(conv, participants) }
+
+    private suspend fun planHere(conv: String, participants: Collection<String>): Plan {
         val people = (participants + account).toSet()
         withTimeoutOrNull(3000) { people.forEach { refresh(it) } }
         val chains = people.associateWith { chainOf(it) }
@@ -554,7 +619,7 @@ class SealedEngine(
     // ---- receiving (§4) -----------------------------------------------------------------------
 
     /** Unanswered chain reads back off per author, so waiting wraps don't hold up the rest (64a07fa). */
-    private val askedAt = HashMap<String, Pair<Long, Long>>()
+    private val askedAt = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Long>>()
 
     private fun mayAsk(author: String): Boolean {
         val (at, wait) = askedAt[author] ?: return true.also { askedAt[author] = clock() to 60L }
@@ -567,35 +632,60 @@ class SealedEngine(
     data class Received(val verdict: Sealing.Verdict, val rumor: Event? = null, val sealPubkey: String? = null)
 
     /** Opens a sealed wrap to me. CONV_OF names a rumor's conversation (to mark it sealed). */
-    suspend fun receive(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received {
+    suspend fun receive(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received = kotlinx.coroutines.withContext(confined) { receiveHere(wrap, belfry, convOf) }
+
+    private suspend fun receiveHere(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received {
         val o = Sealing.open(wrap, keys)
-        val firstSeen = pending[wrap.id]?.second ?: clock()
+        val firstSeen = pending[wrap.id]?.second ?: firstSeenStored[wrap.id] ?: clock().also { firstSeenStored[wrap.id] = it }
         val author = (o as? Opening.Opened)?.rumor?.pubkey
-        if (author != null && author != belfry && chainOf(author) == null && mayAsk(author)) refresh(author)
+        // the author's chain, read again when unknown OR when it doesn't hold the seal's device (a stale chain; the review's 1)
+        if (o is Opening.Opened && author != null && author != belfry && mayAsk(author)) {
+            val c = chainOf(author)
+            if (c == null || !c.accepts(o.sealPubkey, o.rumor.createdAt)) refreshHere(author)
+        }
+        // an lb not of my chain: my chain read again before judging (it may be a rotation this device missed; the review's 2)
+        if (o is Opening.Locked && myLetterboxesIfCurrent()?.contains(o.lb) == false) refreshHere(account)
         val v = Sealing.verdict(o, author?.let { chainOf(it) }, firstSeen, clock(), belfry, myLetterboxes = myLetterboxesIfCurrent())
         when (v) {
             Sealing.Verdict.ACCEPT -> {
                 pending.remove(wrap.id)
                 val r = (o as Opening.Opened).rumor
+                firstSeenStored.remove(wrap.id)
                 convOf(r)?.let { if (sealedSince.putIfAbsent(it, clock()) == null) saveState() }
                 return Received(v, r, (o as Opening.Opened).sealPubkey)
             }
-            Sealing.Verdict.KEEP, Sealing.Verdict.LOCKED -> pending[wrap.id] = wrap to firstSeen
-            Sealing.Verdict.DROP -> pending.remove(wrap.id)
+            Sealing.Verdict.KEEP, Sealing.Verdict.LOCKED -> { pending[wrap.id] = wrap to firstSeen; saveState() }
+            Sealing.Verdict.DROP -> { pending.remove(wrap.id); firstSeenStored.remove(wrap.id) }
             Sealing.Verdict.NOT_SEALED -> {}
         }
         return Received(v)
     }
 
     /** Accepted later (a new roster of the author, or keys arrived). */
-    val later = ArrayList<Event>()
+    val later = java.util.concurrent.CopyOnWriteArrayList<Pair<Event, String>>()
+
+    /** When each kept wrap was first seen (the 30-day give-up survives restarts). */
+    private val firstSeenStored = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** My previously pinned chain after a fresh start: its devices may still hand over keys (§5.5). */
+    private var previousChain: Chain? = null
+
+    /** The conversation of a rumor accepted later is sealed too (the review's 16). */
+    fun markSealed(conv: String) { if (sealedSince.putIfAbsent(conv, clock()) == null) saveState() }
+
+    private fun anchoredDevices(c: Chain): List<String> = c.rosters.firstOrNull { it.id == c.anchored }?.devices ?: c.rosters.first().devices
 
     private suspend fun retryPending() {
         for ((id, p) in pending.entries.toList()) {
             val o = Sealing.open(p.first, keys)
             val author = (o as? Opening.Opened)?.rumor?.pubkey
+            // opened only now (keys came): the author's chain read when it doesn't hold the seal's device (with the back-off)
+            if (o is Opening.Opened && author != null && author != account && mayAsk(author)) {
+                val c = known[author]?.chain
+                if (c == null || !c.accepts(o.sealPubkey, o.rumor.createdAt)) refreshHere(author)
+            }
             val v = Sealing.verdict(o, author?.let { known[it]?.chain }, p.second, clock(), null)
-            if (v == Sealing.Verdict.ACCEPT) { pending.remove(id); later.add((o as Opening.Opened).rumor) }
+            if (v == Sealing.Verdict.ACCEPT) { pending.remove(id); firstSeenStored.remove(id); later.add((o as Opening.Opened).rumor to o.sealPubkey) }
             if (v == Sealing.Verdict.DROP) pending.remove(id)
         }
         if (pendingKeys.isNotEmpty() && known[account]?.chain != null) {
@@ -672,7 +762,8 @@ interface SealedPorts {
     suspend fun sessions(): List<SessionRow>?
     suspend fun revoke(clientPubkey: String)
     fun loadKeys(): Map<String, String>
-    fun saveKeys(keys: Map<String, String>)
+    /** True only when the keys are written for good (a commit, checked). */
+    fun saveKeys(keys: Map<String, String>): Boolean
     /** The engine's pins and sealed conversations, one value, kept beside the conversation data. */
     fun loadState(): String? = null
     fun saveState(json: String) {}

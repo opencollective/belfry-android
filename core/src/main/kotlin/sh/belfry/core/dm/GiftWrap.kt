@@ -43,7 +43,7 @@ object GiftWrap {
         val rumorJson = signer.nip44Decrypt(seal.pubkey, seal.content)
         var rumor = Event.fromJsonString(rumorJson) ?: return null
         if (rumor.pubkey != seal.pubkey) return null
-        if (rumor.id.isEmpty()) rumor = rumor.withId()
+        rumor = rumor.withId() // always computed: an id inside is never trusted (the review's 13)
         return Opened(rumor.copy(sig = ""), seal.pubkey)
     }
 }

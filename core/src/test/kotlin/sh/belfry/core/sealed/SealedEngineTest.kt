@@ -21,24 +21,43 @@ import kotlin.test.assertTrue
 class SealedEngineTest {
     /** The community relay: replaceable 30078 per (pubkey, d); SILENT = no complete answer (before AUTH, or no EOSE). */
     class FakeRelay {
-        val events = ArrayList<Event>()
+        val events = java.util.concurrent.CopyOnWriteArrayList<Event>()
         var silent = false
+        /** The relay answers CLOSED (no answer, sealed.md §5.1). */
+        var closing = false
+        /** The next N anchor queries see no anchor (a relay that hasn't got it yet). */
+        var hideAnchors = 0
         /** Kinds the relay refuses (OK false). */
         val refusing = HashSet<Int>()
         fun refuse(e: Event) = e.kind in refusing
-        fun add(e: Event) {
-            if (e.kind == 30078) events.removeAll { it.kind == 30078 && it.pubkey == e.pubkey && it.tag("d") == e.tag("d") }
+        /** Replaceable 30078 per (pubkey, d): the newer stays; the same second keeps the lower id (NIP-01). */
+        @Synchronized fun add(e: Event) {
+            if (e.kind == 30078) {
+                val standing = events.firstOrNull { it.kind == 30078 && it.pubkey == e.pubkey && it.tag("d") == e.tag("d") }
+                if (standing != null) {
+                    if (standing.createdAt > e.createdAt || (standing.createdAt == e.createdAt && standing.id < e.id)) return
+                    events.remove(standing)
+                }
+            }
             events.add(e)
         }
         fun query(q: Query): SealedEngine.Answer {
             if (silent) return SealedEngine.Answer(emptyList(), false)
+            if (q.kinds.contains(30078) && q.d?.contains(Anchor.D) == true && hideAnchors > 0) { hideAnchors--; return SealedEngine.Answer(emptyList(), true) }
             val out = events.filter { e ->
                 e.kind in q.kinds &&
                     (q.authors == null || e.pubkey in q.authors) &&
                     (q.p == null || e.tags.any { it.size >= 2 && it[0] == "p" && it[1] in q.p }) &&
                     (q.d == null || e.tag("d") in q.d)
             }
-            return SealedEngine.Answer(out, true)
+            return SealedEngine.Answer(out, !closing)
+        }
+        /** A page as the community relay gives it: newest first, `until` inclusive, at most 300 (its max limit). */
+        fun page(filter: kotlinx.serialization.json.JsonObject): Pair<List<Event>, Boolean> {
+            val kinds = (filter["kinds"] as kotlinx.serialization.json.JsonArray).map { it.toString().toInt() }
+            val until = (filter["until"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLong() ?: Long.MAX_VALUE
+            val limit = minOf((filter["limit"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toInt() ?: 300, 300)
+            return events.filter { it.kind in kinds && it.createdAt <= until }.sortedByDescending { it.createdAt }.take(limit) to !closing
         }
         fun to(device: String) = events.filter { it.kind == 1059 && it.tag("p") == device }
     }
@@ -68,7 +87,8 @@ class SealedEngineTest {
         override suspend fun sessions(): List<SessionRow>? = if (server.odd) null else server.sessions[account.pubkey]?.toList() ?: emptyList()
         override suspend fun revoke(clientPubkey: String) { if (server.failRevoke) throw IllegalStateException("revoke"); revoked.add(clientPubkey); server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
         override fun loadKeys() = saved
-        override fun saveKeys(keys: Map<String, String>) { saved = keys }
+        var diskFull = false
+        override fun saveKeys(keys: Map<String, String>): Boolean { if (diskFull) return false; saved = keys; return true }
         var state: String? = null
         override fun loadState(): String? = state
         override fun saveState(json: String) { state = json }
@@ -279,6 +299,7 @@ class SealedEngineTest {
         val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
         assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
         assertFalse(laptop.canRemove(alicePhone.pubkey))
+        kotlin.test.assertFails { laptop.remove(alicePhone.pubkey) } // the engine refuses too, not only the screen
         assertTrue(phone.canRemove(aliceLaptop.pubkey).not(), "the laptop isn't in the head yet")
         // and a locked device can't send in a sealed conversation
         laptop.sealedSince["n:x"] = now
@@ -296,11 +317,9 @@ class SealedEngineTest {
         val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "from my tablet", now)
         val lb = phone.chainOf(alice.pubkey)!!.head.lb
         val wrap = Sealing.seal(rumor, bobTablet, alice.pubkey, lb, now)
-        assertEquals(Sealing.Verdict.KEEP, phone.receive(wrap, null) { c }.verdict)
-        assertEquals(1, phone.pendingCount)
-        phone.refresh(bob.pubkey)
+        // the review's 1: a stale chain is read again on receipt, not only when Alice writes
+        assertEquals(Sealing.Verdict.ACCEPT, phone.receive(wrap, null) { c }.verdict)
         assertEquals(0, phone.pendingCount)
-        assertEquals(listOf(rumor.id), phone.later.map { it.id })
     }
 
     /** 294c94f (5): Remove revokes first and changes nothing when that fails. */
@@ -607,5 +626,76 @@ class SealedEngineTest {
         assertTrue(yWraps.isNotEmpty())
         val got = Sealing.openKeys(yWraps.last(), y)!!
         assertTrue(newLb in got.keys)
+    }
+
+    /** The review's 6: anchors are dated after the standing one; Allow lands even within one second. */
+    @Test fun anchorsDatedAfterTheStandingOne() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone") // the clock stands still: same second
+        phone.allow(aliceLaptop.pubkey)
+        val anchor = relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
+        assertEquals(phone.chainOf(alice.pubkey)!!.head.id, anchor.tag("head"))
+        assertTrue(anchor.createdAt > now, "after the root's anchor")
+    }
+
+    /** The review's 7: two devices at first sign-in; the loser of the anchor reads back and asks. */
+    @Test fun firstRootRace() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val a = engine(alice, alicePhone); a.start("Pixel 8", "phone")
+        relay.hideAnchors = 2 // the laptop's start doesn't see the phone's anchor yet
+        val b = engine(alice, aliceLaptop); b.start("Firefox on Linux", "computer")
+        val anchor = relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
+        val bRoot = relay.events.firstOrNull { it.kind == Roster.KIND && it.pubkey == aliceLaptop.pubkey && it.tag("n") == "1" }
+        if (anchor.tag("root") == bRoot?.id) assertEquals(SealedEngine.Mine.IN_HEAD, b.mine)
+        else assertEquals(SealedEngine.Mine.WAITING, b.mine, "lost the anchor: asks like a new device")
+    }
+
+    /** The review's 15: a key that can't be written for good: nothing published. */
+    @Test fun keyNotSavedNothingPublished() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        val head = phone.chainOf(alice.pubkey)!!.head.id
+        portsOf[alicePhone.pubkey]!!.diskFull = true
+        kotlin.test.assertFailsWith<SealedEngine.NotDone> { phone.remove(aliceLaptop.pubkey, revoke = false) }
+        portsOf[alicePhone.pubkey]!!.diskFull = false
+        assertEquals(head, phone.refresh(alice.pubkey)!!.head.id)
+    }
+
+    /** The review's 2: a wrap to my new letterbox reaches a device without its key: kept, opened when the keys come. */
+    @Test fun dropThenKeys() = runBlocking<Unit> {
+        val (phone, laptop, b) = world()
+        val tablet = LocalSigner.random()
+        server.live(alice.pubkey, tablet.pubkey, "Tab")
+        phone.allow(tablet.pubkey)
+        val before = relay.to(aliceLaptop.pubkey).map { it.id }.toSet()
+        phone.remove(tablet.pubkey) // a new letterbox; its hand-over to the laptop is lost
+        val lost = relay.to(aliceLaptop.pubkey).filter { it.id !in before }
+        relay.events.removeAll(lost.toSet())
+        val c = "n:" + listOf(alice.pubkey, bob.pubkey).sorted().joinToString(",")
+        val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
+        val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "to the new letterbox", now)
+        val toAlice = b.seal(rumor, plan).single { it.recipient == alice.pubkey }.wrap
+        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(toAlice, null) { c }.verdict, "an lb of my chain without its secret: kept, never dropped")
+        lost.forEach { relay.add(it); laptop.onDeviceWrap(it) }
+        assertTrue(laptop.later.any { it.first.id == rumor.id }, "opened once the keys came")
+    }
+
+    /** The review's 9: engine state touched from many coroutines at once. */
+    @Test fun concurrency() = runBlocking<Unit> {
+        val (phone, _, b) = world()
+        val c = "n:" + listOf(alice.pubkey, bob.pubkey).sorted().joinToString(",")
+        val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
+        val jobs = (1..60).map { i ->
+            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.Default) {
+                when (i % 3) {
+                    0 -> phone.refresh(bob.pubkey)
+                    1 -> phone.receive(b.seal(GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "m$i", now), plan).single { it.recipient == alice.pubkey }.wrap, null) { c }
+                    else -> phone.saveState()
+                }
+            }
+        }
+        jobs.forEach { it.await() }
+        assertTrue(c in phone.sealedSince)
     }
 }

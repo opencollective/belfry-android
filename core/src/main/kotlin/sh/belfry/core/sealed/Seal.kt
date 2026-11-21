@@ -28,13 +28,16 @@ class KeyChain(keys: Map<String, String> = emptyMap()) {
 
     init { keys.forEach { (pub, secret) -> add(pub, secret) } }
 
-    val size: Int get() = map.size
-    val publicKeys: Set<String> get() = map.keys
+    val size: Int @Synchronized get() = map.size
+    val publicKeys: Set<String> @Synchronized get() = map.keys.toSet()
 
-    fun secretFor(lb: String): String? = map[lb]
+    @Synchronized fun secretFor(lb: String): String? = map[lb]
+
+    /** Takes back a pair that never got saved. */
+    @Synchronized fun forget(lb: String) { map.remove(lb) }
 
     /** Adds a pair only when the secret's public key is LB (§5.5: "checks each secret against its lb"). */
-    fun add(lb: String, secret: String): Boolean {
+    @Synchronized fun add(lb: String, secret: String): Boolean {
         if (!Hex.isKey(lb) || !Hex.isKey(secret)) return false
         val pub = try { Keys.publicKeyHex(secret) } catch (e: Exception) { return false }
         if (pub != lb) return false
@@ -43,9 +46,9 @@ class KeyChain(keys: Map<String, String> = emptyMap()) {
     }
 
     /** Merges the valid pairs of OTHER; how many were new. */
-    fun merge(other: Map<String, String>): Int = other.count { (pub, secret) -> pub !in map && add(pub, secret) }
+    @Synchronized fun merge(other: Map<String, String>): Int = other.count { (pub, secret) -> pub !in map && add(pub, secret) }
 
-    fun toMap(): Map<String, String> = LinkedHashMap(map)
+    @Synchronized fun toMap(): Map<String, String> = LinkedHashMap(map)
 
     /** The `keys` array of a handover (8561). */
     fun toJson(): JsonArray = buildJsonArray { map.forEach { (lb, s) -> add(buildJsonObject { put("lb", JsonPrimitive(lb)); put("secret", JsonPrimitive(s)) }) } }

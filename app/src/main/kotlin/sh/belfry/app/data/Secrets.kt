@@ -47,7 +47,8 @@ class Secrets(context: Context) {
         packed[0] = iv.size.toByte()
         System.arraycopy(iv, 0, packed, 1, iv.size)
         System.arraycopy(ct, 0, packed, 1 + iv.size, ct.size)
-        prefs.edit().putString(name, Base64.encodeToString(packed, Base64.NO_WRAP)).apply()
+        // written for good before returning (commit, not apply): a letterbox secret must be on disk before its roster goes
+        if (!prefs.edit().putString(name, Base64.encodeToString(packed, Base64.NO_WRAP)).commit()) throw java.io.IOException("not saved")
     }
 
     @Synchronized

@@ -401,22 +401,24 @@ class Relay(
      * reached after NIP-42 on this same socket; sealed.md 294c94f (7)). Null without a connection.
      */
     suspend fun queryKnown(filters: List<JsonObject>, timeoutMs: Long = 8_000): Pair<List<Event>, Boolean>? {
+        val box = QueryBox()
         val before = synchronized(lock) { socket }
-        val a = ask(filters, timeoutMs) ?: return null
-        val complete = a.second && synchronized(lock) { authed && socket === before && socket != null }
+        val a = ask(filters, timeoutMs, box) ?: return null
+        // complete = EOSE (a CLOSED is no answer), the REQ sent after AUTH, on the same socket still
+        val complete = a.second && !box.closed && box.authedAtSend && synchronized(lock) { socket === before && socket != null }
         return a.first to complete
     }
 
     /** What arrived, and whether EOSE came; null without a connection. */
-    private suspend fun ask(filters: List<JsonObject>, timeoutMs: Long): Pair<List<Event>, Boolean>? {
+    private suspend fun ask(filters: List<JsonObject>, timeoutMs: Long, given: QueryBox? = null): Pair<List<Event>, Boolean>? {
         if (openSocket() == null) {
             try { connect(timeoutMs) } catch (e: RelayException) { return null }
         }
         val id = "q" + Random.hex(4)
-        val box = QueryBox()
+        val box = given ?: QueryBox()
         val ws = synchronized(lock) {
             val s = if (isOpen) socket else null
-            if (s != null) queries[id] = box
+            if (s != null) { queries[id] = box; box.authedAtSend = authed }
             s
         } ?: return null
         ws.send(req(id, filters))
@@ -483,7 +485,7 @@ class Relay(
                 val sub = arr.getOrNull(1).str() ?: return
                 val reason = arr.getOrNull(2).str() ?: ""
                 val q = synchronized(lock) { queries[sub] }
-                if (q != null) q.done.complete(Unit) else onClosed?.invoke(sub, reason)
+                if (q != null) { q.closed = true; q.done.complete(Unit) } else onClosed?.invoke(sub, reason)
             }
             "AUTH" -> {
                 val challenge = arr.getOrNull(1).str() ?: return
@@ -511,6 +513,10 @@ class Relay(
     private class QueryBox {
         private val list = ArrayList<Event>()
         val done = CompletableDeferred<Unit>()
+        /** The relay CLOSED it: not an answer (sealed.md §5.1). */
+        @Volatile var closed = false
+        /** NIP-42 was done on this socket when the REQ went out. */
+        @Volatile var authedAtSend = false
         @Synchronized fun add(e: Event) { list.add(e) }
         @Synchronized fun events(): List<Event> = list.toList()
     }

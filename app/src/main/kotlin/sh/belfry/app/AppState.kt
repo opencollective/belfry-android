@@ -588,5 +588,6 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
 class SecretsVault(private val secrets: sh.belfry.app.data.Secrets) : Vault {
     override fun get(name: String): String? = try { secrets.get(name) } catch (e: Exception) { null }
     override fun set(name: String, value: String) { try { secrets.set(name, value) } catch (e: Exception) { } }
+    override fun setChecked(name: String, value: String): Boolean = try { secrets.set(name, value); true } catch (e: Exception) { false }
     override fun remove(name: String) { try { secrets.remove(name) } catch (e: Exception) { } }
 }

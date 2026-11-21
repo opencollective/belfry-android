@@ -35,7 +35,7 @@ class DirectMessagesSealedTest {
         override suspend fun sessions(): List<SessionRow>? = server.sessions[account.pubkey]?.toList() ?: emptyList()
         override suspend fun revoke(clientPubkey: String) { server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
         override fun loadKeys() = saved
-        override fun saveKeys(keys: Map<String, String>) { saved = keys }
+        override fun saveKeys(keys: Map<String, String>): Boolean { saved = keys; return true }
     }
 
     /** A signer that counts its calls: sealed messages must never reach it. */
@@ -53,7 +53,8 @@ class DirectMessagesSealedTest {
         override val blossom = "https://files.belfry.example"
         override val localOnly = false
         override fun now() = now
-        override fun bridgeKey(): String? = null
+        var bridge: String? = null
+        override fun bridgeKey(): String? = bridge
         override fun realName(pubkey: String) = ""
         override fun outbox(): List<OutboxItem> = queued
         override suspend fun enqueueSigned(target: Target, event: Event, dm: String?): String {
@@ -199,5 +200,25 @@ class DirectMessagesSealedTest {
         assertEquals("Not sent: the message is too long to lock. Shorten it and send again.", e.message)
         assertTrue(a.second.snapshot.value.thread(conv(bob.pubkey)).isEmpty(), "no bubble: the text stays in the box")
         assertTrue(outbox(a.second).isEmpty())
+    }
+
+    /** The review's 3: mail follows the same plan: sealed by the device, never the signer; held while the device can't tell. */
+    @Test fun mailNeverTheSigner() = runBlocking<Unit> {
+        val (a, _) = ready()
+        val host = hosts.getValue(a.second)
+        host.bridge = LocalSigner.random().pubkey
+        a.second.myAddressProvider = { "alex@belfry.example" }
+        a.second.send("m:ana@example.org", "Hello Ana", subject = "Visit")
+        assertEquals(0, a.third.calls, "no signer call for mail on a ready chain")
+        assertTrue(host.queued.any { it.signed!!.tag("p") == host.bridge && it.signed!!.tag("lb") == null }, "to the mail key")
+        assertTrue(host.queued.any { it.signed!!.tag("lb") != null }, "the self-copy sealed to my head")
+        // a device whose state is unknown (start not done): held, never the signer
+        val sa = CountingSigner(alice)
+        val cold = Host(sa, engine(alice, LocalSigner.random()))
+        cold.bridge = host.bridge
+        val dm = dmOf(cold).also { it.myAddressProvider = { "alex@belfry.example" } }
+        try { dm.send("m:ana@example.org", "Second", subject = "Visit") } catch (e: sh.belfry.core.dm.DmException) { }
+        assertEquals(0, sa.calls)
+        assertTrue(cold.queued.isEmpty())
     }
 }

@@ -127,6 +127,8 @@ fun ConversationScreen(conv: String) {
     val sealState by session.encryption.state.collectAsState()
     val seal = if (newMail) null else sealState.seal(conv)
     val openNotice = rememberNoticeOpener(conv)
+    // a sealed conversation opened: its people's chains asked again, kept messages tried again (§4)
+    LaunchedEffect(conv, seal != null) { if (seal != null) session.sealedOpened(conv) }
     // a device not yet allowed (canvas v84): messages from before the conversation was sealed read
     // as usual, then one amber block in place of the rest; no composer
     val lockedHere = seal != null && conv in sealState.locked

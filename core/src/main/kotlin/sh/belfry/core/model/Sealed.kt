@@ -26,6 +26,8 @@ data class MyDevice(
     val thisDevice: Boolean = false,
     /** Last seen (Unix seconds), null when not known. */
     val active: Long? = null,
+    /** This device may remove it (in my head, not this one; the review's 12). */
+    val removable: Boolean = !thisDevice,
 )
 
 /** A device change of someone else's in the last 30 days: added or removed, and when. */

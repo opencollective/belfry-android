@@ -203,7 +203,7 @@ internal fun SealDevices() {
                 trailing = {
                     if (d.thisDevice) {
                         Chip("This device")
-                    } else if (st.earlierLocked) {
+                    } else if (st.earlierLocked || !d.removable) {
                         // canvas v90: a device that is itself locked offers no Remove
                     } else if (working == d.id) {
                         sh.belfry.app.ui.kit.Spinner(Modifier.padding(horizontal = 12.dp).testTag("seal-removing"))
