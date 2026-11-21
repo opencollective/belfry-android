@@ -451,8 +451,10 @@ class SealedEngineTest {
         val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "x", now)
         val wrap = Sealing.seal(rumor, bobPhone, alice.pubkey, stranger, now)
         phone.connectionLost()
+        relay.silent = true // the re-read of my chain doesn't complete: no knowledge, keep
         assertEquals(Sealing.Verdict.LOCKED, phone.receive(wrap, null) { "c" }.verdict, "kept: my chain isn't current on this connection")
-        phone.refresh(alice.pubkey)
+        relay.silent = false
+        phone.refresh(alice.pubkey) // current now: the lb is not mine
         assertEquals(Sealing.Verdict.DROP, phone.receive(wrap, null) { "c" }.verdict)
     }
 
@@ -690,7 +692,9 @@ class SealedEngineTest {
         val wraps = (1..40).map { i -> b.seal(GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "m$i", now + i), plan).single { it.recipient == alice.pubkey }.wrap }
         val results = (wraps.map { w -> async(kotlinx.coroutines.Dispatchers.Default) { phone.receive(w, null) { c }.verdict } } +
             (1..20).map { async(kotlinx.coroutines.Dispatchers.Default) { phone.refresh(bob.pubkey); phone.saveState(); Sealing.Verdict.ACCEPT } }).map { it.await() }
-        assertEquals(60, results.count { it == Sealing.Verdict.ACCEPT }, "every message accepted, no lost state")
+        phone.refresh(bob.pubkey) // anything kept while Bob's chain was being read is taken now
+        // a message that came while Bob's chain was being read waits (the back-off) and is accepted a moment later
+        assertEquals(40, results.take(40).count { it == Sealing.Verdict.ACCEPT } + phone.later.size, "every message accepted, now or later; no lost state")
         assertTrue(phone.sealedSince.containsKey(c))
         assertEquals(0, phone.pendingCount)
         // the saved state is whole: a restart reads it back

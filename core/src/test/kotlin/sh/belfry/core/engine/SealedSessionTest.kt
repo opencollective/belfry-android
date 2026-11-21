@@ -61,6 +61,8 @@ class SealedSessionTest {
         srv.start()
     }
     private val sessions = ArrayList<Session>()
+    /** Moves the sessions' clock forward (a device asks at most once a minute). */
+    @Volatile private var skew = 0L
 
     private val community: Community get() = Community.defaults("example.org").copy(
         groupsRelay = g.url, mainRelay = m.url, apiBase = api.url("/api").toString().trimEnd('/'),
@@ -68,7 +70,7 @@ class SealedSessionTest {
 
     private fun session(account: LocalSigner, device: LocalSigner): Session {
         live.add(device.pubkey)
-        val s = Session(community, MemoryStore(), account, http, scope, false, { System.currentTimeMillis() / 1000 }, null, ZoneOffset.UTC)
+        val s = Session(community, MemoryStore(), account, http, scope, false, { System.currentTimeMillis() / 1000 + skew }, null, ZoneOffset.UTC)
         s.keyVault = MemoryVault()
         s.deviceKeyOverride = device
         s.sealedPollMs = 300
@@ -122,6 +124,7 @@ class SealedSessionTest {
         val handed = m.published.filter { it.kind == 1059 && it.tag("p") == laptop.pubkey }.map { it.id }.toSet()
         a.sealed!!.remove(tab.pubkey, revoke = false)
         m.stored.removeAll { it.kind == 1059 && it.tag("p") == laptop.pubkey && it.id !in handed }
+        skew += 120 // past the once-a-minute limit
         until("the laptop asks again", 20_000) { requestsBy(laptop) > before }
         assertTrue(b.sealed!!.inHeadWithoutKey)
     }

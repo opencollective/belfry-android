@@ -451,7 +451,9 @@ class SealedEngine(
         answered[req.id]?.let { return it }
         if ((newestRequest[dev] ?: 0L) > req.createdAt) return OnRequest.Ignore
         newestRequest[dev] = req.createdAt
-        val sessions = cachedSessions() ?: return OnRequest.Ignore
+        var sessions = cachedSessions() ?: return OnRequest.Ignore
+        // a device newer than the cached list: read it once more
+        if (sessions.none { it.clientPubkey == dev }) sessions = ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return OnRequest.Ignore
         val row = sessions.firstOrNull { it.clientPubkey == dev && it.chat } ?: return OnRequest.Ignore
         val head = chainOf(account)
         if (head != null && dev in head.devices) {
