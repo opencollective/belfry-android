@@ -254,7 +254,7 @@ object SealedText {
     const val START_FRESH_SEEN = "The people you write with will see that you started on a new device."
     const val START_FRESH = "Start fresh"
     /** An old device of mine after a fresh start elsewhere (canvas v122 messages/encryption-fresh-elsewhere + -done). */
-    fun freshElsewhereTitle(device: String?): String = "Sealed conversations were started fresh on " + (device?.let { "\u201c$it\u201d" } ?: "another device")
+    fun freshElsewhereTitle(device: String?): String = "Sealed conversations were started fresh on " + (device?.let { "\u201c$it\u201d" } ?: "a new device")
     private val TIME_12 = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
     /** "Today at 9:41 PM", or "21 Nov at 9:41 PM". */
     fun freshElsewhereWhen(at: Long, now: Long, zone: ZoneId): String {

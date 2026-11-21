@@ -2302,6 +2302,6 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   → "Every other device is signed out", "<names> can't open your account any more.", the e-mail
   line, "To read sealed conversations here again, start fresh on this device." Show how / Done.
   It was me closes it (the locked state and the ask, as before). The device name is the session
-  row's (the new root's device), else "another device"; Android keeps no e-mail: "your e-mail".
+  row's (the new root's device), else "a new device" (no quotes; canvas v124); Android keeps no e-mail: "your e-mail".
 - **Known limit:** a second fresh start forgets the first chain (only the previous pinned chain is
   remembered), so devices of the first chain can no longer hand their keys back.
