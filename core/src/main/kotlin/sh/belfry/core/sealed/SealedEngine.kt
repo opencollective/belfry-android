@@ -194,11 +194,26 @@ class SealedEngine(
     /** The rosters of my chain already looked at for trust. */
     private val trustSeen = HashSet<String>()
 
+    /**
+     * sealed.md a6ac9a0: a later roster signed by a trusted device vouches only for the devices it
+     * ADDS (a roster that merely keeps one vouches for nothing: our devices publish such rosters by
+     * themselves); a device a roster drops leaves trust, and comes back untrusted.
+     */
     private fun extendTrust(chain: Chain) {
-        if (trusted.isEmpty()) { trusted.addAll(chain.rosters.first().devices); }
-        for (r in chain.rosters) {
+        if (trusted.isEmpty() && trustSeen.isEmpty()) {
+            // the head this client first holds
+            trusted.addAll(chain.head.devices)
+            trustSeen.addAll(chain.rosters.map { it.id })
+            return
+        }
+        for (i in chain.rosters.indices) {
+            val r = chain.rosters[i]
             if (!trustSeen.add(r.id)) continue
-            if (r.signer in trusted) trusted.addAll(r.devices)
+            val prev = chain.rosters.getOrNull(i - 1)?.devices.orEmpty().toSet()
+            val added = r.devices.filter { it !in prev }
+            val dropped = prev.filter { it !in r.devices }
+            trusted.removeAll(dropped.toSet())
+            if (r.signer in trusted) trusted.addAll(added)
         }
     }
 
