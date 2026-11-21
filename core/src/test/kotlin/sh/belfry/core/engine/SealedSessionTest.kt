@@ -121,9 +121,9 @@ class SealedSessionTest {
         // a third device comes and goes: a new letterbox, whose hand-over the laptop never gets
         val tab = LocalSigner.random(); live.add(tab.pubkey)
         a.sealed!!.allow(tab.pubkey)
-        val handed = m.published.filter { it.kind == 1059 && it.tag("p") == laptop.pubkey }.map { it.id }.toSet()
+        // the rotation's hand-over to the laptop is lost: dropped the moment it is published, never served
+        m.onPublished = { _, ev -> if (ev.kind == 1059 && ev.tag("p") == laptop.pubkey) m.stored.remove(ev) }
         a.sealed!!.remove(tab.pubkey, revoke = false)
-        m.stored.removeAll { it.kind == 1059 && it.tag("p") == laptop.pubkey && it.id !in handed }
         skew += 120 // past the once-a-minute limit
         until("the laptop asks again", 20_000) { requestsBy(laptop) > before }
         assertTrue(b.sealed!!.inHeadWithoutKey)
