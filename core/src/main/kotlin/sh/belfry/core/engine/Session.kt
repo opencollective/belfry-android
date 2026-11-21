@@ -950,9 +950,13 @@ class Session(
         try {
             do {
                 again = false
-                val items = store.outbox().filter { !held(it) }
-                if (items.none { it.status == OutboxStatus.QUEUED }) break
+                val queued = store.outbox().filter { !held(it) }
+                if (queued.none { it.status == OutboxStatus.QUEUED }) break
                 if (!localOnly && !_status.value.online) break
+                // sealed wraps whose recipient's head moved are sealed again first (§9), under this lock
+                val items = if (sealed == null) queued else dm.resealQueued(queued).also { again ->
+                    for ((a, b) in queued.zip(again)) if (a.signed?.id != b.signed?.id) store.putOutbox(b)
+                }
                 val before = items.associateBy { it.localId }
                 val signedNow = HashMap<String, Event>()
                 val handled = HashSet<String>()
@@ -1390,6 +1394,7 @@ class Session(
     }
 
     private inner class Host : DmHost {
+        override val sealed: sh.belfry.core.sealed.SealedEngine? get() = this@Session.sealed
         override val me: String get() = this@Session.me
         override val domain: String get() = community.domain
         override val blossom: String get() = community.blossom

@@ -423,7 +423,7 @@ class SealedEngine(
     }
 
     /** What happened to an arriving wrap; ACCEPT carries the rumor. */
-    data class Received(val verdict: Sealing.Verdict, val rumor: Event? = null)
+    data class Received(val verdict: Sealing.Verdict, val rumor: Event? = null, val sealPubkey: String? = null)
 
     /** Opens a sealed wrap to me. CONV_OF names a rumor's conversation (to mark it sealed). */
     suspend fun receive(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received {
@@ -437,7 +437,7 @@ class SealedEngine(
                 pending.remove(wrap.id)
                 val r = (o as Opening.Opened).rumor
                 convOf(r)?.let { sealedSince.putIfAbsent(it, clock()) }
-                return Received(v, r)
+                return Received(v, r, (o as Opening.Opened).sealPubkey)
             }
             Sealing.Verdict.KEEP, Sealing.Verdict.LOCKED -> pending[wrap.id] = wrap to firstSeen
             Sealing.Verdict.DROP -> pending.remove(wrap.id)

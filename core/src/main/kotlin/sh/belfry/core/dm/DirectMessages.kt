@@ -89,6 +89,12 @@ data class Dm(
     val pending: Boolean = false,
     /** The relay refused it for good: why (Retry puts it back in the outbox). */
     val failed: String? = null,
+    /** Held undecided since (sealed.md §6, 64a07fa): the device couldn't tell yet whether to seal it. */
+    val heldSince: Long? = null,
+    /** Came the old, unsealed way after this device saw the conversation sealed (canvas v89). */
+    val notSealed: Boolean = false,
+    /** From a history someone shared with this device (§8): who; not proven authentic. */
+    val sharedBy: String? = null,
 ) {
     val isMail: Boolean get() = kind == 1301
 
@@ -118,6 +124,9 @@ data class Dm(
         })
         if (pending) put("pending", JsonPrimitive(true))
         if (failed != null) put("failed", JsonPrimitive(failed))
+        if (heldSince != null) put("heldSince", JsonPrimitive(heldSince))
+        if (notSealed) put("notSealed", JsonPrimitive(true))
+        if (sharedBy != null) put("sharedBy", JsonPrimitive(sharedBy))
     }
 
     companion object {
@@ -144,6 +153,9 @@ data class Dm(
                 large = o["large"].obj()?.let { LargeMail(it.s("url") ?: "", it.s("key") ?: "", it.s("nonce") ?: "") },
                 pending = o["pending"].bool() ?: false,
                 failed = o.s("failed"),
+                heldSince = o["heldSince"].long(),
+                notSealed = o["notSealed"].bool() ?: false,
+                sharedBy = o.s("sharedBy"),
             )
         }
     }
@@ -280,6 +292,8 @@ class DmSnapshot(
     fun stateLine(d: Dm): String? {
         if (!d.mine) return null
         if (d.failed != null) return "Not sent: ${d.failed}"
+        val held = d.heldSince
+        if (held != null) return if (now - held >= 60) HELD_LONG else "Waiting…"
         val r = report(d.emailId)
         if (d.isMail && r != null) return when (r.status) {
             Report.DELIVERED -> "Delivered"
@@ -291,6 +305,8 @@ class DmSnapshot(
     }
 
     companion object {
+        /** A held message after a minute (64a07fa: say why). */
+        const val HELD_LONG = "Not sent yet: the belfry hasn't answered whether this conversation is locked. Cancel gives your text back."
         fun empty(me: String = ""): DmSnapshot = DmSnapshot(emptyList(), emptyMap(), ReadState.EMPTY, me)
     }
 }
@@ -323,6 +339,8 @@ interface DmHost {
     /** NIP-05 on the community's domain. */
     suspend fun nip05(name: String): String?
     fun later(delayMs: Long, block: suspend () -> Unit)
+    /** Sealed conversations on this device (null: the demo, a guest, not started). */
+    val sealed: sh.belfry.core.sealed.SealedEngine? get() = null
 }
 
 /** Pure parts of reading a rumor, testable without an engine. */
@@ -413,6 +431,15 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private val channelSends = HashSet<String>() // email-ids sent as a shared inbox, still without a report
     private val backlog = ArrayList<Event>()
     private val busy = Mutex()
+    /** Sealed wraps kept for later (locked here, or the author's chain not loaded yet), by id. */
+    private val kept = LinkedHashMap<String, Event>()
+    /** Messages held undecided (64a07fa): rid → the rumor and who it goes to. */
+    private val held = LinkedHashMap<String, Held>()
+    /** Sealed wraps in the outbox: wrap id → what was sealed to whom (re-sealed when a head moved, §9). */
+    private val sealQ = LinkedHashMap<String, QueuedSeal>()
+
+    private class Held(val rumor: Event, val to: List<String>, val self: Boolean, val conv: String)
+    private class QueuedSeal(val rumor: Event, val recipient: String, val lb: String)
 
     private val _snapshot = MutableStateFlow(DmSnapshot.empty(host.me))
     val snapshot: StateFlow<DmSnapshot> = _snapshot
@@ -431,6 +458,18 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         parseJsonOrNull(store.get(K_READ) ?: "").obj()?.forEach { (k, v) -> v.long()?.let { legacyRead[k] = it } }
         parseJsonOrNull(store.get(K_REACTS) ?: "").arr()?.forEach { el -> el.obj()?.let(DmReaction::fromJson)?.let { reacts[it.rid] = it } }
         parseJsonOrNull(store.get(K_GONE) ?: "").obj()?.forEach { (k, v) -> v.str()?.let { gone[k] = it } }
+        parseJsonOrNull(store.get(K_KEPT) ?: "").arr()?.forEach { el -> el.obj()?.let { Event.fromJson(it) }?.let { kept[it.id] = it } }
+        parseJsonOrNull(store.get(K_HELD) ?: "").obj()?.forEach { (rid, v) ->
+            val o = v.obj() ?: return@forEach
+            val r = o["rumor"].obj()?.let { Event.fromJson(it) } ?: return@forEach
+            held[rid] = Held(r, o["to"].arr()?.mapNotNull { it.str() } ?: emptyList(), o["self"].bool() ?: true, o.s("conv") ?: return@forEach)
+        }
+        parseJsonOrNull(store.get(K_SEALQ) ?: "").obj()?.forEach { (wid, v) ->
+            val o = v.obj() ?: return@forEach
+            val r = o["rumor"].obj()?.let { Event.fromJson(it) } ?: return@forEach
+            sealQ[wid] = QueuedSeal(r, o.s("to") ?: return@forEach, o.s("lb") ?: return@forEach)
+        }
+        backlog.addAll(kept.values) // tried again at each start
         // a message marked pending whose wraps are gone from the outbox is out
         val waiting = host.outbox().mapNotNull { it.dm }.toSet()
         for ((rid, d) in items.toList()) if (d.pending && rid !in waiting) items[rid] = d.copy(pending = false)
@@ -446,6 +485,15 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 }.toString())
                 store.set(K_REACTS, JsonArray(reacts.values.map { it.toJson() }).toString())
                 store.set(K_GONE, buildJsonObject { for ((k, v) in gone) put(k, JsonPrimitive(v)) }.toString())
+                store.set(K_KEPT, JsonArray(kept.values.map { it.toJson() }).toString())
+                store.set(K_HELD, buildJsonObject {
+                    for ((rid, h) in held) put(rid, buildJsonObject {
+                        put("rumor", h.rumor.toJson()); put("to", JsonArray(h.to.map { JsonPrimitive(it) })); put("self", JsonPrimitive(h.self)); put("conv", JsonPrimitive(h.conv))
+                    })
+                }.toString())
+                store.set(K_SEALQ, buildJsonObject {
+                    for ((wid, q) in sealQ) put(wid, buildJsonObject { put("rumor", q.rumor.toJson()); put("to", JsonPrimitive(q.recipient)); put("lb", JsonPrimitive(q.lb)) })
+                }.toString())
             }
             DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now(), reacts.values.toList())
         }
@@ -475,7 +523,24 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val todo = synchronized(lock) { backlog.sortedByDescending { it.createdAt } }
         if (todo.isEmpty()) return@withLock
         var changed = false
+        val eng = host.sealed
         for (e in todo) {
+            if (e.kind == 1059 && sh.belfry.core.sealed.Sealing.isSealed(e)) {
+                // sealed (§4): never the signer; kept until the engine can open and accept it
+                if (eng == null) continue
+                val got = try { eng.receive(e, host.bridgeKey()) { DmReader.convOf(it, host.me, host.bridgeKey()) } } catch (x: Exception) { continue }
+                when (got.verdict) {
+                    sh.belfry.core.sealed.Sealing.Verdict.ACCEPT -> {
+                        try { takeSealed(got.rumor!!, got.sealPubkey) } catch (x: Exception) { }
+                        synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id) }
+                    }
+                    sh.belfry.core.sealed.Sealing.Verdict.KEEP, sh.belfry.core.sealed.Sealing.Verdict.LOCKED ->
+                        synchronized(lock) { kept[e.id] = e; backlog.removeAll { it.id == e.id } }
+                    else -> synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id) }
+                }
+                changed = true
+                continue
+            }
             try {
                 val d = if (e.kind == 1059) readWrap(e) else readOld(e)
                 synchronized(lock) {
@@ -494,9 +559,38 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 changed = true
             }
         }
+        // accepted later by the engine (the author's new roster, keys that arrived)
+        if (eng != null) {
+            val later = synchronized(eng.later) { eng.later.toList().also { eng.later.clear() } }
+            for (r in later) { try { takeSealed(r, null) } catch (x: Exception) { }; changed = true }
+            if (held.isNotEmpty()) { retryHeld(); changed = true }
+        }
         if (changed) {
             rethread()
             publish()
+        }
+    }
+
+    /** A sealed rumor the engine accepted: a message, a reaction, or a shared history (§8). */
+    private suspend fun takeSealed(rumor: Event, sealPubkey: String?) {
+        val eng = host.sealed
+        if (rumor.kind == sh.belfry.core.sealed.Sealing.SHARE) {
+            if (eng == null || sealPubkey == null) return
+            val chain = eng.chainOf(rumor.pubkey) ?: eng.refresh(rumor.pubkey)
+            for (r in sh.belfry.core.sealed.Sealing.acceptShared(rumor, sealPubkey, chain, host.me)) {
+                // reactions from a shared history are not applied as authentic; a held message is never replaced
+                if (r.kind != 14) continue
+                val d = DmReader.fromRumor(r, host.me, host.bridgeKey(), host.blossom, known()) ?: continue
+                synchronized(lock) { if (r.id !in items) items[d.rid] = d.copy(sharedBy = rumor.pubkey) }
+            }
+            return
+        }
+        if (rumor.kind == 7 || rumor.kind == 5) { synchronized(lock) { reactionRumor(rumor) }; return }
+        val d = readRumor(rumor) ?: return
+        synchronized(lock) {
+            val old = items[d.rid]
+            // arriving sealed takes the "shared" mark off
+            items[d.rid] = d.copy(mine = d.mine || old?.mine == true, pending = old?.pending ?: false, failed = old?.failed, sharedBy = null)
         }
     }
 
@@ -529,10 +623,19 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private suspend fun readWrap(wrap: Event): Dm? {
         val opened = GiftWrap.unwrap(wrap, host.signer) ?: return null
         val rumor = opened.rumor
+        // an old-style rumor in a conversation this device saw sealed (§6, 294c94f (8))
+        val since = host.sealed?.sealedSince?.get(DmReader.convOf(rumor, host.me, host.bridgeKey()))
+        val late = since != null && rumor.createdAt > since
         if (rumor.kind == 7 || rumor.kind == 5) {
-            synchronized(lock) { reactionRumor(rumor) }
+            if (!late) synchronized(lock) { reactionRumor(rumor) } // after sealing: ignored
             return null
         }
+        if (synchronized(lock) { rumor.id in items }) return null // never replaces a message held here
+        val d = readRumor(rumor) ?: return null
+        return if (late && d.kind == 14) d.copy(notSealed = true) else d
+    }
+
+    private suspend fun readRumor(rumor: Event): Dm? {
         var raw: String? = rumor.content
         val x = rumor.tag("x")
         if (rumor.kind == 1301 && rumor.content.isEmpty() && !x.isNullOrEmpty()) {
@@ -579,8 +682,99 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
 
     // ---- sending ---------------------------------------------------------------------------------
 
-    /** Wrap RUMOR for TO (and me) and put the wraps in the outbox. Never waits for the network. */
-    private suspend fun deliver(rumor: Event, to: List<String>, self: Boolean = true) {
+    /**
+     * Wrap RUMOR for TO (and me) and put the wraps in the outbox. Never waits for the network.
+     * Sealed when the conversation is (§4, §6): never the signer for it. False = held undecided
+     * (the device couldn't tell yet; tried again at the first complete answer).
+     */
+    private suspend fun deliver(rumor: Event, to: List<String>, self: Boolean = true, conv: String? = null): Boolean {
+        val eng = host.sealed
+        if (eng != null && !host.localOnly) {
+            if (rumor.kind == 1301) {
+                // §7: with a ready chain, outgoing mail is always sealed by the device; the self-copy to my head
+                val mine = eng.chainOf(host.me)
+                if (mine?.ready == true && eng.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) {
+                    for (t in to) host.enqueueSigned(Target.MAIN, GiftWrap.wrap(rumor, t, eng.device), rumor.id)
+                    if (self) enqueueSealed(eng.seal(rumor, sh.belfry.core.sealed.SealedEngine.Plan.Seal(mapOf(host.me to mine.head.lb))), rumor.id)
+                    return true
+                }
+            } else if (conv != null) {
+                when (val plan = eng.plan(conv, to.filter { it != host.me })) {
+                    is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> { enqueueSealed(eng.seal(rumor, plan), rumor.id); return true }
+                    is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> throw DmException(plan.why)
+                    sh.belfry.core.sealed.SealedEngine.Plan.Hold -> { synchronized(lock) { held[rumor.id] = Held(rumor, to, self, conv) }; return false }
+                    sh.belfry.core.sealed.SealedEngine.Plan.OldWay -> {}
+                }
+            }
+        }
+        oldWay(rumor, to, self)
+        return true
+    }
+
+    private suspend fun enqueueSealed(qs: List<sh.belfry.core.sealed.SealedEngine.Queued>, rid: String) {
+        for (q in qs) {
+            synchronized(lock) { sealQ[q.wrap.id] = QueuedSeal(q.rumor, q.recipient, q.lb) }
+            host.enqueueSigned(Target.MAIN, q.wrap, rid)
+        }
+    }
+
+    /** Held messages: decided at the first complete answer; queued before the held copy goes (64a07fa). */
+    private suspend fun retryHeld() {
+        val eng = host.sealed ?: return
+        for ((rid, h) in synchronized(lock) { held.toList() }) {
+            val plan = try { eng.plan(h.conv, h.to.filter { it != host.me }) } catch (e: Exception) { continue }
+            when (plan) {
+                sh.belfry.core.sealed.SealedEngine.Plan.Hold -> continue
+                is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> {
+                    synchronized(lock) { held.remove(rid) }
+                    update(rid) { it.copy(heldSince = null, pending = false, failed = plan.why) }
+                }
+                is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> {
+                    enqueueSealed(eng.seal(h.rumor, plan), rid)
+                    synchronized(lock) { held.remove(rid) }
+                    update(rid) { it.copy(heldSince = null) }
+                }
+                sh.belfry.core.sealed.SealedEngine.Plan.OldWay -> {
+                    oldWay(h.rumor, h.to, h.self)
+                    synchronized(lock) { held.remove(rid) }
+                    update(rid) { it.copy(heldSince = null) }
+                }
+            }
+        }
+    }
+
+    /** The person cancels a held message: it goes, and its text comes back (64a07fa). */
+    fun cancelHeld(rid: String): String? {
+        val text = synchronized(lock) {
+            if (held.remove(rid) == null) return null
+            items.remove(rid)?.text
+        }
+        publish()
+        return text
+    }
+
+    /**
+     * Before a flush: queued sealed wraps whose recipient's head moved are sealed again (§9),
+     * reactions and deletes too; the recipients' chains are asked again first (≤ 3 s).
+     */
+    suspend fun resealQueued(items: List<OutboxItem>): List<OutboxItem> {
+        val eng = host.sealed ?: return items
+        val ours = items.filter { it.signed?.let { w -> w.id in synchronized(lock) { sealQ.keys } } == true }
+        if (ours.isEmpty()) return items
+        val people = ours.mapNotNull { synchronized(lock) { sealQ[it.signed!!.id]?.recipient } }.toSet()
+        kotlinx.coroutines.withTimeoutOrNull(3_000) { people.forEach { eng.refresh(it) } }
+        return items.map { item ->
+            val w = item.signed ?: return@map item
+            val q = synchronized(lock) { sealQ[w.id] } ?: return@map item
+            val again = eng.resealIfNeeded(sh.belfry.core.sealed.SealedEngine.Queued(q.rumor, q.recipient, q.lb, w))
+            if (again.wrap.id == w.id) item else {
+                synchronized(lock) { sealQ.remove(w.id); sealQ[again.wrap.id] = QueuedSeal(q.rumor, q.recipient, again.lb) }
+                item.copy(signed = again.wrap)
+            }
+        }
+    }
+
+    private suspend fun oldWay(rumor: Event, to: List<String>, self: Boolean) {
         val me = host.me
         val people = LinkedHashSet(to).apply { if (self) add(me) }
         val wraps = people.map { GiftWrap.wrap(rumor, it, host.signer) }
@@ -609,11 +803,11 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true))
             publish()
             try {
-                deliver(rumor, to)
+                if (!deliver(rumor, to, conv = conv)) update(rumor.id) { it.copy(heldSince = host.now()) }
             } catch (e: Exception) {
                 synchronized(lock) { items.remove(rumor.id) } // the composer gets the text back
                 publish()
-                throw DmException(if (e is SignerTimeout) "Your signer did not answer. Check your connection and try again." else "The message could not be prepared. Try again.")
+                throw if (e is DmException) e else DmException(if (e is SignerTimeout) "Your signer did not answer. Check your connection and try again." else "The message could not be prepared. Try again.")
             }
             if (host.localOnly) update(rumor.id) { it.copy(pending = false) }
             publish()
@@ -705,7 +899,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             val rumor = GiftWrap.rumor(5, me, listOf(listOf("e", mine.rid), listOf("k", "7")) + to.filter { it != me }.map { listOf("p", it) }, "", host.now())
             synchronized(lock) { reacts.remove(mine.rid); gone[mine.rid] = me }
             publish()
-            deliver(rumor, to)
+            deliver(rumor, to, conv = d.conv)
             return
         }
         val rumor = GiftWrap.rumor(
@@ -716,7 +910,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         synchronized(lock) { reacts[rumor.id] = DmReaction(rumor.id, d.rid, me, emoji, rumor.createdAt) }
         publish()
         try {
-            deliver(rumor, to)
+            deliver(rumor, to, conv = d.conv)
         } catch (e: Exception) {
             synchronized(lock) { reacts.remove(rumor.id) }
             publish()
@@ -743,6 +937,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
 
     /** The engine tells: this outbox item is out (accepted by its relay). */
     fun onSent(item: OutboxItem) {
+        item.signed?.let { w -> synchronized(lock) { sealQ.remove(w.id) } }
         val rid = item.dm ?: return
         val me = host.me
         val d = synchronized(lock) { items[rid] } ?: return
@@ -853,6 +1048,9 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         const val K_READ = "dm-read"
         const val K_REACTS = "dm-reactions"
         const val K_GONE = "dm-reactions-gone"
+        const val K_KEPT = "dm-sealed-kept"
+        const val K_HELD = "dm-held"
+        const val K_SEALQ = "dm-sealed-queue"
         private val ADDRESS = Regex("^([^@\\s]+)@([^@\\s]+\\.[^@\\s]+)$")
     }
 }
