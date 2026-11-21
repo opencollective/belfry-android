@@ -315,7 +315,7 @@ class Session(
     private val mainRelay: Relay? = if (localOnly) null else connections.add("main", Relay(community.mainRelay, http, scope))
 
     /** Each send's steps and timing, the last 20 (About Belfry → Diagnostics; SPEC 19.50). No content. */
-    val trace = SendTrace(Relay::nowMs, zone = zone)
+    val trace = SendTrace({ Relay.nowMs() }, zone = zone)
     /** Sends not out yet: since when and what they are doing (by direct message id, else outbox local id). */
     val sending: StateFlow<Map<String, SendProgress>> get() = trace.progress
 
