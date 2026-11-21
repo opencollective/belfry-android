@@ -88,8 +88,8 @@ class SealedSessionTest {
         try { api.shutdown() } catch (e: Exception) { }
     }
 
-    private suspend fun until(what: String, ms: Long = 15_000, cond: suspend () -> Boolean) {
-        if (withTimeoutOrNull(ms) { while (!cond()) delay(50); true } != true) fail("timed out waiting for: $what")
+    private suspend fun until(what: String, ms: Long = 15_000, seen: () -> String = { "" }, cond: suspend () -> Boolean) {
+        if (withTimeoutOrNull(ms) { while (!cond()) delay(50); true } != true) fail("timed out waiting for: $what ${seen()}")
     }
 
     private val alice = LocalSigner.random()
@@ -111,7 +111,9 @@ class SealedSessionTest {
         val opens = m.opens
         m.dropAll()
         until("both devices reconnected (opens ${'$'}opens → ?)", 30_000) { m.opens >= opens + 2 }
-        until("asked again after the reconnect (requests: ${'$'}{requestsBy(laptop)}, mine: ${'$'}{b.sealed?.mine})", 20_000) { requestsBy(laptop) >= 2 }
+        until("asked again after the reconnect", 20_000, seen = {
+            "(requests ${'$'}{requestsBy(laptop)}, mine ${'$'}{b.sealed?.mine}, opens ${'$'}{m.opens}, reqs ${'$'}{m.reqs.size}, authed ${'$'}{m.authedAs?.take(8)}, laptop main state ${'$'}{b.status.value.main})"
+        }) { requestsBy(laptop) >= 2 }
         delay(2_000)
         assertEquals(2, requestsBy(laptop), "one per connection")
     }
