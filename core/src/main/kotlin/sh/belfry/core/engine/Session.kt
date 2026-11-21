@@ -441,7 +441,13 @@ class Session(
 
     private val groupsRelay: Relay? = if (localOnly) null else Relay(community.groupsRelay, http, scope)
     private val mainRelay: Relay? = if (localOnly) null else Relay(community.mainRelay, http, scope)
-    private fun relay(t: Target): Relay? = if (t == Target.GROUPS) groupsRelay else mainRelay
+    /** The relay a target publishes to; none for [Target.API] (HTTP calls): the per-target loops would otherwise
+     *  set up the main relay a second time as "API", overwriting its handlers (main's fix, branch main-relay-handlers). */
+    private fun relay(t: Target): Relay? = when (t) {
+        Target.GROUPS -> groupsRelay
+        Target.MAIN -> mainRelay
+        Target.API -> null
+    }
     /** Tests: what the main relay's client saw (drops handled / ignored / before open, sockets made). */
     internal val mainRelayStats: String get() = mainRelay?.let { "drops ${it.dropCounts.toList()}, sockets ${it.socketsMade}, up ${it.isUp}" } ?: "none"
 
