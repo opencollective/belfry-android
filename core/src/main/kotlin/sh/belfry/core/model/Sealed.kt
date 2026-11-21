@@ -240,4 +240,13 @@ object SealedText {
         "Your conversations open here.",
     )
     const val UNLOCK_NONE = "No other device? The people you write to can share a conversation's history with this device."
+    /** canvas v84 messages/encryption-start-fresh (+ -confirm), approved for Xavier 2026-11-21. */
+    const val UNLOCK_TITLE = "Unlock this device"
+    const val UNLOCK_WITH = "With another device"
+    const val NO_OTHER = "I don't have another device"
+    const val START_FRESH_ROW = "Start fresh on this device"
+    const val START_FRESH_TITLE = "Start fresh on this device?"
+    const val START_FRESH_TEXT = "Earlier sealed messages stay locked here unless someone shares them with you or an old device comes back."
+    const val START_FRESH_SEEN = "The people you write with will see that you started on a new device."
+    const val START_FRESH = "Start fresh"
 }

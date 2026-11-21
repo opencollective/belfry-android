@@ -417,6 +417,39 @@ class SealedEngine(
     /** The head letterbox the last request on this connection was for. */
     @Volatile private var askedForHead: String? = null
 
+    /** Start fresh could not be done now; [message] says why, in words for the person. */
+    class FreshNotDone(message: String) : IllegalStateException(message)
+
+    private var pendingFresh: Pair<String, String>? = null
+
+    /**
+     * Start fresh (sealed.md §5.4; canvas v84 messages/encryption-start-fresh): this device is not in
+     * my head and I have no other device. A new letterbox, a new root (n = 1, this device) and the
+     * anchor replaced. The head must be known from a complete answer on this connection, never from
+     * what the device stored. The old chain's letterboxes stay mine (a device of it that comes back
+     * hands them over once allowed). Everyone sees the amber notice.
+     */
+    suspend fun startFresh(myName: String, kind: String) = locked {
+        val c = refreshHere(account)
+        if (known[account]?.completeAt == null) throw FreshNotDone("Can't reach the belfry to check your devices. Try again in a moment.")
+        if (c != null && device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; trace("fresh: already in head"); return@locked }
+        // one pending key, reused on every try (no orphan letterboxes)
+        val (lbPub, lbSecret) = pendingFresh ?: KeyChain.newLetterbox().also { pendingFresh = it }
+        keys.add(lbPub, lbSecret)
+        if (!saveKeys()) throw FreshNotDone("This device could not keep the new key. Try again.") // never a roster whose secret isn't on disk
+        val root = device.signNow(Roster.template(account, 1, null, lbPub, listOf(device.pubkey), false, clock()))
+        val anchor = ports.signAsAccount(Anchor.template(root.id, root.id, anchorTime()))
+        if (!ports.publish(root) || !ports.publish(anchor)) throw FreshNotDone("Not done: the belfry didn't take it. Try again.")
+        pendingFresh = null
+        val back = refreshHere(account)
+        if (back == null || back.root.id != root.id || device.pubkey !in back.devices) throw FreshNotDone("Not done yet: check your connection and try again.")
+        ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock())))
+        mine = Mine.IN_HEAD
+        lastHead[account] = lbPub
+        trace("fresh: started")
+        saveState()
+    }
+
     /** The 6-hour upkeep: gone sessions, ready, my own unanchored roster. */
     suspend fun upkeep() {
         for (p in known.keys.toList()) if (p != account) try { refresh(p) } catch (e: Exception) { }

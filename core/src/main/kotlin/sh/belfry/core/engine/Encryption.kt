@@ -181,6 +181,32 @@ class EncryptionService internal constructor(private val s: Session) {
         _state.value = _state.value.let { st -> st.copy(myDevices = st.myDevices.filter { it.id != id }) }
     }
 
+    /**
+     * Start fresh on this device (canvas v84 messages/encryption-start-fresh-confirm; sealed.md §5.4):
+     * no other device of mine. Earlier sealed messages stay locked until someone shares them or an
+     * old device comes back; everyone sees that I started on a new device.
+     */
+    suspend fun startFresh() {
+        s.checkWrite()
+        if (!demo) {
+            val e = engine()
+            try {
+                e.startFresh(sh.belfry.core.sealed.DeviceNames.myName(null, s.deviceName), s.deviceKind)
+            } catch (x: sh.belfry.core.sealed.SealedEngine.FreshNotDone) {
+                throw ActionException("not_done", x.message ?: "Not done: try again.")
+            } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) {
+                throw ActionException("failed", "Not done: try again.")
+            }
+            s.sealedFollowUps() // ready, names and the reread soon
+            refresh()
+            return
+        }
+        delay(400)
+        val st = _state.value
+        val me = st.thisDevice ?: MyDevice("d-new", s.deviceName, DeviceKind.PHONE, s.now(), from = null, thisDevice = true, active = s.now())
+        _state.value = st.copy(earlierLocked = false, locked = emptySet(), myDevices = listOf(me.copy(added = s.now(), from = null)))
+    }
+
     /** A one-time secret for the Link-a-phone QR (only in the QR, never stored; §5.2). Null: no sealed side. */
     fun linkSecret(): String? = if (demo) null else s.sealed?.newLinkSecret()
 

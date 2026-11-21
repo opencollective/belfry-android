@@ -323,4 +323,33 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoAsNewDevice()
         assertFalse(session.encryption.state.value.onlyDevice)
     }
+
+    /** canvas v84 messages/encryption-start-fresh: no other device → Start fresh on this device. */
+    @Test fun startFreshRow() {
+        session.encryption.demoAsNewDevice()
+        demoShot("encryption-start-fresh") { UnlockStepsScreen() }
+        compose.onNodeWithText("Unlock this device").assertExists()
+        compose.onNodeWithText("With another device").assertExists()
+        compose.onNodeWithTag("seal-no-other").assertExists()
+        compose.onNodeWithText("I don't have another device").assertExists()
+        compose.onNodeWithText("Start fresh on this device").assertExists()
+    }
+
+    /** messages/encryption-start-fresh-confirm: the sheet, then Start fresh unlocks this device. */
+    @Test fun startFreshConfirm() {
+        session.encryption.demoAsNewDevice()
+        demoScreenShot("encryption-start-fresh-confirm", act = { compose.onNodeWithTag("seal-no-other").performScrollTo().performClick() }) { UnlockStepsScreen() }
+        compose.onNodeWithText("Start fresh on this device?").assertExists()
+        compose.onNodeWithText("Earlier sealed messages stay locked here unless someone shares them with you or an old device comes back.", substring = true).assertExists()
+        compose.onNodeWithText("The people you write with will see that you started on a new device.", substring = true).assertExists()
+        compose.onNodeWithTag("seal-fresh-confirm").performClick()
+        compose.waitUntil(5_000) { !session.encryption.state.value.earlierLocked }
+        assertTrue(session.encryption.state.value.onlyDevice)
+    }
+
+    /** A device in my head sees the steps but no Start fresh. */
+    @Test fun noStartFreshInHead() {
+        demoShot("encryption-unlock-in-head") { UnlockStepsScreen() }
+        compose.onNodeWithTag("seal-no-other").assertDoesNotExist()
+    }
 }

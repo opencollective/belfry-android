@@ -291,12 +291,44 @@ internal fun EarlierLockedBanner(onShowHow: () -> Unit) {
 /** "Show how": unlock with another device, three steps (a pushed screen). */
 @Composable
 fun UnlockStepsScreen() {
-    Page("Unlock with another device") { UnlockStepsContent() }
+    val session = LocalSession.current
+    val nav = LocalNav.current
+    val st by session.encryption.state.collectAsState()
+    var confirming by rememberSaveable { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Page(SealedText.UNLOCK_TITLE) {
+        UnlockStepsContent(canStartFresh = st.earlierLocked, onNoOther = { error = null; confirming = true })
+        if (error != null) Text(error!!, fontSize = 14.sp, color = Belfry.colors.danger, modifier = Modifier.padding(top = 10.dp).testTag("seal-fresh-error"))
+    }
+    if (confirming) {
+        sh.belfry.app.ui.kit.ConfirmSheet(
+            title = SealedText.START_FRESH_TITLE,
+            confirmLabel = SealedText.START_FRESH,
+            message = SealedText.START_FRESH_TEXT + "\n\n" + SealedText.START_FRESH_SEEN,
+            onConfirm = {
+                try {
+                    session.encryption.startFresh()
+                    confirming = false
+                    nav.back()
+                } catch (e: sh.belfry.core.engine.ActionException) {
+                    error = e.message
+                    confirming = false
+                }
+            },
+            onDismiss = { confirming = false },
+            confirmTag = "seal-fresh-confirm",
+        )
+    }
 }
 
+/**
+ * canvas v84 messages/encryption-start-fresh: the steps with another device, the hint, and (on a
+ * device not in my head) "I don't have another device · Start fresh on this device".
+ */
 @Composable
-fun UnlockStepsContent() {
+fun UnlockStepsContent(canStartFresh: Boolean = false, onNoOther: () -> Unit = {}) {
     val c = Belfry.colors
+    SectionTitle(SealedText.UNLOCK_WITH)
     SealedText.UNLOCK_STEPS.forEachIndexed { i, step ->
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
             Box(Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(c.surface2), contentAlignment = Alignment.Center) {
@@ -307,6 +339,15 @@ fun UnlockStepsContent() {
         }
     }
     Hint(SealedText.UNLOCK_NONE, Modifier.padding(top = 12.dp))
+    if (canStartFresh) {
+        Spacer(Modifier.height(18.dp))
+        ActionGroup {
+            sh.belfry.app.ui.kit.ActionRow(
+                SealedText.NO_OTHER, onClick = onNoOther, sub = SealedText.START_FRESH_ROW, danger = true,
+                modifier = Modifier.testTag("seal-no-other"),
+            )
+        }
+    }
 }
 
 /**

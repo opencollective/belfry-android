@@ -814,4 +814,45 @@ class SealedEngineTest {
         phone.notMe(stranger.pubkey)
         assertEquals(SealedEngine.OnRequest.Ignore, phone.answerRequests(listOf(req)).single().second, "no prompt again")
     }
+
+    /**
+     * §5.4 Start fresh: the laptop is not in the head and has no other device. A new root (n = 1,
+     * the laptop) and the anchor replaced; the old phone, coming back, finds itself out and asks.
+     */
+    @Test fun startFresh() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        val oldHead = assertNotNull(phone.refresh(alice.pubkey))
+        val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
+        assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
+        now += 5
+        laptop.startFresh("Firefox on Linux", "computer")
+        assertEquals(SealedEngine.Mine.IN_HEAD, laptop.mine)
+        val fresh = assertNotNull(laptop.refresh(alice.pubkey))
+        assertEquals(listOf(aliceLaptop.pubkey), fresh.devices)
+        assertTrue(fresh.root.id != oldHead.root.id, "a new root")
+        assertNotNull(laptop.keys.secretFor(fresh.head.lb))
+        // the phone reads the new anchor: it is out, and asks like any new device
+        now += 5
+        val seen = assertNotNull(phone.refresh(alice.pubkey))
+        assertEquals(fresh.root.id, seen.root.id)
+        assertEquals(SealedEngine.Mine.WAITING, phone.mine)
+        assertTrue(phone.resetAt.containsKey(alice.pubkey))
+    }
+
+    /** No complete answer on this connection: Start fresh does nothing and says so. */
+    @Test fun startFreshNeedsACompleteAnswer() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
+        val before = relay.events.size
+        relay.silent = true
+        laptop.connectionLost()
+        kotlin.test.assertFailsWith<SealedEngine.FreshNotDone> { laptop.startFresh("Firefox on Linux", "computer") }
+        relay.silent = false
+        assertEquals(before, relay.events.size, "nothing published")
+        assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
+    }
 }
