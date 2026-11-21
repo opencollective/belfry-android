@@ -73,7 +73,10 @@ class EncryptionService internal constructor(private val s: Session) {
                         val last = c?.changesAfter(null)?.lastOrNull()
                         PersonDevices(p, c?.devices?.size ?: 0, last?.let { DeviceChange(it.added, it.at) })
                     },
-                    notices = (peers + me).flatMap { p ->
+                    notices = peers.mapNotNull { p ->
+                        // they started fresh or their chain was switched (§3.4, 2a1b30e): the amber line, once
+                        e.resetAt[p]?.takeIf { it >= since }?.let { at -> DeviceNotice("reset:$p:$at", at, p, DeviceNotice.Kind.NEW_LOCKED) }
+                    } + (peers + me).flatMap { p ->
                         e.chainOf(p)?.changesAfter(null).orEmpty().filter { it.at >= since }.map { ch ->
                             DeviceNotice("$p:${ch.device}:${ch.at}", ch.at, p, if (ch.added) DeviceNotice.Kind.ADDED else DeviceNotice.Kind.REMOVED,
                                 device = if (p == me) names[ch.device]?.name else null)

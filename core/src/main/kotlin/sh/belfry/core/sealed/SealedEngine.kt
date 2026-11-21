@@ -79,8 +79,10 @@ class SealedEngine(
             pinnedHead.remove(person) // started fresh
             if (person == account) known[person]?.chain?.letterboxes?.let { oldLetterboxes.addAll(it) }
         }
+        val before = known[person]?.chain
         val chain = Chain.of(person, a.events, r.events, pinned = pinnedHead[person])
         if (chain != null) {
+            noteSwitch(person, before, chain, Anchor.read(a.events, person))
             pinnedRoot[person] = chain.root.id
             pinnedHead[person] = chain.head.id
             lastHead[person] = chain.head.lb
@@ -89,6 +91,37 @@ class SealedEngine(
         known[person] = Known(chain ?: prev?.chain?.takeIf { !complete }, if (complete) clock() else prev?.completeAt)
         if (chain != null) retryPending()
         return known[person]?.chain
+    }
+
+    /** Rosters this client saw named by the anchor, per person (the pin's "seen anchored" mark, 2a1b30e). */
+    private val seenAnchored = HashMap<String, MutableSet<String>>()
+
+    /** When each person started fresh or their chain was switched: the amber notice (§3.4, §3.3). */
+    val resetAt = HashMap<String, Long>()
+
+    /** After a switch of my own chain: devices of the new head this client never held, never answered without a prompt. */
+    private val untrusted = HashSet<String>()
+
+    /**
+     * A SWITCH (sealed.md 2a1b30e): the anchor names another branch of the same root while the head
+     * this client held had been seen anchored. Followed, but treated like a fresh start: the amber
+     * notice; for my own account, this device re-checks its place, and the devices new to the head
+     * go through Allow (the server holds the key that signs anchors).
+     */
+    private fun noteSwitch(person: String, before: Chain?, after: Chain, anchor: Pair<String, String?>?) {
+        val marks = seenAnchored.getOrPut(person) { HashSet() }
+        val anchoredId = anchor?.let { it.second ?: it.first }
+        val freshStart = before != null && before.root.id != after.root.id
+        val switched = before != null && !freshStart && before.rosters.any { it.id in marks } &&
+            before.head.id !in after.rosters.map { it.id } && after.rosters.none { it.id == before.head.id }
+        if (freshStart || switched) {
+            resetAt[person] = clock()
+            if (person == account) {
+                if (switched) untrusted.addAll(after.devices - before!!.devices.toSet())
+                if (device.pubkey !in after.devices) mine = Mine.WAITING
+            }
+        }
+        if (anchoredId != null && after.rosters.any { it.id == anchoredId }) marks.add(anchoredId)
     }
 
     /** Letterboxes of earlier pinned chains of mine (a fresh start keeps them mine, §5.3). */
@@ -263,7 +296,7 @@ class SealedEngine(
         val sessions = ports.sessions() ?: return OnRequest.Ignore
         val row = sessions.firstOrNull { it.clientPubkey == dev && it.chat } ?: return OnRequest.Ignore
         val head = chainOf(account)
-        if (head != null && dev in head.devices) {
+        if (head != null && dev in head.devices && dev !in untrusted) {
             // a device of the head this device holds (its pinned head, never an older roster an anchor
             // points back to) that lost its hand-over: the keys at once, no prompt (§5.5, f28220c) —
             // only for a request newer than the roster that added it and than my last hand-over to it

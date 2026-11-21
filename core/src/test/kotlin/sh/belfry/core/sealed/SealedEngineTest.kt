@@ -475,4 +475,31 @@ class SealedEngineTest {
         assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(req))
         assertEquals(SealedEngine.OnRequest.Ignore, phone.onRequest(req), "the same request again: nothing")
     }
+
+    /**
+     * 2a1b30e: the server anchors a removed device's old sibling roster (with a device of its own).
+     * A switch: followed, treated as a fresh start; this phone isn't in it any more; the new device gets nothing.
+     */
+    @Test fun anchoredSiblingIsASwitch() = runBlocking<Unit> {
+        val (phone, _, b) = world()
+        val chain = phone.refresh(alice.pubkey)!! // seen anchored
+        b.refresh(alice.pubkey)
+        val attacker = LocalSigner.random()
+        server.live(alice.pubkey, attacker.pubkey, "?")
+        // the laptop (dropped later) signs a sibling of the head's parent... here: a sibling of the head
+        val parent = chain.rosters[chain.rosters.size - 2]
+        val sibling = aliceLaptop.signNow(Roster.template(alice.pubkey, parent.n + 1, parent.id, KeyChain.newLetterbox().first, listOf(aliceLaptop.pubkey, attacker.pubkey), true, now + 1))
+        relay.add(sibling)
+        now += 5
+        relay.add(alice.signNow(Anchor.template(chain.root.id, sibling.id, now))) // the server's signature
+        val after = phone.refresh(alice.pubkey)!!
+        assertEquals(sibling.id, after.head.id, "followed")
+        assertTrue(alice.pubkey in phone.resetAt, "treated like a fresh start")
+        assertEquals(SealedEngine.Mine.WAITING, phone.mine, "this phone isn't in the new head")
+        b.refresh(alice.pubkey)
+        assertTrue(alice.pubkey in b.resetAt, "Bob sees the amber notice for Alice")
+        val req = attacker.signNow(Sealing.request(alice.pubkey, attacker.pubkey, null, now + 10))
+        assertTrue(phone.onRequest(req) != SealedEngine.OnRequest.Allowed)
+        assertTrue(relay.to(attacker.pubkey).isEmpty(), "no keys for the attacker's device")
+    }
 }
