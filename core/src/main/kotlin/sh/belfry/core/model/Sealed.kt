@@ -233,7 +233,6 @@ object SealedText {
     const val LINKED_TEXT = "It can read your conversations, including earlier ones."
     const val LINKED_CONFIRM = "Scanning your code was the confirmation: nothing more to allow."
     const val REMOVE_TEXT = "It will be signed out and stop reading new messages, in all your conversations. What it already shows stays on it."
-    const val UNLOCK_TITLE = "Unlock with another device"
     val UNLOCK_STEPS = listOf(
         "Open Belfry on a phone, tablet or computer where you're already signed in.",
         "It asks whether to give this device access: tap Allow.",

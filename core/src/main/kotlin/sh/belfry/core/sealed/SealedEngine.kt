@@ -384,7 +384,10 @@ class SealedEngine(
         val since = clock() - lastAsk
         // asked on this connection for this head: a new head (a rotation whose hand-over I missed) is a new state
         val askedHere = askedThisConnection && askedForHead == c.head.lb
-        val due = (force && !askedHere && since >= 60) || since >= 86_400
+        // a forced ask the once-a-minute rule held back (a reconnect within 60 s) is owed: the next call
+        // after the minute sends it, poll or not (fifth review)
+        if (force && !askedHere && since < 60) owedAsk = true
+        val due = ((force || owedAsk) && !askedHere && since >= 60) || since >= 86_400
         if (!due) trace("not due (force=$force asked=$askedHere since=${clock() - lastAsk})")
         if (due && asking) trace("in flight")
         if (due && !asking) {
@@ -396,6 +399,7 @@ class SealedEngine(
                 lastAsk = clock()
                 askedThisConnection = true
                 askedForHead = c.head.lb
+                owedAsk = false
                 trace("sent")
             } else trace("publish refused")
             } finally { asking = false }
@@ -409,11 +413,14 @@ class SealedEngine(
             lastAsk = clock()
             askedThisConnection = true
             askedForHead = known[account]?.chain?.head?.lb
+            owedAsk = false
             trace("sent at start")
         } else trace("start: publish refused")
     }
 
     @Volatile private var askedThisConnection = false
+    /** A forced ask held back by the once-a-minute rule, still to send. */
+    @Volatile private var owedAsk = false
     /** The head letterbox the last request on this connection was for. */
     @Volatile private var askedForHead: String? = null
 

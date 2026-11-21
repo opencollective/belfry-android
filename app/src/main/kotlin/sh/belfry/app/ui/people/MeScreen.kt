@@ -168,7 +168,7 @@ fun MeScreen() {
     val seal by session.encryption.state.collectAsState()
     LaunchedEffect(leaving) { if (leaving && !session.localOnly) try { session.encryption.refresh() } catch (e: Exception) { } }
     if (leaving && seal.onlyDevice && guest == null) {
-        OnlyDeviceSheet(
+        OnlyDeviceDialog(
             sh.belfry.core.model.SealedText.Leaving.SIGN_OUT,
             onLink = { leaving = false; nav.go(Routes.LINK_DEVICE) },
             onAnyway = { signOut(); leaving = false },

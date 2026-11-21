@@ -593,39 +593,32 @@ fun NotSealedContent(onClose: () -> Unit) {
 }
 
 /**
- * canvas v117 messages/encryption-only-device: this device is the only one in my roster and I'm
- * about to lose it (sign out). In the app as a sheet: Link a device (opens Link a phone),
- * <Sign out> anyway (red, shows progress), Cancel.
+ * canvas v117 messages/encryption-only-device (note n-e2e-only-device): this device is the only one
+ * in my roster and I'm about to lose it (sign out). A Material dialog in the app, as it blocks a step
+ * that loses data: Link a device (opens Link a phone), <Sign out> anyway (red, shows progress), Cancel.
  */
 @Composable
-fun OnlyDeviceSheet(how: SealedText.Leaving, onLink: () -> Unit, onAnyway: suspend () -> Unit, onDismiss: () -> Unit) {
+fun OnlyDeviceDialog(how: SealedText.Leaving, onLink: () -> Unit, onAnyway: suspend () -> Unit, onDismiss: () -> Unit) {
     val busy = rememberBusy()
-    BelfrySheet(onDismiss = { if (!busy.busy) onDismiss() }) {
-        OnlyDeviceContent(how, onLink, onAnyway, onDismiss, busy)
-    }
-}
-
-@Composable
-fun OnlyDeviceContent(
-    how: SealedText.Leaving, onLink: () -> Unit, onAnyway: suspend () -> Unit, onDismiss: () -> Unit,
-    busy: sh.belfry.app.ui.kit.BusyState = rememberBusy(),
-) {
     val c = Belfry.colors
-    Column(Modifier.fillMaxWidth().testTag("seal-only-device")) {
-        Text(SealedText.ONLY_DEVICE_TITLE, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-        Spacer(Modifier.height(6.dp))
-        Text(SealedText.onlyDeviceText(how), fontSize = 15.sp, lineHeight = 21.sp, color = c.muted)
-        Spacer(Modifier.height(8.dp))
-        Text(SealedText.ONLY_DEVICE_KEEP, fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
-        Spacer(Modifier.height(16.dp))
-        BusyButton(
-            SealedText.ONLY_DEVICE_LINK, onClick = { onLink() }, modifier = Modifier.fillMaxWidth().testTag("seal-only-link"),
-            kind = ButtonKind.Primary, enabled = !busy.busy,
-        )
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BusyButton("Cancel", onClick = { onDismiss() }, modifier = Modifier.weight(1f).testTag("seal-only-cancel"), kind = ButtonKind.Ghost, enabled = !busy.busy)
-            BusyButton(how.anyway, onClick = onAnyway, modifier = Modifier.weight(1f).testTag("seal-only-anyway"), kind = ButtonKind.Danger, busy = busy)
-        }
-    }
+    AlertDialog(
+        onDismissRequest = { if (!busy.busy) onDismiss() },
+        title = { Text(SealedText.ONLY_DEVICE_TITLE, modifier = Modifier.testTag("seal-only-device")) },
+        text = {
+            Column {
+                Text(SealedText.onlyDeviceText(how), fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
+                Spacer(Modifier.height(8.dp))
+                Text(SealedText.ONLY_DEVICE_KEEP, fontSize = 15.sp, lineHeight = 21.sp, color = c.text)
+            }
+        },
+        // three stacked buttons, the safe one first (canvas v117)
+        confirmButton = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                BusyButton(SealedText.ONLY_DEVICE_LINK, onClick = { onLink() }, modifier = Modifier.fillMaxWidth().testTag("seal-only-link"), kind = ButtonKind.Primary, enabled = !busy.busy)
+                BusyButton(how.anyway, onClick = onAnyway, modifier = Modifier.fillMaxWidth().testTag("seal-only-anyway"), kind = ButtonKind.Danger, busy = busy)
+                BusyButton("Cancel", onClick = { onDismiss() }, modifier = Modifier.fillMaxWidth().testTag("seal-only-cancel"), kind = ButtonKind.Ghost, enabled = !busy.busy)
+            }
+        },
+        containerColor = c.bg,
+    )
 }

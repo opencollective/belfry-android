@@ -855,4 +855,24 @@ class SealedEngineTest {
         assertEquals(before, relay.events.size, "nothing published")
         assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
     }
+
+    /** Fifth review: a reconnect within a minute of the last ask owes that connection's ask; the next poll after the minute sends it. */
+    @Test fun quickReconnectAskIsOwed() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
+        fun asks() = relay.events.count { it.kind == Sealing.REQUEST && it.pubkey == aliceLaptop.pubkey }
+        assertEquals(1, asks())
+        now += 20
+        laptop.connectionLost()
+        laptop.askAgain(null, force = true) // AUTH on the new connection, 20 s after: held back
+        assertEquals(1, asks())
+        now += 50
+        laptop.askAgain(null, force = false) // the poll, past the minute: the owed ask goes
+        assertEquals(2, asks())
+        now += 120
+        laptop.askAgain(null, force = false) // nothing more owed on this connection
+        assertEquals(2, asks())
+    }
 }
