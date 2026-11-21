@@ -32,7 +32,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -72,8 +71,10 @@ private sealed interface Got { object Loading : Got; object Failed : Got; class 
 private fun rememberFile(d: Dm): Got {
     val session = LocalSession.current
     val key = d.file?.ox ?: d.file?.localBlob ?: d.rid
-    val got by produceState<Got>(Got.Loading, key) {
-        value = try { session.dmFile(d)?.let { Got.Bytes(it) } ?: Got.Failed } catch (e: Exception) { Got.Failed }
+    var got by remember(key) { mutableStateOf<Got>(Got.Loading) }
+    LaunchedEffect(key) {
+        val bytes = try { session.dmFile(d) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
+        got = if (bytes != null) Got.Bytes(bytes) else Got.Failed
     }
     return got
 }
@@ -81,11 +82,11 @@ private fun rememberFile(d: Dm): Got {
 @Composable
 private fun rememberPicture(d: Dm, side: Int): Pair<Boolean, ImageBitmap?> {
     val got = rememberFile(d)
-    // null: still decoding; Failed: not a picture this phone can show
-    val bmp by produceState<Any?>(null, got) {
-        val b = (got as? Got.Bytes)?.b
-        if (b == null) { value = null; return@produceState }
-        value = withContext(Dispatchers.Default) {
+    // null: still decoding; Got.Failed: not a picture this phone can show
+    var bmp by remember(got) { mutableStateOf<Any?>(null) }
+    LaunchedEffect(got) {
+        val b = (got as? Got.Bytes)?.b ?: return@LaunchedEffect
+        bmp = withContext(Dispatchers.Default) {
             try {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeByteArray(b, 0, b.size, bounds)
