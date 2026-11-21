@@ -308,10 +308,23 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu:
                         Text("unverified sender", fontSize = 11.sp, color = c.orange)
                     }
                 }
-                val line = dms.stateLine(d) ?: if (d.mine && d.isMail) "Sent" else null
+                // a direct message not out yet: Sending… → Still sending… · <step> → Not sent yet · Retry (SPEC 19.50)
+                val sendLine = if (d.mine && d.pending && d.failed == null && !d.isMail) sh.belfry.app.ui.chat.rememberSendLine(d.rid, 0) else null
+                val line = sendLine?.text ?: dms.stateLine(d) ?: if (d.mine && d.isMail) "Sent" else null
                 if (line != null) {
                     Spacer(Modifier.width(8.dp))
                     Text(line, fontSize = 11.sp, color = if (d.failed != null) c.danger else c.muted, modifier = Modifier.weight(1f, fill = false))
+                }
+                if (sendLine?.retry == true) {
+                    Spacer(Modifier.width(6.dp))
+                    if (retry.busy) {
+                        Spinner(size = 12.dp)
+                    } else {
+                        Text(
+                            "Retry", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                            modifier = Modifier.clickable(role = Role.Button) { retry.run { session.sendNow() } }.padding(horizontal = 4.dp, vertical = 2.dp).testTag("dm-send-retry"),
+                        )
+                    }
                 }
                 if (d.failed != null) {
                     Spacer(Modifier.width(6.dp))

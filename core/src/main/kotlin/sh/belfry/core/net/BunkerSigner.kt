@@ -87,8 +87,17 @@ class BunkerSigner(
 
     private val connectLock = Mutex()
     private val lock = Any()
-    private var relay: Relay? = null
     private var connected = false
+
+    /**
+     * The one socket to the signer's relay, made once and opened again as needed. A session hands
+     * it to its [Connections] (SPEC 19.50), which asks it on foreground and network changes.
+     */
+    val relay: Relay = Relay(bunker.relays[0], http, scope).also { r ->
+        r.authSigner = client
+        r.onEvent = { _, ev -> handle(ev) }
+        r.onDisconnect = { reset(dropped = true) }
+    }
     private val waiting = HashMap<String, CompletableDeferred<String>>()
 
     /** Asks the signer for the member's key if it is not known yet. */
@@ -100,46 +109,52 @@ class BunkerSigner(
         return pk
     }
 
+    /**
+     * The socket, open and said hello to. Requests queue here while it (re)connects. One that was
+     * quiet for more than [Relay.sendQuietMs] is asked first: after a sleep it can look open and
+     * be dead, and every request would wait its whole timeout (SPEC 19.50).
+     */
     private suspend fun ensureConnected(): Relay = connectLock.withLock {
-        val current = synchronized(lock) { if (connected) relay else null }
-        if (current != null && current.isUp) return@withLock current
-        synchronized(lock) { relay }?.close()
-        val r = Relay(bunker.relays[0], http, scope)
-        r.authSigner = client
-        r.onEvent = { _, ev -> handle(ev) }
-        r.onDisconnect = { reset(r) }
+        val r = relay
+        if (synchronized(lock) { connected } && r.isUp) {
+            if (!r.quietFor(r.sendQuietMs) || r.probe()) return@withLock r
+            // dead: probe dropped it (onDisconnect reset us); a fresh one below
+        }
+        r.close()
+        synchronized(lock) { connected = false }
         try {
             r.connect(timeoutMs)
             r.subscribe(
                 "nip46",
                 listOf(Filters.of(kinds = listOf(24133), tags = mapOf("p" to listOf(client.pubkey)), since = unixNow() - 10)),
             )
-            synchronized(lock) { relay = r; connected = false }
             rpc(r, "connect", listOf(bunker.remotePubkey, bunker.secret ?: ""))
             synchronized(lock) { connected = true }
         } catch (e: Throwable) {
-            synchronized(lock) { if (relay === r) { relay = null; connected = false } }
+            synchronized(lock) { connected = false }
             r.close()
             throw e
         }
         r
     }
 
-    /** Drops the connection (ONLY when it is still R, or any when R is null) and fails who waits. */
-    private fun reset(r: Relay?) {
-        var old: Relay? = null
+    /**
+     * Forgets the connection and fails who waits ([Dropped]: they are asked again on a fresh one).
+     * DROPPED = the socket is gone already; else it is closed here.
+     */
+    private fun reset(dropped: Boolean = false) {
         val w: List<CompletableDeferred<String>> = synchronized(lock) {
-            if (r != null && relay !== r) return
-            old = relay
-            relay = null
             connected = false
             val list = waiting.values.toList()
             waiting.clear()
             list
         }
-        old?.close()
-        w.forEach { it.completeExceptionally(SignerTimeout("timeout: the signer did not answer")) }
+        if (!dropped) relay.close()
+        w.forEach { it.completeExceptionally(Dropped()) }
     }
+
+    /** The socket went while a request waited. */
+    private class Dropped : Exception("timeout: the signer's connection dropped")
 
     private fun handle(ev: Event) {
         if (ev.kind != 24133 || ev.pubkey != bunker.remotePubkey) return
@@ -186,12 +201,21 @@ class BunkerSigner(
         }
     }
 
-    private suspend fun request(method: String, params: List<String>): String =
+    private suspend fun request(method: String, params: List<String>): String {
+        val start = Relay.nowMs()
         try {
-            once(method, params, retry = true)
-        } catch (e: RetryOnFresh) {
-            once(method, params, retry = false)
+            return try {
+                once(method, params, retry = true)
+            } catch (e: RetryOnFresh) {
+                once(method, params, retry = false)
+            }
+        } finally {
+            onRequest?.invoke(method, Relay.nowMs() - start)
         }
+    }
+
+    /** Hears each request and how long it took (ms): the send trace (SPEC 19.50). No content. */
+    @Volatile var onRequest: ((method: String, ms: Long) -> Unit)? = null
 
     private class RetryOnFresh : Exception()
 
@@ -202,11 +226,15 @@ class BunkerSigner(
                 rpc(r, method, params)
             }
         } catch (e: TimeoutCancellationException) {
-            reset(null)
+            // no answer: the socket is dead; drop it, the next request (this one again) opens a fresh one
+            reset()
+            if (retry) throw RetryOnFresh()
+            throw SignerTimeout("timeout: the signer did not answer")
+        } catch (e: Dropped) {
             if (retry) throw RetryOnFresh()
             throw SignerTimeout("timeout: the signer did not answer")
         } catch (e: RelayException) {
-            reset(null)
+            reset()
             throw SignerTimeout("timeout: no connection to the signer")
         }
     }
@@ -234,5 +262,10 @@ class BunkerSigner(
     override suspend fun nip04Decrypt(peer: String, payload: String): String = request("nip04_decrypt", listOf(peer, payload))
 
     /** Closes the connection to the signer (sign-out, or going to the background for long). */
-    fun disconnect() = reset(null)
+    fun disconnect() = reset()
+
+    /** Opens the connection ahead of the next request (the app came to the foreground); failures are quiet. */
+    suspend fun warm() {
+        try { withTimeout(timeoutMs) { ensureConnected() } } catch (e: Exception) { }
+    }
 }

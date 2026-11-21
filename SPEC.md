@@ -115,7 +115,7 @@ Connection rules:
 - NIP-42: when a relay sends `["AUTH", challenge]`, sign kind 22242 with tags
   `[["relay", url], ["challenge", c]]` and send `["AUTH", event]`; after `["OK", id, true]`
   re-send the subscriptions. A publish answered `auth-required:` → authenticate, publish once more.
-- Reconnect with backoff `min(30 s, 0.8 s × 2^attempt)`; reset attempts on wake-ups.
+- Reconnect with backoff `min(30 s, 0.8 s × 2^attempt)`; reset attempts on wake-ups. (Android since 19.50: 1 s, 2 s, 4 s, 8 s, 16 s, then 30 s; dead sockets: 19.50.)
 - Wake-ups: network back online, app back in the foreground, a **15 s watchdog** while signed
   in (reconnect closed relays; flush if anything is queued). Going offline drops the sockets.
 
@@ -165,6 +165,7 @@ Every write is saved locally **before** anything goes on the network, and shows 
   - Anything else (timeouts, `auth-required:`, `rate-limited:`, no connection, upload errors) →
     stays `queued`, `tries+1`, and its target is stalled for this pass (order kept per relay;
     other relays continue).
+    (Android since 19.50: only its lane waits, see there.)
 - Flush runs on: enqueue, relay connected, online, foreground, and every 15 s while something is
   queued. The outbox and its attachments MUST survive app restarts.
 - Pre-signed gift wraps (DMs, e-mail) go through the same outbox (`enqueueSigned`). A DM counts
@@ -2208,3 +2209,41 @@ Outside the demo nothing is sealed, so no lock shows anywhere and every action r
   current mode's, following the system live; no `colors` = the raw primary as before. Never the raw
   primary or secondary for text or icons when `colors` is there.
 
+### 19.50 One owner for every socket; a send never waits on a dead one (2026-11-21; Xavier via the lead, after DMs stuck on "Sending…" on iOS; the same on Android; number to be agreed with belfry-ios)
+
+What was wrong (both apps): the NIP-46 signer's socket lived on its own, was never asked whether
+it lived, and after a sleep looked open and was dead: each signer request waited its whole
+timeout (a direct message = 4 requests: two seals signed, two encryptions). The outbox stalled a
+whole relay behind its oldest retrying item, so a stuck read marker held back direct messages.
+Android also did nothing when the phone changed network while online (Wi-Fi to mobile).
+
+- **One manager** (`core/net/Connections.kt`) holds the session's sockets: groups, main AND the
+  signer's (`BunkerSigner.relay`, made once and opened again as needed). Nothing else opens a
+  socket for a session (sign-in flows before a session have their own signer, closed after).
+  Signer requests queue while its socket (re)connects.
+- **Foreground and every network change** (also a new network while online): every open socket is
+  asked at once (a tiny REQ; any frame counts as an answer); no answer within **5 s** = dead:
+  dropped and opened again now (backoff forgotten); then the signer is said hello to ahead of the
+  next send. In the foreground, a socket quiet for **25 s** is asked the same way. Before a send
+  (a publish, a signer request), a socket quiet for more than **10 s** is asked first.
+- A publish with no `OK` in time, or a signer request with no answer, **drops its socket** (the
+  next try goes on a fresh one; the signer's request is asked once more on it).
+- Reconnects and transient retries: **1 s, 2 s, 4 s, 8 s, 16 s, then every 30 s**.
+- **Lanes** (`Outbox.lane`): a direct message's wraps by recipient, a group's events and API calls
+  by `h`, anything else by kind (+ `d`); per relay. A transient error holds back its own lane for
+  the pass. A signer that did not answer holds back every item still to sign (pre-signed wraps
+  go). A relay that did not answer (`timeout:`, `connection closed`) holds back that relay's other
+  items, except: never a direct message for a non-DM item's sake, and not once the item failed
+  transiently **3** times (then only its lane). Order within a lane is kept. `vectors/outbox.json`
+  passes unchanged.
+- **The line under a message not out yet**: "Sending…"; after **5 s** "Still sending… · <step>"
+  (preparing, signing, uploading, checking the connection, connecting, waiting for the relay,
+  trying again); after **30 s** "Not sent yet · Retry" (Retry: every socket asked now, the
+  backoff forgotten, a fresh 30 s, a pass at once). Offline: "Waiting for connection…". Refused:
+  "Not sent: <reason> · Retry" as before. `SendState` (core), `rememberSendLine` (app).
+- **Send trace** (`SendTrace`): per attempt `HH:mm:ss <kind> · <step> 0.3s · … → OK|retry (<class>)|refused 1.2s`,
+  plus a line for a signer request of 1 s or more and for a socket dropped after a publish timeout;
+  the last 20, never any content, name or key. About Belfry → Diagnostics shows them under each
+  socket's state and quiet time, with Copy.
+- Later (server, not yet): the signer will listen on the community relay too; then the signer's
+  relay is taken from the bunker URL and the manager can share that socket.

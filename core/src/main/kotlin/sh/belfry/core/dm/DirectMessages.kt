@@ -323,6 +323,10 @@ interface DmHost {
     /** NIP-05 on the community's domain. */
     suspend fun nip05(name: String): String?
     fun later(delayMs: Long, block: suspend () -> Unit)
+    /** The send trace (SPEC 19.50): message ID is being prepared (wrapped, its seals signed). */
+    fun preparing(id: String) {}
+    /** Message ID never reached the outbox. */
+    fun notPrepared(id: String) {}
 }
 
 /** Pure parts of reading a rumor, testable without an engine. */
@@ -583,7 +587,13 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private suspend fun deliver(rumor: Event, to: List<String>, self: Boolean = true) {
         val me = host.me
         val people = LinkedHashSet(to).apply { if (self) add(me) }
-        val wraps = people.map { GiftWrap.wrap(rumor, it, host.signer) }
+        host.preparing(rumor.id)
+        val wraps = try {
+            people.map { GiftWrap.wrap(rumor, it, host.signer) }
+        } catch (e: Exception) {
+            host.notPrepared(rumor.id)
+            throw e
+        }
         if (host.localOnly) {
             val own = wraps.filter { it.tag("p") == me }
             synchronized(lock) { own.forEach { seen.add(it.id) } }

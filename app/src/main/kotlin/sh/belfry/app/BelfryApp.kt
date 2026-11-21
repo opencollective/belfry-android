@@ -73,6 +73,7 @@ class BelfryApp : Application() {
             }
             override fun onStop(owner: LifecycleOwner) {
                 AndroidPush.foreground = false
+                state.background()
                 try { state.session.value?.flushRead() } catch (e: Exception) { } // what I read goes to my other devices now
             }
         })
@@ -80,6 +81,7 @@ class BelfryApp : Application() {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             state.setOnline(cm.activeNetwork != null)
             cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                // also a new network while online (Wi-Fi to mobile): every socket is asked then (SPEC 19.50)
                 override fun onAvailable(network: Network) = state.setOnline(true)
                 override fun onLost(network: Network) = state.setOnline(false)
             })

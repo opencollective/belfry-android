@@ -71,13 +71,10 @@ import sh.belfry.core.model.Reaction
 import sh.belfry.core.model.Special
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
-import sh.belfry.core.net.RelayState
-import sh.belfry.app.ui.nav.LocalStatus
 import sh.belfry.core.model.ThreadInfo
 import sh.belfry.app.ui.kit.MoreIcons
 import sh.belfry.app.ui.kit.Spinner
 import sh.belfry.core.outbox.Attachment
-import sh.belfry.core.outbox.Outbox
 import sh.belfry.core.outbox.OutboxStatus
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.semantics.contentDescription
@@ -213,7 +210,15 @@ fun MessageRow(
                         )
                     }
                 } else {
-                    Text(Outbox.stateText(pending, LocalStatus.current.groups.let { it == RelayState.UP || it == RelayState.AUTH }), fontSize = 13.sp, color = c.faint, modifier = Modifier.padding(top = 2.dp))
+                    val line = rememberSendLine(pending.localId, pending.tries)
+                    val busy = rememberBusy()
+                    Row(Modifier.padding(top = 2.dp)) {
+                        Text(line.text + if (line.retry) " · " else "", fontSize = 13.sp, color = c.faint, modifier = Modifier.weight(1f, fill = false).testTag("send-line"), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (line.retry) Text(
+                            if (busy.busy) "Retrying…" else "Retry", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                            modifier = Modifier.clickable(enabled = !busy.busy, role = Role.Button) { busy.run { session.sendNow() } }.testTag("send-retry"),
+                        )
+                    }
                 }
             }
         }

@@ -27,6 +27,7 @@ import sh.belfry.core.net.ApiException
 import sh.belfry.core.net.Backoff
 import sh.belfry.core.net.BelfryApi
 import sh.belfry.core.net.BunkerSigner
+import sh.belfry.core.net.Connections
 import sh.belfry.core.net.BunkerUrl
 import sh.belfry.core.net.Community
 import sh.belfry.core.net.Discovery
@@ -90,6 +91,10 @@ class FakeRelay(
 
     fun dropAll() = sockets.forEach { it.close(1001, "bye") }
 
+    /** Sockets that stay open and answer nothing any more (a phone that slept: the socket looks up, it is dead). */
+    val deaf: MutableSet<WebSocket> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    fun deafen() { deaf.addAll(sockets) }
+
     fun send(ws: WebSocket, vararg parts: Any) {
         ws.send(buildJsonArray {
             for (p in parts) when (p) {
@@ -123,6 +128,7 @@ class FakeRelay(
     }
 
     override fun onMessage(webSocket: WebSocket, text: String) {
+        if (webSocket in deaf) return
         val arr = parseJsonOrNull(text) as? JsonArray ?: return
         when (arr[0].str()) {
             "REQ" -> {
@@ -275,9 +281,8 @@ class RelayTest {
 
     @Test
     fun backoffAndRefusals() {
-        assertEquals(1600L, Backoff.delayMs(1))
-        assertEquals(3200L, Backoff.delayMs(2))
-        assertEquals(30_000L, Backoff.delayMs(6))
+        assertEquals(listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L, 30_000L), (1..7).map { Backoff.delayMs(it) })
+        assertEquals(1_000L, Backoff.delayMs(0))
         assertEquals(30_000L, Backoff.delayMs(40))
         assertTrue(Access.isRefusal("restricted: no pass"))
         assertTrue(Access.isRefusal("blocked: gone"))
@@ -285,6 +290,69 @@ class RelayTest {
         assertFalse(Access.isRefusal("rate-limited: slow down"))
         val filter = Filters.of(kinds = listOf(1059), tags = mapOf("p" to listOf("ab")), since = 3, limit = 7)
         assertEquals("{\"kinds\":[1059],\"#p\":[\"ab\"],\"since\":3,\"limit\":7}", filter.toString())
+    }
+
+    // ---- dead sockets (SPEC 19.50) ------------------------------------------------------------------
+
+    @Test
+    fun aPublishTimeoutDropsTheSocket() = runBlocking {
+        val f = fake(connections = 2)
+        val relay = Relay(f.url, client, scope)
+        var drops = 0
+        relay.onDisconnect = { drops++ }
+        relay.keepConnected()
+        until("connected") { relay.isUp }
+        f.deafen()
+        val ev = LocalSigner.random().signNow(EventTemplate(1, "into the void", emptyList()))
+        try {
+            relay.publish(ev, 400)
+            fail("a deaf relay answered")
+        } catch (e: RelayException) {
+            assertEquals("timeout: the relay did not answer", e.reason)
+        }
+        assertEquals(1, drops, "dropped at once, not kept for the next try")
+        until("reconnected after a second", 4000) { f.opens == 2 && relay.isUp }
+        relay.publish(ev, 2000)
+        assertTrue(f.published.any { it.id == ev.id })
+        relay.stop()
+    }
+
+    @Test
+    fun aQuietSocketIsAskedBeforeASend() = runBlocking {
+        val f = fake(connections = 2)
+        val relay = Relay(f.url, client, scope)
+        relay.sendQuietMs = 200
+        relay.probeMs = 300
+        relay.connect()
+        f.deafen()
+        delay(300)
+        val steps = CopyOnWriteArrayList<String>()
+        val ev = LocalSigner.random().signNow(EventTemplate(1, "after a sleep", emptyList()))
+        val t0 = System.currentTimeMillis()
+        relay.publish(ev, 5000) { steps.add(it) }
+        assertTrue(System.currentTimeMillis() - t0 < 3000, "no publish timeout waited")
+        assertEquals(2, f.opens)
+        assertEquals(listOf(Relay.STEP_CHECK, Relay.STEP_CONNECT, Relay.STEP_WAIT), steps.toList())
+        assertTrue(f.published.any { it.id == ev.id })
+        relay.stop()
+    }
+
+    @Test
+    fun checkAllDropsTheDeadAndKeepsTheLiving() = runBlocking {
+        val dead = fake(connections = 2)
+        val alive = fake()
+        val c = Connections(scope)
+        val a = c.add("groups", Relay(dead.url, client, scope).apply { probeMs = 300 })
+        val b = c.add("main", Relay(alive.url, client, scope).apply { probeMs = 300 })
+        a.keepConnected(); b.keepConnected()
+        until("both up") { a.isUp && b.isUp }
+        dead.deafen()
+        val t0 = System.currentTimeMillis()
+        c.checkAll()
+        assertTrue(System.currentTimeMillis() - t0 < 2000, "asked at once, not one after the other")
+        until("the dead one opened again", 3000) { dead.opens == 2 && a.isUp }
+        assertEquals(1, alive.opens)
+        c.stop()
     }
 
     // ---- NIP-46 -----------------------------------------------------------------------------------
@@ -382,6 +450,26 @@ class RelayTest {
         assertTrue(signer.sign(EventTemplate(9, "found", emptyList())).isValid())
         // the silent request was asked once more on a fresh connection before giving up
         assertEquals(3, f.opens)
+        signer.disconnect()
+    }
+
+    @Test
+    fun bunkerSignerAsksAQuietSocketFirst() = runBlocking {
+        val f = fake(connections = 2)
+        val fs = FakeSigner(f)
+        val signer = BunkerSigner(BunkerUrl.parse(fs.bunkerUrl)!!, LocalSigner.random().secretHex, fs.member.pubkey, client, scope, timeoutMs = 5000)
+        signer.relay.sendQuietMs = 200
+        signer.relay.probeMs = 300
+        val calls = CopyOnWriteArrayList<String>()
+        signer.onRequest = { m, _ -> calls.add(m) }
+        assertTrue(signer.sign(EventTemplate(9, "before the sleep", emptyList())).isValid())
+        f.deafen()
+        delay(300)
+        val t0 = System.currentTimeMillis()
+        assertTrue(signer.sign(EventTemplate(9, "after the sleep", emptyList())).isValid())
+        assertTrue(System.currentTimeMillis() - t0 < 3000, "not the request's whole timeout")
+        assertEquals(2, f.opens)
+        assertEquals(listOf("sign_event", "sign_event"), calls.toList())
         signer.disconnect()
     }
 

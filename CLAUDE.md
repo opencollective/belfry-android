@@ -210,6 +210,13 @@ minSdk 26, JDK 17.
   ahead on an unmetered connection (`Updater.prefetch`), so Update opens the installer at once. The
   drawer has no search field (search is in each channel's header).
 
+- Connections (SPEC 19.50, 2026-11-21): `core/net/Connections.kt` owns the session's sockets (groups,
+  main, the signer's `BunkerSigner.relay`); `Session.wake / background / setOnline / sendNow /
+  diagnostics`. `Relay.publish` asks a quiet socket first and drops one that gave no `OK`
+  (`probeMs` / `sendQuietMs` are test seams). The outbox holds back by lane (`Outbox.lane`), not
+  by relay. `SendTrace` = `Session.sending` (the lines under unsent messages, `rememberSendLine`)
+  and About Belfry → Diagnostics. A new socket for a session goes through `Connections.add`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

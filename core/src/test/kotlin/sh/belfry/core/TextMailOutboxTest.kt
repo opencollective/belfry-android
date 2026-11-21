@@ -270,4 +270,72 @@ class TextMailOutboxTest {
         // the item round-trips through its JSON form (what the store keeps)
         assertEquals(f.items[0], OutboxItem.fromJson(f.items[0].toJson()))
     }
+
+    /** SPEC 19.50: the line under an unsent message, and the trace (no content). */
+    @Test
+    fun sendLinesAndTrace() {
+        val S = sh.belfry.core.outbox.SendState
+        val p = sh.belfry.core.outbox.SendProgress(1_000, "signing")
+        assertEquals("Sending…", S.line(false, 0, null, 0, true).text)
+        assertEquals("Sending…", S.line(false, 0, p, 5_999, true).text)
+        assertEquals("Still sending… · signing", S.line(false, 0, p, 6_000, true).text)
+        assertEquals(sh.belfry.core.outbox.SendLine("Not sent yet", retry = true), S.line(false, 0, p, 31_000, true))
+        assertEquals("Waiting for connection…", S.line(false, 1, p, 31_000, false).text)
+        assertEquals("Sending again…", S.line(false, 1, p, 2_000, true).text)
+        assertEquals(4_000L, S.nextChangeMs(p, 2_000))
+        assertEquals(25_000L, S.nextChangeMs(p, 6_000))
+        assertEquals(null, S.nextChangeMs(p, 40_000))
+        var now = 0L
+        val t = sh.belfry.core.outbox.SendTrace({ now }, { 0L }, java.time.ZoneOffset.UTC)
+        t.step("x", "DM", "preparing"); now = 2_100
+        t.step("x", "DM", "waiting for the relay"); now = 2_400
+        t.end("x", "OK", left = false)
+        assertEquals(listOf("00:00:00 DM · preparing 2.1s · waiting for the relay 0.3s · → OK 2.4s"), t.lines())
+        assertTrue(t.progress.value.isEmpty())
+        t.step("y", "message", "signing"); now = 3_000
+        t.end("y", "retry (timeout)", left = true)
+        assertEquals("trying again", t.progress.value["y"]?.step)
+        assertEquals(2_400L, t.progress.value["y"]?.since)
+        repeat(30) { t.note("n$it") }
+        assertEquals(20, t.lines().size)
+    }
+
+    /** SPEC 19.50: a direct message never waits behind an older item that is not one; lanes keep their own order. */
+    @Test
+    fun outboxLanes() = runBlocking {
+        val me = sh.belfry.core.nostr.LocalSigner.random()
+        fun wrap(to: String, at: Long) = me.signNow(sh.belfry.core.nostr.EventTemplate(1059, "x$at", listOf(listOf("p", to)), at))
+        val read = OutboxItem("read", Target.MAIN, 30078, "", listOf(listOf("d", "belfry:read")), 1)
+        val dm = OutboxItem("dm", Target.MAIN, 1059, "", emptyList(), 2, signed = wrap("aa", 2), dm = "r1")
+        val profile = OutboxItem("profile", Target.MAIN, 0, "", emptyList(), 3)
+        val stuck = mapOf("read" to "timeout: the relay did not answer")
+        var r = Outbox.run(listOf(read, dm, profile)) { stuck[it.localId]?.let { m -> SendOutcome.Error(m) } ?: SendOutcome.Ok() }
+        assertEquals(listOf("read", "dm"), r.attempted, "the message goes; the profile waits behind the relay that did not answer")
+        // the third time out of the read marker: it no longer holds back the others
+        r = Outbox.run(listOf(read.copy(tries = 3), profile)) { stuck[it.localId]?.let { m -> SendOutcome.Error(m) } ?: SendOutcome.Ok() }
+        assertEquals(listOf("read", "profile"), r.attempted)
+        assertEquals(listOf("profile"), r.sent.map { it.item.localId })
+
+        // lanes: a group's messages keep their order; another group's go
+        val a1 = OutboxItem("a1", Target.GROUPS, 9, "", listOf(listOf("h", "a")), 10)
+        val a2 = OutboxItem("a2", Target.GROUPS, 9, "", listOf(listOf("h", "a")), 11)
+        val b1 = OutboxItem("b1", Target.GROUPS, 9, "", listOf(listOf("h", "b")), 12)
+        val api = OutboxItem("api", Target.API, 9002, "", listOf(listOf("h", "a")), 13, path = "/group-meta", body = "{}")
+        r = Outbox.run(listOf(a1, a2, b1, api)) { if (it.localId == "a1") SendOutcome.Error("rate-limited: slow down") else SendOutcome.Ok() }
+        assertEquals(listOf("a1", "b1", "api"), r.attempted, "a2 waits behind a1; lanes are per relay, the API is not the groups relay")
+        assertEquals(setOf(Target.GROUPS), r.stalled)
+
+        // the signer did not answer: nothing that needs signing goes; a wrap signed already does
+        val dm2 = OutboxItem("dm2", Target.MAIN, 1059, "", emptyList(), 14, signed = wrap("bb", 14), dm = "r2")
+        r = Outbox.run(listOf(a1, b1, api, dm2)) { if (it.localId == "a1") SendOutcome.Error("timeout: the signer did not answer") else SendOutcome.Ok() }
+        assertEquals(listOf("a1", "dm2"), r.attempted)
+
+        // a direct message that times out holds back its relay for everyone (the socket is dead)
+        val dm3 = OutboxItem("dm3", Target.MAIN, 1059, "", emptyList(), 15, signed = wrap("aa", 15), dm = "r3")
+        r = Outbox.run(listOf(dm, dm3, dm2, profile.copy(createdAt = 16))) { if (it.localId == "dm") SendOutcome.Error("timeout: the relay did not answer") else SendOutcome.Ok() }
+        assertEquals(listOf("dm"), r.attempted)
+        assertEquals("dm:aa", Outbox.lane(dm3))
+        assertEquals("h:a", Outbox.lane(api))
+        assertEquals("k:30078:belfry:read", Outbox.lane(read))
+    }
 }
