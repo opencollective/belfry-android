@@ -51,6 +51,7 @@ import sh.belfry.core.model.Actions
 import sh.belfry.core.model.PlaceNames
 import sh.belfry.core.model.World
 import sh.belfry.core.model.fold
+import sh.belfry.core.model.isAgent
 import sh.belfry.core.model.groupRequests
 import sh.belfry.core.model.mayModerate
 import sh.belfry.core.model.memberKeys
@@ -86,12 +87,14 @@ fun MembersScreen() {
     val list: List<DirMember> = dir.ifEmpty {
         world.memberKeys().map { pk -> DirMember(pk, world.realName(pk), roles.members[pk] ?: if (world.isBelfryAdmin(pk)) BelfryRole.ADMIN else null, world.ctx.agents.filterValues { it == pk }.keys.map { it to world.realName(it) }) }
     }
-    val words = fold(q).split(' ').filter { it.isNotEmpty() }
-    val shown = list.filter { m -> words.all { fold(name(world, m)).contains(it) } }.sortedBy { fold(name(world, it)) }
+    // canvas v93: a member's own agents fold into "+ N agents" on the member's row; counts never count agents
+    val shown = sh.belfry.core.model.MembersFold.lines(list, world.ctx.agents, { world.realName(it) }, q) { world.isAgent(it) }
+    val people = sh.belfry.core.model.MembersFold.count(shown, { world.isAgent(it) })
+    val total = sh.belfry.core.model.MembersFold.count(sh.belfry.core.model.MembersFold.lines(list, world.ctx.agents, { world.realName(it) }, "") { world.isAgent(it) }) { world.isAgent(it) }
     val mayInvite = world.isCommunityAdmin || (membership.invite == "members" && membership.mayInviteMembers)
     Column(Modifier.fillMaxSize().background(c.bg).testTag("members")) {
         TopBar(
-            PlaceNames.MEMBERS, subtitle = "${list.size} ${if (list.size == 1) "member" else "members"}",
+            PlaceNames.MEMBERS, subtitle = "$total ${if (total == 1) "person" else "people"}",
             navigation = { BackButton { nav.back() } },
             actions = { if (mayInvite) IconAction(BelfryIcons.Plus, "Invite", { nav.go(Routes.inviteToCommunity()) }, modifier = Modifier.testTag("members-invite")) },
         )
@@ -117,16 +120,17 @@ fun MembersScreen() {
                 Text("The list could not be loaded.", fontSize = 15.sp, color = c.muted, modifier = Modifier.padding(16.dp))
             }
             var letter = ""
-            for (m in shown) {
+            for (line in shown) {
+                val m = line.member
                 val l = name(world, m).firstOrNull()?.uppercaseChar()?.takeIf { it.isLetter() }?.toString() ?: "#"
                 if (l != letter) {
                     letter = l
                     item(key = "<l:$l>") { Text(l, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.muted, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 2.dp)) }
                 }
-                item(key = m.pubkey) { MemberRow(world, m, roles) { nav.go(Routes.profile(it)) } }
+                item(key = m.pubkey) { MemberRow(world, line, roles, q) { nav.go(Routes.profile(it)) } }
             }
             item(key = "<count>") {
-                Text("${shown.size} ${if (shown.size == 1) "member" else "members"}", fontSize = 13.sp, color = c.muted, modifier = Modifier.fillMaxWidth().padding(16.dp))
+                Text("$people ${if (people == 1) "person" else "people"}", fontSize = 13.sp, color = c.muted, modifier = Modifier.fillMaxWidth().padding(16.dp))
             }
         }
     }
@@ -135,26 +139,46 @@ fun MembersScreen() {
 private fun name(world: World, m: DirMember): String = world.realName(m.pubkey).ifEmpty { m.name }.ifEmpty { World.UNKNOWN }
 
 @Composable
-private fun MemberRow(world: World, m: DirMember, roles: sh.belfry.core.net.RolesInfo, open: (String) -> Unit) {
+private fun MemberRow(world: World, line: sh.belfry.core.model.MembersFold.Line, roles: sh.belfry.core.net.RolesInfo, query: String, open: (String) -> Unit) {
     val c = Belfry.colors
+    val m = line.member
     val role = m.role?.takeIf { it != BelfryRole.MEMBER }?.let { roles.role(it)?.label ?: if (it == BelfryRole.ADMIN) PlaceNames.STEWARD else null }
-    Column(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(m.pubkey) }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Avatar(world.face(m.pubkey), size = 40.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(name(world, m), fontSize = 16.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (role != null) Text(role, fontSize = 13.sp, color = c.muted)
+    Row(
+        Modifier.fillMaxWidth().clickable(role = Role.Button) { open(m.pubkey) }.padding(horizontal = 16.dp, vertical = 8.dp).testTag("member-row"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Avatar(world.face(m.pubkey), size = 40.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name(world, m), fontSize = 16.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val matched = line.matched
+            if (matched != null) {
+                Text(boldMatch("+ $matched", query, c.text), fontSize = 13.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("member-agent-match"))
+            } else if (line.agents.isNotEmpty()) {
+                Text(sh.belfry.core.model.MembersFold.agentsLine(line.agents.size), fontSize = 13.sp, color = c.muted, modifier = Modifier.testTag("member-agents"))
             }
         }
-        for ((pk, n) in m.agents) {
-            Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { open(pk) }.padding(start = 68.dp, end = 16.dp, top = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(world.face(pk), size = 26.dp)
-                Spacer(Modifier.width(10.dp))
-                Text(world.realName(pk).ifEmpty { n.ifEmpty { "Agent" } } + " · agent", fontSize = 14.sp, color = c.muted, maxLines = 1)
+        if (role != null) {
+            Spacer(Modifier.width(10.dp))
+            Text(role, fontSize = 13.sp, color = c.muted, maxLines = 1)
+        }
+    }
+}
+
+/** TEXT with the words of QUERY in bold (case and accents ignored). */
+private fun boldMatch(text: String, query: String, strong: androidx.compose.ui.graphics.Color): androidx.compose.ui.text.AnnotatedString {
+    val folded = fold(text)
+    val b = androidx.compose.ui.text.AnnotatedString.Builder(text)
+    if (folded.length == text.length) {
+        for (w in fold(query).split(' ').filter { it.isNotEmpty() }) {
+            var at = folded.indexOf(w)
+            while (at >= 0) {
+                b.addStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold, color = strong), at, at + w.length)
+                at = folded.indexOf(w, at + w.length)
             }
         }
     }
+    return b.toAnnotatedString()
 }
 
 /** What waits for me (web Requests.tsx RequestSections, docs/membership.md): only the sections with something in them. */

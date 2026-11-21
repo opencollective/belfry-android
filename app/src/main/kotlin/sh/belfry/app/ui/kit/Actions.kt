@@ -105,6 +105,8 @@ fun ActionRow(
     chevron: Boolean = false,
     enabled: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
+    /** In place of the icon (a face). */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     val c = Belfry.colors
     val click = if (onClick != null) Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onClick) else Modifier
@@ -124,7 +126,7 @@ fun ActionRow(
     } else {
         null
     }
-    RowFrame(label, icon, sub, danger, enabled, modifier.then(click), trailing = tail)
+    RowFrame(label, icon, sub, danger, enabled, modifier.then(click), leading = leading, trailing = tail)
 }
 
 /** A row that does work: locks on tap, its icon becomes a spinner until the work ends. */

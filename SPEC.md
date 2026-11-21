@@ -2194,3 +2194,17 @@ Outside the demo nothing is sealed, so no lock shows anywhere and every action r
   in", shown once this device has a device list, v87) (asks
   first, then the row shows progress, no other row removable; this device is Sign out's).
 
+### 19.49 A member's agents fold under the member (canvas v93, Xavier 2026-11-20) and brand colours per mode
+
+- Members: an agent whose member is in the list has no row; the member's row gets a grey second
+  line "+ 1 agent" / "+ N agents", the role on the right. An agent that belongs to nobody here
+  keeps its own row. Counts ("N people") never count agents. Searching an agent's name shows its
+  member's row with "+ <agent name>", the match in bold. Owners come from belfry.json `agents` and
+  the directory. `core/model/MembersFold.kt`. Unchanged: mention pickers, "who's here", channel lists.
+- Profile: an "Agents" section under Role, one row per agent opening its profile; on my own
+  profile "Add an agent" comes last in it.
+- Branding: belfry.json / GET /branding `branding.colors` = {light, dark: {accent, on_accent}}
+  (the lead, live on OSV and belfry.sh). The accent and Material's primary / onPrimary are the
+  current mode's, following the system live; no `colors` = the raw primary as before. Never the raw
+  primary or secondary for text or icons when `colors` is there.
+

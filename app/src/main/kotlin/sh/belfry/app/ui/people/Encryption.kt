@@ -320,15 +320,33 @@ fun SealAskHost() {
     val ask = st.asks.firstOrNull() ?: return
     var gone by remember(ask.id) { mutableStateOf(false) }
     if (gone) return
+    val nav = LocalNav.current
     AccessAskDialog(ask, LocalWorld.current.face(session.me).name, session.now(), onDismiss = { gone = true },
-        onAllow = { session.encryption.allow(ask.id) }, onNotMe = { session.encryption.notMe(ask.id) })
+        onAllow = { session.encryption.allow(ask.id) }, onNotMe = { session.encryption.notMe(ask.id) }, onDevices = { nav.go(Routes.DEVICES) })
 }
 
 @Composable
-fun AccessAskDialog(ask: AccessAsk, myName: String, now: Long, onDismiss: () -> Unit, onAllow: suspend () -> Unit, onNotMe: suspend () -> Unit) {
+fun AccessAskDialog(
+    ask: AccessAsk, myName: String, now: Long, onDismiss: () -> Unit, onAllow: suspend () -> Unit, onNotMe: suspend () -> Unit,
+    onDevices: () -> Unit = {}, startFull: Boolean = false,
+) {
     val c = Belfry.colors
     val busy = rememberBusy()
     var error by remember { mutableStateOf<String?>(null) }
+    // canvas v90 / sealed.md §5.2: at most 20 devices; the new device stays locked
+    var full by remember { mutableStateOf(startFull) }
+    if (full) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            icon = { Icon(ask.kind.icon(), contentDescription = null, tint = c.text) },
+            title = { Text(SealedText.askTitle(ask.device)) },
+            text = { Text(SealedText.TOO_MANY, fontSize = 15.sp, lineHeight = 21.sp, color = c.text, modifier = Modifier.testTag("seal-too-many")) },
+            confirmButton = { BusyButton("OK", onClick = { onDismiss() }, small = true) },
+            dismissButton = { BusyButton("Devices", onClick = { onDismiss(); onDevices() }, small = true, kind = ButtonKind.Ghost, modifier = Modifier.testTag("seal-too-many-devices")) },
+            containerColor = c.bg,
+        )
+        return
+    }
     AlertDialog(
         onDismissRequest = { if (!busy.busy) onDismiss() },
         icon = { Icon(ask.kind.icon(), contentDescription = null, tint = c.text) },
@@ -342,7 +360,11 @@ fun AccessAskDialog(ask: AccessAsk, myName: String, now: Long, onDismiss: () -> 
             }
         },
         confirmButton = {
-            BusyButton("Allow", onClick = { onAllow() }, busy = busy, small = true, onError = { error = it.shown() }, modifier = Modifier.testTag("seal-allow"))
+            BusyButton(
+                "Allow", onClick = { onAllow() }, busy = busy, small = true,
+                onError = { if ((it as? sh.belfry.core.engine.ActionException)?.code == "too_many_devices") full = true else error = it.shown() },
+                modifier = Modifier.testTag("seal-allow"),
+            )
         },
         dismissButton = {
             BusyButton("Not me", onClick = { onNotMe() }, busy = busy, small = true, kind = ButtonKind.Ghost, onError = { error = it.shown() }, modifier = Modifier.testTag("seal-not-me"))

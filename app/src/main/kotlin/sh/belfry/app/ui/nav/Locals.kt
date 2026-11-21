@@ -84,8 +84,25 @@ fun SessionScope(session: Session, nav: Nav, content: @Composable () -> Unit) {
         LocalDms provides dms,
         LocalStatus provides status,
         LocalNav provides nav,
-        // the belfry's branding: its primary colour as the accent, its secondary on count badges
-        LocalBelfryColors provides LocalBelfryColors.current.branded(session.community.brandPrimary, session.community.brandSecondary),
-        content = content,
-    )
+    ) {
+        BrandScope(session.community, content)
+    }
+}
+
+/**
+ * The belfry's branding: its accent for the system's current mode (`branding.colors`, else its raw
+ * primary) as the app's accent AND the Material colour scheme's primary (text buttons, icons,
+ * links, switches, selection), its secondary on count badges. Follows the mode live.
+ */
+@Composable
+fun BrandScope(community: sh.belfry.core.net.Community, content: @Composable () -> Unit) {
+    val c = LocalBelfryColors.current.branded(community.brandPrimary, community.brandSecondary, community.brandColors)
+    androidx.compose.runtime.CompositionLocalProvider(LocalBelfryColors provides c) {
+        androidx.compose.material3.MaterialTheme(
+            colorScheme = androidx.compose.material3.MaterialTheme.colorScheme.copy(primary = c.accent, onPrimary = c.onAccent),
+            typography = androidx.compose.material3.MaterialTheme.typography,
+            shapes = androidx.compose.material3.MaterialTheme.shapes,
+            content = content,
+        )
+    }
 }

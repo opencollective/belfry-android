@@ -199,6 +199,7 @@ object SealedText {
         "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."
     const val WRITE_LATER = "You can write here once this device is allowed."
     const val NOT_SEALED = "Not sealed"
+    const val TOO_MANY = "You already have 20 devices. Remove one in Devices, then try again."
     const val NOT_SEALED_WHY = "This message was not sent with the lock. It may come from an old app version."
     fun sharedBy(name: String): String = "Shared by $name"
     fun sharedWhy(name: String): String =

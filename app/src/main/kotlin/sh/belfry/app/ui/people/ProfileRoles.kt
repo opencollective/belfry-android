@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import sh.belfry.app.ui.kit.ActionGroup
+import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.kit.ActionRow
 import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BusyButton
@@ -172,28 +173,36 @@ fun InGroupSection(pubkey: String, groupId: String) {
 }
 
 /**
- * "Add an agent" on my own profile (SPEC 19.31; members only, not guests or agents): a one-agent
- * link on the Townsquare and one line to paste to the agent. With my agent here, it is listed with
- * "Remove this agent…" (on its profile); stewards (no limit) see "Add another agent".
+ * The "Agents" section of a member's profile (canvas v93 home/profile-agents): one row per agent
+ * of theirs (face, name), each opening that agent's profile. On my own profile the "Add an agent"
+ * row comes last (SPEC 19.31; members only, not guests or agents): a one-agent link on the
+ * Townsquare and one line to paste to the agent; stewards (no limit) see "Add another agent".
  */
 @Composable
-fun MyAgentSection() {
+fun AgentsSection(pubkey: String, mine: Boolean) {
     val world = LocalWorld.current
     val session = LocalSession.current
-    if (world.amGuest || world.isAgent(world.me)) return
-    var mine by remember { mutableStateOf<sh.belfry.core.net.MyAgents?>(null) }
-    LaunchedEffect(Unit) { mine = try { session.myAgents() } catch (e: ActionException) { null } }
-    val agents = world.ctx.agents.filterValues { it == world.me }.keys.sorted()
+    val nav = sh.belfry.app.ui.nav.LocalNav.current
+    val agents = world.ctx.agents.filterValues { it == pubkey }.keys.sortedBy { world.realName(it).lowercase() }
+    val canAdd = mine && !world.amGuest && !world.isAgent(world.me)
+    if (agents.isEmpty() && !canAdd) return
+    var room by remember { mutableStateOf<Int?>(null) }
+    if (canAdd) LaunchedEffect(Unit) { room = try { session.myAgents().room } catch (e: ActionException) { null } }
     var adding by remember { mutableStateOf(false) }
-    SectionTitle("Your agent")
-    ActionGroup {
-        for (a in agents) ActionRow(world.realName(a).ifEmpty { "Agent" }, onClick = null, icon = Icons.Outlined.SmartToy, sub = "Your agent: a member for as long as you are one")
-        val room = mine?.room ?: if (agents.isEmpty()) 1 else 0
-        if (room > 0 || world.isCommunityAdmin) {
+    SectionTitle("Agents")
+    ActionGroup(Modifier.testTag("profile-agents")) {
+        for (a in agents) {
+            ActionRow(
+                world.realName(a).ifEmpty { "Agent" }, onClick = { nav.go(sh.belfry.app.ui.nav.Routes.profile(a)) },
+                leading = { sh.belfry.app.ui.kit.Avatar(world.face(a), size = 22.dp) }, chevron = true,
+                modifier = Modifier.testTag("profile-agent"),
+            )
+        }
+        if (canAdd && ((room ?: if (agents.isEmpty()) 1 else 0) > 0 || world.isCommunityAdmin)) {
             ActionRow(if (agents.isEmpty()) "Add an agent" else "Add another agent", onClick = { adding = true }, icon = BelfryIcons.Plus, modifier = Modifier.testTag("add-agent"))
         }
     }
-    if (agents.isEmpty()) Hint("An AI agent that works for you: it reads the channels you can read and people see it is yours.", Modifier.padding(top = 6.dp))
+    if (canAdd && agents.isEmpty()) Hint("An AI agent that works for you: it reads the channels you can read and people see it is yours.", Modifier.padding(top = 6.dp))
     if (adding) AddAgentDialog(onDismiss = { adding = false })
 }
 

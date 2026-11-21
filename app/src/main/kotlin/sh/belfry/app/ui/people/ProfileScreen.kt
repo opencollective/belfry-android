@@ -164,6 +164,8 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
         }
         // the belfry's role right below (Steward · Member · Guest and its own roles)
         if (owner == null) RoleSection(pubkey)
+        // canvas v93: the member's own agents under Role; on my own profile "Add an agent" comes last
+        if (owner == null) AgentsSection(pubkey, mine)
         // opened from a channel's, group's or event's people: the role there (SPEC 19.29)
         if (group != null) InGroupSection(pubkey, group)
         val place = x?.place
@@ -211,7 +213,6 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
             }
             ErrorLine(agentError)
         }
-        if (mine) MyAgentSection()
     }
     if (dropping) {
         val who = world.displayName(pubkey)
