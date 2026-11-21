@@ -439,7 +439,7 @@ class SealedEngineTest {
     /** "Done" only from a read-back: the relay refusing the roster only, the anchor only, or both. */
     @Test fun refusedRosterOrAnchor() = runBlocking<Unit> {
         for (refused in listOf(setOf(Roster.KIND), setOf(30078), setOf(Roster.KIND, 30078))) {
-            relay.events.clear(); server.sessions.clear()
+            relay.events.clear(); server.sessions.clear(); portsOf.clear() // each round a device with nothing stored
             server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
             server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")
             val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")

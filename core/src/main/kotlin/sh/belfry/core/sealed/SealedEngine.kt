@@ -80,7 +80,8 @@ class SealedEngine(
         val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(person)))
         val complete = qa.complete && qr.complete
         // the pin holds even when the relay no longer has its events: the stored path and anchor join in
-        val a = SealedEngine.Answer((qa.events + listOfNotNull(anchors[person])).distinctBy { it.id }, qa.complete)
+        // the stored anchor only when the relay gave none (never competing with a newer one in the same second)
+        val a = SealedEngine.Answer(if (newestAnchor(qa.events, person) != null) qa.events else qa.events + listOfNotNull(anchors[person]), qa.complete)
         val r = SealedEngine.Answer((qr.events + pathEvents[person].orEmpty()).distinctBy { it.id }, qr.complete)
         val chain = followRead(person, a, r)
         val prev = known[person]
@@ -227,7 +228,7 @@ class SealedEngine(
         val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
         val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(account)))
         val complete = qa.complete && qr.complete
-        val a = SealedEngine.Answer((qa.events + listOfNotNull(anchors[account])).distinctBy { it.id }, qa.complete)
+        val a = SealedEngine.Answer(if (newestAnchor(qa.events, account) != null) qa.events else qa.events + listOfNotNull(anchors[account]), qa.complete)
         val r = SealedEngine.Answer((qr.events + pathEvents[account].orEmpty()).distinctBy { it.id }, qr.complete)
         val chain = followRead(account, a, r)
         if (chain != null) {
