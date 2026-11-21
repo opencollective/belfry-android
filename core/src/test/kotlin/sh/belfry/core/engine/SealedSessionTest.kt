@@ -110,9 +110,9 @@ class SealedSessionTest {
         skew += 120
         val opens = m.opens
         m.dropAll()
-        until("both devices reconnected (opens ${'$'}opens → ?)", 30_000) { m.opens >= opens + 2 }
+        until("both devices reconnected (opens $opens → ?)", 30_000) { m.opens >= opens + 2 }
         until("asked again after the reconnect", 20_000, seen = {
-            "(requests ${'$'}{requestsBy(laptop)}, mine ${'$'}{b.sealed?.mine}, opens ${'$'}{m.opens}, reqs ${'$'}{m.reqs.size}, authed ${'$'}{m.authedAs?.take(8)}, laptop main state ${'$'}{b.status.value.main})"
+            "(requests ${requestsBy(laptop)}, mine ${b.sealed?.mine}, opens ${m.opens}, reqs ${m.reqs.size}, authed ${m.authedAs?.take(8)}, laptop main state ${b.status.value.main})"
         }) { requestsBy(laptop) >= 2 }
         delay(2_000)
         assertEquals(2, requestsBy(laptop), "one per connection")
