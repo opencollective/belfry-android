@@ -111,6 +111,9 @@ class SealedSessionTest {
         val opens = m.opens
         m.dropAll()
         until("both devices reconnected (opens $opens → ?)", 30_000) { m.opens >= opens + 2 }
+        until("the laptop's engine heard of the drop", 10_000, seen = { "(asks ${b.sealed?.askTrace?.toList()}, closes ${m.closes})" }) {
+            b.sealed?.askTrace?.contains("connection lost") == true
+        }
         until("asked again after the reconnect", 20_000, seen = {
             "(requests ${requestsBy(laptop)}, mine ${b.sealed?.mine}, opens ${m.opens}, reqs ${m.reqs.size}, authed ${m.authedAs?.take(8)}, laptop main state ${b.status.value.main}, asks ${b.sealed?.askTrace?.toList()})"
         }) { requestsBy(laptop) >= 2 }

@@ -203,7 +203,8 @@ class FakeRelay(
         }
     }
 
-    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { authBy.remove(webSocket); subsBy.remove(webSocket) }
+    @Volatile var closes = 0
+    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { closes++; authBy.remove(webSocket); subsBy.remove(webSocket) }
     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { authBy.remove(webSocket); subsBy.remove(webSocket) }
 }
 

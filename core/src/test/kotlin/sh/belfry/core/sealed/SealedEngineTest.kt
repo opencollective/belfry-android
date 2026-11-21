@@ -680,9 +680,14 @@ class SealedEngineTest {
         val plan = b.plan(c, listOf(alice.pubkey)) as SealedEngine.Plan.Seal
         val rumor = GiftWrap.rumor(14, bob.pubkey, listOf(listOf("p", alice.pubkey)), "to the new letterbox", now)
         val toAlice = b.seal(rumor, plan).single { it.recipient == alice.pubkey }.wrap
-        assertEquals(Sealing.Verdict.LOCKED, laptop.receive(toAlice, null) { c }.verdict, "an lb of my chain without its secret: kept, never dropped")
+        val got = laptop.receive(toAlice, null) { c }
+        assertEquals(Sealing.Verdict.LOCKED, got.verdict, "an lb of my chain without its secret: never dropped")
+        // not stored (fourth review 2b): the app reads its wraps again from 0 when the keys come
+        var told = false
+        laptop.onKeys = { told = true }
         lost.forEach { relay.add(it); laptop.onDeviceWrap(it) }
-        assertTrue(laptop.later.any { it.first.id == rumor.id }, "opened once the keys came")
+        assertTrue(told, "keys arrived: the app is told to read its wraps again")
+        assertEquals(Sealing.Verdict.ACCEPT, laptop.receive(toAlice, null) { c }.verdict, "opened once the keys came")
     }
 
     /** The review's 9: engine state touched from many coroutines at once (every relay call suspends). */
