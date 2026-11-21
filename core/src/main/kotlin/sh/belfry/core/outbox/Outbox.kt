@@ -57,7 +57,7 @@ object Outbox {
         item.status == OutboxStatus.FAILED -> "Not sent"
         // the relay is connected: a send that is tried again says so (web 2026-11-11)
         item.tries > 0 && connected -> "Sending again…"
-        item.tries > 0 -> "Waiting for connection…"
+        item.tries > 0 -> "Waiting for the connection…"
         else -> "Sending…"
     }
 

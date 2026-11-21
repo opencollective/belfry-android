@@ -241,7 +241,7 @@ fun ChannelScreen(
     val pinnedIds = remember(world, groupId) { world.pinned(groupId).map { it.id }.toSet() }
     val todos = remember(world, groupId) { world.todosBySource(groupId) }
     // A message right after one that is still queued or was refused starts its own block, so the
-    // "Waiting for connection…" / "Not sent" line never sits between two texts of one block.
+    // "Waiting for the connection…" / "Not sent" line never sits between two texts of one block.
     val afterPending = remember(rows, world) {
         val out = HashSet<String>()
         for (i in 1 until rows.size) {

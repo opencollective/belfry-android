@@ -1086,7 +1086,7 @@ Short, for the iPhone app to port; the web's code is the reference for each.
   after 2 s. A publish without an answer drops the socket. A stalled outbox retries after 1.5,
   3, 6, then every 12 s. A signer request without an answer is asked once more on a fresh
   connection (10 s each). A queued item that was tried says "Sending again…" while the groups
-  relay is connected, "Waiting for connection…" when it is not.
+  relay is connected, "Waiting for the connection…" when it is not.
 - **The line and the pull-down**: the line's fallback is "N members"; its counts are events,
   proposals, pods, photos, then to-dos (done/total). The pull-down starts with the first
   non-empty line of the description (Markdown marks removed, 200 characters).
@@ -2241,7 +2241,7 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   connecting" / "· encrypting" / "· uploading 2.2 of 4.8 MB" / "· waiting for the server" (a
   signer's or a relay's answer pending: never say signer or relay to people); after **30 s** "Not
   sent yet · Retry" (Retry: every socket asked now, the backoff forgotten, a fresh 30 s, a pass at
-  once). Offline: "Waiting for connection…". Refused: "Not sent: <reason> · Retry" as before.
+  once). Offline: "Waiting for the connection…" (the three apps; the web "Saved · waiting for the connection"). Refused: "Not sent: <reason> · Retry" as before.
   `SendState.shown` maps the trace's exact steps to these words; `rememberSendLine` (app).
 - **Send trace** (`SendTrace`): per attempt `HH:mm:ss <kind> · <step> 0.3s · … → OK|retry (<class>)|refused 1.2s`,
   plus a line for a signer request of 1 s or more and for a socket dropped after a publish timeout;

@@ -120,7 +120,7 @@ object KitGallery {
         Column(Modifier.fillMaxWidth()) {
             var tab by remember { mutableIntStateOf(0) }
             var seg by remember { mutableIntStateOf(1) }
-            Banner("Waiting for connection…", icon = BelfryIcons.Clock)
+            Banner("Waiting for the connection…", icon = BelfryIcons.Clock)
             Banner("Not sent: restricted", kind = BannerKind.Error, actionLabel = "Retry", onAction = {})
             Tabs(listOf("About", "Members", "Files", "Settings"), tab, { tab = it })
             DaySeparator("Monday 9 November")
