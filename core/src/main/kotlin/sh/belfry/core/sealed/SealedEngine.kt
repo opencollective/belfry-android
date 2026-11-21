@@ -266,6 +266,8 @@ class SealedEngine(
      * when a chain exists and this device isn't in its head, ask (§5.2).
      */
     suspend fun start(myName: String, kind: String, link: String? = null) = locked {
+        // two starts at once (AUTH twice on one connection, a late AUTH beside the poll): the second finds it known
+        if (mine != Mine.UNKNOWN) { trace("start: already $mine"); return@locked }
         val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
         val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(account)))
         val complete = qa.complete && qr.complete
@@ -282,8 +284,7 @@ class SealedEngine(
             // in the head but without its letterbox's secret (a lost hand-over): ask too (c233eec, §5.5)
             chain != null && device.pubkey in chain.devices && keys.secretFor(chain.head.lb) == null -> {
                 mine = Mine.WAITING
-                ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
-                lastAsk = clock()
+                askAtStart(link)
             }
             chain != null && device.pubkey in chain.devices -> {
                 mine = Mine.IN_HEAD
@@ -291,8 +292,7 @@ class SealedEngine(
             }
             chain != null -> {
                 mine = Mine.WAITING
-                ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
-                lastAsk = clock()
+                askAtStart(link)
             }
             complete && Anchor.root(a.events, account) == null && !guest && !firstRefused -> {
                 // one pending key, reused on every try (no orphan keys; c233eec)
@@ -302,8 +302,7 @@ class SealedEngine(
                 val again = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
                 if (again.complete && Anchor.root(again.events, account) != null) {
                     mine = Mine.WAITING
-                    ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
-                    lastAsk = clock()
+                    askAtStart(link)
                 } else {
                     keys.add(lbPub, lbSecret)
                     if (!saveKeys()) { mine = Mine.UNKNOWN; return@locked } // never a roster whose secret isn't on disk
@@ -319,8 +318,7 @@ class SealedEngine(
                     val back = refreshHere(account)
                     if (back == null || back.root.id != root.id || anchoredHead() != root.id) {
                         mine = Mine.WAITING
-                        ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))
-                        lastAsk = clock()
+                        askAtStart(link)
                         return@locked
                     }
                     ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName, kind, clock()), lbPub, lbSecret, clock())))
@@ -401,6 +399,15 @@ class SealedEngine(
         }
     }
     private var asking = false
+
+    /** The request at start: counted (once a minute, once per connection) only when the relay took it. */
+    private suspend fun askAtStart(link: String?) {
+        if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))) {
+            lastAsk = clock()
+            askedThisConnection = true
+            trace("sent at start")
+        } else trace("start: publish refused")
+    }
 
     @Volatile private var askedThisConnection = false
 

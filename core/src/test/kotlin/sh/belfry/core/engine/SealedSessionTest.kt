@@ -105,7 +105,7 @@ class SealedSessionTest {
         val b = session(alice, laptop)
         until("the laptop waits") { b.sealed?.mine == SealedEngine.Mine.WAITING }
         delay(2_000) // several polls and the post-AUTH steps
-        assertEquals(1, requestsBy(laptop), "one 8562, not two")
+        assertEquals(1, requestsBy(laptop), "one 8562, not two (asks ${b.sealed?.askTrace?.toList()})")
         // a reconnect, past the once-a-minute limit: exactly one more, then none
         skew += 120
         val opens = m.opens
