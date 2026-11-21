@@ -141,7 +141,6 @@ fun ThreadScreen(
         val editing = chat.editing
         if (editing != null && !reading) EditingBar(onCancel = { chat.editing = null; composer.clear() })
         if (!reading) Composer(
-            typingPlace = sh.belfry.core.typing.TypingPlace.thread(groupId, rootId),
             composer,
             placeholder = if (editing != null) "Edit your message" else "Reply in the thread",
             onSend = { text, files, picked, _ ->
@@ -158,6 +157,7 @@ fun ThreadScreen(
             photos = editing == null,
             groupId = groupId,
             onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
+            typingPlace = sh.belfry.core.typing.TypingPlace.thread(groupId, rootId),
         )
     }
     val startEdit: (Message) -> Unit = { m ->

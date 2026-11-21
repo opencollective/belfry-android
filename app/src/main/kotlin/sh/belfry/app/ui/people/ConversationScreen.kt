@@ -253,7 +253,6 @@ fun ConversationScreen(conv: String) {
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),
             )
         } else Composer(
-            typingPlace = if (mail) null else sh.belfry.core.typing.TypingPlace.dm(conv),
             composer,
             placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else "Message",
             onSend = { text, files, _, _ ->
@@ -274,6 +273,7 @@ fun ConversationScreen(conv: String) {
             modifier = Modifier.navigationBarsPadding(),
             photos = !mail,
             onPlus = if (!mail) ({ plusOpen = true }) else null,
+            typingPlace = if (mail) null else sh.belfry.core.typing.TypingPlace.dm(conv),
         )
         if (plusOpen) DmPlusSheet(conv, composer, onClose = { plusOpen = false }, onRecord = { recording = true })
         if (recording) DmRecorderSheet(conv) { recording = false }

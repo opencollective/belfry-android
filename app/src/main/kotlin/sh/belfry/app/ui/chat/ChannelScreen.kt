@@ -400,7 +400,6 @@ fun ChannelScreen(
             if (!isPub) Hairline()
             if (editing != null) EditingBar(onCancel = { chat.editing = null; composer.clear() })
             Composer(
-                typingPlace = sh.belfry.core.typing.TypingPlace.channel(groupId),
                 composer,
                 placeholder = when {
                     editing != null -> "Edit your message"
@@ -428,6 +427,7 @@ fun ChannelScreen(
                 onPlus = if (editing == null) ({ chat.plusOpen = true }) else null,
                 groupId = groupId,
                 onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },
+                typingPlace = sh.belfry.core.typing.TypingPlace.channel(groupId),
             )
         } else if (!guestReading) {
             Spacer(Modifier.navigationBarsPadding())
