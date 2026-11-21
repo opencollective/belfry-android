@@ -1,6 +1,7 @@
 package sh.belfry.app.update
 
 import android.app.PendingIntent
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,6 +18,7 @@ import sh.belfry.app.BuildConfig
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import sh.belfry.core.update.AppUpdate
+import sh.belfry.core.update.InstallStep
 import sh.belfry.core.update.RateLimited
 import sh.belfry.core.update.Release
 import java.io.File
@@ -28,19 +30,34 @@ import java.security.MessageDigest
  * APK, checks it against the release's .sha256 (that only catches a broken download: what makes
  * an update safe is Android itself, which installs it only when it is signed with the same key),
  * and hands it to the system's installer, which asks the person to confirm. Release builds only.
+ *
+ * Update goes through [tap] ([AppUpdate.installStep]): installs when Android lets Belfry install
+ * packages; else [asking] puts up a sheet (UpdateSheetHost) that says why before it opens Android's
+ * "Install unknown apps" setting, and [resume] (every start in the foreground) goes on with the
+ * update once the person is back with it on (the app may have been killed meanwhile: the release
+ * waits in the preferences). Still off, or no such setting, or the installer failed: belfry.sh/android
+ * in the browser. (Before 2026-11-21 Update opened the setting with no word, which some devices show
+ * as the app's info screen, and nothing went on after it: OSV's report.)
  */
 object Updater {
     sealed interface State {
         data object Idle : State
         data object Downloading : State
         data object Installing : State
-        data class Failed(val message: String) : State
+        /** WEB: the installer itself failed, so the button offers belfry.sh instead of trying again. */
+        data class Failed(val message: String, val web: Boolean = false) : State
     }
+
+    /** The sheet before the setting: for this release; AGAIN = back from the setting, still off. */
+    data class Ask(val release: Release, val again: Boolean)
 
     private const val PREFS = "app-update"
     private const val K_AUTO = "auto"
     private const val K_NEXT = "next-check"
     private const val K_HIDDEN = "hidden"
+    private const val K_PENDING = "pending"
+    private const val K_ASKED = "asked-at"
+    private const val K_NO_SETTING = "no-setting"
     private const val HOUR = 3_600_000L
 
     /** Plain HTTP with timeouts (the relays' client waits forever on a read). */
@@ -49,6 +66,8 @@ object Updater {
     private val _available = MutableStateFlow<Release?>(null)
     /** A newer version than this one, when there is one. */
     val available: StateFlow<Release?> = _available
+    private val _asking = MutableStateFlow<Ask?>(null)
+    val asking: StateFlow<Ask?> = _asking
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state
 
@@ -94,14 +113,71 @@ object Updater {
         try { ready = r.version to withContext(Dispatchers.IO) { download(c, r) } } catch (e: Exception) { ready = null }
     }
 
-    /** Download RELEASE and open the system's install screen. */
-    suspend fun install(c: Context, release: Release) {
-        val pm = c.packageManager
-        if (Build.VERSION.SDK_INT >= 26 && !pm.canRequestPackageInstalls()) {
-            // once: let Belfry install updates (Settings → Install unknown apps)
-            c.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${c.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            return
+    private fun settingIntent(c: Context, withPackage: Boolean = true) =
+        (if (withPackage) Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${c.packageName}")) else Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    private fun canInstall(c: Context) = try { c.packageManager.canRequestPackageInstalls() } catch (e: Exception) { false }
+
+    private fun hasSetting(c: Context): Boolean = !prefs(c).getBoolean(K_NO_SETTING, false) && try {
+        settingIntent(c).resolveActivity(c.packageManager) != null || settingIntent(c, false).resolveActivity(c.packageManager) != null
+    } catch (e: Exception) { false }
+
+    fun step(c: Context): InstallStep = AppUpdate.installStep(canInstall(c), hasSetting(c), prefs(c).getLong(K_ASKED, 0), System.currentTimeMillis())
+
+    /** What Update does: install, the sheet before the setting, or belfry.sh. */
+    suspend fun tap(c: Context, release: Release) {
+        if ((_state.value as? State.Failed)?.web == true) { _state.value = State.Idle; openWeb(c); return }
+        when (step(c)) {
+            InstallStep.INSTALL -> install(c, release)
+            InstallStep.ASK -> _asking.value = Ask(release, again = false)
+            InstallStep.ASK_AGAIN -> _asking.value = Ask(release, again = true)
+            InstallStep.WEB -> openWeb(c)
         }
+    }
+
+    fun dismissAsk() { _asking.value = null }
+
+    /** The sheet's "Open the setting": remember the release, then Android's setting (else belfry.sh). */
+    fun openSetting(c: Context, release: Release) {
+        _asking.value = null
+        prefs(c).edit().putString(K_PENDING, AppUpdate.pendingOf(release)).putLong(K_ASKED, System.currentTimeMillis()).apply()
+        val opened = listOf(true, false).any { withPackage ->
+            try { c.startActivity(settingIntent(c, withPackage)); true } catch (e: ActivityNotFoundException) { false } catch (e: SecurityException) { false }
+        }
+        if (!opened) {
+            prefs(c).edit().putBoolean(K_NO_SETTING, true).remove(K_PENDING).apply()
+            openWeb(c)
+        }
+    }
+
+    /** belfry.sh/android in the browser (the download page of the newest release). */
+    fun openWeb(c: Context) {
+        _asking.value = null
+        try {
+            c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(AppUpdate.WEB)).addCategory(Intent.CATEGORY_BROWSABLE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            _state.value = State.Failed("Open belfry.sh/android in a browser to update.")
+        }
+    }
+
+    /** Back in the foreground after the setting: go on with the update, or ask again. */
+    suspend fun resume(c: Context) {
+        val p = prefs(c)
+        val release = AppUpdate.pendingFrom(p.getString(K_PENDING, null)) ?: return
+        p.edit().remove(K_PENDING).apply()
+        if (System.currentTimeMillis() - p.getLong(K_ASKED, 0) !in 0..AppUpdate.ASKED_FOR_MS) return
+        if (canInstall(c)) {
+            p.edit().remove(K_ASKED).apply()
+            install(c, release)
+        } else {
+            _asking.value = Ask(release, again = true)
+        }
+    }
+
+    /** Download RELEASE and open the system's install screen (Android lets Belfry install: see [tap]). */
+    suspend fun install(c: Context, release: Release) {
+        if (!canInstall(c)) { _asking.value = Ask(release, again = false); return }
         try {
             // downloaded ahead when the check found it; else now
             val file = ready?.takeIf { it.first == release.version && it.second.exists() }?.second
@@ -154,7 +230,7 @@ object Updater {
         _state.value = when (status) {
             PackageInstaller.STATUS_SUCCESS -> State.Idle
             PackageInstaller.STATUS_FAILURE_ABORTED -> State.Idle // the person said no
-            else -> State.Failed("The update was not installed.")
+            else -> State.Failed("The update was not installed. Get it from belfry.sh.", web = true)
         }
     }
 }

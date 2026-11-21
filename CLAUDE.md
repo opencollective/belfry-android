@@ -160,6 +160,11 @@ minSdk 26, JDK 17.
   the same key) and commits it through `PackageInstaller` (`UpdateReceiver` opens the system's
   confirmation). Release builds only (`Updater.enabled`). `UpdateBar` stands at the top of Home,
   `UpdateRows` in Me. Only the version number is shown, never a release's text.
+  Update goes through `Updater.tap` (`AppUpdate.installStep`): install when Android lets Belfry
+  install packages; else `UpdateSheetHost` (in `AppRoot`) says why before it opens Android's
+  "Install unknown apps" setting, and `Updater.resume` (every start) goes on once the person is
+  back with it on (the release waits in the preferences: the app may be killed meanwhile); still
+  off, no such setting, or the installer failed → belfry.sh/android in the browser (`AppUpdate.WEB`).
 
 - Parity with the iPhone app (2026-11-17, branch `parity`; SPEC 19.28–19.35, PARITY.md's first
   table). Core: `model/Archive.kt` (deleted / archived, `GroupLock`, presence questions),

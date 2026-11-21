@@ -69,7 +69,10 @@ class BelfryApp : Application() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 AndroidPush.foreground = true; state.wake()
-                scope.launch { try { sh.belfry.app.update.Updater.check(this@BelfryApp) } catch (e: Exception) { } } // a newer version? (at most hourly)
+                scope.launch {
+                    try { sh.belfry.app.update.Updater.resume(this@BelfryApp) } catch (e: Exception) { } // back from the install setting: go on
+                    try { sh.belfry.app.update.Updater.check(this@BelfryApp) } catch (e: Exception) { } // a newer version? (at most hourly)
+                }
             }
             override fun onStop(owner: LifecycleOwner) {
                 AndroidPush.foreground = false
