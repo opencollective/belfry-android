@@ -339,9 +339,12 @@ object Demo {
             listOf("button", "publish", "Approve and publish", "primary", "belfry:website-publish"),
             listOf("button", "later", "Not now"),
         ), "Version 4 has the new photos of the garden (https://preview.$DOMAIN/p/${Bech32.npub(kofi.pubkey)}@website). Approve it below, or tell me what to change.")
-        // plain requests from the website (collective-belfry requests.md §4b): cards by the belfry with
-        // a Close button for its admins; one closed by Maya, one open
-        fun request(at: Long, type: String, typeName: String, title: String, text: String): Event = raw(groups, at, 9, listOf(
+        // plain requests from the website (collective-belfry requests.md §4b): each card is signed by the
+        // asker's website account (not a member), with a Close button for the admins; one closed by Maya, one open
+        val visitors = listOf(key("Hana Sato") to "Hana Sato", key("Ruth Adeyemi") to "Ruth Adeyemi")
+        visitors.forEachIndexed { i, (k, n) -> post(k, now - 6 * day + i, Actions.saveProfile(JsonObject(emptyMap()), n, "")) }
+        var nextVisitor = 0
+        fun request(at: Long, type: String, typeName: String, title: String, text: String): Event = raw(visitors[nextVisitor++].first, at, 9, listOf(
             listOf("h", REQUESTS), listOf("subject", title), listOf("request-type", type),
             listOf("button", "close", "Close", "", "belfry:request-close"),
         ), "**$title**\n\n_${typeName}_\n\n$text")
