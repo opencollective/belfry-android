@@ -1104,13 +1104,14 @@ class Session(
             if (out is SendOutcome.Error && Outbox.classify(out.message) != ErrorClass.DUPLICATE) throw ActionException("not_sent", Buttons.NOT_SENT)
         }
         addToLog(listOf(ev))
-        if (localOnly && button.action == Buttons.WEBSITE_PUBLISH) {
+        if (localOnly && (button.action == Buttons.WEBSITE_PUBLISH || button.action == Buttons.REQUEST_CLOSE)) {
             val key = Demo.groups
             val name = _world.value.realName(me).ifEmpty { "you" }
+            val said = if (button.action == Buttons.REQUEST_CLOSE) "Closed by $name." else "Published by $name."
             scope.launch(Dispatchers.Default) {
                 delay(DEMO_ANSWER_MS)
                 if (stopped) return@launch
-                addToLog(listOf(key.signNow(EventTemplate(1985, "Published by $name.", listOf(
+                addToLog(listOf(key.signNow(EventTemplate(1985, said, listOf(
                     listOf("L", Buttons.RESULT_NS), listOf("l", "ok", Buttons.RESULT_NS), listOf("e", m.id), listOf("press", ev.id),
                     listOf("p", me), listOf("h", groupId), listOf("closed", "1"),
                 ), clock()))))

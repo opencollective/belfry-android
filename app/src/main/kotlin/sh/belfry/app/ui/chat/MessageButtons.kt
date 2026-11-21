@@ -141,10 +141,11 @@ fun MessageButtons(groupId: String, m: Message) {
         }
 
         asking?.let { b ->
-            val question = if (b.belfry) Buttons.confirmText(b.action, world.ctx.domain) else "${b.label}?"
+            val (question, detail) = Buttons.confirmParts((if (b.belfry) Buttons.confirmText(b.action, world.ctx.domain) else null) ?: "${b.label}?")
             AlertDialog(
                 onDismissRequest = { asking = null },
-                text = { Text(question ?: "${b.label}?", fontSize = 16.sp) },
+                title = { Text(question, fontSize = 20.sp, color = c.text) },
+                text = detail?.let { d -> { Text(d, fontSize = 16.sp, color = c.text) } },
                 confirmButton = {
                     TextButton(onClick = { asking = null; press(b) }, modifier = Modifier.testTag("button-confirm")) {
                         Text(if (b.belfry) Buttons.confirmLabel(b.action) else b.label, color = if (b.danger) c.danger else c.text, fontWeight = FontWeight.SemiBold)

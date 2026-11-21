@@ -116,6 +116,7 @@
     "": "That didn't work.",
     "timeout": "No answer yet.",
     "unknown_belfry_action": "Update the app to use this.",
-    "confirm:belfry:website-publish": "Publish this version as the website? Everyone will see it at https://<domain>."
+    "confirm:belfry:website-publish": "Publish this version as the website? Everyone will see it at https://<domain>.",
+    "confirm:belfry:request-close": "Close this request? It stays readable, and people can still comment."
   }
 }
