@@ -46,8 +46,9 @@ object SendState {
     fun line(failed: Boolean, tries: Int, p: SendProgress?, nowMs: Long, online: Boolean): SendLine {
         if (failed) return SendLine("Not sent", retry = true)
         if (!online) return SendLine("Waiting for connection…")
+        // tried before and not going now (after a restart, the demo's held one): it waits for the connection
+        if (p == null) return SendLine(if (tries > 0) "Waiting for connection…" else "Sending…")
         val first = if (tries > 0) "Sending again…" else "Sending…"
-        if (p == null) return SendLine(first)
         val waited = nowMs - p.since
         return when {
             waited < STILL_MS -> SendLine(first)

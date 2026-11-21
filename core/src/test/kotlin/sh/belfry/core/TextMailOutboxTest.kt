@@ -286,6 +286,7 @@ class TextMailOutboxTest {
         assertEquals(sh.belfry.core.outbox.SendLine("Not sent yet", retry = true), S.line(false, 0, p, 31_000, true))
         assertEquals("Waiting for connection…", S.line(false, 1, p, 31_000, false).text)
         assertEquals("Sending again…", S.line(false, 1, p, 2_000, true).text)
+        assertEquals("Waiting for connection…", S.line(false, 1, null, 2_000, true).text)
         assertEquals(4_000L, S.nextChangeMs(p, 2_000))
         assertEquals(25_000L, S.nextChangeMs(p, 6_000))
         assertEquals(null, S.nextChangeMs(p, 40_000))
