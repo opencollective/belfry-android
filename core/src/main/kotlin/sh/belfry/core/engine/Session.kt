@@ -1508,7 +1508,7 @@ class Session(
         override fun preparing(id: String) { if (!localOnly) trace.step(id, "DM", SendState.STEP_PREPARE) }
         override fun notPrepared(id: String) { trace.end(id, "not prepared", left = false) }
         override val isGuest: Boolean get() = _guest.value != null
-        override fun putBlob(key: String, bytes: ByteArray) = store.putBlob(key, bytes)
+        override fun putBlob(key: String, bytes: ByteArray) { store.putBlob(key, bytes) }
         override fun blob(key: String): ByteArray? = store.blob(key)
         override suspend fun enqueue(item: OutboxItem) {
             guard()
@@ -1521,7 +1521,7 @@ class Session(
             if (localOnly) { val k = "dmc:" + sha256Hex(bytes); store.putBlob(k, bytes); return LOCAL_BLOB + k }
             return api().upload(signer, bytes, "file", "application/octet-stream", progress)
         }
-        override fun renamed(from: String, to: String) = trace.rename(from, to)
+        override fun renamed(from: String, to: String) { trace.rename(from, to) }
         override suspend fun requeue(items: List<OutboxItem>) {
             for (o in items) store.putOutbox(o.copy(status = OutboxStatus.QUEUED, error = null))
             countOutbox()
