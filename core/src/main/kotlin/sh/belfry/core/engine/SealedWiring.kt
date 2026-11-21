@@ -44,7 +44,11 @@ class SealedKeyStore(private val vault: Vault, private val name: String, private
     }
 
     /** Small records of the account's sealed side (not secrets), kept beside the keys. */
-    fun loadNote(note: String): String? = if (!known) null else (parseJsonOrNull(vault.get("$name:notes") ?: return null) as? JsonObject)?.get(note)?.let { (it as? JsonPrimitive)?.content }
+    fun loadNote(note: String): String? {
+        if (!known) return null
+        val o = parseJsonOrNull(vault.get("$name:notes") ?: return null) as? JsonObject ?: return null
+        return (o[note] as? JsonPrimitive)?.content
+    }
 
     fun saveNote(note: String, value: String) {
         if (closed || !known) return
