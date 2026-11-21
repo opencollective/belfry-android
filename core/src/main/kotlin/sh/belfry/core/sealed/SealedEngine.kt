@@ -396,8 +396,8 @@ class SealedEngine(
         data class Seal(val heads: Map<String, String>) : Plan
         /** Today's way: known, from a complete answer, that someone has no ready chain. */
         data object OldWay : Plan
-        /** Sealed with no head, or this device is locked: refused, the text kept. */
-        data class Refuse(val why: String) : Plan
+        /** Sealed with no head (WHO: the person with no head to seal to), or this device is locked: not sent, the text kept. */
+        data class Refuse(val why: String, val who: String? = null) : Plan
         /** Can't tell yet: hold it undecided and plan again at the first complete answer (64a07fa). */
         data object Hold : Plan
     }
@@ -411,9 +411,8 @@ class SealedEngine(
         if (!sealed && Sealing.canSeal(people, chains)) sealedSince[conv] = clock()
         if (conv in sealedSince) {
             val heads = people.associateWith { chains[it]?.head?.lb ?: lastHead[it] }
-            if (heads.values.any { it == null } || mine != Mine.IN_HEAD) {
-                return Plan.Refuse("Not sent: the lock for this conversation isn't ready on this device. Try again in a moment.")
-            }
+            if (mine != Mine.IN_HEAD) return Plan.Refuse("Not sent: the lock for this conversation isn't ready on this device. Try again in a moment.")
+            heads.entries.firstOrNull { it.value == null }?.let { return Plan.Refuse("Not sent yet: their new device isn't ready.", who = it.key) }
             return Plan.Seal(heads.mapValues { it.value!! })
         }
         if (people.any { knowsNoReadyChain(it) }) return Plan.OldWay

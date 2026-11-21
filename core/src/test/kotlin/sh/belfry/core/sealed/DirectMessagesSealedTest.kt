@@ -130,6 +130,8 @@ class DirectMessagesSealedTest {
         a.second.send(conv(carol), "Are you coming?")
         assertTrue(outbox(a.second).isEmpty(), "never the old way on silence")
         assertNotNull(a.second.snapshot.value.thread(conv(carol)).single().heldSince)
+        val d0 = a.second.snapshot.value.thread(conv(carol)).single()
+        assertEquals("Saved · waiting for the connection", a.second.snapshot.value.stateLine(d0))
         relay.silent = false
         a.second.process()
         assertEquals(1 + 1, outbox(a.second).size, "decided: the old way for someone with no chain (and my copy)")
@@ -188,5 +190,19 @@ class DirectMessagesSealedTest {
         val dm2 = DirectMessages(store, host) // the app started again
         val after = dm2.resealQueued(host.queued).first { it.signed!!.tag("p") == bob.pubkey }
         assertTrue(after.signed!!.tag("lb") != before.signed!!.tag("lb"))
+    }
+
+    /** canvas v98: a message too long to lock waits with its reason and never goes; Cancel gives it back. */
+    @Test fun tooLongToLock() = runBlocking<Unit> {
+        val (a, _) = ready()
+        val text = "x".repeat(41_000)
+        a.second.send(conv(bob.pubkey), text)
+        val d = a.second.snapshot.value.thread(conv(bob.pubkey)).single()
+        assertEquals("too_long", d.heldWhy)
+        assertEquals("Not sent: the message is too long to lock. Shorten it and send again.", a.second.snapshot.value.stateLine(d))
+        assertTrue(outbox(a.second).isEmpty())
+        a.second.process()
+        assertTrue(outbox(a.second).isEmpty(), "never sent")
+        assertEquals(text, a.second.cancelHeld(d.rid))
     }
 }

@@ -91,6 +91,8 @@ data class Dm(
     val failed: String? = null,
     /** Held undecided since (sealed.md §6, 64a07fa): the device couldn't tell yet whether to seal it. */
     val heldSince: Long? = null,
+    /** Why it is held (canvas v98): null = can't check yet, "device:<pubkey>" = their new device isn't ready, "too_long". */
+    val heldWhy: String? = null,
     /** Came the old, unsealed way after this device saw the conversation sealed (canvas v89). */
     val notSealed: Boolean = false,
     /** From a history someone shared with this device (§8): who; not proven authentic. */
@@ -125,6 +127,7 @@ data class Dm(
         if (pending) put("pending", JsonPrimitive(true))
         if (failed != null) put("failed", JsonPrimitive(failed))
         if (heldSince != null) put("heldSince", JsonPrimitive(heldSince))
+        if (heldWhy != null) put("heldWhy", JsonPrimitive(heldWhy))
         if (notSealed) put("notSealed", JsonPrimitive(true))
         if (sharedBy != null) put("sharedBy", JsonPrimitive(sharedBy))
     }
@@ -154,6 +157,7 @@ data class Dm(
                 pending = o["pending"].bool() ?: false,
                 failed = o.s("failed"),
                 heldSince = o["heldSince"].long(),
+                heldWhy = o.s("heldWhy"),
                 notSealed = o["notSealed"].bool() ?: false,
                 sharedBy = o.s("sharedBy"),
             )
@@ -293,7 +297,12 @@ class DmSnapshot(
         if (!d.mine) return null
         if (d.failed != null) return "Not sent: ${d.failed}"
         val held = d.heldSince
-        if (held != null) return if (now - held >= 60) HELD_LONG else "Waiting…"
+        if (held != null) return when {
+            d.heldWhy == "too_long" -> HELD_TOO_LONG
+            d.heldWhy?.startsWith("device:") == true -> null // named by the screen ("‹Name›'s new device isn't ready.")
+            now - held >= 60 -> HELD_LONG
+            else -> HELD_FIRST
+        }
         val r = report(d.emailId)
         if (d.isMail && r != null) return when (r.status) {
             Report.DELIVERED -> "Delivered"
@@ -306,7 +315,10 @@ class DmSnapshot(
 
     companion object {
         /** A held message after a minute (64a07fa: say why). */
-        const val HELD_LONG = "Not sent yet: the belfry hasn't answered whether this conversation is locked. Cancel gives your text back."
+        const val HELD_FIRST = "Saved · waiting for the connection"
+        const val HELD_LONG = "Not sent yet: this device can't reach the belfry to check how to lock it."
+        const val HELD_TOO_LONG = "Not sent: the message is too long to lock. Shorten it and send again."
+        fun heldDevice(name: String) = "Not sent yet: $name's new device isn't ready."
         fun empty(me: String = ""): DmSnapshot = DmSnapshot(emptyList(), emptyMap(), ReadState.EMPTY, me)
     }
 }
@@ -701,15 +713,25 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 }
             } else if (conv != null) {
                 when (val plan = eng.plan(conv, to.filter { it != host.me })) {
-                    is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> { enqueueSealed(eng.seal(rumor, plan), rumor.id); return true }
-                    is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> throw DmException(plan.why)
-                    sh.belfry.core.sealed.SealedEngine.Plan.Hold -> { synchronized(lock) { held[rumor.id] = Held(rumor, to, self, conv) }; return false }
+                    is sh.belfry.core.sealed.SealedEngine.Plan.Seal -> {
+                        if (!sh.belfry.core.sealed.Sealing.fits(rumor)) { hold(rumor, to, self, conv, "too_long"); return false }
+                        enqueueSealed(eng.seal(rumor, plan), rumor.id); return true
+                    }
+                    // a sealed conversation with nobody to seal to for someone: it waits (canvas v98), never the old way
+                    is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> if (plan.who != null) { hold(rumor, to, self, conv, "device:${plan.who}"); return false } else throw DmException(plan.why)
+                    sh.belfry.core.sealed.SealedEngine.Plan.Hold -> { hold(rumor, to, self, conv, null); return false }
                     sh.belfry.core.sealed.SealedEngine.Plan.OldWay -> {}
                 }
             }
         }
         oldWay(rumor, to, self)
         return true
+    }
+
+    private val heldWhyNow = HashMap<String, String?>()
+
+    private fun hold(rumor: Event, to: List<String>, self: Boolean, conv: String, why: String?) {
+        synchronized(lock) { held[rumor.id] = Held(rumor, to, self, conv); heldWhyNow[rumor.id] = why }
     }
 
     private suspend fun enqueueSealed(qs: List<sh.belfry.core.sealed.SealedEngine.Queued>, rid: String) {
@@ -723,10 +745,11 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private suspend fun retryHeld() {
         val eng = host.sealed ?: return
         for ((rid, h) in synchronized(lock) { held.toList() }) {
+            if (synchronized(lock) { items[rid]?.heldWhy } == "too_long") continue // never: Cancel only
             val plan = try { eng.plan(h.conv, h.to.filter { it != host.me }) } catch (e: Exception) { continue }
             when (plan) {
-                sh.belfry.core.sealed.SealedEngine.Plan.Hold -> continue
-                is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> {
+                sh.belfry.core.sealed.SealedEngine.Plan.Hold -> update(rid) { it.copy(heldWhy = null) }
+                is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> if (plan.who != null) update(rid) { it.copy(heldWhy = "device:${plan.who}") } else {
                     synchronized(lock) { held.remove(rid) }
                     update(rid) { it.copy(heldSince = null, pending = false, failed = plan.why) }
                 }
@@ -809,7 +832,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true))
             publish()
             try {
-                if (!deliver(rumor, to, conv = conv)) update(rumor.id) { it.copy(heldSince = host.now()) }
+                if (!deliver(rumor, to, conv = conv)) {
+                    val why = synchronized(lock) { heldWhyNow.remove(rumor.id) }
+                    update(rumor.id) { it.copy(heldSince = host.now(), heldWhy = why) }
+                }
             } catch (e: Exception) {
                 synchronized(lock) { items.remove(rumor.id) } // the composer gets the text back
                 publish()

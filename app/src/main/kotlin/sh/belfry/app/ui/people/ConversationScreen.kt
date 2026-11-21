@@ -41,6 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -154,7 +155,6 @@ fun ConversationScreen(conv: String) {
     }
     var why by remember(conv) { mutableStateOf<SharedBlock?>(null) }
     var notSealedOpen by remember(conv) { mutableStateOf(false) }
-    val cancelScope = rememberCoroutineScope()
 
     LaunchedEffect(conv, rows.size) {
         if (rows.isNotEmpty()) state.scrollToItem(rows.size - 1)
@@ -209,9 +209,9 @@ fun ConversationScreen(conv: String) {
                         is Dm -> {
                             val shared = seal?.shared?.any { it.holds(r.at) } == true
                             if (shared) {
-                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { cancelScope.launch { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t) } } }) }
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }) }
                             } else {
-                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { cancelScope.launch { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t) } } })
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false })
                             }
                         }
                         is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
@@ -271,7 +271,7 @@ fun ConversationScreen(conv: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu: (emojiOnly: Boolean) -> Unit, notSealed: (() -> Unit)? = null, onCancelHeld: (() -> Unit)? = null) {
+private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu: (emojiOnly: Boolean) -> Unit, notSealed: (() -> Unit)? = null, onCancelHeld: (suspend () -> Boolean)? = null) {
     val c = Belfry.colors
     val session = LocalSession.current
     val retry = rememberBusy()
@@ -281,9 +281,11 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu:
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 3.dp),
         horizontalAlignment = if (d.mine) Alignment.End else Alignment.Start,
     ) {
+        val waiting = d.heldSince != null
         Column(
             Modifier
                 .widthIn(max = 320.dp)
+                .alpha(if (waiting) 0.55f else 1f) // faded while it waits (canvas v98)
                 .clip(shape)
                 .background(if (d.mine) c.surface2 else c.surface)
                 .combinedClickable(onClickLabel = null, onLongClickLabel = "Message actions", onLongClick = { onMenu(false) }, onClick = {})
@@ -319,15 +321,8 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu:
                         Text("unverified sender", fontSize = 11.sp, color = c.orange)
                     }
                 }
-                val line = dms.stateLine(d) ?: if (d.mine && d.isMail) "Sent" else null
-                // held undecided (sealed.md §6): the person can cancel it and get the text back
-                if (d.heldSince != null && onCancelHeld != null) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "Cancel", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
-                        modifier = Modifier.clickable(role = Role.Button, onClick = onCancelHeld).padding(horizontal = 4.dp, vertical = 2.dp).testTag("dm-cancel-held"),
-                    )
-                }
+                // a held message says so under the bubble (canvas v98), not here
+                val line = if (waiting) null else dms.stateLine(d) ?: if (d.mine && d.isMail) "Sent" else null
                 if (line != null) {
                     Spacer(Modifier.width(8.dp))
                     Text(line, fontSize = 11.sp, color = if (d.failed != null) c.danger else c.muted, modifier = Modifier.weight(1f, fill = false))
@@ -345,6 +340,7 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu:
                 }
             }
         }
+        if (waiting) HeldLine(d, dms, world, onCancelHeld)
         if (chips.isNotEmpty()) DmReactionChips(d, chips, onAdd = { onMenu(true) })
     }
 }
@@ -404,5 +400,31 @@ private fun Attachments(d: Dm) {
         }
         val n = note
         if (n != null) Text(n, fontSize = 12.sp, color = c.muted, modifier = Modifier.padding(top = 2.dp))
+    }
+}
+
+/**
+ * canvas v98 messages/encryption-held: one grey line under a message that waits or can't be sent,
+ * with Cancel (the text goes back to the message box). Never a technical reason. When the send won
+ * the race: "Already sent" for two seconds.
+ */
+@Composable
+private fun HeldLine(d: Dm, dms: DmSnapshot, world: World, onCancel: (suspend () -> Boolean)?) {
+    val c = Belfry.colors
+    val busy = rememberBusy()
+    var alreadySent by remember(d.rid) { mutableStateOf(false) }
+    if (alreadySent) LaunchedEffect(Unit) { kotlinx.coroutines.delay(2_000); alreadySent = false }
+    val who = d.heldWhy?.removePrefix("device:")?.takeIf { d.heldWhy.startsWith("device:") }
+    val text = if (alreadySent) "Already sent" else dms.stateLine(d) ?: DmSnapshot.heldDevice(if (who != null) world.displayName(who) else "Their")
+    Row(Modifier.padding(top = 3.dp, end = 2.dp).testTag("dm-held-line"), verticalAlignment = Alignment.CenterVertically) {
+        Text(text, fontSize = 12.sp, lineHeight = 16.sp, color = c.muted, modifier = Modifier.widthIn(max = 280.dp))
+        if (!alreadySent && onCancel != null) {
+            Text(" · ", fontSize = 12.sp, color = c.muted)
+            Text(
+                "Cancel", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                modifier = Modifier.clickable(enabled = !busy.busy, role = Role.Button) { busy.run { if (!onCancel()) alreadySent = true } }
+                    .padding(horizontal = 2.dp, vertical = 2.dp).testTag("dm-cancel-held"),
+            )
+        }
     }
 }
