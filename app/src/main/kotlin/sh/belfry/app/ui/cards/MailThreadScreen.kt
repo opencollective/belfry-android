@@ -205,7 +205,7 @@ private sealed class Step(val at: Long, val id: String) {
 
 private fun threadFlow(t: InboxThread, replies: List<Message>): List<Step> =
     (t.mails.map { if (it.incoming) Step.In(it) else Step.Out(it) } + replies.map { Step.Reply(it) } + t.labels.map { Step.Label(it) } + t.drafts.map { Step.Draft(it) })
-        .sortedWith(compareBy<Step> { it.at }.thenBy { it.id })
+        .sortedWith(compareBy<Step> { it.at }.thenBy { if (it is Step.Label) 1 else 0 }.thenBy { it.id }) // "Marked answered" after the reply it follows
 
 /** The header row's counts and the pulled-down rows' numbers. */
 private class ThreadCounts(val people: Int, val todos: Int, val photos: Int, val files: Int)
