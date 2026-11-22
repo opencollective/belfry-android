@@ -116,7 +116,11 @@ fun MessagesScreen(
             // says how many wait (Xavier's mail to himself on a phone not yet allowed, 2026-11-22)
             if (seal.earlierLocked || dms.lockedCount > 0) {
                 val title = if (dms.lockedCount > 0) sh.belfry.core.model.SealedText.waitingMessages(dms.lockedCount) else sh.belfry.core.model.SealedText.BANNER_TITLE
-                item(key = "seal-banner") { EarlierLockedBanner(title) { nav.go(Routes.UNLOCK_STEPS) } }
+                // waiting to be added: the device that holds the key, by name, and when this one asked (Messages v5)
+                item(key = "seal-banner") { EarlierLockedBanner(title, seal.takeIf { it.earlierLocked }) { nav.go(Routes.UNLOCK_STEPS) } }
+            } else if (seal.waitingKeys) {
+                // added, the key on its way (messages/encryption-locked-added): goes by itself
+                item(key = "seal-added-here") { AddedHereBanner(seal) }
             }
             if (list.isEmpty()) {
                 item(key = "empty") {

@@ -80,6 +80,8 @@ object Sealing {
     const val WRAP = 1059
     const val KEYS = 8561
     const val REQUEST = 8562
+    /** "It was me", once for all my devices (sealed.md §5.2 step 2b). */
+    const val CONFIRM = 8563
     const val SHARE = 8564
 
     /** A sealed rumor's JSON is at most 40 000 bytes (NIP-44's 65 535 applies to the wrap around the seal); never seal a larger one. */
@@ -281,6 +283,53 @@ object Sealing {
         val proof = e.tag("link")?.lowercase() ?: return false
         // constant time (294c94f)
         return secrets.any { java.security.MessageDigest.isEqual(linkProof(it, e.pubkey).toByteArray(), proof.toByteArray()) }
+    }
+
+    // ---- §5.2 step 2b: "It was me", answered once ---------------------------------------------
+
+    /**
+     * The rumor a device sends to my own head letterbox when "It was me" is tapped for ADDED, the
+     * device roster ROSTER (its id) added: kind 8563, `pubkey` = the confirming DEVICE (not the
+     * account), content "". Sealed like any rumor (§4), the seal signed by that device.
+     */
+    fun confirmRumor(device: String, account: String, added: String, roster: String, now: Long = unixNow()): Event =
+        GiftWrap.rumor(CONFIRM, device, listOf(listOf("p", account), listOf("device", added), listOf("e", roster)), "", now)
+
+    /** What an opened 8563 is worth against my chain. */
+    sealed interface Confirm {
+        /** The notice for DEVICE, added by roster ROSTER, is answered. */
+        data class Accept(val device: String, val roster: String) : Confirm
+        /** Ignored without a word; WHY is for tests and vectors only. */
+        data class Reject(val why: String) : Confirm
+        /** Well formed, but my chain (or the roster it names) isn't known here yet: judged again later. */
+        data object Later : Confirm
+    }
+
+    /**
+     * The accept rule of §5.2 step 2b, read strictly. RUMOR is an opened 8563, SEAL_PUBKEY the key
+     * that signed its seal, CHAIN my own valid chain as this device follows it. Accepted only when:
+     * the rumor is exactly the documented shape (kind 8563, `pubkey` = the seal's signer, content "",
+     * one `p` = my account, one `device`, one `e`); `e` is a roster of my chain that ADDED `device`
+     * (in it, not in the roster before); the seal's signer is in the roster BEFORE that one (so the
+     * added device can't confirm itself, nor two added together each other) and in the head now.
+     */
+    fun acceptConfirm(rumor: Event, sealPubkey: String, chain: Chain?): Confirm {
+        if (rumor.kind != CONFIRM) return Confirm.Reject("not an 8563")
+        if (rumor.pubkey != sealPubkey) return Confirm.Reject("the rumor's pubkey is not the seal's signer")
+        if (rumor.content.isNotEmpty()) return Confirm.Reject("content is not empty")
+        val p = rumor.tags.singleValue("p")?.takeIf { Hex.isKey(it) } ?: return Confirm.Reject("not exactly one p")
+        val added = rumor.tags.singleValue("device")?.takeIf { Hex.isKey(it) } ?: return Confirm.Reject("not exactly one device")
+        val e = rumor.tags.singleValue("e")?.takeIf { Hex.isKey(it) } ?: return Confirm.Reject("not exactly one e")
+        if (chain == null) return Confirm.Later
+        if (p != chain.account) return Confirm.Reject("p is not my account")
+        val i = chain.rosters.indexOfFirst { it.id == e }
+        if (i < 0) return Confirm.Later
+        if (i == 0) return Confirm.Reject("the root adds nobody")
+        val before = chain.rosters[i - 1]
+        if (added !in chain.rosters[i].devices || added in before.devices) return Confirm.Reject("that roster did not add that device")
+        if (sealPubkey !in before.devices) return Confirm.Reject("the signer is not in the roster before")
+        if (sealPubkey !in chain.head.devices) return Confirm.Reject("the signer is not in the head now")
+        return Confirm.Accept(added, e)
     }
 
     // ---- §8 sharing history -------------------------------------------------------------------

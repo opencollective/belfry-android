@@ -195,10 +195,11 @@ internal fun SealDevices() {
     val now = session.now()
     val c = Belfry.colors
     Hint("Signed in as ${world.face(session.me).name}", Modifier.padding(bottom = 8.dp))
+    val h24 = rememberH24()
     ActionGroup {
         st.myDevices.forEach { d ->
             ActionRow(
-                d.name, onClick = null, icon = d.kind.icon(), sub = SealedText.activeLine(d, now, world.ctx.zone),
+                d.name, onClick = null, icon = d.kind.icon(), sub = SealedText.activeLine(d, now, world.ctx.zone, h24),
                 modifier = Modifier.testTag("seal-device"),
                 trailing = {
                     if (d.thisDevice) {

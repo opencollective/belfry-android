@@ -106,12 +106,70 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithTag("seal-counts-only").assertDoesNotExist()
     }
 
-    /** messages/encryption-new-device: the amber banner, "Locked on this device" rows. */
+    /**
+     * messages/encryption-new-device (canvas Messages v5, n-e2e-locked-named): the amber banner names the
+     * device that holds the key, says when this one asked and that there is nothing to approve here;
+     * "Locked on this device" rows; "No other device?" opens the screen with Start fresh.
+     */
     @Test fun newDevice() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device") { MessagesScreen() }
         compose.onNodeWithTag("seal-banner").assertExists()
         assertTrue(compose.onAllNodesWithTag("seal-locked-row", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        compose.onNodeWithText("Open Chat · Firefox on Linux. This device is added by itself as soon as that one is open.").assertExists()
+        compose.onNodeWithText("waiting for one of your devices", substring = true).assertExists()
+        compose.onNodeWithText("Asked ", substring = true).assertExists()
+        compose.onNodeWithText("Nothing to approve on this device.").assertExists()
+        compose.onNodeWithText("Show how").assertDoesNotExist()
+        compose.onNodeWithText("tap Allow", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("No other device?").performClick()
+        assertTrue(nav.went.contains(sh.belfry.app.ui.nav.Routes.UNLOCK_STEPS))
+    }
+
+    /** The same with two devices that can read: "Open A or B. … as soon as one is open." */
+    @Test fun newDeviceTwoNamed() {
+        session.encryption.demoAsNewDevice(unlockers = listOf("Chat · Safari on Mac", "Belfry on Pixel 8"))
+        demoShot("encryption-new-device-two") { MessagesScreen() }
+        compose.onNodeWithText("Open Chat · Safari on Mac or Belfry on Pixel 8. This device is added by itself as soon as one is open.").assertExists()
+    }
+
+    /** The session names aren't known and this device hasn't asked yet: both said plainly. */
+    @Test fun newDeviceUnnamedNotAsked() {
+        session.encryption.demoAsNewDevice(unlockers = emptyList(), asked = false)
+        demoShot("encryption-new-device-unnamed") { MessagesScreen() }
+        compose.onNodeWithText("Open Belfry on another device of yours. This device is added by itself as soon as that one is open.").assertExists()
+        compose.onNodeWithText(sh.belfry.core.model.SealedText.NOT_ASKED).assertExists()
+    }
+
+    /** The state as data: the head's device names and when this device asked. */
+    @Test fun waitingStateIsData() {
+        session.encryption.demoAsNewDevice()
+        val st = session.encryption.state.value
+        assertEquals(listOf("Chat · Firefox on Linux"), st.unlockers)
+        assertEquals(session.now() - 120, st.askedAt)
+    }
+
+    /** messages/encryption-waiting-list: a device not added yet that holds messages it can't open: how many, who can open them, when it asked. */
+    @Test fun waitingList() {
+        session.encryption.demoAsNewDevice()
+        demoShot("encryption-waiting-list") {
+            val d = sh.belfry.app.ui.nav.LocalDms.current
+            val waiting = sh.belfry.core.dm.DmSnapshot(d.items, d.reports, d.read, d.me, d.now, d.reactions, lockedCount = 3)
+            androidx.compose.runtime.CompositionLocalProvider(sh.belfry.app.ui.nav.LocalDms provides waiting) { MessagesScreen() }
+        }
+        compose.onNodeWithText("3 messages are waiting for another of your devices").assertExists()
+        compose.onNodeWithTag("seal-open-device").assertExists()
+        compose.onNodeWithTag("seal-asked").assertExists()
+    }
+
+    /** messages/encryption-locked-added: added, the key on its way: "Added … · Your messages open here in a moment." */
+    @Test fun lockedAdded() {
+        session.encryption.demoWaitingKeys()
+        demoShot("encryption-locked-added") { MessagesScreen() }
+        compose.onNodeWithTag("seal-added-here").assertExists()
+        compose.onNodeWithText("Added ", substring = true).assertExists()
+        compose.onNodeWithText("Your messages open here in a moment.").assertExists()
+        compose.onNodeWithTag("seal-banner").assertDoesNotExist()
     }
 
     /**
@@ -142,9 +200,11 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-waiting-screen") { EncryptionScreen(MailThreads.mailThreadOf("ana@example.org", "Visiting next week")) }
         compose.onNodeWithText(sh.belfry.core.model.SealedText.CANT_READ_YET).assertExists()
         compose.onNodeWithTag("seal-show-how").assertExists()
-        // canvas v182: what to do, and this device "Not allowed yet · asked …"
-        compose.onNodeWithText(sh.belfry.core.model.SealedText.ALLOW_ELSEWHERE).assertExists()
-        assertTrue(compose.onAllNodesWithText("Not allowed yet", substring = true).fetchSemanticsNodes().isNotEmpty())
+        // canvas Messages v5 messages/encryption-devices-waiting: the named device, the state, and this device "Not added yet · asked …"
+        compose.onNodeWithTag("seal-open-device").assertExists()
+        compose.onNodeWithTag("seal-asked").assertExists()
+        compose.onNodeWithText("Nothing to approve on this device.").assertExists()
+        assertTrue(compose.onAllNodesWithText("Not added yet · asked", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     /** canvas v183 messages/encryption-device-added: on top of Messages, "Belfry for iPhone was added just now", Remove / It was me. */
@@ -162,7 +222,10 @@ class EncryptionShotsTest : DemoShots() {
     @Test fun showHow() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device-steps") { UnlockStepsScreen() }
-        compose.onNodeWithText("It asks whether to give this device access: tap Allow.").assertExists()
+        compose.onNodeWithText("No other device?").assertExists()
+        compose.onNodeWithText("Open Chat · Firefox on Linux. This device is added by itself as soon as that one is open. Nothing to approve here.").assertExists()
+        compose.onNodeWithText("The people you write to can also share a conversation's history with this device.").assertExists()
+        compose.onNodeWithText("tap Allow", substring = true).assertDoesNotExist()
     }
 
     /** canvas v84 (messages/encryption-locked-thread): the amber block in place of every sealed message, no composer. */
@@ -172,6 +235,8 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithTag("seal-locked-block").assertExists()
         compose.onNodeWithTag("seal-write-later").assertExists()
         compose.onNodeWithTag("dm-bubble").assertDoesNotExist()
+        compose.onNodeWithTag("seal-open-device").assertExists()
+        compose.onNodeWithTag("seal-asked").assertExists()
     }
 
     /** Messages from before the conversation was sealed read as usual, then the block. */
@@ -180,7 +245,10 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-locked-thread") { ConversationScreen(maya) }
         compose.onNodeWithTag("seal-locked-block").assertExists()
         assertEquals("Maya's three messages from before it was sealed", 3, compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().size)
-        compose.onNodeWithText("You can write here once this device is allowed.").assertExists()
+        compose.onNodeWithText("You can write here once this device is added.").assertExists()
+        compose.onNodeWithText("Open Chat · Firefox on Linux. This device is added by itself as soon as that one is open.").assertExists()
+        compose.onNodeWithText("Nothing to approve on this device.").assertExists()
+        compose.onNodeWithTag("seal-show-how").assertExists()
     }
 
     /** canvas v86 (messages/encryption-shared-history): "Shared by Lena Fischer" above the shared block. */
@@ -313,6 +381,8 @@ class EncryptionShotsTest : DemoShots() {
         session.encryption.demoWaitingKeys()
         demoShot("encryption-waiting") { ConversationScreen(maya) }
         compose.onNodeWithTag("seal-waiting-keys").assertExists()
+        compose.onNodeWithText("Open Chat · Firefox on Linux. Nothing to approve here.").assertExists()
+        compose.onNodeWithText("waiting for one of your devices", substring = true).assertExists()
         compose.onNodeWithTag("seal-locked-block").assertDoesNotExist()
         assertTrue(compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().isNotEmpty())
     }
@@ -374,7 +444,7 @@ class EncryptionShotsTest : DemoShots() {
     @Test fun startFreshRow() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-start-fresh") { UnlockStepsScreen() }
-        compose.onNodeWithText("Unlock this device").assertExists()
+        compose.onNodeWithText("No other device?").assertExists()
         compose.onNodeWithText("With another device").assertExists()
         compose.onNodeWithTag("seal-no-other").assertExists()
         compose.onNodeWithText("I don't have another device").assertExists()

@@ -257,6 +257,14 @@ minSdk 26, JDK 17.
   `WorldContext.mailAddresses`: read addresses through `World.mailAddress` / `mailLocal`, never build one.
   Screenshots `ChannelSettingsShotsTest`.
 
+- Sealed, the waiting view and "It was me" once (SPEC 19.64; sealed.md §5.2 step 2b; canvas Messages v5): a device
+  not added yet names who can unlock (`SealState.unlockers`, session names kept in the store for offline;
+  `core/model/Sealed.kt` `Unlockers` + every word in `SealedText`, wording not final), says "Asked … · waiting"
+  (`SealedEngine.lastAskedAt`, kept in the notes) and never mentions Allow; `WaitingLines` / `AddedHereBanner` /
+  `WaitingKeysLines` in `ui/people/Encryption.kt`. Kind 8563: `Sealing.confirmRumor` / `acceptConfirm` (pure, the
+  vectors' `confirm` section, `tools/sealed_confirm_vectors.py`), `SealedEngine.addedWasMe` sends it (owed until
+  sent), `receive` settles it before anything else: an 8563 never reaches `DirectMessages`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.
