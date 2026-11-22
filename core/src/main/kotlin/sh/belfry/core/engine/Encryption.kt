@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import sh.belfry.core.mail.MailThreads
 import sh.belfry.core.model.AccessAsk
+import sh.belfry.core.model.AddedDevice
 import sh.belfry.core.model.ConvSeal
 import sh.belfry.core.model.DeviceChange
 import sh.belfry.core.model.DeviceKind
@@ -119,7 +120,17 @@ class EncryptionService internal constructor(private val s: Session) {
             val name = try { s.sessions().firstOrNull { it.clientPubkey == f.device }?.device } catch (x: Exception) { null }
             sh.belfry.core.model.FreshElsewhere(name ?: names[f.device]?.name, f.at)
         }
+        // §5.2 step 2a: devices added without a prompt here, named by their device name or their session
+        val added = if (e.mine != sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) emptyList() else try {
+            val notices = e.addedNotices()
+            val rows = if (notices.isEmpty()) emptyList() else (try { s.sessions() } catch (x: Exception) { emptyList() })
+            notices.map { n ->
+                val row = rows.firstOrNull { it.clientPubkey == n.device }
+                AddedDevice(n.device, names[n.device]?.name ?: row?.device?.ifEmpty { null } ?: row?.applicationName ?: "A new device", n.at)
+            }
+        } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { _state.value.added }
         _state.value = SealState(
+            added = added,
             freshElsewhere = fe,
             myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
             locked = if (waiting) sealed.keys else emptySet(),
@@ -176,6 +187,18 @@ class EncryptionService internal constructor(private val s: Session) {
     }
 
     /** Remove one of my devices (never this one: that is Sign out). */
+    /** "It was me": the added-device notice goes on this device. */
+    suspend fun addedWasMe(id: String) {
+        if (!demo) engine().addedWasMe(id)
+        _state.value = _state.value.let { st -> st.copy(added = st.added.filter { it.id != id }) }
+    }
+
+    /** "Not you? Remove it": sign that device out, then the lock changes (§5.6), as Remove in Devices. */
+    suspend fun removeAdded(id: String) {
+        removeDevice(id)
+        _state.value = _state.value.let { st -> st.copy(added = st.added.filter { it.id != id }) }
+    }
+
     suspend fun removeDevice(id: String) {
         s.checkWrite()
         if (!demo) {
@@ -281,6 +304,18 @@ class EncryptionService internal constructor(private val s: Session) {
     fun demoWaitingKeys() {
         if (!demo) return
         _state.value = _state.value.copy(waitingKeys = true, earlierLocked = false, locked = emptySet())
+    }
+
+    /** Demo and tests: a device of mine was just added without a prompt (canvas v183). */
+    fun demoAdded(name: String = "Belfry for iPhone") {
+        if (!demo) return
+        val now = s.now()
+        _state.value = _state.value.let { st ->
+            st.copy(
+                added = st.added + AddedDevice("added-${st.added.size + 1}", name, now - 30),
+                myDevices = st.myDevices + MyDevice("added-${st.added.size + 1}", name, DeviceKind.PHONE, now - 30, from = st.thisDevice?.name),
+            )
+        }
     }
 
     /** Demo and tests: a new device of mine asks for access (the prompt over any screen). */

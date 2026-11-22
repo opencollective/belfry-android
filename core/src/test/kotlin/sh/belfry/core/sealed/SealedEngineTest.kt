@@ -69,7 +69,7 @@ class SealedEngineTest {
         var odd = false
         var failRevoke = false
         fun live(account: String, device: String, name: String, chat: Boolean = true) {
-            sessions.getOrPut(account) { ArrayList() }.add(SessionRow(device, chat, now, name, "Belfry for Android"))
+            sessions.getOrPut(account) { ArrayList() }.add(SessionRow(device, chat, now, name, "Belfry for Android", createdAt = now))
         }
     }
 
@@ -120,8 +120,8 @@ class SealedEngineTest {
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
         val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
         val req = relay.events.last { it.kind == Sealing.REQUEST }
-        assertIs<SealedEngine.OnRequest.Ask>(phone.onRequest(req))
-        phone.allow(aliceLaptop.pubkey)
+        // §5.2 step 2: a new device of mine with a live chat session opened with the request is allowed at once
+        assertIs<SealedEngine.OnRequest.AllowedAuto>(phone.onRequest(req))
         relay.to(aliceLaptop.pubkey).forEach { laptop.onDeviceWrap(it) }
         phone.checkReady()
         val b = engine(bob, bobPhone); b.start("Bob's phone", "phone"); b.checkReady()
@@ -160,6 +160,58 @@ class SealedEngineTest {
         // the anchor names the new head
         assertEquals(head.head.id, relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }.tag("head"))
         assertTrue(phone.refresh(alice.pubkey)!!.ready)
+    }
+
+    /** §5.2 step 2: each condition that fails asks instead (Allow / Not me), and nothing is handed over. */
+    @Test fun autoAllowConditions() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        // a request older than its session (− 120 s): ask
+        val old = LocalSigner.random()
+        val oldReq = old.signNow(Sealing.request(alice.pubkey, old.pubkey, null, now - 200))
+        server.live(alice.pubkey, old.pubkey, "Old")
+        assertIs<SealedEngine.OnRequest.Ask>(phone.onRequest(oldReq))
+        assertTrue(relay.to(old.pubkey).isEmpty())
+        // the belfry didn't say when the session opened: ask
+        val nameless = LocalSigner.random()
+        server.sessions[alice.pubkey]!!.add(SessionRow(nameless.pubkey, true, now, "Tab", "Belfry for Android", createdAt = null))
+        now += 1
+        assertIs<SealedEngine.OnRequest.Ask>(phone.onRequest(nameless.signNow(Sealing.request(alice.pubkey, nameless.pubkey, null, now))))
+        // three added within 24 h at once; the fourth asks
+        repeat(3) {
+            val d = LocalSigner.random(); server.live(alice.pubkey, d.pubkey, "Device $it"); now += 1
+            assertIs<SealedEngine.OnRequest.AllowedAuto>(phone.onRequest(d.signNow(Sealing.request(alice.pubkey, d.pubkey, null, now))), "number ${it + 1}")
+        }
+        assertEquals(3, SealedEngine.recentlyAdded(phone.chainOf(alice.pubkey)!!, now))
+        val fourth = LocalSigner.random(); server.live(alice.pubkey, fourth.pubkey, "Fourth"); now += 1
+        assertIs<SealedEngine.OnRequest.Ask>(phone.onRequest(fourth.signNow(Sealing.request(alice.pubkey, fourth.pubkey, null, now))), "a fourth in 24 h asks")
+        assertTrue(relay.to(fourth.pubkey).isEmpty())
+        // a day later the count is back under three (roster times only)
+        now += 86_401
+        assertEquals(0, SealedEngine.recentlyAdded(phone.chainOf(alice.pubkey)!!, now))
+    }
+
+    /** §5.2 step 2a: a device added without a prompt here shows a notice until "It was me" or it leaves; one allowed from this device's prompt doesn't. */
+    @Test fun addedNotices() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
+        assertTrue(phone.addedNotices().isEmpty(), "nothing yet (and this first look sets since when)")
+        now += 1
+        val auto = LocalSigner.random(); server.live(alice.pubkey, auto.pubkey, "Belfry for iPhone")
+        assertIs<SealedEngine.OnRequest.AllowedAuto>(phone.onRequest(auto.signNow(Sealing.request(alice.pubkey, auto.pubkey, null, now))))
+        val byHand = LocalSigner.random(); server.live(alice.pubkey, byHand.pubkey, "Firefox"); now += 1
+        phone.allow(byHand.pubkey) // from this device's prompt
+        assertEquals(listOf(auto.pubkey), phone.addedNotices().map { it.device }, "the adding device shows it too; not the one allowed by hand here")
+        phone.addedWasMe(auto.pubkey)
+        assertTrue(phone.addedNotices().isEmpty())
+        // another device of mine sees an automatic addition it didn't prompt for
+        val other = LocalSigner.random(); server.live(alice.pubkey, other.pubkey, "Laptop"); now += 1
+        assertIs<SealedEngine.OnRequest.AllowedAuto>(phone.onRequest(other.signNow(Sealing.request(alice.pubkey, other.pubkey, null, now))))
+        assertEquals(listOf(other.pubkey), phone.addedNotices().map { it.device })
+        // removed: it leaves the head, the notice goes
+        now += 1
+        phone.remove(other.pubkey)
+        assertTrue(phone.addedNotices().isEmpty())
     }
 
     @Test fun linkAllowsAtOnce() = runBlocking<Unit> {
@@ -759,7 +811,7 @@ class SealedEngineTest {
         assertEquals(SealedEngine.OnRequest.Ignore, phone.answerRequests(listOf(req)).single().second)
         server.odd = false
         now += 31 // past the cache
-        assertTrue(phone.answerRequests(listOf(req)).single().second is SealedEngine.OnRequest.Ask, "asked again, not remembered")
+        assertTrue(phone.answerRequests(listOf(req)).single().second is SealedEngine.OnRequest.AllowedAuto, "answered again, not remembered (now allowed at once, §5.2 step 2)")
         // a linked request (older) and an unlinked newer one from another device: the linked one first, no Ask for it
         val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Tab")
         val secret = phone.newLinkSecret()

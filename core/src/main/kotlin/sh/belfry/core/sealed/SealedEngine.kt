@@ -551,6 +551,8 @@ class SealedEngine(
         data object Ignore : OnRequest
         /** Allowed at once (a valid link proof from a code this device showed). */
         data object Allowed : OnRequest
+        /** Allowed at once without a prompt (§5.2 step 2): every device shows "‹name› was added" (2a). */
+        data class AllowedAuto(val device: String, val name: String) : OnRequest
         /** Ask: Allow / Not me, with the session's device name. */
         data class Ask(val device: String, val name: String) : OnRequest
     }
@@ -593,8 +595,69 @@ class SealedEngine(
         val now = clock()
         val live = linkSecrets.filterValues { now - it <= 15 * 60 }.keys
         if (Sealing.linkMatches(req, live)) { allow(dev); return OnRequest.Allowed }
-        return OnRequest.Ask(dev, row.device?.ifEmpty { null } ?: row.applicationName)
+        val name = row.device?.ifEmpty { null } ?: row.applicationName
+        // §5.2 step 2 (Xavier, 2026-11-22): a new device of mine is allowed without a prompt when every
+        // condition holds; any doubt (a list not read, a check failing, the roster not landing) asks
+        if (mayAllowWithoutPrompt(req, dev)) {
+            try {
+                allow(dev, prompted = false)
+                trace("allowed without a prompt")
+                return OnRequest.AllowedAuto(dev, name)
+            } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { trace("auto allow failed: ${x.javaClass.simpleName}") }
+        }
+        return OnRequest.Ask(dev, name)
     }
+
+    /**
+     * §5.2 step 2, every condition (the lead's contract, belfry-sh 2595535):
+     * - the session list read now for this request (never the cache), the session live and `chat`;
+     * - the request not before the session's created_at − 120 s, and not more than 30 days old;
+     * - this device in the head it holds (pinned), the head on the anchored end, this device trusted (§3.4),
+     *   holding the head letterbox's secret (to hand it over);
+     * - fewer than 3 devices added by rosters dated in the last 24 h (not the root; roster times only,
+     *   no local memory): a fourth asks.
+     */
+    private suspend fun mayAllowWithoutPrompt(req: Event, dev: String): Boolean {
+        val now = clock()
+        if (req.createdAt < now - 30 * 86_400L) return false
+        val head = chainOf(account) ?: return false
+        val pin = pins[account] ?: return false
+        if (head.head.id != pin.head || head.root.id != pin.root) return false
+        if (head.anchored != head.head.id) return false
+        if (device.pubkey !in head.devices) return false
+        if (pin.trusted != null && device.pubkey !in pin.trusted) return false
+        if (keys.secretFor(head.head.lb) == null) return false
+        if (recentlyAdded(head, now) >= AUTO_PER_DAY) return false
+        val fresh = ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return false
+        val row = fresh.firstOrNull { it.clientPubkey == dev && it.chat } ?: return false
+        val opened = row.createdAt ?: return false
+        return req.createdAt >= opened - 120
+    }
+
+    // ---- devices added without a prompt here (§5.2 step 2a) ------------------------------------
+
+    /** A device added to my head without this device showing a prompt or a link code for it. */
+    data class AddedNotice(val device: String, val at: Long)
+
+    /**
+     * The notices to show (on top of Messages, in Devices, in Encryption): every device my head
+     * gained, by a roster dated after this device first looked (so older additions don't show), that
+     * this device didn't allow from its own prompt or link, still in the head, not answered "It was me".
+     * Kept across restarts (the notes); a device that leaves the head drops its notice.
+     */
+    suspend fun addedNotices(): List<AddedNotice> = kotlinx.coroutines.withContext(confined) {
+        val chain = chainOf(account) ?: return@withContext emptyList()
+        if (device.pubkey !in chain.devices) return@withContext emptyList()
+        val since = ports.loadNote(NOTE_NOTICES_SINCE)?.toLongOrNull() ?: clock().also { ports.saveNote(NOTE_NOTICES_SINCE, it.toString()) }
+        chain.changesAfter(null)
+            .filter { it.added && it.at >= since && it.device != device.pubkey && it.device in chain.devices }
+            .filter { ports.loadNote("prompted:${it.device}") == null && ports.loadNote("added-ok:${it.device}") == null }
+            .distinctBy { it.device }
+            .map { AddedNotice(it.device, it.at) }
+    }
+
+    /** "It was me": the notice for DEV goes, on this device. */
+    suspend fun addedWasMe(dev: String) = kotlinx.coroutines.withContext(confined) { ports.saveNote("added-ok:$dev", clock().toString()) }
 
     private val answered = java.util.concurrent.ConcurrentHashMap<String, OnRequest>()
     private val newestRequest = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -617,10 +680,25 @@ class SealedEngine(
         ordered.map { r -> r to onRequestHere(r).also { a -> if (a == OnRequest.Allowed) answered[r.id] = a } }
     }
 
+    companion object {
+        const val MAX_KEPT = 2_000
+        /** §5.2 step 2: devices added in the last 24 h before a new one asks again. */
+        const val AUTO_PER_DAY = 3
+        private const val NOTE_NOTICES_SINCE = "added-notices-since"
+
+        /** Devices added to CHAIN by rosters dated in the 24 h before NOW (the root not counted), from roster times only. */
+        fun recentlyAdded(chain: Chain, now: Long): Int = chain.changesAfter(null).count { it.added && it.at > now - 86_400L }
+    }
+
     class TooMany : IllegalStateException("A roster holds at most 20 devices: remove one first.")
 
-    /** Allow: keys to the new device, then roster n+1 (same lb, devices + it), then the anchor. Refused at 20. */
-    suspend fun allow(newDevice: String) = locked {
+    /**
+     * Allow: keys to the new device, then roster n+1 (same lb, devices + it), then the anchor. Refused at 20.
+     * PROMPTED: from this device's own prompt or link code (no "was added" notice here); false when
+     * allowed without a prompt (§5.2 step 2).
+     */
+    suspend fun allow(newDevice: String, prompted: Boolean = true) = locked {
+        if (prompted) ports.saveNote("prompted:$newDevice", clock().toString())
         val chain = refresh(account) ?: throw IllegalStateException("no chain")
         if (mine != Mine.IN_HEAD) throw IllegalStateException("This device can't allow others yet.")
         if (newDevice in anchoredDevices(chain)) {
@@ -992,7 +1070,6 @@ class SealedEngine(
 
     // last: every field above exists before the saved state is read (Kotlin runs initialisers in order)
     init { loadState() }
-    companion object { const val MAX_KEPT = 2_000 }
 }
 
 /** A relay query (only what sealed conversations ask; never `#lb`). */
@@ -1004,7 +1081,11 @@ data class Query(
 )
 
 /** One row of GET /api/me/sessions, as the engine needs it. LAST_SEEN = last_activity, else created_at. */
-data class SessionRow(val clientPubkey: String?, val chat: Boolean, val lastSeen: Long?, val device: String?, val applicationName: String, val id: String = "")
+data class SessionRow(
+    val clientPubkey: String?, val chat: Boolean, val lastSeen: Long?, val device: String?, val applicationName: String, val id: String = "",
+    /** When the session was opened (Unix seconds; null when the belfry didn't say): §5.2 step 2's 120 s rule. */
+    val createdAt: Long? = null,
+)
 
 /** What the engine needs from the outside. */
 interface SealedPorts {

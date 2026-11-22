@@ -105,6 +105,8 @@ fun MessagesScreen(
             actions = { IconAction(BelfryIcons.Plus, "New message", { nav.go(Routes.NEW_CONVERSATION) }) },
         )
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 6.dp)) {
+            // a device of mine added without a prompt here (canvas v183): on top, until answered
+            if (seal.added.isNotEmpty()) item(key = "seal-added") { AddedDeviceCards() }
             // a new device (canvas messages/encryption-new-device): earlier messages are locked here; and
             // sealed messages that came but can't be opened here show in no conversation, so the banner
             // says how many wait (Xavier's mail to himself on a phone not yet allowed, 2026-11-22)

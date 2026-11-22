@@ -2455,3 +2455,19 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   A reply counts as unread for its conversation like any message; the read mark is the conversation's.
   Only a message that is out (not held, not failed), not itself a reply, in a conversation this
   device can write to, offers Reply.
+
+### 19.59 Sealed: a new device of mine is added without a prompt (2026-11-22; Xavier via the lead; sealed.md §5.2 step 2 / 2a at belfry-sh 2595535; canvas v183 messages/encryption-device-added)
+
+- **Allowed at once** (`SealedEngine.mayAllowWithoutPrompt`) when every condition holds, else Allow / Not me as
+  before: the session list read for this request (never the 30 s cache), the session live and `chat`; the
+  request not before the session's `created_at` − 120 s (`SessionRow.createdAt` from `/api/me/sessions`;
+  unknown → ask) and not more than 30 days old; this device in the pinned head, the head on the anchored
+  end, this device trusted, holding the head letterbox's secret; fewer than 3 devices added by rosters
+  dated in the last 24 h (`recentlyAdded`, the root not counted, roster times only). A link code still
+  allows at once and doesn't count. Allow itself is unchanged: roster n+1 first, keys only once it landed.
+- **The notice** (`addedNotices`): every device my head gained by a roster dated after this device first
+  looked (note `added-notices-since`), not allowed from this device's own prompt or link (note
+  `prompted:<device>`), still in the head, not answered (note `added-ok:<device>`). Shown as a card on top
+  of Messages, in Devices and in Encryption: "‹name› was added just now · It can read your conversations",
+  "Not you? Remove it" (asks, then §5.6: the session revoked first, the roster without it, a new letterbox)
+  and "It was me". The adding device shows it too.

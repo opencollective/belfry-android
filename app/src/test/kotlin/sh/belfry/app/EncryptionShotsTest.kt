@@ -147,6 +147,18 @@ class EncryptionShotsTest : DemoShots() {
         assertTrue(compose.onAllNodesWithText("Not allowed yet", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
+    /** canvas v183 messages/encryption-device-added: on top of Messages, "Belfry for iPhone was added just now", Remove / It was me. */
+    @Test fun deviceAdded() {
+        session.encryption.demoAdded("Belfry for iPhone")
+        demoShot("encryption-device-added") { MessagesScreen() }
+        compose.onNodeWithText("Belfry for iPhone was added just now").assertExists()
+        compose.onNodeWithText(sh.belfry.core.model.SealedText.ADDED_TEXT).assertExists()
+        compose.onNodeWithTag("seal-added-remove").assertExists()
+        compose.onNodeWithTag("seal-added-mine").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("seal-added").assertDoesNotExist()
+    }
+
     @Test fun showHow() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device-steps") { UnlockStepsScreen() }

@@ -79,6 +79,9 @@ data class SharedBlock(val by: String, val from: Long, val to: Long) {
 /** A new device of mine asking for access, shown on my other devices. */
 data class AccessAsk(val id: String, val device: String, val kind: DeviceKind, val at: Long)
 
+/** A device added to my head without this device asking me (§5.2 step 2a): "‹name› was added just now". */
+data class AddedDevice(val id: String, val name: String, val at: Long)
+
 /** Where and when my sealed conversations were started fresh (DEVICE: its signed-in name, null if unknown). */
 data class FreshElsewhere(val device: String?, val at: Long)
 
@@ -97,6 +100,8 @@ data class SealState(
     val waitingKeys: Boolean = false,
     /** My sealed conversations were started fresh on another device, leaving this one out (the lead, 0.7.7). */
     val freshElsewhere: FreshElsewhere? = null,
+    /** Devices added without a prompt here, not answered yet (canvas v183 messages/encryption-device-added). */
+    val added: List<AddedDevice> = emptyList(),
 ) {
     fun seal(conv: String): ConvSeal? = sealed[conv]
     val thisDevice: MyDevice? get() = myDevices.firstOrNull { it.thisDevice }
@@ -229,6 +234,16 @@ object SealedText {
     const val BANNER_TITLE = "Messages are locked on this device"
     /** The Encryption screen's first line on a device not allowed yet (the lead, 2026-11-22; draft until the board). */
     const val CANT_READ_YET = "This device can't read it yet"
+    /** canvas v183 messages/encryption-device-added: "Belfry for iPhone was added just now". */
+    fun addedTitle(name: String, at: Long, now: Long, zone: ZoneId): String = "$name was added " + when {
+        now - at < 120 -> "just now"
+        now - at < 3600 -> "${(now - at) / 60} min ago"
+        date(at, zone) == date(now, zone) -> "at " + java.time.format.DateTimeFormatter.ofPattern("HH:mm").format(java.time.Instant.ofEpochSecond(at).atZone(zone))
+        else -> "on " + day(at, now, zone)
+    }
+    const val ADDED_TEXT = "It can read your conversations"
+    const val ADDED_REMOVE = "Not you? Remove it"
+    const val ADDED_MINE = "It was me"
     /** canvas v182: what to do, under [CANT_READ_YET]. */
     const val ALLOW_ELSEWHERE = "Open Belfry on a device where you already read your messages and tap Allow"
     /**

@@ -188,6 +188,7 @@ fun EncryptionScreen(conv: String) {
     val nav = LocalNav.current
     val waiting = st.earlierLocked || st.waitingKeys
     Page("Encryption") {
+        AddedDeviceCards()
         // a device not allowed yet: say so first, with the steps (then what it knows, if anything)
         if (waiting) {
             EarlierLockedBanner(SealedText.CANT_READ_YET, SealedText.ALLOW_ELSEWHERE) { nav.go(Routes.UNLOCK_STEPS) }
@@ -300,6 +301,55 @@ internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, text: 
                     .padding(vertical = 6.dp).testTag("seal-show-how"),
             )
         }
+    }
+}
+
+/**
+ * canvas v183 messages/encryption-device-added (sealed.md §5.2 step 2a): a device of mine added without
+ * a prompt here. One card per device: "‹name› was added just now · It can read your conversations",
+ * then "Not you? Remove it" (asks first; sign out + the lock changes) and "It was me". Stays until answered.
+ */
+@Composable
+internal fun AddedDeviceCards(modifier: Modifier = Modifier) {
+    val session = LocalSession.current
+    val world = LocalWorld.current
+    val st by session.encryption.state.collectAsState()
+    if (st.added.isEmpty()) return
+    val c = Belfry.colors
+    var removing by remember { mutableStateOf<sh.belfry.core.model.AddedDevice?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Column(modifier) {
+        for (a in st.added) {
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp))
+                    .background(c.surface).padding(horizontal = 14.dp, vertical = 12.dp).testTag("seal-added"),
+            ) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp).padding(top = 1.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(SealedText.addedTitle(a.name, a.at, session.now(), world.ctx.zone), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                        Text(SealedText.ADDED_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BusyButton(SealedText.ADDED_REMOVE, onClick = { error = null; removing = a }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.weight(1f).testTag("seal-added-remove"))
+                    BusyButton(SealedText.ADDED_MINE, onClick = { session.encryption.addedWasMe(a.id) }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.weight(1f).testTag("seal-added-mine"))
+                }
+            }
+        }
+        error?.let { Hint(it, Modifier.padding(horizontal = 16.dp)) }
+    }
+    removing?.let { a ->
+        sh.belfry.app.ui.kit.ConfirmSheet(
+            title = "Remove ${a.name}?", confirmLabel = "Remove",
+            onConfirm = {
+                try { session.encryption.removeAdded(a.id) } catch (e: sh.belfry.core.engine.ActionException) { error = e.message }
+                removing = null
+            },
+            onDismiss = { removing = null },
+            message = SealedText.REMOVE_TEXT,
+        )
     }
 }
 

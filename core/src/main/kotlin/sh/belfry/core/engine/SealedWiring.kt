@@ -83,6 +83,7 @@ internal fun SessionInfo.toRow(): SessionRow = SessionRow(
     clientPubkey = clientPubkey, chat = chat,
     lastSeen = RemoteTime.parse(lastActivity) ?: RemoteTime.parse(createdAt),
     device = device, applicationName = applicationName, id = bunkerPubkey,
+    createdAt = RemoteTime.parse(createdAt),
 )
 
 /**
