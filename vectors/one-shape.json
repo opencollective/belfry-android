@@ -1,0 +1,929 @@
+{
+ "about": "One shape and Navigation v2 (collective-belfry docs/one-shape.md, canvas v171-172). Written by belfry-android; belfry-ios copies it byte for byte. Pubkeys are plain names here; ids are plain strings and compare as strings.",
+ "generated_by": "belfry-android, by hand",
+ "recent": {
+  "about": "The Town list. Pins first: everyone's (channel-order \"pinned\", in its order), then mine (belfry:pins), deduplicated, ids not in `known` skipped. Then recent: channels in `known`, not pinned, where within the last 30 days (created_at > now - 30*86400) I posted (kind 9 or 1111 by me), reacted (kind 7 by me) or was mentioned (a kind 9 or 1111 by someone else with [\"p\", me]); opening (seen) never counts. Recent are ordered by the channel's newest kind 9 / 1111 / 7 by anyone (any age), newest first, ties by channel id ascending. The channel of an event is its first h tag.",
+  "cases": [
+   {
+    "name": "pins then recent",
+    "me": "me",
+    "now": 1795000000,
+    "known": [
+     "general",
+     "hello",
+     "garden",
+     "bike",
+     "old",
+     "quiet"
+    ],
+    "pinsAll": [
+     "general",
+     "ghost"
+    ],
+    "pinsMine": [
+     "hello",
+     "general"
+    ],
+    "events": [
+     {
+      "id": "e1",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1794827200,
+      "tags": [
+       [
+        "h",
+        "garden"
+       ]
+      ],
+      "content": "hi"
+     },
+     {
+      "id": "e2",
+      "pubkey": "sam",
+      "kind": 9,
+      "created_at": 1794913600,
+      "tags": [
+       [
+        "h",
+        "garden"
+       ]
+      ],
+      "content": "later"
+     },
+     {
+      "id": "e3",
+      "pubkey": "me",
+      "kind": 7,
+      "created_at": 1794568000,
+      "tags": [
+       [
+        "h",
+        "bike"
+       ],
+       [
+        "e",
+        "x"
+       ]
+      ],
+      "content": "+"
+     },
+     {
+      "id": "e4",
+      "pubkey": "sam",
+      "kind": 9,
+      "created_at": 1794740800,
+      "tags": [
+       [
+        "h",
+        "bike"
+       ]
+      ],
+      "content": "q"
+     },
+     {
+      "id": "e5",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1791544000,
+      "tags": [
+       [
+        "h",
+        "old"
+       ]
+      ],
+      "content": "too old"
+     },
+     {
+      "id": "e6",
+      "pubkey": "me",
+      "kind": 30078,
+      "created_at": 1794913600,
+      "tags": [
+       [
+        "d",
+        "seen:quiet"
+       ],
+       [
+        "h",
+        "quiet"
+       ]
+      ],
+      "content": ""
+     },
+     {
+      "id": "e7",
+      "pubkey": "sam",
+      "kind": 9,
+      "created_at": 1794999000,
+      "tags": [
+       [
+        "h",
+        "quiet"
+       ]
+      ],
+      "content": "busy but not mine"
+     },
+     {
+      "id": "e8",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1794913600,
+      "tags": [
+       [
+        "h",
+        "hello"
+       ]
+      ],
+      "content": "pinned anyway"
+     }
+    ],
+    "expect": {
+     "pinned": [
+      "general",
+      "hello"
+     ],
+     "recent": [
+      "garden",
+      "bike"
+     ],
+     "list": [
+      "general",
+      "hello",
+      "garden",
+      "bike"
+     ]
+    }
+   },
+   {
+    "name": "a mention counts, my own p tag on my message does not make it a mention but posting does",
+    "me": "me",
+    "now": 1795000000,
+    "known": [
+     "a",
+     "b",
+     "c"
+    ],
+    "pinsAll": [],
+    "pinsMine": [],
+    "events": [
+     {
+      "id": "m1",
+      "pubkey": "sam",
+      "kind": 1111,
+      "created_at": 1794136000,
+      "tags": [
+       [
+        "h",
+        "a"
+       ],
+       [
+        "p",
+        "me"
+       ]
+      ],
+      "content": "@me look"
+     },
+     {
+      "id": "m2",
+      "pubkey": "sam",
+      "kind": 9,
+      "created_at": 1794827200,
+      "tags": [
+       [
+        "h",
+        "b"
+       ],
+       [
+        "p",
+        "lou"
+       ]
+      ],
+      "content": "not me"
+     },
+     {
+      "id": "m3",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1792494400,
+      "tags": [
+       [
+        "h",
+        "c"
+       ]
+      ],
+      "content": "29 days ago"
+     },
+     {
+      "id": "m4",
+      "pubkey": "lou",
+      "kind": 9,
+      "created_at": 1794913600,
+      "tags": [
+       [
+        "h",
+        "c"
+       ]
+      ],
+      "content": "newest in c"
+     }
+    ],
+    "expect": {
+     "pinned": [],
+     "recent": [
+      "c",
+      "a"
+     ],
+     "list": [
+      "c",
+      "a"
+     ]
+    }
+   },
+   {
+    "name": "exactly 30 days ago is out; ties by id",
+    "me": "me",
+    "now": 1795000000,
+    "known": [
+     "x",
+     "y",
+     "z"
+    ],
+    "pinsAll": [],
+    "pinsMine": [],
+    "events": [
+     {
+      "id": "t1",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1792408000,
+      "tags": [
+       [
+        "h",
+        "x"
+       ]
+      ],
+      "content": "edge"
+     },
+     {
+      "id": "t2",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1794568000,
+      "tags": [
+       [
+        "h",
+        "z"
+       ]
+      ],
+      "content": "z"
+     },
+     {
+      "id": "t3",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1794568000,
+      "tags": [
+       [
+        "h",
+        "y"
+       ]
+      ],
+      "content": "y"
+     }
+    ],
+    "expect": {
+     "pinned": [],
+     "recent": [
+      "y",
+      "z"
+     ],
+     "list": [
+      "y",
+      "z"
+     ]
+    }
+   }
+  ]
+ },
+ "pins": {
+  "about": "Reading pins. Everyone's: the \"pinned\" array in the content of the newest kind 30078 d=belfry:channel-order by a belfry admin. Mine: the newest kind 30078 d=belfry:pins by me, its content NIP-44 v2 to myself; here `plain` is the decrypted content. Content {\"v\":1,\"c\":[ids]}: bad JSON or no array gives []; entries that are not strings or not in `known` are skipped; duplicates keep the first. Writing mine: {\"v\":1,\"c\":[...]} with the channel added at the end or removed; a writer of channel-order keeps every other key.",
+  "cases": [
+   {
+    "name": "mine, newest wins",
+    "known": [
+     "a",
+     "b",
+     "c"
+    ],
+    "copies": [
+     {
+      "created_at": 100,
+      "plain": "{\"v\":1,\"c\":[\"a\"]}"
+     },
+     {
+      "created_at": 200,
+      "plain": "{\"v\":1,\"c\":[\"b\",\"zz\",3,\"b\",\"c\"]}"
+     }
+    ],
+    "expect": [
+     "b",
+     "c"
+    ]
+   },
+   {
+    "name": "bad json",
+    "known": [
+     "a"
+    ],
+    "copies": [
+     {
+      "created_at": 100,
+      "plain": "not json"
+     }
+    ],
+    "expect": []
+   },
+   {
+    "name": "no c",
+    "known": [
+     "a"
+    ],
+    "copies": [
+     {
+      "created_at": 100,
+      "plain": "{\"v\":1}"
+     }
+    ],
+    "expect": []
+   },
+   {
+    "name": "everyone's from channel-order",
+    "known": [
+     "general",
+     "hello"
+    ],
+    "channelOrder": "{\"order\":[\"general\",\"hello\"],\"categories\":[],\"pinned\":[\"hello\",\"gone\",\"general\"]}",
+    "expect": [
+     "hello",
+     "general"
+    ]
+   },
+   {
+    "name": "toggle on then off",
+    "start": [
+     "a"
+    ],
+    "toggle": [
+     "b",
+     "a"
+    ],
+    "expectContent": "{\"v\":1,\"c\":[\"b\"]}"
+   }
+  ]
+ },
+ "headerRow": {
+  "about": "The header's icon row never clips. Items keep their order; the total is the sum of widths plus gap between kept items. While it is over the budget, drop the first present item in this order: owner, files, todos, photos, comments, pinned. lead and people never drop (if they alone overflow, they stay).",
+  "dropOrder": [
+   "owner",
+   "files",
+   "todos",
+   "photos",
+   "comments",
+   "pinned"
+  ],
+  "cases": [
+   {
+    "name": "fits",
+    "gap": 8,
+    "budget": 300,
+    "items": [
+     {
+      "key": "lead",
+      "width": 90
+     },
+     {
+      "key": "people",
+      "width": 40
+     },
+     {
+      "key": "todos",
+      "width": 36
+     },
+     {
+      "key": "files",
+      "width": 36
+     }
+    ],
+    "expect": [
+     "lead",
+     "people",
+     "todos",
+     "files"
+    ]
+   },
+   {
+    "name": "owner then files",
+    "gap": 8,
+    "budget": 260,
+    "items": [
+     {
+      "key": "lead",
+      "width": 90
+     },
+     {
+      "key": "state",
+      "width": 50
+     },
+     {
+      "key": "owner",
+      "width": 60
+     },
+     {
+      "key": "people",
+      "width": 40
+     },
+     {
+      "key": "todos",
+      "width": 36
+     },
+     {
+      "key": "files",
+      "width": 36
+     }
+    ],
+    "expect": [
+     "lead",
+     "state",
+     "people",
+     "todos"
+    ]
+   },
+   {
+    "name": "down to the core",
+    "gap": 8,
+    "budget": 100,
+    "items": [
+     {
+      "key": "lead",
+      "width": 90
+     },
+     {
+      "key": "people",
+      "width": 40
+     },
+     {
+      "key": "pinned",
+      "width": 36
+     },
+     {
+      "key": "comments",
+      "width": 36
+     }
+    ],
+    "expect": [
+     "lead",
+     "people"
+    ]
+   }
+  ]
+ },
+ "replyAll": {
+  "about": "Reply all, the only reply. Recipients: the sender (mail-from of the thread's latest received e-mail), then each [\"to\", address, name], then each [\"cc\", address, name] of that card, in tag order. Each address is trimmed and lowercased; an address whose domain is the belfry's domain or ends with \".\" + that domain is left out; duplicates keep the first; at most 20. To = the first recipient (the sender unless it was left out), Cc = the rest. rcptTo = all of them.",
+  "cases": [
+   {
+    "name": "sender, to, cc minus ours",
+    "domain": "riverside.example",
+    "mailFrom": "Lou@Example.org",
+    "tags": [
+     [
+      "to",
+      "contact@riverside.example",
+      "Contact"
+     ],
+     [
+      "to",
+      "dev@example.net",
+      "Dev Patel"
+     ],
+     [
+      "cc",
+      "park@example.org",
+      "Park"
+     ],
+     [
+      "cc",
+      "lou@example.org",
+      "Lou"
+     ],
+     [
+      "cc",
+      "ana@mail.riverside.example",
+      "Ana"
+     ]
+    ],
+    "expect": {
+     "rcptTo": [
+      "lou@example.org",
+      "dev@example.net",
+      "park@example.org"
+     ],
+     "to": "lou@example.org",
+     "cc": [
+      "dev@example.net",
+      "park@example.org"
+     ]
+    }
+   },
+   {
+    "name": "old card: sender only",
+    "domain": "riverside.example",
+    "mailFrom": "lou@example.org",
+    "tags": [],
+    "expect": {
+     "rcptTo": [
+      "lou@example.org"
+     ],
+     "to": "lou@example.org",
+     "cc": []
+    }
+   },
+   {
+    "name": "not a subdomain by suffix alone",
+    "domain": "riverside.example",
+    "mailFrom": "x@notriverside.example",
+    "tags": [],
+    "expect": {
+     "rcptTo": [
+      "x@notriverside.example"
+     ],
+     "to": "x@notriverside.example",
+     "cc": []
+    }
+   },
+   {
+    "name": "at most 20",
+    "domain": "r.example",
+    "mailFrom": "a0@x.org",
+    "tags": [
+     [
+      "cc",
+      "a1@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a2@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a3@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a4@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a5@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a6@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a7@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a8@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a9@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a10@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a11@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a12@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a13@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a14@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a15@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a16@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a17@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a18@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a19@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a20@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a21@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a22@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a23@x.org",
+      ""
+     ],
+     [
+      "cc",
+      "a24@x.org",
+      ""
+     ]
+    ],
+    "expect": {
+     "rcptTo": [
+      "a0@x.org",
+      "a1@x.org",
+      "a2@x.org",
+      "a3@x.org",
+      "a4@x.org",
+      "a5@x.org",
+      "a6@x.org",
+      "a7@x.org",
+      "a8@x.org",
+      "a9@x.org",
+      "a10@x.org",
+      "a11@x.org",
+      "a12@x.org",
+      "a13@x.org",
+      "a14@x.org",
+      "a15@x.org",
+      "a16@x.org",
+      "a17@x.org",
+      "a18@x.org",
+      "a19@x.org"
+     ],
+     "to": "a0@x.org",
+     "cc": [
+      "a1@x.org",
+      "a2@x.org",
+      "a3@x.org",
+      "a4@x.org",
+      "a5@x.org",
+      "a6@x.org",
+      "a7@x.org",
+      "a8@x.org",
+      "a9@x.org",
+      "a10@x.org",
+      "a11@x.org",
+      "a12@x.org",
+      "a13@x.org",
+      "a14@x.org",
+      "a15@x.org",
+      "a16@x.org",
+      "a17@x.org",
+      "a18@x.org",
+      "a19@x.org"
+     ]
+    }
+   }
+  ]
+ },
+ "threadState": {
+  "about": "An e-mail thread's state. labels = the belfry/inbox status labels (kind 1985, l = open | answered | closed) on its first card. Base = the newest label's value (ties by id ascending: the higher id wins), open when there is none. Then: if the newest received e-mail (created_at) is newer than the newest answered-or-closed label, the thread is open again. Computed by every reader; no event.",
+  "cases": [
+   {
+    "name": "no label",
+    "received": [
+     100
+    ],
+    "labels": [],
+    "expect": "open"
+   },
+   {
+    "name": "answered",
+    "received": [
+     100
+    ],
+    "labels": [
+     {
+      "id": "l1",
+      "created_at": 150,
+      "l": "answered"
+     }
+    ],
+    "expect": "answered"
+   },
+   {
+    "name": "the sender wrote again",
+    "received": [
+     100,
+     200
+    ],
+    "labels": [
+     {
+      "id": "l1",
+      "created_at": 150,
+      "l": "answered"
+     }
+    ],
+    "expect": "open"
+   },
+   {
+    "name": "closed then new mail",
+    "received": [
+     100,
+     300
+    ],
+    "labels": [
+     {
+      "id": "l1",
+      "created_at": 150,
+      "l": "closed"
+     }
+    ],
+    "expect": "open"
+   },
+   {
+    "name": "reopened by hand then answered",
+    "received": [
+     100
+    ],
+    "labels": [
+     {
+      "id": "l1",
+      "created_at": 150,
+      "l": "closed"
+     },
+     {
+      "id": "l2",
+      "created_at": 160,
+      "l": "open"
+     },
+     {
+      "id": "l3",
+      "created_at": 170,
+      "l": "answered"
+     }
+    ],
+    "expect": "answered"
+   },
+   {
+    "name": "same second as the mail stays answered",
+    "received": [
+     150
+    ],
+    "labels": [
+     {
+      "id": "l1",
+      "created_at": 150,
+      "l": "answered"
+     }
+    ],
+    "expect": "answered"
+   }
+  ]
+ },
+ "drafts": {
+  "about": "Internal drafts: kind 1111 on the thread's first card with [\"mail-draft\",\"1\"]. Shown unless a sent card (kind 9 by the groups key, client belfry-mail-out) carries [\"draft\", its id], or its author deleted it (kind 5 with [\"e\", id] by the same author). Edits (1010) by its author change the text, not this rule.",
+  "cases": [
+   {
+    "name": "one sent, one deleted, one kept",
+    "drafts": [
+     {
+      "id": "d1",
+      "pubkey": "ana"
+     },
+     {
+      "id": "d2",
+      "pubkey": "ana"
+     },
+     {
+      "id": "d3",
+      "pubkey": "sam"
+     },
+     {
+      "id": "d4",
+      "pubkey": "sam"
+     }
+    ],
+    "sent": [
+     {
+      "tags": [
+       [
+        "draft",
+        "d1"
+       ]
+      ]
+     }
+    ],
+    "deletions": [
+     {
+      "pubkey": "ana",
+      "e": "d2"
+     },
+     {
+      "pubkey": "ana",
+      "e": "d3"
+     }
+    ],
+    "expect": [
+     "d3",
+     "d4"
+    ]
+   }
+  ]
+ },
+ "due": {
+  "about": "To-do due date: [\"due\", \"<unix seconds>\"] on the kind 2100; the author's newest kind 1010 edit replaces the tags (its tags win when it carries a due; an edit without a due tag clears it). Not a positive integer: no due date.",
+  "cases": [
+   {
+    "name": "set",
+    "tags": [
+     [
+      "due",
+      "1795100000"
+     ]
+    ],
+    "expect": 1795100000
+   },
+   {
+    "name": "bad",
+    "tags": [
+     [
+      "due",
+      "soon"
+     ]
+    ],
+    "expect": null
+   },
+   {
+    "name": "none",
+    "tags": [],
+    "expect": null
+   }
+  ]
+ },
+ "dmReply": {
+  "about": "A reply in a direct message: a kind 14 rumor with [\"e\", root rumor id, \"\", \"root\"], wrapped like any other. Shown under its root (the root's thread); a 14 whose root is unknown shows in line.",
+  "cases": [
+   {
+    "name": "tag",
+    "root": "abc",
+    "expectTag": [
+     "e",
+     "abc",
+     "",
+     "root"
+    ]
+   }
+  ]
+ }
+}
