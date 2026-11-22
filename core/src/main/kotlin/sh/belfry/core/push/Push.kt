@@ -114,6 +114,13 @@ object Push {
         return PushOpen.Home
     }
 
+    /**
+     * The direct-message notification is read (and goes) once no conversation is unread AND no sealed
+     * message waits locked on this device: a message it can't open counts in no conversation, and
+     * its push must stay (Xavier's mail to himself, 2026-11-22).
+     */
+    fun dmsRead(unread: Int, locked: Int): Boolean = unread == 0 && locked == 0
+
     /** How long after sending a DM or e-mail a "dm" notification is taken for my own copy. */
     const val OWN_COPY_MS = 30_000L
 

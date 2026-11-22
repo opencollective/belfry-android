@@ -137,6 +137,35 @@ class DirectMessagesSealedTest {
         assertEquals(0, b.third.calls)
     }
 
+    /**
+     * Xavier's mail to himself (2026-11-22): a device of mine not in my head gets a wrap to my letterbox it
+     * can't open. No conversation shows it, so the snapshot counts it (Messages' waiting line, the push
+     * that stays); the count survives a restart and a wrap seen twice counts once.
+     */
+    @Test fun lockedWrapIsCounted() = runBlocking<Unit> {
+        val (a, _) = ready()
+        val aliceTablet = LocalSigner.random()
+        server.live(alice.pubkey, aliceTablet.pubkey, "Tablet")
+        val tablet = engine(alice, aliceTablet)
+        tablet.start("Tablet", "tablet")
+        assertEquals(SealedEngine.Mine.WAITING, tablet.mine, "not allowed yet")
+        a.second.send(conv(bob.pubkey), "Gate code is 4417.")
+        val toMe = outbox(a.second).first { it.signed!!.tag("p") == alice.pubkey }.signed!!
+        val store = MemoryStore()
+        val host = Host(CountingSigner(alice), tablet)
+        val dm = DirectMessages(store, host).also { hosts[it] = host }
+        dm.offer(listOf(toMe)); dm.process()
+        assertTrue(dm.snapshot.value.items.isEmpty(), "nothing it can show")
+        assertEquals(1, dm.snapshot.value.lockedCount)
+        assertEquals(0, host.signer.calls, "never the signer")
+        dm.offer(listOf(toMe)); dm.process()
+        assertEquals(1, dm.snapshot.value.lockedCount, "the same wrap once")
+        val again = DirectMessages(store, host)
+        assertEquals(1, again.snapshot.value.lockedCount, "kept across a restart, from the first snapshot")
+        assertTrue(!sh.belfry.core.push.Push.dmsRead(0, again.snapshot.value.lockedCount), "its push stays")
+        assertTrue(sh.belfry.core.push.Push.dmsRead(0, 0))
+    }
+
     /** No engine yet: a sealed wrap is kept, never handed to the signer. */
     @Test fun sealedWrapKeptWithoutEngine() = runBlocking<Unit> {
         val (a, _) = ready()
