@@ -102,7 +102,7 @@ class R6ShotsTest : DemoShots() {
         val t = world.mailThreads(Demo.HELLO).list.first()
         demoShot("mail-comment") { sh.belfry.app.ui.cards.MailThreadScreen(Demo.HELLO, t) }
         compose.onNodeWithTag("mode-comment").assertDoesNotExist()
-        compose.onNodeWithTag("mail-header").assertExists()
+        compose.onNodeWithTag("one-header").assertExists()
     }
 
     /** channels/proposal-top: a proposal's chat opens with the proposal on top, at half, its votes and turnout. */

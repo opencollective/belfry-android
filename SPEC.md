@@ -2363,7 +2363,34 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   title or drag the header to change level. The description is the text of the message it was
   made from when that says more than the title (`todoDescription`). Lists show "· Due …" after who.
 
-### 19.55 One shape: the e-mail thread (2026-11-22; contract collective-belfry docs/one-shape.md 4; canvas one-shape/email-*)
+### 19.55 One shape: headers and activity previews (2026-11-22; Xavier via the lead; collective-belfry docs/one-shape.md 2–3; canvas one-shape/anatomy, inbox-*, action-previews*)
+
+Nothing new on the wire. Behaviour:
+- **One header** (`ui/kit/OneHeader` + `IconRow`): two lines at most, the title and one icon row.
+  A channel / group: (✉ N open · 👤 N on you, blue, on a channel that takes e-mails, while open
+  e-mails exist) · 👥 members · 📌 pinned · ✓ open to-dos · 📁 files · 📅 upcoming events, each left
+  out at 0 and spoken in full ("3 open to-dos"). A DM: ✓ · 📁 · 🖼 (no people count, no face). A
+  message thread: title = the beginning of its first message, 👥 who took part · 💬 replies.
+  Items leave by `OneShape.fitRow`; a kind the shared order doesn't name (📅) leaves after those,
+  last first, so the row never draws past its end. No avatars, no message count.
+- Top left ☰ (top level) or ‹ (pushed); top right only a channel's **bell**: off = the channel's
+  push level `default`, on = `all` (`POST /notifications`, read from the settings; locks while it
+  saves, goes back on a refusal; the glyph changes, not only its colour). Search moved into the
+  pull-down's rows. The old subtitle and attention lines are gone.
+- **Pull-down** (tap the title or drag down): about + "who can write / who can read" line (the
+  address), the pinned message, then the rows; a channel that takes e-mails gets an "E-mails" row
+  first → `ChannelPlaceKey.EMAILS`: Open / Mine (on me, not closed) / Answered / Closed, each row
+  subject, sender · time, who has it, Claim (= the existing `assigned` label to me).
+- **Activity previews** (`core/model/Previews.kt`): in a channel's whole feed (not a topic), one
+  line per to-do step (made, took, assigned, finished, reopened; the same person's steps on one
+  to-do within 120 s make one line), per RSVP to an event announced there (or a meeting made
+  there), per voter's latest vote on its proposals, and per event / meeting / proposal card (the
+  card message becomes its line, keyed by the message id). Collapsed by default; the newest line
+  about an item that needs me (a to-do on me, an upcoming event I haven't answered and don't
+  host, a vote I haven't cast) starts open. Open / closed is kept per line on the device only
+  (store key `preview-open`). Inside an item's own conversation the lines stay plain.
+
+### 19.56 One shape: the e-mail thread (2026-11-22; contract collective-belfry docs/one-shape.md 4; canvas one-shape/email-*)
 
 - **Who it was for.** Inbox and sent cards are read for `["to", address, name]` and
   `["cc", address, name]` (`MailInbox.people`: at most 20, first of each address, lower case).

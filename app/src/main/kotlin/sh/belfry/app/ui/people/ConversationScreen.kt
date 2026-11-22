@@ -171,11 +171,17 @@ fun ConversationScreen(conv: String) {
     if (mail) LaunchedEffect(conv) { session.checkReports() }
 
     Column(Modifier.fillMaxSize().background(c.bg).imePadding()) {
-        TopBar(
-            title, subtitle = sub.ifEmpty { null },
+        // one-shape header (docs/one-shape.md 2): the name, then ✓ · 📁 · 🖼 (no people count, no
+        // face); an e-mail thread's line 2 says who it is with. A tap on one person's name: their profile.
+        val dmFiles = list.mapNotNull { it.file }
+        val dmPhotos = dmFiles.count { it.mime.startsWith("image/") }
+        sh.belfry.app.ui.kit.OneHeader(
+            title,
+            items = if (mail) listOf(sh.belfry.app.ui.kit.RowItem("lead", BelfryIcons.Mail, sub, "E-mail with $sub", lead = true))
+            else sh.belfry.app.ui.chat.dmRowItems(0, dmFiles.size - dmPhotos + list.sumOf { it.attachments.size }, dmPhotos),
             navigation = { BackButton { nav.back() } },
-            onTitleClick = peer?.let { p -> { nav.go(Routes.profile(p)) } },
-            titleLeading = peer?.let { p -> { Avatar(world.face(p), size = 34.dp) } },
+            onPull = peer?.let { p -> { nav.go(Routes.profile(p)) } },
+            pullLabel = peer?.let { "Open ${world.displayName(it)}'s profile" },
             titleMark = if (seal != null) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
             actions = {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })

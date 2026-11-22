@@ -88,4 +88,10 @@ class OneShapeVectorsTest {
         assertEquals(c["expectTag"].strings(), tag)
         assertEquals(c.s("root"), OneShape.dmRoot(listOf(tag)))
     }
+
+    @Test fun description() = cases("description").forEach { c ->
+        val src = c["source"].let { if (it == null || it is JsonNull) null else it.jsonPrimitive.content }
+        val want = c["expect"].let { if (it == null || it is JsonNull) null else it.jsonPrimitive.content }
+        assertEquals(want, OneShape.todoDescription(OneShape.description(c["tags"].tags()), c.s("title"), src), c.s("name"))
+    }
 }

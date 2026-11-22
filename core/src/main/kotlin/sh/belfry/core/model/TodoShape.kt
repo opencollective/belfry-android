@@ -70,11 +70,8 @@ fun Actions.setTaskDue(task: Event, title: String, due: Long?): Draft {
 fun World.taskEvent(groupId: String, taskId: String): Event? = taskEventsOf(groupId).firstOrNull { it.kind == 2100 && it.id == taskId }
 
 /** What the to-do says beyond its title: the text of the message it was made from, when that says more. */
-fun World.todoDescription(groupId: String, t: Task): String? {
-    val m = t.source?.let { message(groupId, it) } ?: return null
-    val text = m.text.trim()
-    return if (text.isEmpty() || text == t.title) null else text
-}
+fun World.todoDescription(groupId: String, t: Task): String? =
+    OneShape.todoDescription(t.description, t.title, t.source?.let { message(groupId, it) }?.text)
 
 /** Who wrote the message a to-do was made from, if it is here. */
 fun World.todoSourceAuthor(groupId: String, t: Task): String? = t.source?.let { message(groupId, it) }?.pubkey

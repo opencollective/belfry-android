@@ -77,10 +77,19 @@ fun IconRow(items: List<RowItem>, modifier: Modifier = Modifier, color: Color = 
         val placeables = measurables.map { it.measure(free) }
         val indexed = placeables.indices.toList()
         val budget = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
-        val kept = OneShape.fitRow(indexed, { items[it].key }, { placeables[it].width }, gap, budget)
+        val kept = OneShape.fitRow(indexed, { items[it].key }, { placeables[it].width }, gap, budget).toMutableList()
+        // beyond the shared order (a kind it doesn't name, like a channel's 📅): the last such item
+        // leaves next, so nothing is ever drawn past the row's end; lead and people still stay
+        fun total() = kept.sumOf { placeables[it].width } + gap * (kept.size - 1).coerceAtLeast(0)
+        while (total() > budget) {
+            val i = kept.indexOfLast { items[it].key != "lead" && items[it].key != "people" }
+            if (i < 0) break
+            kept.removeAt(i)
+        }
         val height = kept.maxOfOrNull { placeables[it].height } ?: 0
         val width = (kept.sumOf { placeables[it].width } + gap * (kept.size - 1).coerceAtLeast(0)).coerceAtMost(budget)
-        layout(width, height) {
+        // as wide as asked when asked to fill (items start at the left edge, never centred)
+        layout(width.coerceAtLeast(constraints.minWidth), height) {
             var x = 0
             for (i in kept) {
                 val p = placeables[i]

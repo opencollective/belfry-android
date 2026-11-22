@@ -549,12 +549,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * in another channel redraws nothing here.
      */
     fun feedKey(groupId: String): FeedKey =
-        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId)))
+        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId), previews(groupId)))
 
-    /** Compared part by part, by identity. */
+    /** Compared part by part, by identity (the activity previews by value: they are made anew per snapshot). */
     class FeedKey internal constructor(private val parts: Array<Any>) {
         override fun equals(other: Any?): Boolean =
-            other is FeedKey && parts.size == other.parts.size && parts.indices.all { parts[it] === other.parts[it] }
+            other is FeedKey && parts.size == other.parts.size && parts.indices.all { parts[it] === other.parts[it] || (parts[it] is PreviewList && parts[it] == other.parts[it]) }
         override fun hashCode(): Int = parts.size
     }
 
@@ -592,9 +592,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * 300 s, a non-message item, an unfolded thread ([openThreads]: root ids), or when it is an
      * announcement, an e-mail or a card.
      */
-    fun feedRows(groupId: String, topic: String? = null, openThreads: Set<String> = emptySet()): List<FeedRow> {
+    fun feedRows(groupId: String, topic: String? = null, openThreads: Set<String> = emptySet()): List<FeedRow> =
+        rowsOf(groupId, feed(groupId, topic), openThreads)
+
+    /** [items] (in feed order) with [feedRows]' layout hints. */
+    internal fun rowsOf(groupId: String, items: List<FeedItem>, openThreads: Set<String>): List<FeedRow> {
         val g = group(groupId)
-        val items = feed(groupId, topic)
         val out = ArrayList<FeedRow>(items.size)
         var prev: FeedItem? = null
         for (item in items) {
@@ -1003,6 +1006,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     }
 
     private val mailCache: ConcurrentHashMap<String, MailThreadIndex> = seeded(prev) { it.mailCache }
+    /** Activity previews per channel (Previews.kt); never taken over: they read the calendar and proposals too. */
+    internal val previewCache: ConcurrentHashMap<String, PreviewList> = ConcurrentHashMap()
 
     /** GROUP's e-mail threads, oldest first, and which thread each e-mail is in. */
     fun mailThreads(groupId: String): MailThreadIndex = mailCache.getOrPut(groupId) { readMailThreads(groupId) }
@@ -1141,7 +1146,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val listId = listIdFor(groupId)
         class T(val id: String, val title: String, val author: String, val pending: Boolean, val source: String?) {
             var assignee: String? = null; var done = false; val comments = ArrayList<TaskComment>(); val history = ArrayList<TaskStep>()
-            var lastBeat = 0L; var beat: Long? = null; var due: Long? = null; var doneAt: Long? = null
+            var lastBeat = 0L; var beat: Long? = null; var due: Long? = null; var doneAt: Long? = null; var description: String? = null
             /** Per person: the last of working / idle / done they said here, and when their current stretch began. */
             val lastSaid = HashMap<String, String>(); val stretch = HashMap<String, Long>()
         }
@@ -1150,7 +1155,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         for (e in taskEvents[listId] ?: emptyList()) {
             if (e.kind == 2100) {
                 val title = e.content.jsTrim().sliceUnits(300)
-                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q")).also { it.history.add(TaskStep(e.createdAt, e.pubkey, "created")); it.due = OneShape.due(e.tags) }
+                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q")).also { it.history.add(TaskStep(e.createdAt, e.pubkey, "created")); it.due = OneShape.due(e.tags); it.description = OneShape.description(e.tags) }
             } else if (e.kind != 2102) {
                 val t = tasks[e.t("e") ?: ""] ?: continue
                 if (e.kind == 2103) t.comments.add(TaskComment(e.pubkey, e.content.sliceUnits(2000), e.createdAt))
@@ -1177,12 +1182,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         for ((p, b) in beats) { val t = tasks[b.first]; if (t != null && t.assignee == p) t.beat = b.second }
         // one shape (docs/one-shape.md 3): the author's newest kind 1010 edit replaces the tags, so its
         // due wins and an edit without one clears it
-        for ((id, x) in TodoShape.newestEdits(ofKind(EDIT_KIND), tasks.mapValues { it.value.author }, deleted)) tasks[id]?.due = OneShape.due(x.tags)
+        for ((id, x) in TodoShape.newestEdits(ofKind(EDIT_KIND), tasks.mapValues { it.value.author }, deleted)) tasks[id]?.let { it.due = OneShape.due(x.tags); it.description = OneShape.description(x.tags) }
         return tasks.values.map {
             Task(
                 it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history, it.beat,
                 it.beat?.let { b -> it.assignee?.let { a -> it.stretch[a] } ?: b }, it.history.firstOrNull()?.at ?: 0,
-                due = it.due, doneAt = if (it.done) it.doneAt else null,
+                due = it.due, doneAt = if (it.done) it.doneAt else null, description = it.description,
             )
         }
     }

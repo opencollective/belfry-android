@@ -242,40 +242,16 @@ private fun MailHeader(t: InboxThread, n: ThreadCounts, level: MailLevel, onLeve
         if (n.todos > 0) add(RowItem("todos", BelfryIcons.Check, n.todos.toString(), "${n.todos} open ${if (n.todos == 1) "to-do" else "to-dos"}"))
         if (n.files > 0) add(RowItem("files", Icons.Outlined.Folder, n.files.toString(), "${n.files} ${if (n.files == 1) "file" else "files"}"))
     }
-    var dragged by remember { mutableStateOf(0f) }
-    Column(Modifier.fillMaxWidth().background(c.bg).windowInsetsPadding(WindowInsets.statusBars)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (onBack != null) BackButton(onBack) else Spacer(Modifier.width(12.dp))
-            Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(8.dp))
-                    .pointerInput(level) {
-                        detectVerticalDragGestures(onDragStart = { dragged = 0f }, onDragEnd = {
-                            val step = when {
-                                dragged > 48.dp.toPx() -> 1
-                                dragged < -48.dp.toPx() -> -1
-                                else -> 0
-                            }
-                            if (step != 0) onLevel(MailLevel.entries[(level.ordinal + step).coerceIn(0, 2)])
-                        }) { _, dy -> dragged += dy }
-                    }
-                    .clickable(role = Role.Button, onClickLabel = if (level == MailLevel.TINY) "Show the e-mails" else "Fold") {
-                        onLevel(if (level == MailLevel.TINY) MailLevel.FULL else MailLevel.TINY)
-                    }
-                    .padding(horizontal = 4.dp, vertical = 6.dp)
-                    .testTag("mail-header"),
-            ) {
-                Text(t.subject.ifEmpty { "(no subject)" }, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(2.dp))
-                IconRow(items)
-            }
-            if (onClose != null) IconAction(BelfryIcons.Close, "Close the thread", onClose)
-        }
-        // the pull handle: a short bar, also what says it opens (not colour)
-        Box(Modifier.fillMaxWidth().padding(bottom = 4.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.width(36.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line))
-        }
-        Hairline()
-    }
+    // the shared one-shape header (kit OneHeader): a tap or a drag down opens a level, a drag up folds one
+    sh.belfry.app.ui.kit.OneHeader(
+        t.subject.ifEmpty { "(no subject)" }, items,
+        navigation = if (onBack != null) ({ BackButton(onBack) }) else null,
+        actions = { if (onClose != null) IconAction(BelfryIcons.Close, "Close the thread", onClose) },
+        onPull = { onLevel(if (level == MailLevel.TINY) MailLevel.FULL else MailLevel.entries[(level.ordinal + 1).coerceAtMost(2)]) },
+        onPush = { onLevel(if (level == MailLevel.FULL) MailLevel.TINY else MailLevel.entries[(level.ordinal - 1).coerceAtLeast(0)]) },
+        pulled = level != MailLevel.TINY,
+        pullLabel = if (level == MailLevel.TINY) "Show the e-mails" else "Fold",
+    )
 }
 
 /** Pulled down: the e-mails on top; at FULL also the From / To / Cc line, the rows and the actions. */

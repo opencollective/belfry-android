@@ -37,7 +37,7 @@ class MailOneShapeShotsTest : DemoShots() {
         val t = lou()
         assertEquals(1, t.drafts.size)
         demoShot("mail-folded") { MailThreadScreen(hello, t, startLevel = MailLevel.TINY) }
-        compose.onNodeWithTag("mail-header").assertExists()
+        compose.onNodeWithTag("one-header").assertExists()
         compose.onNodeWithText("Comment for the team").assertExists()
         assertTrue(compose.onAllNodesWithText("Cc Dev Patel, park@example.org").fetchSemanticsNodes().isNotEmpty())
     }

@@ -38,13 +38,14 @@ object OneShape {
         val involved = HashSet<String>()
         val newest = HashMap<String, Long>()
         for (e in events) {
-            if (e.kind != 9 && e.kind != 1111 && e.kind != 7) continue
+            // 9007: creating a channel counts as posting in it (docs/one-shape.md 1)
+            if (e.kind != 9 && e.kind != 1111 && e.kind != 7 && e.kind != 9007) continue
             val h = e.t("h") ?: continue
             if (h !in known) continue
             if (e.createdAt > (newest[h] ?: Long.MIN_VALUE)) newest[h] = e.createdAt
             if (e.createdAt <= since) continue
             val mine = e.pubkey == me
-            if (mine || (e.kind != 7 && e.tags.any { it.size >= 2 && it[0] == "p" && it[1] == me })) involved.add(h)
+            if (mine || (e.kind != 7 && e.kind != 9007 && e.tags.any { it.size >= 2 && it[0] == "p" && it[1] == me })) involved.add(h)
         }
         val recent = involved.filter { it !in pinned }
             .sortedWith(compareByDescending<String> { newest[it] ?: 0 }.thenBy { it })
@@ -72,7 +73,7 @@ object OneShape {
 
     // ---- the header's icon row ------------------------------------------------------------------
 
-    val DROP_ORDER = listOf("owner", "files", "todos", "photos", "comments", "pinned")
+    val DROP_ORDER = listOf("owner", "files", "todos", "photos", "comments", "events", "pinned")
 
     /** Which items stay (their order kept): while over [budget], drop by [DROP_ORDER]; lead and people stay. */
     fun <T> fitRow(items: List<T>, key: (T) -> String, width: (T) -> Int, gap: Int, budget: Int): List<T> {
@@ -142,6 +143,19 @@ object OneShape {
 
     fun due(tags: List<List<String>>): Long? =
         tags.firstOrNull { it.size >= 2 && it[0] == "due" }?.get(1)?.toLongOrNull()?.takeIf { it > 0 }
+
+    const val MAX_DESCRIPTION = 2000
+
+    /** A to-do's own description: `["description", Markdown]`, trimmed, at most 2000 characters; blank = none. */
+    fun description(tags: List<List<String>>): String? =
+        tags.firstOrNull { it.size >= 2 && it[0] == "description" }?.get(1)?.trim()?.take(MAX_DESCRIPTION)?.takeIf { it.isNotEmpty() }
+
+    /** What a to-do shows as its description: its own, else the source message's text when that says more than the title. */
+    fun todoDescription(own: String?, title: String, sourceText: String?): String? {
+        own?.trim()?.takeIf { it.isNotEmpty() }?.let { return it.take(MAX_DESCRIPTION) }
+        val text = sourceText?.trim() ?: return null
+        return if (text.isEmpty() || text == title.trim()) null else text
+    }
 
     fun dmReplyTag(root: String): List<String> = listOf("e", root, "", "root")
 

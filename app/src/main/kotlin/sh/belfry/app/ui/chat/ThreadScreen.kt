@@ -94,12 +94,15 @@ fun ThreadScreen(
     LaunchedEffect(rootId, started, newest) { if (started && newest != null) session.markThreadRead(groupId, rootId) }
 
     Column(Modifier.fillMaxSize().background(c.bg).imePadding()) {
-        if (onClose != null) {
-            TopBar("Thread", subtitle = g?.name ?: "Channel", actions = { IconAction(BelfryIcons.Close, "Close the thread", onClose) })
-        } else {
-            TopBar("Thread", subtitle = g?.name ?: groupId, navigation = { BackButton { nav.back() } })
-        }
-        Hairline()
+        // one-shape header: the title is the beginning of the first message, then 👥 who took part · 💬 replies;
+        // nothing is hidden (the first message stays on top of the replies)
+        val people = remember(root, replies) { ((listOfNotNull(root?.pubkey)) + replies.map { it.pubkey }).toSet().size }
+        sh.belfry.app.ui.kit.OneHeader(
+            threadTitle(world, root),
+            items = threadRowItems(people, replies.size),
+            navigation = if (onClose == null) ({ BackButton { nav.back() } }) else null,
+            actions = { if (onClose != null) IconAction(BelfryIcons.Close, "Close the thread", onClose) },
+        )
         if (root == null) {
             Box(Modifier.weight(1f)) { EmptyState("This message is gone", text = "It was deleted, or it has not reached this device yet.") }
             return@Column

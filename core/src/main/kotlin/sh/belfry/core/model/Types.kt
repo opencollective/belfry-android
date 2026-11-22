@@ -190,6 +190,11 @@ sealed interface FeedItem {
     data class Activity(val root: Message, val last: Message, override val at: Long) : FeedItem {
         override val key get() = "act:" + root.id
     }
+    /** An action about an item, as one line that unfolds into the item's card (Previews.kt). */
+    data class Preview(val p: ActivityPreview) : FeedItem {
+        override val at get() = p.at
+        override val key get() = p.key
+    }
 }
 
 /** A feed item with what the list needs to lay it out. */
@@ -323,6 +328,8 @@ data class Task(
     val due: Long? = null,
     /** When it was last marked done, while it is done. */
     val doneAt: Long? = null,
+    /** Its own description (one shape: `["description", Markdown ≤ 2000]` on the 2100 or its author's newest 1010), else null. */
+    val description: String? = null,
 ) {
     /**
      * Being worked on right now: the assignee's heartbeat is under 5 minutes old (agents send one
