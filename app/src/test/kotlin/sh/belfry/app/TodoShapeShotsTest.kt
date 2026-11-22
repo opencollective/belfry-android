@@ -56,7 +56,7 @@ class TodoShapeShotsTest : DemoShots() {
         demoShot("todo-done") { TodoScreen(Demo.KITCHEN, rice.id) }
         compose.onNodeWithTag("todo-mid").assertDoesNotExist()
         compose.onNodeWithTag("todo-line-done").assertExists()
-        compose.onNodeWithTag("row-item-lead").assertExists()
+        compose.onNodeWithTag("row-item-lead", useUnmergedTree = true).assertExists()
     }
 
     /** Nobody on it: "Unassigned" in grey; it opens mid (it needs me). */
