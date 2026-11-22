@@ -533,6 +533,8 @@ class Session(
     // declared before init: the first world is built there
     /** The register's answers this session (key → member | agent | guest). */
     private val kinds = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** Each channel's e-mail address as the belfry answered it (`POST /mail-alias`, SPEC 19.60); kept in the store. */
+    private val mailAddresses = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val askedWhois: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     /** An old belfry without `/whois` (404): join and label events decide. */
     @Volatile private var noWhois = false
@@ -551,6 +553,7 @@ class Session(
         bridge = store.get(K_BRIDGE)?.takeIf(Hex::isKey)
         groupsKey = store.get(K_GROUPS_KEY)?.takeIf(Hex::isKey)
         groupsAbsent = parseJsonOrNull(store.get(K_ABSENT) ?: "").obj()?.mapNotNull { (k, v) -> v.long()?.let { k to it } }?.toMap() ?: emptyMap()
+        parseJsonOrNull(store.get(K_MAIL_ADDRESSES) ?: "").obj()?.forEach { (k, v) -> v.str()?.let { mailAddresses[k] = it } }
         lastCreatedAt = maxOf(
             all.filter { it.pubkey == me }.maxOfOrNull { it.createdAt } ?: 0,
             store.outbox().filter { it.signed == null }.maxOfOrNull { it.createdAt } ?: 0,
@@ -579,7 +582,16 @@ class Session(
         communityAdmins = community.admins.toSet() + extraAdmins, groupsKey = community.groupsKey ?: groupsKey, bridgeKey = bridge, zone = zone,
         groupsRelay = community.groupsRelay, agents = community.agents, kinds = HashMap(kinds),
         groupsAbsent = groupsAbsent, placeNames = placeNames, belfryKey = community.belfryPubkey,
+        mailAddresses = HashMap(mailAddresses),
     )
+
+    /** The belfry said channel CHANNEL's address is ADDRESS (null: it can't say; the app works it out). */
+    internal fun setMailAddress(channel: String, address: String?) {
+        val was = if (address == null) mailAddresses.remove(channel) else mailAddresses.put(channel, address)
+        if (was == address) return
+        store.set(K_MAIL_ADDRESSES, kotlinx.serialization.json.JsonObject(mailAddresses.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString())
+        markDirty()
+    }
 
     /** The next snapshot; what PREV worked out for the channels nothing arrived in is taken over (see [World]). */
     private fun buildWorld(prev: World? = null, box: List<OutboxItem> = store.outbox()): World {
@@ -1889,6 +1901,8 @@ class Session(
 
     /** Membership: roles, requests, the directory, the charter, a guest's request (engine/Members.kt). */
     val members: MembersService by lazy { MembersService(this) }
+    /** Channels' e-mail addresses through the belfry (SPEC 19.60). */
+    val mailAlias: MailAliasService by lazy { MailAliasService(this) }
 
     /** Sign in to another app with this account through the belfry (engine/RemoteApps.kt, SPEC 19.47). */
     val remoteApps: RemoteAppsService by lazy { RemoteAppsService(this) }
@@ -2248,6 +2262,7 @@ class Session(
         const val K_GROUPS_SEEN = "groups-seen"
         const val K_ADMINS = "extra-admins"
         const val K_ABSENT = "groups-absent"
+        const val K_MAIL_ADDRESSES = "mail-addresses"
         const val ARCHIVED_TEXT = "This group is archived or deleted: nothing can be posted in it."
         const val K_DISCOVERY_ETAG = "belfry-json-etag"
         private const val RECHECK_MS = 30_000L

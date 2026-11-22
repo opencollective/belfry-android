@@ -2482,3 +2482,37 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   Members already had it; a channel's Members (Invite someone → `Routes.invite`) and a channel's
   Groups (New group) now have the ＋ top right instead of a first-row button, same condition as
   before (not a guest, the channel not locked).
+
+### 19.60 A channel's Settings and pull-down; Posts as kinds; the channel's address from the belfry (2026-11-22; Xavier's order; collective-belfry docs/one-shape.md "A channel's Settings" at ef67c93, docs/mail.md "A channel's address" at Belfry fd21c0e; canvas channels/pull-down, channels/settings, channels/settings-townsquare, n-channel-settings)
+
+- Pull-down: no e-mail address line (nor in the pulled-all-the-way about). The address lives in
+  Settings → E-mail only.
+- Settings, top to bottom: Name and Description · Who can read it (a group: Who can join) · Posts ·
+  E-mail (the address, E-mails from anyone, Forward e-mails) · Pin · Save. No Notifications (the
+  pull-down's own row). Someone who may not edit the channel sees only Pin.
+- Posts: four switches, all on by default, the last one on can't be switched off: Messages
+  `message`, Threads `thread`, Events `event`, Proposals `proposal`. In `belfry:web:<channel>` next
+  to `posts`: `"accepts": [...]` (absent = all). Writing `accepts` also writes `posts`: the single
+  kind when thread / event / proposal is alone, else `"anything"` (Android keeps an old
+  `"request"` while all four are on). Reading prefers `accepts` (unknown kinds dropped, empty =
+  absent), else `posts` (`thread` / `event` / `proposal` = that alone, anything else = all). Written
+  into the newest copy with every other key kept. `core/model/ChannelPosts.kt`,
+  `World.WebPage.accepts`, `Actions.webSettings(accepts =)`; tests `ChannelPostsTest`.
+  Composer (Android, small): Messages off and Threads on → the composer stays, its placeholder says
+  "Start a thread"; Messages and Threads off → the composer is replaced by "New event" / "New
+  proposal" buttons for the kinds that are on.
+- The channel's address: `POST <api>/mail-alias` (NIP-98). `{channel}` → `{channel, alias, address,
+  custom, may_set}` for any member, asked once a session per channel when it opens and kept in the
+  store (`Session.mailAlias`, `WorldContext.mailAddresses`); `World.mailAddress` / `mailLocal` /
+  `shownMailAddress` use it (shown, the reply's From, answers as the channel), else the app's own
+  working out (`autoMailLocal`; 404 / 405 / 409 `unsupported` = an older belfry). `{channel, check}` →
+  `{state: available|taken|invalid|reserved, alias}`: the live check while a belfry admin types (400
+  ms debounce, the state in words). `{channel, alias: x|null}` sets / clears it (belfry admins,
+  `may_set`); errors 403 `not_allowed`, 409 `taken|reserved|archived`, 422 `invalid`, 503 `signer` →
+  fixed words (`MailAlias.ERRORS`), never the server's text. The part before the @ is editable only
+  with `may_set`, read-only for the channel's other admins; Save saves it first (a refusal keeps
+  the form open with its words); "Use the automatic address" clears a custom one. The demo answers
+  locally. `core/net/MailAlias.kt`, `core/engine/MailAliases.kt`, `ui/info/ChannelAddress.kt`; tests
+  `MailAliasTest`.
+- Pin: "Pin for me", and for the belfry's admins "Pin for everyone". The main channel: one plain
+  line, "Townsquare is always first in everyone's menu." (not a disabled control).

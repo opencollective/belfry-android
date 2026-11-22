@@ -53,11 +53,11 @@ class OneHeaderShotsTest : DemoShots() {
         assertTrue("no search at the top right", compose.onAllNodesWithTag("one-header").fetchSemanticsNodes().size == 1)
     }
 
-    /** Pulled down: about (with the address and who can read it), the pinned message, then the rows. */
+    /** Pulled down: the description, the pinned message, then the rows; no e-mail address line (SPEC 19.60: it lives in Settings). */
     @Test fun channelPulled() {
         val chat = ChatState(Demo.GARDEN).apply { lineOpen = true }
         demoShot("oneshape-channel-pulled") { ChannelScreen(Demo.GARDEN, onMenu = {}, chat = chat) }
-        compose.onNodeWithTag("pull-about-line").assertExists()
+        compose.onNodeWithTag("pull-about-line").assertDoesNotExist()
         compose.onNodeWithTag("pd-search").performScrollTo().assertExists()
     }
 

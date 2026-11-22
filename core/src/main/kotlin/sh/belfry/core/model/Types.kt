@@ -34,6 +34,8 @@ data class WorldContext(
     val placeNames: Boolean = false,
     /** The belfry's own key (belfry.json `nostr.pubkey`): answers `belfry:` buttons with the groups key (SPEC 19.36). */
     val belfryKey: String? = null,
+    /** Each channel's address as the belfry answers it (`POST /mail-alias`, SPEC 19.60), by channel id. */
+    val mailAddresses: Map<String, String> = emptyMap(),
 )
 
 data class Profile(val name: String? = null, val picture: String? = null, val nip05: String? = null, val about: String = "", val at: Long = 0)

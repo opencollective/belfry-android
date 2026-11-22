@@ -242,6 +242,12 @@ minSdk 26, JDK 17.
   `GroupJoinChoices` also in a group's Settings). Screenshots `GroupsShotsTest`. Demo: `Demo.POD_PRIVATE`
   (I'm in), `Demo.POD_SECRET` (I'm not: must never show).
 
+- A channel's Settings (SPEC 19.60): Xavier's order in `ChannelSettingsForm` (Pin through its `pin` slot,
+  `ui/shell/ChannelPinSettings.kt`); Posts = `core/model/ChannelPosts.kt` (`accepts` + the old `posts`);
+  the channel's address comes from the belfry (`Session.mailAlias`, `core/net/MailAlias.kt`) into
+  `WorldContext.mailAddresses`: read addresses through `World.mailAddress` / `mailLocal`, never build one.
+  Screenshots `ChannelSettingsShotsTest`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

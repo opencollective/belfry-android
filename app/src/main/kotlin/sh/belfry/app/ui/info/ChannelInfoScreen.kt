@@ -51,6 +51,8 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Group
 import sh.belfry.core.model.GroupJoin
+import sh.belfry.core.model.ChannelPosts
+import sh.belfry.core.model.PostKind
 import sh.belfry.app.ui.cards.GroupJoinChoices
 import sh.belfry.core.model.World
 
@@ -240,7 +242,8 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
     // the plain slug (bugs@ rather than bugs-c3e5@) when no other channel answers to it
     val address = world.shownMailAddress(g)
     var copied by remember { mutableStateOf(false) }
-    Text(
+    // pulled down (compact): no address line (SPEC 19.60: it lives in Settings → E-mail)
+    if (!compact) Text(
         buildAnnotatedString {
             append(if (world.isInbox(g)) "✉️ Anyone can e-mail " else "✉️ Members can e-mail ")
             withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(address) }
@@ -316,7 +319,7 @@ fun ChannelSettingsSheet(g: Group, onClose: () -> Unit) {
 }
 
 @Composable
-fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean = false) {
+fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean = false, pin: (@Composable () -> Unit)? = null) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -336,9 +339,12 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
     val wasAccess = remember(g.id) { world.channelAccess(g) }
     var access by remember(g.id) { mutableStateOf(wasAccess) }
     var askPublic by remember(g.id) { mutableStateOf(askPublicAtOnce) }
-    // Posts (channels/settings): anything, or one type only
-    val wasPosts = remember(g.id) { world.webPage(g)?.posts }
-    var posts by remember(g.id) { mutableStateOf(wasPosts) }
+    // Posts (SPEC 19.60, channels/settings): the kinds it takes, all on by default, one at least
+    val wasAccepts = remember(g.id) { world.webPage(g)?.accepts ?: ChannelPosts.ALL }
+    var accepts by remember(g.id) { mutableStateOf(wasAccepts) }
+    // E-mail: the channel's address through the belfry (SPEC 19.60)
+    val address = if (g.type == ChannelType.CHANNEL) rememberAddressEdit(g) else null
+    var saveError by remember { mutableStateOf<String?>(null) }
     val busy = rememberBusy()
     val kind = if (g.isPod) "group" else "channel"
 
@@ -410,22 +416,26 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
         Spacer(Modifier.height(14.dp))
         Hint("Posts")
         Spacer(Modifier.height(6.dp))
-        val choices = listOf(null to "Anything", "thread" to "Threads", "event" to "Events", "proposal" to "Proposals")
-        Segmented(choices.map { it.second }, choices.indexOfFirst { it.first == posts }.coerceAtLeast(0), { posts = choices[it].first }, enabled = !busy.busy, modifier = Modifier.testTag("settings-posts"))
-        Hint(
-            when (posts) {
-                "thread" -> "Every post has a title; talk goes in its thread."
-                "event" -> "The composer becomes \u201cNew event\u201d."
-                "proposal" -> "Proposals to discuss and vote on."
-                "request" -> "Requests from the web; members turn them into proposals."
-                else -> "Messages, threads, events, proposals."
-            },
-            Modifier.padding(top = 6.dp),
-        )
+        ActionGroup(Modifier.testTag("settings-posts")) {
+            for (k in PostKind.entries) {
+                val on = k in accepts
+                SwitchRow(
+                    k.label, on, { want -> accepts = ChannelPosts.toggle(accepts, k, want) },
+                    // the last one on can't be switched off
+                    enabled = !busy.busy && ChannelPosts.mayTurnOff(accepts, k),
+                    sub = k.line, modifier = Modifier.testTag("posts-${k.key}"),
+                )
+            }
+        }
+        Hint("All on by default; at least one stays on.", Modifier.padding(top = 6.dp))
     }
     Spacer(Modifier.height(14.dp))
-    Hint("E-mail · ${world.shownMailAddress(g)}")
+    Hint("E-mail")
     Spacer(Modifier.height(6.dp))
+    if (address != null) {
+        AddressSection(g, address, enabled = !busy.busy)
+        Spacer(Modifier.height(10.dp))
+    }
     ActionGroup {
         SwitchRow(
             "E-mails from anyone", openMail, { openMail = it; mailTouched = true }, icon = BelfryIcons.Inbox, enabled = !busy.busy,
@@ -433,16 +443,24 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
         )
     }
     if (g.type == ChannelType.CHANNEL) MailForwardRow(g.id)
+    if (pin != null) {
+        Spacer(Modifier.height(14.dp))
+        pin()
+    }
+    saveError?.let { Text(it, fontSize = 13.sp, color = c.danger, modifier = Modifier.padding(top = 10.dp).testTag("settings-error")) }
     Spacer(Modifier.height(16.dp))
     BusyButton(
         "Save",
         onClick = {
             val n = name.trim()
             val a = about.trim()
+            saveError = null
+            // the address first: a refusal (taken, reserved…) keeps the form open with its words
+            address?.save(session)
             if (g.type == ChannelType.CHANNEL) {
                 // public / members only first, then closed (going closed from public writes both)
                 // one web-settings event for who reads it and its type of post
-                Actions.webSettings(g, world, session.now(), access == ChannelAccess.PUBLIC, posts)?.let { session.send(it) }
+                Actions.webSettings(g, world, session.now(), access == ChannelAccess.PUBLIC, world.webPage(g)?.posts, accepts = accepts)?.let { session.send(it) }
             }
             if (g.isPod) {
                 // a group (SPEC 19.59): Open / Closed (+ its question, who accepts) / Private
@@ -474,6 +492,7 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
             onClose()
         },
         modifier = Modifier.fillMaxWidth().testTag("settings-save"), enabled = name.isNotBlank(), busy = busy,
+        onError = { saveError = (it as? sh.belfry.core.engine.ActionException)?.message ?: "Not saved. Try again." },
     )
     if (askPublic) {
         AlertDialog(

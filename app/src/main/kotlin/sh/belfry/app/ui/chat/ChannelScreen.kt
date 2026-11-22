@@ -232,6 +232,8 @@ fun ChannelScreen(
     val newest = sh.belfry.core.read.Unread.channelMark(world, groupId)
     LaunchedEffect(groupId, started, atNewest, newest) { if (started && atNewest && newest != null) session.markChannelRead(groupId) }
 
+    // the channel's address as the belfry says (SPEC 19.60): once a session, kept; shown and answered from
+    LaunchedEffect(groupId) { if (!groupId.startsWith("ev-") && !groupId.startsWith("prop-")) try { session.mailAlias.info(groupId) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { } }
     // "Got it, hide" on a pinned message is remembered on the device.
     LaunchedEffect(groupId) {
         val saved = withContext(Dispatchers.IO) { session.store.get(K_HIDDEN_PINS) }.orEmpty().split(',').filter { it.isNotEmpty() }
@@ -342,15 +344,20 @@ fun ChannelScreen(
         if (guestReading) GuestBar(groupId)
         val readOnly = guestReading || (g != null && world.readOnlyClosed(g)) || world.isLocked(groupId)
         val editing = chat.editing
-        // #proposals, #events, #bookings (web 2026-11-11): one type of post, no free text at the top
+        // Posts (SPEC 19.60): with Messages and Threads off, the composer's plain send is replaced
+        // by the kinds that are on (#proposals, #events, #bookings: web 2026-11-11)
         val page = world.webPage(g)
-        val only = page?.posts?.takeIf { it == "proposal" || it == "event" }
+        val accepts = page?.accepts ?: sh.belfry.core.model.ChannelPosts.ALL
+        val kinds = if (sh.belfry.core.model.ChannelPosts.plainSend(accepts)) emptyList()
+            else listOf(sh.belfry.core.model.PostKind.EVENT, sh.belfry.core.model.PostKind.PROPOSAL).filter { it in accepts }
+        val only = kinds.singleOrNull()?.key
         val isPub = page?.on == true && page.visibility == "public"
-        if (!readOnly && only != null) {
+        if (!readOnly && kinds.isNotEmpty()) {
             Hairline()
             Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
+                        only == null -> if (isPub) "Public: anyone on the web sees what is posted." else "Events and proposals only."
                         only == "proposal" && isPub -> "Public proposals: anyone on the web sees them."
                         only == "proposal" -> "Members only: proposals to discuss and vote on."
                         isPub -> "Public: anyone on the web sees these events."
@@ -358,15 +365,17 @@ fun ChannelScreen(
                     },
                     fontSize = 13.sp, color = c.muted, modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(12.dp))
-                BusyButton(
-                    if (only == "proposal") "New proposal" else "New event",
-                    onClick = { nav.go(if (only == "proposal") Routes.createProposal(groupId) else Routes.createEvent(groupId)) },
-                    small = true,
-                )
+                for (k in kinds) {
+                    Spacer(Modifier.width(8.dp))
+                    BusyButton(
+                        if (k == sh.belfry.core.model.PostKind.PROPOSAL) "New proposal" else "New event",
+                        onClick = { nav.go(if (k == sh.belfry.core.model.PostKind.PROPOSAL) Routes.createProposal(groupId) else Routes.createEvent(groupId)) },
+                        small = true, modifier = Modifier.testTag("post-${k.key}"),
+                    )
+                }
             }
         }
-        if (!readOnly && only == null && isPub) {
+        if (!readOnly && kinds.isEmpty() && isPub) {
             Hairline()
             Text(
                 "🌐 Public: anyone on the web sees this channel" + if (page?.posts == "request") ". Members can turn a request into a proposal." else ".",
@@ -375,7 +384,7 @@ fun ChannelScreen(
         }
         // Navigation v2: a channel not in my menu is a preview (nav2/channel-preview)
         if (!readOnly && !embedded) sh.belfry.app.ui.shell.PreviewBar(groupId)
-        if (!readOnly && only == null && (chat.topic != Topics.ANNOUNCE || admin)) {
+        if (!readOnly && kinds.isEmpty() && (chat.topic != Topics.ANNOUNCE || admin)) {
             if (!isPub) Hairline()
             if (editing != null) EditingBar(onCancel = { chat.editing = null; composer.clear() })
             Composer(
@@ -384,6 +393,7 @@ fun ChannelScreen(
                     editing != null -> "Edit your message"
                     composer.announce || chat.topic == Topics.ANNOUNCE -> "Announcement"
                     chat.topic != null -> "Message #${chat.topic}"
+                    sh.belfry.core.model.PostKind.MESSAGE !in accepts -> "Start a thread"
                     else -> "Message ${g?.name ?: "this channel"}"
                 },
                 onSend = { text, files, picked, announce ->
