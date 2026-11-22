@@ -19,7 +19,7 @@ import sh.belfry.core.model.CalEvent
 import sh.belfry.core.model.Rsvp
 
 /**
- * One shape, the event screen (SPEC 19.53; canvas one-shape/event-default, -default-online, -tiny,
+ * One shape, the event screen (SPEC 19.54; canvas one-shape/event-default, -default-online, -tiny,
  * -full): mid while it needs me (cover on top, ‹ ••• floating, Going / Maybe / Can't go), tiny once
  * answered (my answer leads the icon row), full on pull; the answer lands in the event's chat.
  */

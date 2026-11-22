@@ -286,7 +286,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
     }
     val url = world.eventUrl(e)
 
-    // One shape (SPEC 19.53; canvas one-shape/event-default, -tiny, -full): three states over the event's chat.
+    // One shape (SPEC 19.54; canvas one-shape/event-default, -tiny, -full): three states over the event's chat.
     // Mid (HALF) while it needs me (not answered, still going?, people asking); tiny (UP) once answered.
     // A meeting or an older calendar event opens whole (their people and answers are the page itself).
     var level by rememberSaveable(e.coord) {

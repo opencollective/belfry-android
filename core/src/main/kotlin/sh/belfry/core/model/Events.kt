@@ -455,7 +455,7 @@ fun World.yourEvents(now: Long): List<CalEvent> {
 /** The event whose chat this group is. */
 fun World.eventOfGroup(groupId: String): CalEvent? = calendar.firstOrNull { it.groupId == groupId }
 
-// ---- one shape: the event screen (SPEC 19.53) ------------------------------------------------------
+// ---- one shape: the event screen (SPEC 19.54) ------------------------------------------------------
 
 object EventShape {
     /** Join opens this long before the start. */

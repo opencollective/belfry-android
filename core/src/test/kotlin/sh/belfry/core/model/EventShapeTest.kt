@@ -7,7 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** One shape, the event screen (SPEC 19.53): Join's window, answer lines in the event's chat, when it opens mid. */
+/** One shape, the event screen (SPEC 19.54): Join's window, answer lines in the event's chat, when it opens mid. */
 class EventShapeTest {
     private val alice = "a".repeat(64) // hosts
     private val carol = "c".repeat(64) // a member

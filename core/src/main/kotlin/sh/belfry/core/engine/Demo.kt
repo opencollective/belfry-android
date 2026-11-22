@@ -70,7 +70,7 @@ object Demo {
     const val SWAP_D = "2026-swap01"
     const val SWAP_SLUG = "seed-swap"
     const val REPAIR_D = "2026-repair"
-    /** One shape (SPEC 19.53): an online event with a cover (Jitsi, next week) and one happening now (Google Meet, no cover). */
+    /** One shape (SPEC 19.54): an online event with a cover (Jitsi, next week) and one happening now (Google Meet, no cover). */
     const val PLAN_D = "2026-plan01"
     const val CALL_D = "2026-call01"
 
@@ -353,7 +353,9 @@ object Demo {
         say(maya, GARDEN, now - 5 * h, "Seed swap this Sunday at 11, by the greenhouse. #seeds")
         say(aroha, KITCHEN, now - 2 * day, "Thursday dinner: dal, rice, flatbread. **12 seats**, 7 taken.")
         say(sam, KITCHEN, now - day, "Count me in. I can do the dishes.")
-        say(lena, KITCHEN, now - 90 * 60, "Put me down for two seats, please.")
+        val seats = say(lena, KITCHEN, now - 90 * 60, "Put me down for two seats, please.")
+        // Navigation v2: a reaction of mine brings #kitchen into my menu as a recent channel
+        post(me, now - 80 * 60, Actions.react(KITCHEN, seats.id, lena.pubkey, "👍"))
         post(aroha, now - 2 * day + 60, Actions.addTask(KITCHEN, "Buy rice and lentils"))
         post(aroha, now - 2 * day + 61, Actions.addTask(KITCHEN, "Borrow the big pot from the school"))
         say(kofi, WEBSITE, now - 4 * day, "The new homepage is up as a preview. Opening hours are still wrong, I know.")
@@ -438,7 +440,11 @@ object Demo {
             // a steward reworded the third: my tick is stale, it asks me again
             post(me, now - 2 * day, Charter.edit(a3.id, "Quiet hours after 22:00, every day", "In the hall, the garden and the street.", 3))
         }
+        // Navigation v2 (docs/one-shape.md §1): the stewards pin the Townsquare and the front desk for everyone
+        raw(maya, t0 + 900, 30078, listOf(listOf("d", World.ORDER_D)), sh.belfry.core.model.OneShape.withEveryonePins(null, listOf(GENERAL, HELLO)))
         store.addEvents(events)
+        // and I pinned #garden for myself (kept on the device in the demo)
+        store.set(PinSync.K_STATE, PinSync.localContent(listOf(GARDEN), now - 3 * day))
         store.set(Session.K_GROUPS_KEY, groups.pubkey)
         store.set(Session.K_BRIDGE, bridge.pubkey)
 

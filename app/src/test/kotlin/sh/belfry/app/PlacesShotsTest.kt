@@ -61,7 +61,7 @@ class PlacesShotsTest : DemoShots() {
         demoShot("places-guest-drawer") { ChannelDrawer(shell(), DrawerActions({}, {}, {}, {})) }
     }
 
-    /** The bar moves between places; Create opens its menu; the drawer's rows push their screens. */
+    /** The bar moves between places (Messages took Create's place, Navigation v2); the drawer's rows push their screens. */
     @Test fun theBarAndTheDrawer() {
         val s = shell()
         compose.setContent { BelfryTheme { InDemo { HomeScreen(s) } } }
@@ -71,19 +71,19 @@ class PlacesShotsTest : DemoShots() {
         compose.onNodeWithTag("place-town").performClick()
         compose.waitForIdle()
         assertEquals(ShellState.Place.TOWN, s.place)
-        compose.onNodeWithTag("place-create").performClick()
+        compose.onNodeWithTag("place-messages").performClick()
         compose.waitForIdle()
-        assertEquals(true, s.creating)
+        assertEquals(ShellState.Place.MESSAGES, s.place)
     }
 
     @Test fun theDrawersRowsOpenScreens() {
         val s = shell(ShellState.Place.TOWN)
         val went = ArrayList<String>()
         compose.setContent { BelfryTheme { InDemo { ChannelDrawer(s, DrawerActions({ s.open(it) }, { s.place = ShellState.Place.HOME }, {}, { went.add(it) })) } } }
-        compose.onNodeWithTag("drawer-members").performClick()
+        compose.onNodeWithTag("drawer-mentions").performClick()
         compose.onNodeWithTag("drawer-today").performClick()
         compose.waitForIdle()
-        assertEquals(listOf(Routes.MEMBERS), went)
+        assertEquals(listOf(Routes.MENTIONS), went)
         assertEquals(ShellState.Place.HOME, s.place)
     }
 }

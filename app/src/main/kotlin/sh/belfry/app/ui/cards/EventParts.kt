@@ -469,7 +469,7 @@ fun TicketLinkCard(e: CalEvent, code: String, onClose: () -> Unit = {}) {
     }
 }
 
-// ---- one shape: the event screen's three states (SPEC 19.53; canvas one-shape/event-*) ----------------
+// ---- one shape: the event screen's three states (SPEC 19.54; canvas one-shape/event-*) ----------------
 
 /** The answer's green ("✓ Going"): also semi-bold and with a tick, never colour alone (e-ink). */
 @Composable

@@ -52,6 +52,9 @@ object PlaceNames {
     const val CREATE = "Create"
     const val GROUPS = "Groups"
     const val TOWN_PLACE = "Town"
+    /** Navigation v2: the bar's Messages place and the menu's Mentions row. */
+    const val MESSAGES = "Messages"
+    const val MENTIONS = "Mentions"
 }
 
 data class Agreement(

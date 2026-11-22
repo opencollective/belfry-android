@@ -71,13 +71,13 @@ fun CreateSheet(shell: ShellState, onDismiss: () -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
         ActionGroup {
-            ActionRow("Message", onClick = { onDismiss(); shell.open(channel) }, icon = Icons.Outlined.ChatBubbleOutline, sub = "Write in the channel", modifier = Modifier.testTag("create-message"))
+            // Navigation v2 (nav2/channel): a message is a new conversation in Messages; a group is the ＋ on GROUPS
+            ActionRow("Message", onClick = { onDismiss(); nav.go(Routes.NEW_CONVERSATION) }, icon = Icons.Outlined.ChatBubbleOutline, sub = "To a member, or anyone by e-mail", modifier = Modifier.testTag("create-message"))
             if (!world.amGuest) {
                 ActionRow("Meeting", onClick = { onDismiss(); nav.go(Routes.createMeeting(channel)) }, icon = BelfryIcons.Users, sub = "A topic, people, a time", modifier = Modifier.testTag("create-meeting"))
             }
             ActionRow("Event", onClick = { onDismiss(); nav.go(Routes.createEvent(channel)) }, icon = BelfryIcons.Calendar, sub = "With tickets, open to members or to all", modifier = Modifier.testTag("create-event"))
             ActionRow("To-do", onClick = { todo = true }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("create-todo"))
-            ActionRow("Group", onClick = { onDismiss(); nav.go(Routes.createPod(channel)) }, icon = BelfryIcons.Pod, sub = "A smaller circle, open or by application", modifier = Modifier.testTag("create-group"))
             ActionRow("Proposal", onClick = { onDismiss(); nav.go(Routes.createProposal(channel)) }, icon = BelfryIcons.Proposal, sub = "Discuss it, then vote", modifier = Modifier.testTag("create-proposal"))
         }
         Spacer(Modifier.height(8.dp))
