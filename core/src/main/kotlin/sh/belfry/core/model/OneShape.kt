@@ -144,6 +144,19 @@ object OneShape {
     fun due(tags: List<List<String>>): Long? =
         tags.firstOrNull { it.size >= 2 && it[0] == "due" }?.get(1)?.toLongOrNull()?.takeIf { it > 0 }
 
+    const val MAX_DESCRIPTION = 2000
+
+    /** A to-do's own description: `["description", Markdown]`, trimmed, at most 2000 characters; blank = none. */
+    fun description(tags: List<List<String>>): String? =
+        tags.firstOrNull { it.size >= 2 && it[0] == "description" }?.get(1)?.trim()?.take(MAX_DESCRIPTION)?.takeIf { it.isNotEmpty() }
+
+    /** What a to-do shows as its description: its own, else the source message's text when that says more than the title. */
+    fun todoDescription(own: String?, title: String, sourceText: String?): String? {
+        own?.trim()?.takeIf { it.isNotEmpty() }?.let { return it.take(MAX_DESCRIPTION) }
+        val text = sourceText?.trim() ?: return null
+        return if (text.isEmpty() || text == title.trim()) null else text
+    }
+
     fun dmReplyTag(root: String): List<String> = listOf("e", root, "", "root")
 
     /** The root a DM reply names (["e", id, relay, "root"]), else null. */

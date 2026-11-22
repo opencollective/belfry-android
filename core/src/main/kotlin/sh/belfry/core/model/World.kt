@@ -1130,7 +1130,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val listId = listIdFor(groupId)
         class T(val id: String, val title: String, val author: String, val pending: Boolean, val source: String?) {
             var assignee: String? = null; var done = false; val comments = ArrayList<TaskComment>(); val history = ArrayList<TaskStep>()
-            var lastBeat = 0L; var beat: Long? = null; var due: Long? = null; var doneAt: Long? = null
+            var lastBeat = 0L; var beat: Long? = null; var due: Long? = null; var doneAt: Long? = null; var description: String? = null
             /** Per person: the last of working / idle / done they said here, and when their current stretch began. */
             val lastSaid = HashMap<String, String>(); val stretch = HashMap<String, Long>()
         }
@@ -1139,7 +1139,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         for (e in taskEvents[listId] ?: emptyList()) {
             if (e.kind == 2100) {
                 val title = e.content.jsTrim().sliceUnits(300)
-                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q")).also { it.history.add(TaskStep(e.createdAt, e.pubkey, "created")); it.due = OneShape.due(e.tags) }
+                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q")).also { it.history.add(TaskStep(e.createdAt, e.pubkey, "created")); it.due = OneShape.due(e.tags); it.description = OneShape.description(e.tags) }
             } else if (e.kind != 2102) {
                 val t = tasks[e.t("e") ?: ""] ?: continue
                 if (e.kind == 2103) t.comments.add(TaskComment(e.pubkey, e.content.sliceUnits(2000), e.createdAt))
@@ -1166,12 +1166,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         for ((p, b) in beats) { val t = tasks[b.first]; if (t != null && t.assignee == p) t.beat = b.second }
         // one shape (docs/one-shape.md 3): the author's newest kind 1010 edit replaces the tags, so its
         // due wins and an edit without one clears it
-        for ((id, x) in TodoShape.newestEdits(ofKind(EDIT_KIND), tasks.mapValues { it.value.author }, deleted)) tasks[id]?.due = OneShape.due(x.tags)
+        for ((id, x) in TodoShape.newestEdits(ofKind(EDIT_KIND), tasks.mapValues { it.value.author }, deleted)) tasks[id]?.let { it.due = OneShape.due(x.tags); it.description = OneShape.description(x.tags) }
         return tasks.values.map {
             Task(
                 it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history, it.beat,
                 it.beat?.let { b -> it.assignee?.let { a -> it.stretch[a] } ?: b }, it.history.firstOrNull()?.at ?: 0,
-                due = it.due, doneAt = if (it.done) it.doneAt else null,
+                due = it.due, doneAt = if (it.done) it.doneAt else null, description = it.description,
             )
         }
     }

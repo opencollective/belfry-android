@@ -328,6 +328,8 @@ data class Task(
     val due: Long? = null,
     /** When it was last marked done, while it is done. */
     val doneAt: Long? = null,
+    /** Its own description (one shape: `["description", Markdown ≤ 2000]` on the 2100 or its author's newest 1010), else null. */
+    val description: String? = null,
 ) {
     /**
      * Being worked on right now: the assignee's heartbeat is under 5 minutes old (agents send one
