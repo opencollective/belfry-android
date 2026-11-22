@@ -360,7 +360,11 @@ class MembersService internal constructor(private val s: Session) {
     /** A belfry admin's new arrangement of the town's channels: the order event at once. */
     suspend fun setChannelLayout(cats: List<ChannelCategory>) {
         val w = world
-        s.send(Actions.channelLayout(cats, w.channelLayoutRead, w.townChannels().map { it.id }.toSet()))
+        val d = Actions.channelLayout(cats, w.channelLayoutRead, w.townChannels().map { it.id }.toSet())
+        // every key it does not write stays (`pinned`, docs/one-shape.md §1)
+        val prev = sh.belfry.core.nostr.parseJsonOrNull(w.channelOrderContent ?: "").obj()
+        val next = sh.belfry.core.nostr.parseJsonOrNull(d.content).obj()
+        s.send(if (prev != null && next != null) d.copy(content = kotlinx.serialization.json.JsonObject(prev + next).toString()) else d)
     }
 
     // ---- archiving and roles in a group (SPEC 19.29, 19.30) ----
