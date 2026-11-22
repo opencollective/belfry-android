@@ -57,6 +57,7 @@ import sh.belfry.core.model.presenceAskable
 import sh.belfry.core.model.presenceCandidates
 import sh.belfry.core.model.inviteText
 import sh.belfry.core.model.isGuest
+import sh.belfry.core.model.everyonePins
 import sh.belfry.core.model.eventTagsFor
 import sh.belfry.core.model.ComposerDraft
 import sh.belfry.core.model.FormDrafts
@@ -453,6 +454,10 @@ class Session(
     /** What I have read, on all my devices (SPEC 19.27): unread counts derive from it (`sh.belfry.core.read.Unread`). */
     val readState: StateFlow<ReadState> get() = readSync.state
 
+    private val pinSync: PinSync
+    /** The channels I pinned for myself, on all my devices (docs/one-shape.md §1; newest wins). */
+    val pins: StateFlow<PinSync.Pins> get() = pinSync.state
+
     /** The one owner of this session's sockets: groups, main and the signer's (SPEC 19.50). */
     internal val connections = Connections(scope)
     private val groupsRelay: Relay? = if (localOnly) null else connections.add("groups", Relay(community.groupsRelay, http, scope))
@@ -556,6 +561,8 @@ class Session(
         dm.setReadState(readSync.state.value)
         readSync.onChange = { dm.setReadState(it) }
         dm.onRead = { conv, at -> readSync.mark('d', conv, at) }
+        pinSync = PinSync(store, me, clock, scope, PinHost())
+        pinSync.offer(all)
         countOutbox()
         jobs += scope.launch(Dispatchers.Default) { for (u in dirty) { rebuild(); delay(REBUILD_MS) } }
         jobs += scope.launch(Dispatchers.Default) { intake() }
@@ -656,6 +663,7 @@ class Session(
         synchronized(logLock) { log.addAll(fresh); fresh.mapTo(logIds) { it.id } }
         dm.offer(fresh)
         readSync.offer(fresh)
+        pinSync.offer(fresh)
         // a correspondent's (or my own) roster or anchor arrived live: that person's chain read again, debounced (N3)
         if (sealed != null) for (e in fresh) {
             val who = when {
@@ -693,7 +701,7 @@ class Session(
             addToLog(batch.filterIsInstance<Incoming.Ev>().map { it.e })
             val groupsEose = batch.filterIsInstance<Incoming.Eose>().filter { it.target == Target.GROUPS }
             if (groupsEose.isNotEmpty()) onGroupsEose(groupsEose.any { it.authed })
-            if (batch.any { it is Incoming.Eose && it.target == Target.MAIN }) readSync.relayAnswered()
+            if (batch.any { it is Incoming.Eose && it.target == Target.MAIN }) { readSync.relayAnswered(); pinSync.relayAnswered() }
         }
     }
 
@@ -1039,6 +1047,10 @@ class Session(
             Filters.of(kinds = listOf(30078), since = extras, limit = 2000, tags = mapOf("d" to listOf(World.PROFILE_D))),
             // my read state (SPEC 19.27): one replaceable event, always the exact d
             Filters.of(kinds = listOf(ReadState.KIND), authors = listOf(me), limit = 5, tags = mapOf("d" to listOf(ReadState.READ_D))),
+            // the admins' channel order with its pins for everyone (SPEC 19.34, docs/one-shape.md §1): published here
+            Filters.of(kinds = listOf(30078), limit = 20, tags = mapOf("d" to listOf(World.ORDER_D))),
+            // my own pins (docs/one-shape.md §1): the same pattern
+            Filters.of(kinds = listOf(PinSync.KIND), authors = listOf(me), limit = 5, tags = mapOf("d" to listOf(sh.belfry.core.model.OneShape.PINS_D))),
             Filters.of(kinds = listOf(1059), since = wraps, limit = 300, tags = mapOf("p" to listOf(me))), // the relay's max limit
         ) + listOfNotNull(
             // sealed: key hand-overs come to this DEVICE's key (§5.5), not to the account
@@ -1691,6 +1703,38 @@ class Session(
 
     /** The app goes to the background: what waits is published now. */
     fun flushRead() = readSync.flush()
+
+    // ---- pins (docs/one-shape.md §1) ------------------------------------------------------------------
+
+    /** Pins [channel] at the top of my own menu, or unpins it. Guests, guest mode and the demo keep it on this device. */
+    fun togglePin(channel: String) = pinSync.toggle(channel)
+
+    /** A belfry admin pins [channel] for everyone, or unpins it: `pinned` in the channel-order event, every other key kept. */
+    suspend fun setEveryonePin(channel: String, on: Boolean) {
+        val w = _world.value
+        val cur = w.everyonePins()
+        val next = if (on) (if (channel in cur) cur else cur + channel) else cur.filter { it != channel }
+        send(Actions.everyonePins(w.channelOrderContent, next))
+    }
+
+    private inner class PinHost : PinSync.Host {
+        override fun shared(): Boolean = !localOnly && !reading && !stopped && !(_guest.value != null && _world.value.amGuest)
+        override suspend fun encryptToSelf(text: String): String = signer.nip44Encrypt(me, text)
+        override suspend fun decryptFromSelf(payload: String): String = signer.nip44Decrypt(me, payload)
+        override suspend fun publish(content: String, minCreatedAt: Long) = withContext(Dispatchers.Default) {
+            enqueueLock.withLock {
+                // the newest list replaces one still waiting
+                for (o in store.outbox()) if (o.kind == PinSync.KIND && o.status == OutboxStatus.QUEUED && o.tags.any { it.size >= 2 && it[0] == "d" && it[1] == sh.belfry.core.model.OneShape.PINS_D }) store.dropOutbox(o.localId)
+                lastCreatedAt = Outbox.nextCreatedAt(maxOf(lastCreatedAt, minCreatedAt - 1), clock())
+                store.putOutbox(OutboxItem(
+                    localId = newLocalId(), target = Target.MAIN, kind = PinSync.KIND, content = content,
+                    tags = listOf(listOf("d", sh.belfry.core.model.OneShape.PINS_D), Actions.CLIENT_TAG), createdAt = lastCreatedAt,
+                ))
+            }
+            countOutbox()
+            requestFlush()
+        }
+    }
 
     private inner class ReadHost : ReadSync.Host {
         override fun shared(): Boolean = !localOnly && !reading && !stopped && !(_guest.value != null && _world.value.amGuest)

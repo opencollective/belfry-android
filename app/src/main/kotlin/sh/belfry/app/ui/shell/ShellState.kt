@@ -15,7 +15,7 @@ class ShellState(initialChannel: String = "general") {
     var focusMessage by mutableStateOf<String?>(null)
     /** A large screen: the thread open in the third column (root message id), in [channel]. */
     var thread by mutableStateOf<String?>(null)
-    /** Which of the five places is on screen (SPEC 19.31): Home, Calendar, Groups or Town (Create is a sheet). */
+    /** Which of the five places is on screen (SPEC 19.31, Navigation v2): Today, Calendar, Messages, Groups or Town. */
     var place by mutableStateOf(Place.HOME)
     /** The Create menu is open. */
     var creating by mutableStateOf(false)
@@ -49,8 +49,8 @@ class ShellState(initialChannel: String = "general") {
         if (!touched) channel = id
     }
 
-    /** The bottom bar's places (Create is not one: it opens a menu over the place on screen). */
-    enum class Place { HOME, CALENDAR, GROUPS, TOWN }
+    /** The bottom bar's places (Navigation v2): HOME is Today. Create is not one (the composer's ＋). */
+    enum class Place { HOME, CALENDAR, MESSAGES, GROUPS, TOWN }
 
     companion object {
         const val K_LAST_CHANNEL = "ui:last-channel"

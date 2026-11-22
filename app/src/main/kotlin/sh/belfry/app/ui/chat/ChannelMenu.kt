@@ -110,7 +110,8 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         // the one row that opens a sheet (round 6): the channel stays behind it
         if (!world.isLocked(groupId)) MenuRow(Icons.Outlined.NotificationsNone, "Notifications", 0, "pd-notifications") { notify = true }
         MenuRow(Icons.Outlined.History, "Log", 0, "pd-log") { place(ChannelPlaceKey.LOG) }
-        if (world.canAdmin(g)) MenuRow(Icons.Outlined.Settings, "Settings", 0, "pd-settings") { place(ChannelPlaceKey.SETTINGS) }
+        // every member (Navigation v2, nav2/channel-pin): Pin for me and Notify me of everything; admins also the rest
+        if (world.canAdmin(g) || !world.amGuest) MenuRow(Icons.Outlined.Settings, "Settings", 0, "pd-settings") { place(ChannelPlaceKey.SETTINGS) }
     }
 }
 

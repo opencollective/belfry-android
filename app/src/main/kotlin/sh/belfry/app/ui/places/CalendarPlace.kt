@@ -58,7 +58,7 @@ import sh.belfry.core.model.calendarList
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarPlace() {
+fun CalendarPlace(onMenu: (() -> Unit)? = null, menuBadge: Int = 0) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -78,6 +78,7 @@ fun CalendarPlace() {
             "Calendar",
             subtitle = world.ctx.communityName.ifEmpty { session.community.name },
             onTitleClick = { accounts = true },
+            navigation = if (onMenu != null) ({ IconAction(BelfryIcons.Menu, "Menu", onMenu, badge = menuBadge) }) else null,
             actions = { if (!guest) IconAction(BelfryIcons.Plus, "New event", { nav.go(Routes.createEvent(Routes.NO_CHANNEL)) }) },
         )
         if (lists.size > 1) {
