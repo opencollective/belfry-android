@@ -2588,3 +2588,25 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   tiny), ⌄ on its right goes down; the drag and the tap on the bar stay.
 - **The event form:** changing the start (day or time) moves the end by as much: the event keeps
   its length (`EventShape.endFor`; all-day: its number of days).
+
+### 19.65 The event page, second pass (2026-11-22; Xavier's word, from his tablet; changes 19.54 on Android)
+
+- **Every event opens mid** (answered or not; an older calendar event still opens whole). Mid and
+  full share one top: the cover with ‹ ••• on it (no cover: the usual header) and the title;
+  pulling down (or "More") only shows more under it. Tiny keeps its two header lines.
+- **Whole days over several days** say their days ("Thu 12 Nov → Sat 14 Nov"), never "All day"
+  (`World.lastDay`: an all-day event's end date is its last day). One whole day still says "All day".
+- **Address** (full): the URL on one line that scrolls sideways when it is longer than the screen,
+  then one row: Copy URL · Share · QR.
+- **Tickets.** With a ticket: "Show my ticket" under Going / Maybe / Can't go (as before). With
+  none, on an event that has ticket types: the tickets themselves, each with its button (RSVP /
+  Apply / Ask / Buy / Waitlist), in mid too; no single "Pick a ticket" button.
+- **An event's chat with nothing said yet** shows a short menu instead of "… is new · Invite
+  people": Copy URL, QR code, Open the public page (not members only), and for hosts Invite a
+  co-host (the link of 19.29) and Invite people.
+- **Invite people** (hosts; not a meeting, which has its own people): members only, a search and
+  ticks, no roles (nobody becomes a member or a steward from an event). It publishes a new version
+  of the event with one `["p",<pubkey>,"","invited"]` per person (the tag a meeting uses, 19.23;
+  the event then shows under their Calendar · Invited until they answer) and posts one message in
+  the event's chat, `invited nostr:<npub> nostr:<npub> …` with the people mentioned ("Xavier:
+  invited @Lina @Ben" in the feed). Nobody is put in the chat. `EventInvites` (core).

@@ -15,6 +15,7 @@ import sh.belfry.app.ui.kit.BackButton
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.Image
@@ -204,7 +205,7 @@ private fun EventRow(e: CalEvent) {
                 if (e.meeting) { Badge("Meeting"); GapW(6) }
                 Text(e.title, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            Muted(ChatFormat.day(world, e.start, LocalSession.current.now()) + " · " + CardFormat.whenText(world, e) + (if (!e.location.isNullOrEmpty()) " · " + e.location else "") + (if (e.links.isNotEmpty()) " · online" else ""), maxLines = 1)
+            Muted(CardFormat.dayAndWhen(world, e, LocalSession.current.now()) + (if (!e.location.isNullOrEmpty()) " · " + e.location else "") + (if (e.links.isNotEmpty()) " · online" else ""), maxLines = 1)
             Muted((if (s != null) "$s · " else "") + if (e.meeting) "${world.meetingPeople(e).size} people" else "${e.going} going", maxLines = 1)
         }
     }
@@ -252,7 +253,7 @@ fun EventScreen(key: String, ticket: String? = null) {
 }
 
 /** The sheets of an event's screen. */
-internal enum class EventSheet { None, Menu, Take, Tickets, Guests, Qr, CoHost, Cancel, Delete }
+internal enum class EventSheet { None, Menu, Take, Tickets, Guests, Qr, CoHost, Invite, Cancel, Delete }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -288,11 +289,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
 
     // One shape (SPEC 19.54; canvas one-shape/event-default, -tiny, -full): three states over the event's chat.
     // Mid (HALF) while it needs me (not answered, still going?, people asking); tiny (UP) once answered.
-    // A meeting always opens mid: who comes on top, its chat below (Xavier, 2026-11-22). An older
-    // calendar event still opens whole.
-    var level by rememberSaveable(e.coord) {
-        mutableStateOf(if (!e.isNew) EventLevel.FULL else if (e.meeting || world.eventNeedsMe(e, now, api)) EventLevel.HALF else EventLevel.UP)
-    }
+    // Every event opens mid: the details on top, its chat below (Xavier, 2026-11-22; a meeting
+    // too). An older calendar event (no chat of its own) still opens whole.
+    var level by rememberSaveable(e.coord) { mutableStateOf(if (e.isNew) EventLevel.HALF else EventLevel.FULL) }
     val full = level == EventLevel.FULL
     val viewer = rememberViewer(e)
     val mayCheck = viewer?.mayCheckIn ?: world.mayCheckIn(e)
@@ -337,7 +336,12 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         if (e.status == EventStatus.CANCELLED || world.stillGoing(e) || asking > 0)
             EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
         // Going / Maybe / Can't go always there while it is open (my answer marked), else my answer in words
-        if (open) RsvpRow(e, p, tks, st, guest, busy, onPick = pick, onTake = take)
+        if (open && !plain && st == MyState.NONE) Column(Modifier.testTag("event-tickets")) {
+            // no ticket yet: the tickets themselves, each with its button (not one "Pick a ticket")
+            SectionTitle("Tickets")
+            for (t in tks) TicketRow(t, p, onPick = { pick(t) })
+        }
+        else if (open) RsvpRow(e, p, tks, st, guest, busy, onPick = pick, onTake = take)
         else (if (st == MyState.APPLIED && world.waitingForPayment(e, p)) "Waiting for the host to confirm your payment" else st.line)?.let { line ->
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("event-mine")) {
                 Icon(BelfryIcons.Check, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
@@ -360,20 +364,25 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("event-when")) {
             Icon(BelfryIcons.Calendar, contentDescription = "When", tint = c.text, modifier = Modifier.size(18.dp))
             GapW(8)
-            Text(ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + endDay(world, e, now), fontSize = 16.sp, color = c.text)
+            Text(CardFormat.dayAndWhen(world, e, now), fontSize = 16.sp, color = c.text)
         }
     }
 
     Column(Modifier.fillMaxSize().background(c.bg).testTag("event-screen-${level.name.lowercase()}")) {
-        if (level == EventLevel.HALF) {
-            // mid (one-shape/event-default): the cover with ‹ ••• on it (or the usual header), then the key details, full width
-            Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.68f).dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
+        // tiny: two header lines, the title then the icon row (my answer leads); a tap opens mid
+        if (level == EventLevel.UP) EventTinyHeader(e, items, onBack, onMore, onTap = { level = EventLevel.HALF })
+        // mid and full share one top (the cover with ‹ ••• on it, or the usual header, then the title):
+        // pulling down only lets more show under it
+        else Column(
+            (if (full) Modifier.weight(1f) else Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.68f).dp)).fillMaxWidth().verticalScroll(rememberScrollState()),
+        ) {
                 val cover = e.cover
                 if (cover != null) EventCoverTop(cover, onBack, onMore)
                 else TopBar("", navigation = { BackButton(onBack) }, actions = { IconAction(BelfryIcons.More, "More", onMore, Modifier.testTag("event-more")) })
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).testTag("event-details"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).testTag("event-details"), verticalArrangement = Arrangement.spacedBy(if (full) 14.dp else 10.dp)) {
                     if (ticket != null && mayCheck && cardOpen) TicketLinkCard(e, ticket, onClose = { cardOpen = false })
                     Text(e.title, fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, color = c.text, modifier = Modifier.testTag("event-title"))
+                    if (!full) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         When()
                         EventWhere(e)
@@ -393,19 +402,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                         )
                     }
                     Answer()
-                }
-            }
-        } else {
-            // tiny and full: two header lines, the title then the icon row (my answer leads); a tap opens mid
-            EventTinyHeader(e, items, onBack, onMore, onTap = { level = EventLevel.HALF })
-        }
-        if (full) Column(
-            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
+                    } else {
             // full (one-shape/event-full): where (with Directions), hosts, the whole description, who comes, to-dos and files, the answer
-            if (ticket != null && mayCheck && cardOpen) TicketLinkCard(e, ticket, onClose = { cardOpen = false })
-            Column(Modifier.testTag("event-details"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 When()
                 EventWhere(e, directions = true)
                 if (e.links.isEmpty() && api?.online == true) Muted("Online: the link shows once you have a place.")
@@ -418,10 +417,11 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             // a meeting: who is invited, what they answered, who was there (hosts check people in)
             if (e.meeting && !e.remote) MeetingPeople(e, host)
 
-            if (!plain) {
+            // (while I have none and it is open, the tickets are in the answer above, with their buttons)
+            if (!plain && !(open && st == MyState.NONE)) {
                 Column {
                     SectionTitle("Tickets")
-                    for (t in tks) TicketRow(t, p, onPick = if (open && st == MyState.NONE) ({ pick(t) }) else null)
+                    for (t in tks) TicketRow(t, p, onPick = null)
                 }
             }
 
@@ -429,9 +429,18 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             if (e.isNew) {
                 Column(Modifier.testTag("event-url")) {
                     SectionTitle("Address")
-                    Text(url, fontSize = 14.sp, color = c.muted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("event-address"))
+                    // the whole address on one line: it scrolls sideways when it is longer than the screen (Xavier's word)
+                    Text(
+                        url, fontSize = 14.sp, color = c.muted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 1, softWrap = false,
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("event-address"),
+                    )
                     Gap(10)
-                    sh.belfry.app.ui.kit.CopyShareButtons(url, e.title, copyTag = "event-copy", shareTag = "event-share")
+                    sh.belfry.app.ui.kit.CopyShareButtons(url, e.title, copyTag = "event-copy", shareTag = "event-share", copyLabel = "Copy URL", shareLabel = "Share") {
+                        BusyButton(
+                            "QR", onClick = { sheet = EventSheet.Qr }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr,
+                            modifier = Modifier.weight(1f).height(sh.belfry.app.ui.kit.COPY_SHARE_HEIGHT).testTag("event-qr"),
+                        )
+                    }
                 }
             }
 
@@ -471,6 +480,8 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 ActionGroup { ActionRow("Delete event", onClick = { sheet = EventSheet.Delete }, modifier = Modifier.testTag("event-delete"), icon = BelfryIcons.Trash, danger = true) }
             }
         }
+                }
+        }
         // the handle: a drag up / down moves a level; so do the arrows at its ends (up: full → mid →
         // tiny, down: tiny → mid → full), which need no gesture; a tap on the bar goes on to the next
         Row(
@@ -499,7 +510,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         Hairline()
         // the conversation continues below (mid and tiny)
         if (!full) {
-            if (inside && g != null) Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(fold)) { sh.belfry.app.ui.chat.ChannelScreen(e.groupId, embedded = true) }
+            if (inside && g != null) Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(fold)) {
+                sh.belfry.app.ui.chat.ChannelScreen(e.groupId, embedded = true, emptyContent = if (e.isNew) ({ EventQuickMenu(e, host, open = { sheet = it }) }) else null)
+            }
             else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
                 if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
                 else Muted("Get a place to see the event's chat, photos and people.")
@@ -517,6 +530,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         EventSheet.Guests -> GuestListSheet(e, onDismiss = close)
         EventSheet.Qr -> QrSheet(url, "URL of the event", onDismiss = close)
         EventSheet.CoHost -> CoHostSheet(e, onDismiss = close)
+        EventSheet.Invite -> EventInviteSheet(e, onDismiss = close)
         EventSheet.Cancel -> CancelSheet(e, onDismiss = close)
         EventSheet.Delete -> ConfirmSheet(
             title = "Delete this event?",
@@ -526,11 +540,6 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             message = if (e.isNew) "It disappears for everyone; its chat stays. To tell the guests, cancel it instead." else "It disappears from everyone's calendar.",
         )
     }
-}
-
-private fun endDay(world: World, e: CalEvent, now: Long): String {
-    val end = e.end ?: return ""
-    return if (world.dayOf(end) != world.dayOf(e.start)) " → " + ChatFormat.day(world, end, now) else ""
 }
 
 private fun lineDay(world: World, e: CalEvent, now: Long): String =

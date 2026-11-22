@@ -27,14 +27,19 @@ val COPY_SHARE_HEIGHT = 50.dp
  * 2 s; Share… opens the system share sheet with [title].
  */
 @Composable
-fun CopyShareButtons(url: String, title: String, modifier: Modifier = Modifier, enabled: Boolean = true, copyTag: String = "link-copy", shareTag: String = "link-share") {
+fun CopyShareButtons(
+    url: String, title: String, modifier: Modifier = Modifier, enabled: Boolean = true, copyTag: String = "link-copy", shareTag: String = "link-share",
+    copyLabel: String = "Copy link", shareLabel: String = "Share…",
+    /** More buttons on the same row (an event's QR): give each `weight(1f)` and [COPY_SHARE_HEIGHT]. */
+    more: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(2_000); copied = false } }
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         BusyButton(
-            if (copied) "Copied" else "Copy link",
+            if (copied) "Copied" else copyLabel,
             onClick = {
                 copyText(context, url, title)
                 try { haptics.performHapticFeedback(HapticFeedbackType.LongPress) } catch (e: Exception) { }
@@ -44,8 +49,9 @@ fun CopyShareButtons(url: String, title: String, modifier: Modifier = Modifier, 
             icon = if (copied) BelfryIcons.Check else BelfryIcons.Copy,
         )
         BusyButton(
-            "Share…", onClick = { shareText(context, url, title) },
+            shareLabel, onClick = { shareText(context, url, title) },
             modifier = Modifier.weight(1f).height(COPY_SHARE_HEIGHT).testTag(shareTag), kind = ButtonKind.Ghost, enabled = enabled, icon = BelfryIcons.Share,
         )
+        more?.invoke(this)
     }
 }

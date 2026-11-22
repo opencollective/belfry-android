@@ -84,16 +84,18 @@ class OneShapeEventShotsTest : DemoShots() {
     @Test fun full() {
         demoShot("os-event-full", act = { coverIn(); compose.onNodeWithTag("event-more-details").performClick() }) { EventScreen(swap.coord) }
         assertTrue(has("event-screen-full") && has("event-directions") && has("rsvp-accepted"))
+        // the same top as mid: the cover with ‹ ••• and the title, no other header
+        assertTrue(has("event-cover") && has("event-title") && !has("event-tiny-header"))
     }
 
-    /** Answered → it opens tiny, "✓ Going" leading the row, and "You're going" in the chat. */
-    @Test fun answeredOpensTiny() {
+    /** Answered → it still opens mid (every event does), Going marked, and "You're going" in the chat. */
+    @Test fun answeredOpensMid() {
         started()
         runBlocking { session.events.rsvp(swap, Rsvp.ACCEPTED) }
         settle()
         assertEquals(Rsvp.ACCEPTED, swap.rsvps[session.me])
         demoShot("os-event-answered") { EventScreen(swap.coord) }
-        assertTrue(has("event-screen-up") && has("row-item-answer"))
+        assertTrue(has("event-screen-half") && has("rsvp-accepted"))
         compose.waitUntil(5_000) { compose.onAllNodesWithText("You’re going").fetchSemanticsNodes().isNotEmpty() }
     }
 

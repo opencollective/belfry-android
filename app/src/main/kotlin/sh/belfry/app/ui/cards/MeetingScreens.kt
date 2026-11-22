@@ -345,7 +345,7 @@ internal fun MeetingPeople(e: CalEvent, host: Boolean) {
         for (k in keys) {
             val isThere = there[k] == true
             Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.clip(CircleShape).clickable(role = Role.Button, onClickLabel = world.displayName(k) + ": profile") { nav.go(Routes.profile(k)) }) {
+                Box(Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClickLabel = world.displayName(k) + ": profile") { nav.go(Routes.profile(k)) }) {
                     StatusFace(k, world.meetingStatus(e, k, there), 36)
                 }
                 GapW(10)

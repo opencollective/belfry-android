@@ -44,6 +44,7 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.CalEvent
 import sh.belfry.core.model.ProposalStatus
 import sh.belfry.core.model.World
+import sh.belfry.core.model.lastDay
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -65,7 +66,13 @@ internal object CardFormat {
     }
 
     /** "Thu 12 Nov · 18:00 – 21:00" */
-    fun dayAndWhen(world: World, e: CalEvent, now: Long): String = ChatFormat.day(world, e.start, now) + " · " + whenText(world, e)
+    fun dayAndWhen(world: World, e: CalEvent, now: Long): String {
+        val day = ChatFormat.day(world, e.start, now)
+        val last = world.lastDay(e)
+        val more = if (last != world.dayOf(e.start)) " → " + ChatFormat.day(world, last.atStartOfDay(world.ctx.zone).toEpochSecond() + 43200, now) else ""
+        // whole days over several days: the days say it, no "All day"
+        return if (e.allDay && more.isNotEmpty()) day + more else day + " · " + whenText(world, e) + more
+    }
 
     fun month(world: World, at: Long): String = MONTH.format(zoned(world, at))
     fun dayOfMonth(world: World, at: Long): String = zoned(world, at).dayOfMonth.toString()

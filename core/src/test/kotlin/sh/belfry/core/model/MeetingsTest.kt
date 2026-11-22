@@ -261,4 +261,27 @@ class MeetingsTest {
             assertEquals(c["removed"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(), Meetings.removed(events, maker, admins), c["name"]!!.jsonPrimitive.content)
         }
     }
+
+    @Test
+    fun invitingToAnEvent() {
+        val plain = EventActions.create(EventForm(title = "Garden day", start = t0 + 86400, allDay = true, startDate = "2027-01-10", endDate = "2027-01-12"), "2026-plain2", alice, "wss://g", "wss://m").mapIndexed { i, x -> draft(alice, t0 + i, x) }.toMutableList()
+        var w = world(plain)
+        val e = w.calendar.single()
+        // three whole days: its last day is the end date itself
+        assertEquals(java.time.LocalDate.of(2027, 1, 12), w.lastDay(e))
+        val drafts = EventInvites.version(e, listOf(bob, carol, bob, alice), null, "wss://g", "UTC")
+        assertEquals(listOf(listOf("p", bob, "", "invited"), listOf("p", carol, "", "invited")), drafts.single().tags.filter { it[0] == "p" })
+        drafts.forEachIndexed { i, d -> plain.add(draft(alice, t0 + 100 + i, d)) }
+        w = world(plain)
+        val now = w.calendar.single()
+        assertEquals(listOf(bob, carol), now.invited)
+        assertFalse(now.meeting)
+        assertTrue(now.allDay)
+        // nothing new: no version
+        assertTrue(EventInvites.version(now, listOf(bob), null, "wss://g", "UTC").isEmpty())
+        // the invited see it under Invited
+        assertTrue(world(plain, me = bob).isInvited(now))
+        val (text, picks) = EventInvites.line(w, listOf(bob, carol))
+        assertTrue(text.startsWith("invited @") && picks.map { it.second } == listOf(bob, carol))
+    }
 }

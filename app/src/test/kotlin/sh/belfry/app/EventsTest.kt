@@ -333,4 +333,63 @@ class EventsTest : DemoShots() {
         assertEquals("one tap, one mark", 1, world.all.count { x -> x.kind == 1985 && x.tags.any { it.size >= 2 && it[0] == "L" && it[1] == Meetings.ATTENDANCE_NS } })
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Checked in").fetchSemanticsNodes().isNotEmpty() }
     }
+
+    // ---- the event page, second pass (SPEC 19.65) ---------------------------------------------------
+
+    /** A festival of three whole days, public, made by me: nothing said in its chat yet. */
+    private fun aFestival(): CalEvent {
+        started()
+        val d = runBlocking {
+            session.events.create(sh.belfry.core.model.EventForm(
+                title = "Harvest festival", description = "Three days in the orchard.", allDay = true,
+                start = NOW + 2 * 86400, end = NOW + 4 * 86400, startDate = "2026-11-12", endDate = "2026-11-14",
+                location = "The orchard", visibility = sh.belfry.core.model.Visibility.PUBLIC,
+            ))
+        }
+        repeat(200) {
+            settle()
+            val e = world.eventByLink(d)
+            if (e != null && world.group(e.groupId) != null && !world.isPending(e.ev.id)) return e
+            Thread.sleep(25)
+        }
+        error("the festival never showed")
+    }
+
+    /** Mid: whole days over several days say their days (no "All day"); the empty chat is a short menu. */
+    @Test
+    fun festivalMidWithTheShortMenu() {
+        val e = aFestival()
+        demoShot("event-quick-menu") { EventScreen(e.coord) }
+        compose.onNodeWithTag("event-screen-half").assertExists()
+        assertTrue(compose.onAllNodesWithText("All day", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("→", substring = true).fetchSemanticsNodes().isNotEmpty())
+        for (t in listOf("quick-copy", "quick-qr", "quick-page", "quick-cohost", "quick-invite")) compose.onNodeWithTag(t).assertExists()
+    }
+
+    /** Invite people: members only, searched and ticked, no roles. */
+    @Test
+    fun festivalInviteSheet() {
+        val e = aFestival()
+        val who = sh.belfry.core.model.EventInvites.candidates(world, e).first()
+        demoScreenShot("event-invite", act = {
+            compose.onNodeWithTag("quick-invite").performClick()
+            compose.waitUntil(5_000) { compose.onAllNodesWithTag("invite-" + who.take(8)).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithTag("invite-" + who.take(8)).performClick()
+        }) { EventScreen(e.coord) }
+    }
+
+    @Test
+    fun invitingSaysItInTheChatAndOnTheEvent() {
+        val e = aFestival()
+        val who = sh.belfry.core.model.EventInvites.candidates(world, e).take(2)
+        runBlocking { session.events.inviteTo(e, who) }
+        var tries = 0
+        while (tries++ < 200 && world.eventByLink(e.d)?.invited != who) { settle(); Thread.sleep(25) }
+        val now = world.eventByLink(e.d)!!
+        assertEquals(who, now.invited)
+        assertEquals(1, world.all.count { it.kind == 9 && it.tag("h") == e.groupId && it.pubkey == session.me && it.content.startsWith("invited ") })
+        // nobody was put in the chat, nobody got a role
+        assertEquals(0, world.all.count { it.kind == 9000 && it.tag("h") == e.groupId && it.tag("p") in who })
+        demoShot("event-invited-line") { EventScreen(e.coord) }
+    }
 }

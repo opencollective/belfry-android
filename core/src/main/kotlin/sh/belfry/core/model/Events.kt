@@ -408,6 +408,9 @@ fun World.stillGoing(e: CalEvent): Boolean {
     return key(base) != key(e.ev)
 }
 
+/** The last day the event is on (an all-day event's end date is its last day, inclusive; SPEC 19.46). */
+fun World.lastDay(e: CalEvent): LocalDate = dayOf(endOf(e) - 1).let { if (it.isBefore(dayOf(e.start))) dayOf(e.start) else it }
+
 /**
  * When E is over (SPEC 19.46; the lead 2026-11-20 after an OSV bug, web chat 39a2b85): a timed
  * event at its end, or one hour after its start when it has none; an all-day event at the start of

@@ -205,3 +205,31 @@ fun World.lastPlace(): String {
 /** Where meetings were held lately (the form's chips), most recent first, at most five. */
 fun World.meetingPlaces(): List<String> =
     calendar.filter { it.meeting }.sortedByDescending { it.ev.createdAt }.mapNotNull { it.location?.takeIf { l -> l.isNotBlank() } }.distinct().take(5)
+
+
+/**
+ * Inviting members to an event that is not a meeting (SPEC 19.65): a host's new version of the
+ * event with one `["p",<pubkey>,"","invited"]` each (so it shows under their Calendar · Invited),
+ * and a message in the event's chat, "invited @A @B" with the people mentioned. Nobody is put in
+ * the chat and nobody gets a role.
+ */
+object EventInvites {
+    /** Members who can still be invited: not me, not a host, not invited, no answer yet; by name. */
+    fun candidates(w: World, e: CalEvent): List<String> {
+        val taken = e.invited.toSet() + e.rsvps.keys + e.hosts + w.me
+        return w.people.map { it.first }.filter { it !in taken && Hex.isKey(it) }.distinct().sortedBy { w.displayName(it).lowercase() }
+    }
+
+    /** The new version: the event as it is plus the fresh `p … invited` tags. Empty when none is new. */
+    fun version(e: CalEvent, keys: List<String>, g: Group?, groupsRelay: String, zone: String): List<Draft> {
+        val fresh = keys.distinct().filter { it !in e.invited && it != e.creator && Hex.isKey(it) }
+        if (fresh.isEmpty()) return emptyList()
+        return EventActions.edit(e, Meetings.formOf(e, zone), g, groupsRelay, fresh.map { listOf("p", it, "", "invited") })
+    }
+
+    /** The chat's line and who it mentions (name → key), as the composer's picks. */
+    fun line(w: World, keys: List<String>): Pair<String, List<Pair<String, String>>> {
+        val picks = keys.distinct().map { w.displayName(it) to it }
+        return ("invited " + picks.joinToString(" ") { "@" + it.first }) to picks
+    }
+}

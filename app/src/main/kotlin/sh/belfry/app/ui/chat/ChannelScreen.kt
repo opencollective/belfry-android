@@ -135,6 +135,8 @@ fun ChannelScreen(
     onBack: (() -> Unit)? = null,
     /** Inside another screen (an event's Chat tab): no header of its own. */
     embedded: Boolean = false,
+    /** Embedded with nothing said yet: what stands there instead of "… is new · Invite people" (an event's short menu). */
+    emptyContent: (@Composable () -> Unit)? = null,
     focusMessage: String? = null,
     onFocusDone: () -> Unit = {},
     /** Bumped by a second tap on Town: scroll to the newest message. */
@@ -303,6 +305,8 @@ fun ChannelScreen(
                     EmptyState("Nothing here yet", text = if (chat.topic == Topics.ANNOUNCE) "No announcements in this channel." else "No messages in #${chat.topic}.")
                 } else if (guestReading) {
                     EmptyState("No messages here yet.", icon = BelfryIcons.Hash)
+                } else if (emptyContent != null) {
+                    emptyContent()
                 } else {
                     EmptyState(
                         "${g?.name ?: "This channel"} is new",

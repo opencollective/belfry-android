@@ -264,6 +264,17 @@ class EventsService internal constructor(private val s: Session) {
         if (drafts.isNotEmpty()) s.send(drafts)
     }
 
+    /** A host invites members to an event: on the event (a new version), and said in its chat. */
+    suspend fun inviteTo(e: CalEvent, keys: List<String>) {
+        val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
+        val fresh = keys.distinct().filter { it !in now.invited }
+        if (fresh.isEmpty()) return
+        val drafts = sh.belfry.core.model.EventInvites.version(now, fresh, world.group(now.groupId), s.community.groupsRelay, s.zoneId)
+        if (drafts.isNotEmpty()) s.send(drafts)
+        val (text, picks) = sh.belfry.core.model.EventInvites.line(world, fresh)
+        s.postMessage(now.groupId, text, picked = picks)
+    }
+
     /** A host takes someone off the meeting (out of its chat, off the event). */
     suspend fun uninvite(e: CalEvent, pubkey: String) {
         val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
