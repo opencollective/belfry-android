@@ -385,6 +385,8 @@ class SealedEngine(
     }
 
     private var lastAsk = 0L
+    /** When this device last asked to be allowed (Unix seconds; 0 = not in this run): "asked …". */
+    val lastAskedAt: Long get() = lastAsk
 
     /**
      * A device waiting for its keys asks again (§5.2 / §5.5; the review's 4): every 24 h, and at

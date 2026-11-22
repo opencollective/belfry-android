@@ -54,7 +54,7 @@ class EncryptionService internal constructor(private val s: Session) {
         val mine = e.chainOf(me)
         val names = try { e.deviceNames() } catch (x: Exception) { emptyMap() }
         fun kindOf(k: String?) = when (k) { "tablet" -> DeviceKind.TABLET; "computer" -> DeviceKind.COMPUTER; else -> DeviceKind.PHONE }
-        val myDevices = mine?.devices.orEmpty().map { d ->
+        val inChain = mine?.devices.orEmpty().map { d ->
             val n = names[d]
             MyDevice(
                 d, n?.name ?: if (d == e.device.pubkey) s.deviceName else "A device", kindOf(n?.kind ?: if (d == e.device.pubkey) s.deviceKind else null),
@@ -62,6 +62,10 @@ class EncryptionService internal constructor(private val s: Session) {
                 removable = e.canRemove(d),
             )
         }
+        // a device not allowed yet is in no roster: listed first as "Not allowed yet · asked …" (canvas v182)
+        val myDevices = if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING && inChain.none { it.thisDevice })
+            listOf(MyDevice(e.device.pubkey, s.deviceName, kindOf(s.deviceKind), e.lastAskedAt, thisDevice = true, removable = false, allowed = false)) + inChain
+        else inChain
         val dms = s.dms.value
         val world = s.world.value
         val sealed = e.sealedSince.toMap().mapValues { (conv, since) ->
@@ -209,7 +213,7 @@ class EncryptionService internal constructor(private val s: Session) {
         delay(400)
         val st = _state.value
         val me = st.thisDevice ?: MyDevice("d-new", s.deviceName, DeviceKind.PHONE, s.now(), from = null, thisDevice = true, active = s.now())
-        _state.value = st.copy(earlierLocked = false, locked = emptySet(), myDevices = listOf(me.copy(added = s.now(), from = null)))
+        _state.value = st.copy(earlierLocked = false, locked = emptySet(), myDevices = listOf(me.copy(added = s.now(), from = null, allowed = true)))
     }
 
     /**
@@ -268,7 +272,7 @@ class EncryptionService internal constructor(private val s: Session) {
         // canvas v84: every sealed conversation is locked on a device not yet allowed
         val older = st.sealed.keys.toSet()
         val mine = listOf(
-            MyDevice("d-new", "Pixel 8", DeviceKind.PHONE, now - 120, from = null, thisDevice = true, active = now),
+            MyDevice("d-new", "Pixel 8", DeviceKind.PHONE, now - 120, from = null, thisDevice = true, active = now, allowed = false),
         ) + st.myDevices.map { it.copy(thisDevice = false) }
         _state.value = st.copy(earlierLocked = true, locked = older, myDevices = mine)
     }

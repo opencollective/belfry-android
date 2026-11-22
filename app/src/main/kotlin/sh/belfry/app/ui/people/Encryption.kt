@@ -190,12 +190,17 @@ fun EncryptionScreen(conv: String) {
     Page("Encryption") {
         // a device not allowed yet: say so first, with the steps (then what it knows, if anything)
         if (waiting) {
-            EarlierLockedBanner(SealedText.CANT_READ_YET) { nav.go(Routes.UNLOCK_STEPS) }
+            EarlierLockedBanner(SealedText.CANT_READ_YET, SealedText.ALLOW_ELSEWHERE) { nav.go(Routes.UNLOCK_STEPS) }
             Spacer(Modifier.height(8.dp))
         }
         when {
             seal != null -> EncryptionContent(seal, st.myDevices, world, session.now())
             waiting -> {
+                // this device first, "Not allowed yet · asked …", then my others (canvas v182)
+                if (st.myDevices.isNotEmpty()) {
+                    SectionTitle("Your devices")
+                    ActionGroup { MyDeviceRows(st.myDevices, session.now(), world) }
+                }
                 Sentence(BelfryIcons.Shield, SealedText.SERVER)
                 if (sh.belfry.core.mail.MailThreads.isMail(conv)) Sentence(BelfryIcons.Mail, SealedText.MAIL)
             }
@@ -272,7 +277,7 @@ fun EncryptionContent(seal: ConvSeal, mine: List<MyDevice>, world: World, now: L
 
 /** messages/encryption-new-device: the amber banner at the top of Messages on a new device. */
 @Composable
-internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, onShowHow: () -> Unit) {
+internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, text: String = SealedText.BANNER_TEXT, onShowHow: () -> Unit) {
     val c = Belfry.colors
     Row(
         Modifier
@@ -288,7 +293,7 @@ internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, onShow
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            Text(SealedText.BANNER_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
+            Text(text, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
             Text(
                 "Show how", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.orange,
                 modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onShowHow)

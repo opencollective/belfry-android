@@ -141,6 +141,9 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-waiting-screen") { EncryptionScreen(MailThreads.mailThreadOf("ana@example.org", "Visiting next week")) }
         compose.onNodeWithText(sh.belfry.core.model.SealedText.CANT_READ_YET).assertExists()
         compose.onNodeWithTag("seal-show-how").assertExists()
+        // canvas v182: what to do, and this device "Not allowed yet · asked …"
+        compose.onNodeWithText(sh.belfry.core.model.SealedText.ALLOW_ELSEWHERE).assertExists()
+        assertTrue(compose.onAllNodesWithText("Not allowed yet", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 
     @Test fun showHow() {

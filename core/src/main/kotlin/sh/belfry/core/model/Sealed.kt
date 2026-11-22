@@ -28,6 +28,8 @@ data class MyDevice(
     val active: Long? = null,
     /** This device may remove it (in my head, not this one; the review's 12). */
     val removable: Boolean = !thisDevice,
+    /** False for this device while it waits to be allowed ([added] = when it last asked, 0 if unknown). */
+    val allowed: Boolean = true,
 )
 
 /** A device change of someone else's in the last 30 days: added or removed, and when. */
@@ -152,7 +154,12 @@ object SealedText {
 
     /** Under one of my devices: "Added 2 Oct · from iPhone". */
     fun addedLine(d: MyDevice, now: Long, zone: ZoneId): String =
-        "Added " + day(d.added, now, zone) + (d.from?.let { " · from $it" } ?: "")
+        if (!d.allowed) notAllowedLine(d, now, zone)
+        else "Added " + day(d.added, now, zone) + (d.from?.let { " · from $it" } ?: "")
+
+    /** canvas v182 messages/encryption-devices-waiting: "Not allowed yet · asked 22 Nov". */
+    fun notAllowedLine(d: MyDevice, now: Long, zone: ZoneId): String =
+        "Not allowed yet" + (if (d.added > 0) " · asked " + day(d.added, now, zone) else "")
 
     /** The same in Devices, with when it was last active. */
     fun activeLine(d: MyDevice, now: Long, zone: ZoneId): String {
@@ -222,6 +229,8 @@ object SealedText {
     const val BANNER_TITLE = "Messages are locked on this device"
     /** The Encryption screen's first line on a device not allowed yet (the lead, 2026-11-22; draft until the board). */
     const val CANT_READ_YET = "This device can't read it yet"
+    /** canvas v182: what to do, under [CANT_READ_YET]. */
+    const val ALLOW_ELSEWHERE = "Open Belfry on a device where you already read your messages and tap Allow"
     /**
      * Sealed messages that came to this device and can't be opened here yet (Xavier's mail to himself,
      * 2026-11-22): no conversation shows them. Words until belfry-canvas draws the board.
