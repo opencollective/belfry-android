@@ -92,7 +92,8 @@ import sh.belfry.app.ui.kit.DaySeparator
 import sh.belfry.app.ui.kit.EmptyState
 import sh.belfry.app.ui.kit.Hairline
 import sh.belfry.app.ui.kit.IconAction
-import sh.belfry.app.ui.kit.TopBar
+import sh.belfry.app.ui.kit.OneHeader
+import sh.belfry.app.ui.kit.OnePulled
 import sh.belfry.app.ui.nav.LocalDms
 import sh.belfry.app.ui.nav.LocalNav
 import sh.belfry.app.ui.nav.LocalSession
@@ -105,6 +106,7 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.markdown.Markdown
 import sh.belfry.core.model.FeedItem
 import sh.belfry.core.model.FeedRow
+import sh.belfry.core.model.feedRowsWithPreviews
 import sh.belfry.core.model.Mentions
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.Topics
@@ -115,9 +117,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import sh.belfry.app.ui.kit.Avatar
 
 /**
- * A channel: its top bar (☰ · name · search · follow), the one summary line under the name
- * (pulled down for the rest: [SummaryLine], [PullDown]), the feed anchored at the bottom, and
- * the composer. [focusMessage] scrolls to a message and
+ * A channel: its one-shape header (☰ or ‹ · name over one icon row · the bell; tapped or dragged
+ * down, [ChannelMenu] over the feed), the feed anchored at the bottom with its activity previews,
+ * and the composer. [focusMessage] scrolls to a message and
  * highlights it briefly (search results, links); [onFocusDone] is called once it did.
  */
 @Composable
@@ -176,7 +178,7 @@ fun ChannelScreen(
     // changes (World.feedKey): a message arriving in another channel redraws nothing here.
     val feedWorld = rememberFeedWorld(world, groupId)
     val feedNow = now - now % 60
-    val rows = remember(feedWorld, groupId, chat.topic, openRoots) { feedWorld.feedRows(groupId, chat.topic, openRoots) }
+    val rows = remember(feedWorld, groupId, chat.topic, openRoots) { feedWorld.feedRowsWithPreviews(groupId, chat.topic, openRoots) }
     val threads = feedWorld.threadsOf(groupId)
     val reversed = rows.asReversed()
     val list = rememberLazyListState()
@@ -253,29 +255,24 @@ fun ChannelScreen(
     }
 
     Column(modifier.fillMaxSize().background(c.bg).imePadding()) {
-        if (!embedded) TopBar(
+        // one-shape header (docs/one-shape.md 2): the name, one icon row, the bell; tap or drag for the rest
+        if (!embedded) OneHeader(
             title = g?.name ?: "Channel", // never the id (SPEC 19.39)
-            subtitle = if (g != null) channelSubtitle(world, groupId, now) else null,
-            onTitleClick = { chat.toggleLine() },
+            items = if (g != null) channelRowItems(world, groupId, now) else emptyList(),
+            onPull = { chat.pullLine() },
+            onPush = { chat.closeLine() },
+            pulled = chat.lineOpen,
+            pullLabel = if (chat.lineOpen) "Close the channel summary" else "Open the channel summary",
             navigation = when {
                 onBack != null -> ({ BackButton(onBack) })
                 onMenu != null -> ({ IconAction(BelfryIcons.Menu, "The town", onMenu, badge = menuBadge ?: dms.unreadTotal) })
                 else -> null
             },
-            // the header's right side is search only; the bell is the pull-down's Notifications row
-            actions = { IconAction(BelfryIcons.Search, "Search", { nav.go(Routes.search(groupId)) }) },
+            // nothing at the top right but the bell (search is a row of the pull-down)
+            actions = { if (g != null && !guestReading && !world.isLocked(groupId)) ChannelBell(groupId, g.name) },
             titleMark = if (g != null && world.failedSettings(groupId).isNotEmpty()) ({ SettingsFailedMark(groupId) }) else null,
             titleLoading = g != null && rememberNameLoading(g.named),
         )
-        // a proposal's chat: its header says what the line would (round 6)
-        if (!embedded && g != null && !g.isProposal && world.attentionLine(groupId, now, chat.topic, chat.hiddenPins) != null) {
-            SummaryLine(groupId, chat, now, attentionOnly = true)
-            Hairline()
-            world.secondAttentionLine(groupId, now, chat.topic, chat.hiddenPins)?.let { second ->
-                SummaryLine(groupId, chat, now, lineOverride = second)
-                Hairline()
-            }
-        }
         if (g != null && g.archived) ArchivedBar(g)
         status.banner?.let { Banner(it, kind = BannerKind.Warning) }
         if (!embedded) ChannelBars(groupId)
@@ -329,31 +326,9 @@ fun ChannelScreen(
                     }
                 }
             }
-            // The summary line pulled down: over the feed, under the top bar. Two levels, like the
-            // web's header: open (as tall as what it shows), and all the way (the whole feed's room:
-            // every to-do, more photos and faces, then the channel's e-mail, invite and settings).
-            androidx.compose.animation.AnimatedVisibility(visible = chat.lineOpen, enter = fadeIn(), exit = fadeOut()) {
-                Box(
-                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f))
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClickLabel = "Close the channel summary") { chat.closeLine() },
-                )
-            }
-            androidx.compose.animation.AnimatedVisibility(visible = chat.lineOpen && g != null, enter = expandVertically(), exit = shrinkVertically()) {
-                Column(Modifier.fillMaxWidth().background(c.bg).testTag("pull-open")) {
-                    ChannelMenu(groupId, chat, now, onShowMessage = { chat.focus = it }, modifier = Modifier.weight(1f, fill = false))
-                    // the handle: a tap or a drag up closes
-                    Box(
-                        Modifier.fillMaxWidth().height(24.dp)
-                            .pointerInput(Unit) {
-                                var moved = 0f
-                                detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = { if (moved < -16f) chat.closeLine() }) { _, dy -> moved += dy }
-                            }
-                            .clickable(role = Role.Button, onClickLabel = "Close the channel menu") { chat.closeLine() }
-                            .testTag("pull-handle"),
-                        contentAlignment = Alignment.Center,
-                    ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
-                    Hairline()
-                }
+            // the header pulled down, over the feed: about and pins, then the rows (each pushes its screen)
+            if (g != null) OnePulled(chat.lineOpen, onClose = { chat.closeLine() }) {
+                ChannelMenu(groupId, chat, now, onShowMessage = { chat.focus = it })
             }
         }
 
@@ -496,6 +471,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                 }
             }
             is FeedItem.MailThread -> MailThreadRow(item.t) { openThread(item.t.id) }
+            is FeedItem.Preview -> ActivityPreviewRow(groupId, item.p, now)
             is FeedItem.Activity -> {
                 val key = item.key
                 val open = chat.openThreads.containsKey(key)

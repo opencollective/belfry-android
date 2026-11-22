@@ -69,6 +69,7 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
     val nav = LocalNav.current
     val g = world.group(groupId) ?: return
     val n = world.channelCounts(groupId, now)
+    val inbox = world.isInbox(g)
     val go: (String) -> Unit = { chat.closeLine(); nav.go(it) }
     val place: (String) -> Unit = { go(Routes.channelPlace(groupId, it)) }
     var notify by remember { mutableStateOf(false) }
@@ -77,11 +78,16 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         if (g.about.isNotBlank()) {
             MarkdownText(g.about.trim(), fontSize = 16.sp, maxLines = 4, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).testTag("pull-about"))
         }
+        // the about line (one shape: what was the header's third line): who can write, who can read
         if (!g.isEvent && !g.isProposal) {
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.MailOutline, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
+            val address = world.mailAddress(groupId)
+            val write = if (inbox) "Anyone can write to $address; each e-mail opens its own thread here." else "E-mails to $address are posted here."
+            val community = world.ctx.communityName.ifEmpty { "the belfry" }
+            val read = when { n.isPublic -> "Public: anyone on the web can read it."; g.closed -> "Closed: only its members read it."; g.isPod -> "Only the group's members read it."; else -> "Everyone in $community can read this channel." }
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).testTag("pull-about-line"), verticalAlignment = Alignment.Top) {
+                Icon(Icons.Outlined.MailOutline, contentDescription = null, tint = c.muted, modifier = Modifier.padding(top = 1.dp).size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(world.mailAddress(groupId), fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("$write $read", fontSize = 14.sp, lineHeight = 19.sp, color = c.muted)
             }
         }
         // the pinned message I haven't hidden, with Hide
@@ -97,7 +103,12 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
             }
         }
         Hairline(Modifier.padding(top = 4.dp))
-        // rows with nothing in them are left out (like the iPhone); Members, Notifications, Log and Settings stay
+        // rows with nothing in them are left out (like the iPhone); People, Notifications, Log and Settings stay
+        // a channel that takes e-mails: its e-mails first (one-shape/inbox-open), a list like the to-dos
+        if (inbox) {
+            val open = world.mailThreads(groupId).list.count { it.state.status == sh.belfry.core.model.CardStatus.OPEN }
+            MenuRow(Icons.Outlined.MailOutline, "E-mails", 0, "pd-emails", sub = if (open > 0) "$open open" else "None open") { place(ChannelPlaceKey.EMAILS) }
+        }
         if (n.showsRow("pinned")) MenuRow(Icons.Outlined.PushPin, "Pinned", n.pins, "pd-pinned") { place(ChannelPlaceKey.PINNED) }
         if (!g.isEvent && n.showsRow("events")) MenuRow(BelfryIcons.Calendar, "Events", n.events, "pd-events") { go(Routes.events(groupId)) }
         if (!g.isEvent && !g.isProposal && n.showsRow("decide")) MenuRow(BelfryIcons.Proposal, "To decide", n.proposals, "pd-decide") { place(ChannelPlaceKey.DECIDE) }
@@ -106,9 +117,11 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         if (n.showsRow("files")) MenuRow(Icons.Outlined.AttachFile, "Files", n.files, "pd-files") { go(Routes.files(groupId)) }
         if (!g.isEvent && !g.isProposal && n.showsRow("groups")) MenuRow(null, "Groups", n.groups, "pd-groups", pod = true) { place(ChannelPlaceKey.GROUPS) }
         if (n.showsRow("topics")) MenuRow(BelfryIcons.Hash, "Topics", n.topics, "pd-topics") { go(Routes.topics(groupId)) }
-        MenuRow(BelfryIcons.Users, "Members", n.members, "pd-members") { place(ChannelPlaceKey.MEMBERS) }
+        MenuRow(BelfryIcons.Users, "People", n.members, "pd-members") { place(ChannelPlaceKey.MEMBERS) }
         // the one row that opens a sheet (round 6): the channel stays behind it
         if (!world.isLocked(groupId)) MenuRow(Icons.Outlined.NotificationsNone, "Notifications", 0, "pd-notifications") { notify = true }
+        // search left the header's right side (one shape: only the bell stays there)
+        MenuRow(BelfryIcons.Search, "Search", 0, "pd-search") { go(Routes.search(groupId)) }
         MenuRow(Icons.Outlined.History, "Log", 0, "pd-log") { place(ChannelPlaceKey.LOG) }
         if (world.canAdmin(g)) MenuRow(Icons.Outlined.Settings, "Settings", 0, "pd-settings") { place(ChannelPlaceKey.SETTINGS) }
     }

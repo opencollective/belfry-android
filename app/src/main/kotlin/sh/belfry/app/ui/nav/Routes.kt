@@ -171,4 +171,6 @@ object ChannelPlaceKey {
     const val MEMBERS = "members"
     const val LOG = "log"
     const val SETTINGS = "settings"
+    /** A channel that takes e-mails: its threads as a list (one-shape/inbox-emails). */
+    const val EMAILS = "emails"
 }

@@ -190,6 +190,11 @@ sealed interface FeedItem {
     data class Activity(val root: Message, val last: Message, override val at: Long) : FeedItem {
         override val key get() = "act:" + root.id
     }
+    /** An action about an item, as one line that unfolds into the item's card (Previews.kt). */
+    data class Preview(val p: ActivityPreview) : FeedItem {
+        override val at get() = p.at
+        override val key get() = p.key
+    }
 }
 
 /** A feed item with what the list needs to lay it out. */
