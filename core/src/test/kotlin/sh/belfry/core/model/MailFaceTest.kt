@@ -48,4 +48,18 @@ class MailFaceTest {
         assertFalse(MailFace.fresh(false, t, t + 7L * 86400))
         assertFalse(MailFace.fresh(true, t, t - 10)) // a clock set back: ask again
     }
+
+    @Test fun cacheRules() {
+        assertEquals(MailFace.Keep(MailFace.Kind.PICTURE, 30L * 86400), MailFace.keep(200))
+        assertEquals(MailFace.Keep(MailFace.Kind.MISS, 7L * 86400), MailFace.keep(404))
+        assertEquals(MailFace.Keep(MailFace.Kind.MISS, 600), MailFace.keep(404, cacheControl = "public, max-age=600"))
+        assertEquals(MailFace.Keep(MailFace.Kind.MISS, 7L * 86400), MailFace.keep(404, cacheControl = "max-age=99999999"))
+        // 429 is "later", never "no picture"; it is not cached
+        assertEquals(MailFace.Kind.LATER, MailFace.keep(429).kind)
+        assertEquals(MailFace.LATER_SECONDS, MailFace.keep(429).seconds)
+        assertEquals(30L, MailFace.keep(429, retryAfter = "30").seconds)
+        assertEquals(MailFace.Kind.LATER, MailFace.keep(500).kind)
+        assertEquals(MailFace.Kind.LATER, MailFace.keep(200, image = false).kind)
+        assertEquals(MailFace.Kind.LATER, MailFace.keep(302).kind)
+    }
 }

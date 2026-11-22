@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -92,65 +94,78 @@ private fun androidx.compose.foundation.layout.BoxScope.EnvelopeCorner(face: Dp)
 
 /**
  * Pictures from the belfry's avatar service, kept in the app's cache dir by hash (named with
- * [Slots.key]: one belfry per account): a picture for 30 days, a 404 for 7 (MailFace.fresh). A
- * failure that is no 404 (offline, 5xx) is remembered for this run only, 10 minutes. Only the
- * belfry's own host is asked; redirects are not followed.
+ * [Slots.key]: one belfry per account). The rules are `MailFace.keep`: a picture 30 days, a 404 7
+ * days (or its max-age), a 429 or any other failure only in memory ("later": initials meanwhile).
+ * /api is rate-limited per IP and shared with the app's other calls: at most 3 faces are asked at
+ * a time, and only for rows on screen (the row's LaunchedEffect is cancelled when it scrolls away,
+ * which drops its place in the queue). Only the belfry's own host is asked; redirects are not followed.
  */
 object MailFaceCache {
     private const val DIR = "mail-faces"
     private const val MAX_BYTES = 2L * 1024 * 1024
-    private const val RETRY_SECONDS = 600L
     private val http by lazy {
         OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build()
     }
+    private val gate = Semaphore(3)
     private val locks = ConcurrentHashMap<String, Mutex>()
-    private val failedAt = ConcurrentHashMap<String, Long>()
+    /** key → when to ask again (unix seconds), for answers that are not cached on disk. */
+    private val laterUntil = ConcurrentHashMap<String, Long>()
 
     private fun now() = System.currentTimeMillis() / 1000
     private fun dir(context: Context) = File(context.cacheDir, DIR)
     private fun pic(context: Context, key: String) = File(dir(context), "$key.img")
+    /** A 404: the file holds when it expires (unix seconds). */
     private fun miss(context: Context, key: String) = File(dir(context), "$key.miss")
-    private fun fresh(f: File, picture: Boolean) = f.exists() && MailFace.fresh(picture, f.lastModified() / 1000, now())
+    private fun freshPicture(f: File) = f.exists() && MailFace.fresh(true, f.lastModified() / 1000, now())
+    private fun freshMiss(f: File) = f.exists() && (try { f.readText().trim().toLong() } catch (e: Exception) { 0L }) > now()
 
     /** A fresh cached picture, without asking (cheap file checks: fine on a redraw). */
-    fun known(context: Context, key: String): File? = pic(context, key).takeIf { fresh(it, true) }
+    fun known(context: Context, key: String): File? = pic(context, key).takeIf { freshPicture(it) }
 
-    /** The picture: from the cache when fresh, else asked once (one call at a time per face). Null = initials. */
+    /** The picture: from the cache when fresh, else asked once (one call at a time per face, 3 in all). Null = initials. */
     suspend fun load(context: Context, key: String, url: String): File? = withContext(Dispatchers.IO) {
         locks.getOrPut(key) { Mutex() }.withLock {
             val p = pic(context, key)
-            if (fresh(p, true)) return@withLock p
-            if (fresh(miss(context, key), false)) return@withLock null
-            failedAt[key]?.let { if (now() - it < RETRY_SECONDS) return@withLock null }
-            try {
-                http.newCall(Request.Builder().url(url).get().build()).execute().use { r ->
-                    val type = r.header("Content-Type").orEmpty()
-                    val body = r.body
-                    when {
-                        r.code == 200 && type.startsWith("image/") && body != null && body.contentLength() <= MAX_BYTES -> {
-                            val bytes = body.source().let { s -> s.request(MAX_BYTES + 1); s.buffer.let { b -> if (b.size > MAX_BYTES) null else b.readByteArray() } }
-                            if (bytes == null || bytes.isEmpty()) { failedAt[key] = now(); null } else {
-                                dir(context).mkdirs()
-                                val tmp = File(dir(context), "$key.tmp")
-                                tmp.writeBytes(bytes)
-                                miss(context, key).delete()
-                                if (tmp.renameTo(p)) p else { tmp.delete(); null }
-                            }
-                        }
-                        r.code == 404 -> {
-                            dir(context).mkdirs()
-                            miss(context, key).apply { writeText(""); setLastModified(System.currentTimeMillis()) }
-                            p.delete()
-                            null
-                        }
-                        else -> { failedAt[key] = now(); null }
+            if (freshPicture(p)) return@withLock p
+            if (freshMiss(miss(context, key))) return@withLock null
+            laterUntil[key]?.let { if (now() < it) return@withLock p.takeIf { f -> f.exists() } }
+            gate.withPermit { ask(context, key, url, p) }
+        }
+    }
+
+    private fun ask(context: Context, key: String, url: String, p: File): File? = try {
+        http.newCall(Request.Builder().url(url).get().build()).execute().use { r ->
+            val body = r.body
+            val image = r.header("Content-Type").orEmpty().startsWith("image/") && body != null && body.contentLength() <= MAX_BYTES
+            val keep = MailFace.keep(r.code, image, r.header("Cache-Control"), r.header("Retry-After"))
+            when (keep.kind) {
+                MailFace.Kind.PICTURE -> {
+                    val src = body!!.source()
+                    src.request(MAX_BYTES + 1)
+                    val bytes = if (src.buffer.size > MAX_BYTES) null else src.buffer.readByteArray()
+                    if (bytes == null || bytes.isEmpty()) { laterUntil[key] = now() + MailFace.LATER_SECONDS; null } else {
+                        dir(context).mkdirs()
+                        val tmp = File(dir(context), "$key.tmp")
+                        tmp.writeBytes(bytes)
+                        miss(context, key).delete()
+                        laterUntil.remove(key)
+                        if (tmp.renameTo(p)) p else { tmp.delete(); null }
                     }
                 }
-            } catch (e: Exception) {
-                failedAt[key] = now()
-                null
+                MailFace.Kind.MISS -> {
+                    dir(context).mkdirs()
+                    miss(context, key).writeText((now() + keep.seconds).toString())
+                    p.delete()
+                    laterUntil.remove(key)
+                    null
+                }
+                // later: an older picture still shows rather than initials
+                MailFace.Kind.LATER -> { laterUntil[key] = now() + keep.seconds; p.takeIf { it.exists() } }
             }
         }
+    } catch (e: Exception) {
+        laterUntil[key] = now() + MailFace.LATER_SECONDS
+        p.takeIf { it.exists() }
     }
 }

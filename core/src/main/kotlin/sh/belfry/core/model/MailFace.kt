@@ -53,5 +53,33 @@ object MailFace {
     fun fresh(picture: Boolean, savedAt: Long, now: Long): Boolean =
         now >= savedAt && now - savedAt < (if (picture) PICTURE_SECONDS else MISS_SECONDS)
 
+    /** What to do with an answer of the avatar service. */
+    enum class Kind { PICTURE, MISS, LATER }
+
+    /** [kind], kept for [seconds] (PICTURE / MISS: on disk; LATER: not cached, asked again after that). */
+    data class Keep(val kind: Kind, val seconds: Long)
+
+    /** How long "later" waits when the belfry says nothing (429 without Retry-After, 5xx, offline). */
+    const val LATER_SECONDS = 120L
+
+    /**
+     * The cache rule for an answer (docs/one-shape.md "Faces for e-mail correspondents"): 200 with an
+     * image = the picture for 30 days; 404 = no picture for 7 days, unless it says `Cache-Control:
+     * max-age=N` (shorter: "try later"), then N seconds; 429 (the /api rate limit) and anything else =
+     * LATER, never "no picture": initials meanwhile, asked again after Retry-After or [LATER_SECONDS].
+     */
+    fun keep(code: Int, image: Boolean = true, cacheControl: String? = null, retryAfter: String? = null): Keep {
+        val later = Keep(Kind.LATER, retryAfter?.trim()?.toLongOrNull()?.takeIf { it > 0 }?.coerceAtMost(3600) ?: LATER_SECONDS)
+        return when {
+            code == 200 && image -> Keep(Kind.PICTURE, PICTURE_SECONDS)
+            code == 404 -> Keep(Kind.MISS, maxAge(cacheControl)?.coerceAtMost(MISS_SECONDS) ?: MISS_SECONDS)
+            else -> later
+        }
+    }
+
+    /** `max-age=N` of a Cache-Control header, else null. */
+    fun maxAge(cacheControl: String?): Long? = cacheControl?.split(',')?.map { it.trim().lowercase() }
+        ?.firstOrNull { it.startsWith("max-age=") }?.removePrefix("max-age=")?.trim('"')?.toLongOrNull()?.takeIf { it >= 0 }
+
     private val BRACKETS = Regex("\\([^)]*\\)|\\[[^]]*]")
 }

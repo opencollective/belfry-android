@@ -2467,7 +2467,11 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   a disc with initials (`MailFace.initials`: first letters of the name's first and last words, a part in
   brackets left out, "Ana Pereira" → "AP"; no name → the address's first letter, "P") on the colour
   `MailFace.colorIndex` (the first 6 hex digits of the hash modulo the palette, the members' rule).
-- Cached by hash in the app's cache dir (`mail-faces/`, names `Slots.key(hash, slot)`): a picture 30
-  days, a 404 7 days (`MailFace.fresh`); other failures are retried after 10 minutes. Redirects are
-  not followed, no other host (never Gravatar) is asked. The demo, tests (`LocalNetworkImages`) and
+- No auth. Cached by hash in the app's cache dir (`mail-faces/`, names `Slots.key(hash, slot)`), rules
+  `MailFace.keep`: 200 = the picture for 30 days; 404 = no picture for 7 days, or for its
+  `Cache-Control: max-age` when shorter (600 = "try later"); 429 (the /api limit, 60 a minute per IP,
+  shared with the app's other calls) and any other failure = "later", never "no picture": not cached,
+  asked again after Retry-After or 2 minutes, initials (or an older picture) meanwhile. At most 3 faces
+  are asked at a time, only for rows on screen. Redirects are not followed, no other host (never
+  Gravatar) is asked. The demo, tests (`LocalNetworkImages`) and
   previews ask nothing: initials.
