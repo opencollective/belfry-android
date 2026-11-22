@@ -118,8 +118,10 @@ object OneShape {
     data class StatusLabel(val id: String, val at: Long, val l: String)
 
     /** open | answered | closed: the newest label (none = open); a received mail newer than the newest answered / closed label reopens it. */
-    fun threadState(received: List<Long>, labels: List<StatusLabel>): String {
-        val sorted = labels.filter { it.l == "open" || it.l == "answered" || it.l == "closed" }.sortedWith(compareBy<StatusLabel> { it.at }.thenBy { it.id })
+    fun threadState(received: List<Long>, labels: List<StatusLabel>, sent: List<Long> = emptyList()): String {
+        // a sent reply card counts as an `answered` label at its time (threads answered before 0.8.0 have none)
+        val all = labels + sent.mapIndexed { i, at -> StatusLabel("sent:$i", at, "answered") }
+        val sorted = all.filter { it.l == "open" || it.l == "answered" || it.l == "closed" }.sortedWith(compareBy<StatusLabel> { it.at }.thenBy { it.id })
         val base = sorted.lastOrNull()?.l ?: "open"
         val settled = sorted.lastOrNull { it.l == "answered" || it.l == "closed" }?.at ?: return base
         val newestIn = received.maxOrNull() ?: return base

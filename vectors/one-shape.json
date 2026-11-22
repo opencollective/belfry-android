@@ -795,7 +795,7 @@
   ]
  },
  "threadState": {
-  "about": "An e-mail thread's state. labels = the belfry/inbox status labels (kind 1985, l = open | answered | closed) on its first card. Base = the newest label's value (ties by id ascending: the higher id wins), open when there is none. Then: if the newest received e-mail (created_at) is newer than the newest answered-or-closed label, the thread is open again. Computed by every reader; no event.",
+  "about": "An e-mail thread's state. labels = the belfry/inbox status labels (kind 1985, l = open | answered | closed) on its first card. Base = the newest label's value (ties by id ascending: the higher id wins), open when there is none. Then: if the newest received e-mail (created_at) is newer than the newest answered-or-closed label, the thread is open again. Computed by every reader; no event. A sent reply card (kind 9 by the groups key, client belfry-mail-out; `sent` here, its created_at) counts as an `answered` label at its time (vectors/mailthreads.json: threads answered before 0.8.0 have no label). `sent` absent = none.",
   "cases": [
    {
     "name": "no label",
@@ -886,6 +886,29 @@
      }
     ],
     "expect": "answered"
+   },
+   {
+    "name": "a sent card with no label = answered",
+    "received": [
+     100
+    ],
+    "sent": [
+     150
+    ],
+    "labels": [],
+    "expect": "answered"
+   },
+   {
+    "name": "a sent card, then the sender wrote again",
+    "received": [
+     100,
+     200
+    ],
+    "sent": [
+     150
+    ],
+    "labels": [],
+    "expect": "open"
    }
   ]
  },
