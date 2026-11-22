@@ -31,7 +31,7 @@ class OneShapeEventShotsTest : DemoShots() {
 
     /** The cover is decoded off the main thread: wait for it before the picture. */
     private fun coverIn() {
-        compose.waitUntil(10_000) { has("cover-loaded") }
+        compose.waitUntil(30_000) { has("cover-loaded") } // busy CI runners took > 10 s (main run 45022495254)
         compose.waitForIdle()
     }
 
