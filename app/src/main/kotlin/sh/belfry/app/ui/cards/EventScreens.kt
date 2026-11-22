@@ -288,9 +288,10 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
 
     // One shape (SPEC 19.54; canvas one-shape/event-default, -tiny, -full): three states over the event's chat.
     // Mid (HALF) while it needs me (not answered, still going?, people asking); tiny (UP) once answered.
-    // A meeting or an older calendar event opens whole (their people and answers are the page itself).
+    // A meeting always opens mid: who comes on top, its chat below (Xavier, 2026-11-22). An older
+    // calendar event still opens whole.
     var level by rememberSaveable(e.coord) {
-        mutableStateOf(if (e.isNew && !e.meeting) (if (world.eventNeedsMe(e, now, api)) EventLevel.HALF else EventLevel.UP) else EventLevel.FULL)
+        mutableStateOf(if (!e.isNew) EventLevel.FULL else if (e.meeting || world.eventNeedsMe(e, now, api)) EventLevel.HALF else EventLevel.UP)
     }
     val full = level == EventLevel.FULL
     val viewer = rememberViewer(e)
@@ -299,7 +300,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
     var people by rememberSaveable(e.coord) { mutableStateOf(false) }
     var cardOpen by remember(ticket) { mutableStateOf(true) }
     val (hostList, goingList, maybeList) = world.eventPeopleList(e)
-    val hostsShown = api?.hostedBy?.map { it.first }?.ifEmpty { null } ?: hostList.ifEmpty { e.hosts.toList() }
+    // a meeting: who made it and the co-hosts they named, never the belfry's admins or the door
+    val hostsShown = if (e.meeting) hostList.filter { world.eventRole(e, it) == sh.belfry.core.model.EventRole.HOST || world.eventRole(e, it) == sh.belfry.core.model.EventRole.COHOST }
+        else api?.hostedBy?.map { it.first }?.ifEmpty { null } ?: hostList.ifEmpty { e.hosts.toList() }
     val items = eventRowItems(e, st, if (e.meeting) world.meetingPeople(e).size else going)
     val onMore = { sheet = EventSheet.Menu }
     val onBack = { nav.back() }
@@ -342,8 +345,10 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 Text(line, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             }
         }
-        // my ticket and, on the event's days, checking people in (SPEC 19.29): one wide button each
+        // my ticket and, on the event's days, checking people in (SPEC 19.29): one wide button each.
+        // A meeting has no ticket: its host checks people in from the list.
         val code = viewer?.ticketUrl
+        if (e.meeting) return
         if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-ticket"))
         if (mayCheck && world.onEventDays(e, now)) {
             BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-checkin"))
@@ -376,6 +381,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                     }
                     EventHostedBy(e, hostsShown, api)
                     Faces()
+                    if (e.meeting && !e.remote) MeetingFaces(e) { level = EventLevel.FULL }
                     if (e.description.isNotEmpty()) {
                         Text(
                             sh.belfry.core.markdown.Markdown.plain(e.description), fontSize = 15.sp, lineHeight = 21.sp, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
@@ -465,19 +471,31 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 ActionGroup { ActionRow("Delete event", onClick = { sheet = EventSheet.Delete }, modifier = Modifier.testTag("event-delete"), icon = BelfryIcons.Trash, danger = true) }
             }
         }
-        // the handle: a tap moves a level (mid → full → tiny → mid), a drag up / down too
-        Box(
-            Modifier.fillMaxWidth().height(24.dp)
+        // the handle: a drag up / down moves a level; so do the arrows at its ends (up: full → mid →
+        // tiny, down: tiny → mid → full), which need no gesture; a tap on the bar goes on to the next
+        Row(
+            Modifier.fillMaxWidth().height(40.dp)
                 .pointerInput(Unit) {
                     var moved = 0f
                     detectVerticalDragGestures(onDragStart = { moved = 0f }, onDragEnd = {
                         if (moved < -16f) level = level.up() else if (moved > 16f) level = level.down()
                     }) { _, dy -> moved += dy }
-                }
-                .clickable(role = Role.Button, onClickLabel = "Show more or less of the event") { level = level.next() }
-                .testTag("event-handle"),
-            contentAlignment = Alignment.Center,
-        ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                if (level != EventLevel.UP) IconAction(BelfryIcons.ChevronUp, "Show less of the event", { level = level.up() }, Modifier.testTag("event-less"))
+            }
+            Box(
+                Modifier.weight(1f).height(40.dp)
+                    .clickable(role = Role.Button, onClickLabel = "Show more or less of the event") { level = level.next() }
+                    .testTag("event-handle"),
+                contentAlignment = Alignment.Center,
+            ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
+            Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+                if (level != EventLevel.FULL) IconAction(BelfryIcons.ChevronDown, "Show more of the event", { level = level.down() }, Modifier.testTag("event-more-level"))
+            }
+        }
         Hairline()
         // the conversation continues below (mid and tiny)
         if (!full) {

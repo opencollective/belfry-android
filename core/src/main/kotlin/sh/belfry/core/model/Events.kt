@@ -458,6 +458,23 @@ fun World.eventOfGroup(groupId: String): CalEvent? = calendar.firstOrNull { it.g
 // ---- one shape: the event screen (SPEC 19.54) ------------------------------------------------------
 
 object EventShape {
+    /**
+     * The form's end once its start moved: the event keeps its length (an all-day one its number of
+     * days). An end that was before the start (nothing to keep): an hour after the new start.
+     */
+    fun endFor(
+        startDate: java.time.LocalDate, startTime: java.time.LocalTime, endDate: java.time.LocalDate, endTime: java.time.LocalTime,
+        newDate: java.time.LocalDate, newTime: java.time.LocalTime, allDay: Boolean,
+    ): Pair<java.time.LocalDate, java.time.LocalTime> {
+        if (allDay) {
+            val days = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate).coerceAtLeast(0)
+            return newDate.plusDays(days) to endTime
+        }
+        val was = java.time.Duration.between(java.time.LocalDateTime.of(startDate, startTime), java.time.LocalDateTime.of(endDate, endTime))
+        val end = java.time.LocalDateTime.of(newDate, newTime).plus(if (was.isNegative) java.time.Duration.ofHours(1) else was)
+        return end.toLocalDate() to end.toLocalTime()
+    }
+
     /** Join opens this long before the start. */
     const val JOIN_EARLY = 10 * 60L
     /** An event with no end: Join stays open this long after the start. */
@@ -551,8 +568,9 @@ object EventActions {
      * A host's new version (rule B), and the group's name / picture when they changed. A meeting's
      * own tags stay (what it is, where it was made, who is invited); EXTRA adds to them.
      */
-    fun edit(e: CalEvent, n: EventForm, g: Group?, groupsRelay: String, extra: List<Tag> = emptyList()): List<Draft> {
-        val keep = e.ev.tags.filter { t -> (t.size >= 2 && t[0] == "t" && t[1] == "meeting") || t.firstOrNull() == "channel" || (t.size >= 4 && t[0] == "p" && t[3] == "invited") }
+    fun edit(e: CalEvent, n: EventForm, g: Group?, groupsRelay: String, extra: List<Tag> = emptyList(), drop: Set<String> = emptySet()): List<Draft> {
+        // DROP: people no longer invited (a host removed them from the meeting)
+        val keep = e.ev.tags.filter { t -> (t.size >= 2 && t[0] == "t" && t[1] == "meeting") || t.firstOrNull() == "channel" || (t.size >= 4 && t[0] == "p" && t[3] == "invited" && t[1] !in drop) }
         val more = keep.filter { it !in extra } + extra + if (e.status == EventStatus.CANCELLED) listOf(listOf("status", "cancelled")) else emptyList()
         val (kind, tags) = versionTags(e.d, n, groupsRelay, more)
         val out = arrayListOf(Draft(Target.MAIN, kind, n.description, tags))

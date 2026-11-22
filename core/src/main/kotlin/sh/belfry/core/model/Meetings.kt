@@ -74,6 +74,20 @@ object Meetings {
             EventActions.edit(e, formOf(e, zone), g, groupsRelay, invitedTags(fresh))
     }
 
+    /**
+     * A host takes PUBKEY off meeting E: out of its chat (9001) and off the event (a new version
+     * without their `p … invited`). Never the person who made it.
+     */
+    fun uninvite(e: CalEvent, pubkey: String, g: Group?, groupsRelay: String, zone: String): List<Draft> {
+        if (pubkey == e.creator || !Hex.isKey(pubkey)) return emptyList()
+        return listOf(Draft(Target.GROUPS, 9001, tags = listOf(listOf("h", e.groupId), listOf("p", pubkey)))) +
+            if (pubkey in e.invited) EventActions.edit(e, formOf(e, zone), g, groupsRelay, drop = setOf(pubkey)) else emptyList()
+    }
+
+    /** Checking people in opens a quarter of an hour before the start (people arrive early); before, a host can only remove. */
+    const val CHECK_IN_EARLY = 15 * 60L
+    fun checkInOpen(e: CalEvent, now: Long): Boolean = now >= e.start - CHECK_IN_EARLY
+
     /** A host marks PUBKEY as there (ON) or not. */
     fun checkIn(e: CalEvent, pubkey: String, on: Boolean): Draft = Draft(
         Target.GROUPS, 1985, "",
@@ -103,18 +117,52 @@ fun World.attendance(e: CalEvent): Map<String, Boolean> {
     return out.mapValues { it.value.second }
 }
 
-/** A meeting's people: who made it, everyone invited, and whoever answered. */
-fun World.meetingPeople(e: CalEvent): List<String> = (listOf(e.creator) + e.invited + e.rsvps.keys).distinct()
+/** Where a person stands for a meeting: asked, said yes (or maybe / no), or seen there by a host. */
+enum class MeetingStatus(val label: String) {
+    INVITED("Invited"), CONFIRMED("Confirmed"), MAYBE("Maybe"), DECLINED("Can't come"), CHECKED_IN("Checked in")
+}
+
+/** Who a host took off the meeting: the chat's latest 9000 / 9001 about them is a 9001. */
+fun World.meetingRemoved(e: CalEvent): Set<String> {
+    val last = HashMap<String, Int>()
+    for (x in groupEventsSorted(e.groupId)) {
+        if (x.kind != 9000 && x.kind != 9001) continue
+        val p = x.t("p") ?: continue
+        last[p] = x.kind
+    }
+    return last.filter { it.value == 9001 }.keys
+}
+
+/** A meeting's people: who made it, everyone invited, and whoever answered; not who was removed. */
+fun World.meetingPeople(e: CalEvent): List<String> {
+    val gone = meetingRemoved(e)
+    return (listOf(e.creator) + (e.invited + e.rsvps.keys).filter { it !in gone }).distinct()
+}
 
 /** The name-only accounts I made for a meeting: mine to hand over (the belfry checks it too). */
 fun World.heldByMe(e: CalEvent): Set<String> = guestJoins(e.groupId).filter { it.unsaved && it.by == me }.map { it.pubkey }.toSet()
 
-/** What a person's row of a meeting says under the name. */
-fun World.meetingRole(e: CalEvent, pubkey: String, there: Map<String, Boolean>): String = when {
-    there[pubkey] == true -> "There"
-    e.rsvps[pubkey] != null -> e.rsvps.getValue(pubkey).label
-    pubkey in e.hosts -> "Host"
-    else -> "Invited"
+/** Checked in (a host's mark) wins, then their answer; the person who made it has confirmed by making it. */
+fun World.meetingStatus(e: CalEvent, pubkey: String, there: Map<String, Boolean>): MeetingStatus = when {
+    there[pubkey] == true -> MeetingStatus.CHECKED_IN
+    e.rsvps[pubkey] == Rsvp.ACCEPTED -> MeetingStatus.CONFIRMED
+    e.rsvps[pubkey] == Rsvp.TENTATIVE -> MeetingStatus.MAYBE
+    e.rsvps[pubkey] == Rsvp.DECLINED -> MeetingStatus.DECLINED
+    pubkey == e.creator -> MeetingStatus.CONFIRMED
+    else -> MeetingStatus.INVITED
+}
+
+/**
+ * What a person's row of a meeting says under the name: "Host · " for who made it, "Co-host · "
+ * for someone made one (never the belfry's admins, who are admins of every chat), then the status.
+ */
+fun World.meetingRole(e: CalEvent, pubkey: String, there: Map<String, Boolean>): String {
+    val status = meetingStatus(e, pubkey, there).label
+    return when (eventRole(e, pubkey)) {
+        EventRole.HOST -> "Host · $status"
+        EventRole.COHOST -> "Co-host · $status"
+        else -> status
+    }
 }
 
 /**

@@ -24,6 +24,7 @@ import sh.belfry.core.model.meetingSuggestions
 import sh.belfry.core.model.attendance
 import sh.belfry.core.model.Named
 import sh.belfry.core.model.Meetings
+import sh.belfry.core.model.meetingPeople
 import sh.belfry.core.model.MeetingForm
 import sh.belfry.app.ui.cards.EventHandoff
 import sh.belfry.app.ui.cards.CreateMeetingScreen
@@ -213,11 +214,11 @@ class EventsTest : DemoShots() {
     // ---- meetings (web 2026-11-12) ---------------------------------------------------------------------
 
     /** A meeting made in the demo: two members, one person by name (her account is mine to hand over). */
-    private fun aMeeting(): CalEvent {
+    private fun aMeeting(start: Long = NOW + 2 * 3600): CalEvent {
         started()
         val people = world.people.map { it.first }.filter { it != session.me }.take(2)
         val d = runBlocking {
-            session.events.createMeeting(Demo.GARDEN, MeetingForm("Plan the garden day", people, listOf(Named("Ines Duarte", null)), NOW + 2 * 3600, 45, "The shed", "", "UTC"))
+            session.events.createMeeting(Demo.GARDEN, MeetingForm("Plan the garden day", people, listOf(Named("Ines Duarte", null)), start, 45, "The shed", "", "UTC"))
         }
         repeat(200) {
             settle()
@@ -237,7 +238,58 @@ class EventsTest : DemoShots() {
         runBlocking { session.events.checkIn(e, e.invited.first(), true) }
         var tries = 0
         while (world.attendance(e).isEmpty() && tries++ < 200) { settle(); Thread.sleep(25) }
+        // it opens mid: who comes (invited, confirmed, checked in) over its chat
         demoShot("meeting-page") { EventScreen(e.coord) }
+    }
+
+    /** Pulled down: the people with their status; before it starts a host can only take someone off. */
+    @Test
+    fun meetingFullBefore() {
+        val e = aMeeting()
+        demoShot("meeting-full-before", act = { compose.onNodeWithTag("event-more-level").performClick() }) { EventScreen(e.coord) }
+    }
+
+    /** Started: Check in per person, one checked in. */
+    @Test
+    fun meetingFullStarted() {
+        val e = aMeeting(NOW - 300)
+        runBlocking { session.events.checkIn(e, e.invited.first(), true) }
+        var tries = 0
+        while (world.attendance(e).isEmpty() && tries++ < 200) { settle(); Thread.sleep(25) }
+        demoShot("meeting-full-started", act = { compose.onNodeWithTag("event-more-level").performClick() }) { EventScreen(e.coord) }
+    }
+
+    @Test
+    fun aMeetingOpensMidWithNoTicketAndGoesUpAndDown() {
+        val e = aMeeting()
+        compose.setContent { BelfryTheme { InDemo { EventScreen(e.coord) } } }
+        compose.onNodeWithTag("event-screen-half").assertExists()
+        compose.onNodeWithTag("meeting-faces").assertExists()
+        compose.onNodeWithTag("event-ticket").assertDoesNotExist()
+        tap("event-more-level")
+        compose.onNodeWithTag("event-screen-full").assertExists()
+        compose.onNodeWithTag("event-ticket").assertDoesNotExist()
+        // back up: mid, then all the way
+        tap("event-less")
+        compose.onNodeWithTag("event-screen-half").assertExists()
+        tap("event-less")
+        compose.onNodeWithTag("event-screen-up").assertExists()
+    }
+
+    @Test
+    fun aHostTakesSomeoneOffBeforeItStarts() {
+        val e = aMeeting()
+        val who = e.invited.first()
+        compose.setContent { BelfryTheme { InDemo { EventScreen(e.coord) } } }
+        tap("event-more-level")
+        // not started: no check-in, a remove icon (never for the person who made it)
+        compose.onNodeWithTag("meet-check-" + who.take(8)).assertDoesNotExist()
+        compose.onNodeWithTag("meet-remove-" + session.me.take(8)).assertDoesNotExist()
+        compose.onNodeWithTag("meet-remove-" + who.take(8)).performScrollTo().performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("meet-remove-ok").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("meet-remove-ok").performClick()
+        compose.waitUntil(10_000) { settle(); world.calendar.first { it.d == e.d }.let { who !in it.invited && who !in world.meetingPeople(it) } }
+        assertEquals(1, world.all.count { it.kind == 9001 && it.tag("h") == e.groupId && it.tag("p") == who })
     }
 
     @Test
@@ -259,23 +311,26 @@ class EventsTest : DemoShots() {
         assertEquals(Demo.GARDEN, e.madeIn)
         // its chat is closed and the person invited was put in it
         assertEquals(1, world.all.count { it.kind == 9000 && it.tag("h") == e.groupId && it.tag("p") == someone })
-        // its URL waits for the channel's message box, and the form is left
-        compose.waitUntil(5_000) { EventHandoff.pending?.first == Demo.GARDEN }
+        // its URL is sent in the channel it was made from (once), and the form is left
+        compose.waitUntil(5_000) { world.all.any { it.kind == 9 && it.tag("h") == Demo.GARDEN && it.content.contains("/events/" + e.d) } }
+        settle()
+        assertEquals(1, world.all.count { it.kind == 9 && it.tag("h") == Demo.GARDEN && it.content.contains("/events/" + e.d) })
         assertTrue(nav.went.contains("<back>"))
-        EventHandoff.take(Demo.GARDEN)
+        assertEquals(null, EventHandoff.pending)
     }
 
     @Test
     fun aHostChecksSomeoneIn() {
-        val e = aMeeting()
+        val e = aMeeting(NOW - 300)
         val who = e.invited.first()
         compose.setContent { BelfryTheme { InDemo { EventScreen(e.coord) } } }
+        tap("event-more-level")
         val tag = "meet-check-" + who.take(8)
         // (a second tap once the first is sent is a new answer: it would mark them not there again)
         compose.onNodeWithTag(tag).performScrollTo().performClick()
         compose.waitUntil(10_000) { world.attendance(e)[who] == true }
         settle()
         assertEquals("one tap, one mark", 1, world.all.count { x -> x.kind == 1985 && x.tags.any { it.size >= 2 && it[0] == "L" && it[1] == Meetings.ATTENDANCE_NS } })
-        compose.waitUntil(5_000) { compose.onAllNodesWithText("✓ There").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Checked in").fetchSemanticsNodes().isNotEmpty() }
     }
 }

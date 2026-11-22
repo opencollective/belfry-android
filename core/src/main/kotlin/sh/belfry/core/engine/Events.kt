@@ -207,9 +207,11 @@ class EventsService internal constructor(private val s: Session) {
      * few times), who are invited on a new version of the event. Returns the event's id (`d`).
      * Throws [ActionException]; code `named`: the meeting is made, someone could not be added.
      */
-    suspend fun createMeeting(channel: String, m: MeetingForm): String {
+    suspend fun createMeeting(channel: String, m: MeetingForm, announce: Boolean = false): String {
         val d = EventLinks.newD(s.now())
         s.send(Meetings.create(channel, m, d, s.me, s.community.groupsRelay, s.community.mainRelay))
+        // ANNOUNCE: its URL is sent in the channel it was made from (a card there), at once
+        if (announce) s.postMessage(channel, EventLinks.url(s.community.domain, d))
         val named = m.named.filter { it.name.isNotBlank() }
         if (named.isEmpty()) return d
         val keys = ArrayList<String>()
@@ -259,6 +261,13 @@ class EventsService internal constructor(private val s: Session) {
     suspend fun invite(e: CalEvent, keys: List<String>) {
         val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
         val drafts = Meetings.invite(now, keys, world.group(now.groupId), s.community.groupsRelay, s.zoneId)
+        if (drafts.isNotEmpty()) s.send(drafts)
+    }
+
+    /** A host takes someone off the meeting (out of its chat, off the event). */
+    suspend fun uninvite(e: CalEvent, pubkey: String) {
+        val now = world.calendar.firstOrNull { it.coord == e.coord } ?: e
+        val drafts = Meetings.uninvite(now, pubkey, world.group(now.groupId), s.community.groupsRelay, s.zoneId)
         if (drafts.isNotEmpty()) s.send(drafts)
     }
 

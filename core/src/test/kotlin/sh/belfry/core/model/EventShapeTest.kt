@@ -74,4 +74,22 @@ class EventShapeTest {
         assertEquals("Lina Moreau and Ben Okafor", EventShape.names(listOf("Lina Moreau", "Ben Okafor")))
         assertEquals("A, B and C", EventShape.names(listOf("A", "B", "C")))
     }
+
+    @Test
+    fun theEndFollowsTheStart() {
+        val d = java.time.LocalDate.of(2026, 11, 24)
+        fun t(h: Int, m: Int = 0) = java.time.LocalTime.of(h, m)
+        // a later hour: the same length
+        assertEquals(d to t(21, 30), EventShape.endFor(d, t(18), d, t(19, 30), d, t(20), false))
+        // an earlier hour too
+        assertEquals(d to t(11, 30), EventShape.endFor(d, t(18), d, t(19, 30), d, t(10), false))
+        // over midnight
+        assertEquals(d.plusDays(1) to t(0, 30), EventShape.endFor(d, t(18), d, t(19, 30), d, t(23), false))
+        // another day: the end's day moves as far
+        assertEquals(d.plusDays(8) to t(9), EventShape.endFor(d, t(18), d.plusDays(1), t(9), d.plusDays(7), t(18), false))
+        // all day: the number of days stays
+        assertEquals(d.plusDays(5), EventShape.endFor(d, t(0), d.plusDays(2), t(0), d.plusDays(3), t(0), true).first)
+        // an end before the start: an hour after the new start
+        assertEquals(d to t(11), EventShape.endFor(d, t(18), d, t(9), d, t(10), false))
+    }
 }

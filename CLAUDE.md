@@ -113,6 +113,11 @@ minSdk 26, JDK 17.
   `compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag(tag)))`.
 - Channel info opens on a tab with `Routes.channelInfo(id, InfoTab.KEY_…)`. The Log's words are
   `core/model/ChannelLog.kt` (the web's `logItem`): a new kind of event gets its line there.
+- Meetings, second pass (SPEC 19.63): a meeting opens mid with `MeetingFaces` (status marks:
+  `MeetingStatus`, `World.meetingStatus`); "Host" is only its maker (`World.meetingRole` goes by
+  `eventRole`, never `e.hosts`, which holds the belfry's admins); a host removes before the start
+  (`Meetings.uninvite`) and checks in from `Meetings.checkInOpen`; its link is sent by
+  `createMeeting(announce = true)`, not handed to the composer. The handle's ⌃ ⌄ are for every event.
 - Meetings are Belfry events with three extra kinds of tags (`core/model/Meetings.kt`, SPEC
   19.23); `EventActions.edit` keeps them. Audio attachments play in `ui/chat/AudioPlayer.kt`;
   recording is `core/audio/` (rules, ADTS, the .m4a writer) + `app/.../rec/` (`Recorder`, the thin

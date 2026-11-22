@@ -2557,3 +2557,31 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   visibility as before 0.8: same wire, same words, Public asks first). A Private group has no
   Public row; a group made Private while its page is public is saved as members only (its web
   settings written with `on`/`visibility` members, as going members only always did).
+
+### 19.63 Meetings, second pass (2026-11-22; Xavier's word, from his tablet; changes 19.23 on Android)
+
+- **Made from a channel:** its URL is sent in that channel as a message (kind 9, the URL alone) as
+  soon as the meeting's events are queued; nothing is left in the message box. **Made from the
+  Calendar's ＋** (which now asks: Event or Meeting): nothing is posted, the meeting opens; people
+  are suggested from the Townsquare and its `channel` tag says `general`.
+- **The form** shows the video link itself once added (with ✕ to take it off), not "Video link added".
+- **The page opens mid** (19.54's three states; a meeting no longer opens whole): title, when,
+  where, "Hosted by", then one row of faces, each with its status in the corner, and the counts in
+  words ("1 checked in · 2 confirmed · 1 invited"); a tap opens full. Below, its chat. No "Show my
+  ticket" and no "Check people in" (QR) on a meeting.
+- **Status** (`MeetingStatus`): Checked in (a host's latest `attended` label) · Confirmed (RSVP
+  accepted; also the person who made it, unless they answered otherwise) · Maybe · Can't come ·
+  Invited. Marks: a filled tick, a tick, "?", ✕, a clock (never colour alone).
+- **Hosts.** Only the person who made it is "Host"; "Co-host" is someone made one (an admin by
+  role); the belfry's admins (admins of every chat through its 39001) and the door are neither.
+  A row says "Host · Confirmed", "Invited", …
+- **For a host, per person:** before check-in opens (15 minutes before the start,
+  `Meetings.checkInOpen`), a ✕ that asks, then takes the person off: `9001 [["h",<chat>],["p",<pubkey>]]`
+  and a new version of the event without their `p … invited` (`Meetings.uninvite`; never the
+  maker). Someone whose latest 9000 / 9001 in the chat is a 9001 is no longer among the meeting's
+  people, whatever they answered. From then on: "Check in" → "✓ Checked in" (the 1985 of 19.23).
+  There is no "Confirm" button any more.
+- **The handle** of an event's page (all events): ⌃ on its left goes up a level (full → mid →
+  tiny), ⌄ on its right goes down; the drag and the tap on the bar stay.
+- **The event form:** changing the start (day or time) moves the end by as much: the event keeps
+  its length (`EventShape.endFor`; all-day: its number of days).

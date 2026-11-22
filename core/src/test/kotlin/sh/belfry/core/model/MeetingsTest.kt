@@ -121,9 +121,9 @@ class MeetingsTest {
         events.add(ev(alice, t0 + 303, 1985, tags = listOf(listOf("h", g), listOf("L", "belfry/pin"), listOf("l", "pinned", "belfry/pin"), listOf("p", dave))))
         var w = world(events)
         assertEquals(mapOf(bob to true, carol to false), w.attendance(e))
-        assertEquals("There", w.meetingRole(e, bob, w.attendance(e)))
+        assertEquals("Checked in", w.meetingRole(e, bob, w.attendance(e)))
         assertEquals("Invited", w.meetingRole(e, carol, w.attendance(e)))
-        assertEquals("Host", w.meetingRole(e, alice, w.attendance(e)))
+        assertEquals("Host · Confirmed", w.meetingRole(e, alice, w.attendance(e)))
         // the host changes their mind: the latest counts
         events.add(draft(alice, t0 + 400, Meetings.checkIn(e, bob, false)))
         w = world(events)
@@ -133,6 +133,31 @@ class MeetingsTest {
         w = world(events)
         val now = w.calendar.single()
         assertEquals("Maybe", w.meetingRole(now, carol, w.attendance(now)))
+        events.add(draft(carol, t0 + 600, EventActions.rsvp(now, Rsvp.ACCEPTED, carol)))
+        w = world(events)
+        assertEquals(MeetingStatus.CONFIRMED, w.meetingStatus(w.calendar.single(), carol, emptyMap()))
+    }
+
+    @Test
+    fun aHostTakesSomeoneOff() {
+        val events = made().toMutableList()
+        val e = world(events).calendar.single()
+        assertTrue(carol in world(events).meetingPeople(e))
+        val drafts = Meetings.uninvite(e, carol, null, "wss://g", "UTC")
+        assertEquals(listOf(listOf("h", g), listOf("p", carol)), drafts.first().tags)
+        assertEquals(9001, drafts.first().kind)
+        // never the person who made it
+        assertTrue(Meetings.uninvite(e, alice, null, "wss://g", "UTC").isEmpty())
+        drafts.forEachIndexed { i, d -> events.add(draft(alice, t0 + 700 + i, d)) }
+        val w = world(events)
+        val now = w.calendar.single()
+        assertTrue(carol !in now.invited)
+        assertTrue(bob in now.invited)
+        assertTrue(now.meeting)
+        assertTrue(carol !in w.meetingPeople(now))
+        // checking in opens a quarter of an hour before the start
+        assertTrue(!Meetings.checkInOpen(now, now.start - 16 * 60))
+        assertTrue(Meetings.checkInOpen(now, now.start - 15 * 60))
     }
 
     @Test
