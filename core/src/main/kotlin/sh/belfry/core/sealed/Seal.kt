@@ -100,9 +100,11 @@ object Sealing {
 
     /**
      * One wrap of RUMOR for a person: the seal signed by DEVICE and encrypted to their letterbox
-     * LB, the wrap signed by a one-time key, tagged `p` (their account) and `lb`.
+     * LB, the wrap signed by a one-time key, tagged `p` (their account) and `lb`. SILENT: the wrap
+     * addresses only its own sender (RECIPIENT is my own account: the self-copy, a note to myself, an
+     * 8563), so it also carries `["silent", "1"]` (§4 "Silent wraps"); never on a wrap to someone else.
      */
-    fun seal(rumor: Event, device: LocalSigner, recipient: String, lb: String, now: Long = unixNow()): Event {
+    fun seal(rumor: Event, device: LocalSigner, recipient: String, lb: String, now: Long = unixNow(), silent: Boolean = false): Event {
         require(Hex.isKey(recipient) && Hex.isKey(lb))
         val json = rumor.copy(sig = "").toJsonString()
         if (!fits(rumor)) throw TooLarge()
@@ -110,7 +112,7 @@ object Sealing {
         val seal = device.signNow(EventTemplate(SEAL, sealed, emptyList(), GiftWrap.backdate(now)))
         val oneTime = LocalSigner.random()
         val content = oneTime.nip44EncryptNow(lb, seal.toJsonString())
-        return oneTime.signNow(EventTemplate(WRAP, content, listOf(listOf("p", recipient), listOf("lb", lb)), GiftWrap.backdate(now)))
+        return oneTime.signNow(EventTemplate(WRAP, content, listOfNotNull(listOf("p", recipient), listOf("lb", lb), GiftWrap.SILENT.takeIf { silent }), GiftWrap.backdate(now)))
     }
 
     /**
@@ -211,7 +213,7 @@ object Sealing {
      * several when one would pass the 40 000-byte ceiling (§5.5, 61d7846).
      */
     suspend fun keysFor(giver: LocalSigner, account: String, receivingDevice: String, chain: KeyChain, now: Long = unixNow()): List<Event> =
-        keysRumors(giver.pubkey, account, chain, now).map { GiftWrap.wrap(it, receivingDevice, giver) }
+        keysRumors(giver.pubkey, account, chain, now).map { GiftWrap.wrap(it, receivingDevice, giver, silent = true) } // to my own device: silent (§4)
 
     /** The 8561 rumors of a hand-over, each filled until one more key would take its JSON past 40 000 bytes. */
     fun keysRumors(giver: String, account: String, chain: KeyChain, now: Long = unixNow()): List<Event> {

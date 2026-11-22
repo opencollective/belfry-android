@@ -26,6 +26,7 @@ import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.EventTemplate
 import sh.belfry.core.nostr.LocalSigner
 import sh.belfry.core.nostr.Signer
+import sh.belfry.core.nostr.isValid
 import sh.belfry.core.nostr.s
 import sh.belfry.core.outbox.OutboxItem
 import sh.belfry.core.outbox.Target
@@ -345,7 +346,7 @@ class NotesTest {
         val a = side(null) // an agent, a member holding their own key, a guest: no device key, no engine
         a.dm.send(notes, "Private to my account")
         val wrap = a.host.queued.single().signed!!
-        assertEquals(listOf(listOf("p", me)), wrap.tags, "a NIP-17 wrap to my own account: no lb")
+        assertEquals(listOf(listOf("p", me), listOf("silent", "1")), wrap.tags, "a NIP-17 wrap to my own account: no lb; silent")
         assertFalse(Sealing.isSealed(wrap))
         assertTrue(a.signer.calls > 0, "through the signer, as old direct messages")
         val o = assertNotNull(GiftWrap.unwrap(wrap, alice))
@@ -377,6 +378,158 @@ class NotesTest {
         val t = a.dm.snapshot.value.thread(notes)
         assertEquals(listOf("An old note", "A sealed note", "Written the old way, later"), t.map { it.text })
         assertEquals(listOf(false, false, true), t.map { it.notSealed })
+    }
+
+    // ---- silent wraps (docs/sealed.md §4 "Silent wraps", SPEC 19.67) -----------------------------
+
+    private fun silent(w: Event) = GiftWrap.isSilent(w)
+
+    /** Alice and Bob, both ready, on their phones. */
+    private fun both(): Pair<Side, Side> = runBlocking {
+        val a = engine(); a.start("Pixel 8", "phone"); a.checkReady()
+        val b = engine(bob, bobPhone); b.start("Bob's phone", "phone"); b.checkReady()
+        side(a) to side(b, bob)
+    }
+
+    /** What this implementation makes, by the vectors' names ('carries'); the 8563 and the mail are in the engine's own tests. */
+    private fun observed(): Map<String, Boolean> = runBlocking {
+        val out = LinkedHashMap<String, Boolean>()
+        val (a, b) = both()
+        val withBob = "n:${bob.pubkey}"
+        a.dm.send(withBob, "See you Sunday!")
+        val sealed = a.host.queued.map { it.signed!! }
+        assertEquals(2, sealed.size); assertTrue(sealed.all { Sealing.isSealed(it) })
+        out["sealed message: the copy to myself"] = silent(sealed.single { it.tag("p") == me })
+        out["sealed message: the wrap for the other person"] = silent(sealed.single { it.tag("p") == bob.pubkey })
+        a.dm.send(notes, "A note")
+        out["a sealed note to myself"] = silent(a.host.queued.last().signed!!.also { assertTrue(Sealing.isSealed(it)); assertEquals(me, it.tag("p")) })
+        // the old way: an account with no device key
+        val o = side(null)
+        o.dm.send(withBob, "The old way")
+        val old = o.host.queued.map { it.signed!! }
+        assertEquals(2, old.size); assertTrue(old.none { Sealing.isSealed(it) })
+        out["old-style message: the copy to myself"] = silent(old.single { it.tag("p") == me })
+        out["old-style message: the wrap for the other person"] = silent(old.single { it.tag("p") == bob.pubkey })
+        o.dm.send(notes, "An old note")
+        out["an old-style note to myself"] = silent(o.host.queued.last().signed!!)
+        // keys for one of my devices (§5.5)
+        val tablet = LocalSigner.random().pubkey
+        val keys = Sealing.keysFor(phone, me, tablet, a.eng!!.keys, now)
+        assertTrue(keys.isNotEmpty() && keys.all { it.tag("p") == tablet })
+        out["keys for one of my devices"] = keys.all { silent(it) }
+        // history shared with Bob (§8)
+        val before = relay.events.size
+        a.eng.shareHistory(bob.pubkey, a.dm.sealedRumorsOf(withBob))
+        val shares = relay.events.drop(before).filter { it.kind == 1059 }
+        assertTrue(shares.isNotEmpty() && shares.all { it.tag("p") == bob.pubkey })
+        out["shared history for someone else"] = shares.any { silent(it) }
+        // and every one of them reads as before on the other side
+        b.dm.offer(sealed); b.dm.process()
+        assertEquals(listOf("See you Sunday!"), b.dm.snapshot.value.thread("n:$me").map { it.text })
+        out
+    }
+
+    @Test fun silentOnlyOnWrapsToMyself() {
+        val got = observed()
+        assertEquals(
+            mapOf(
+                "sealed message: the copy to myself" to true, "sealed message: the wrap for the other person" to false,
+                "a sealed note to myself" to true,
+                "old-style message: the copy to myself" to true, "old-style message: the wrap for the other person" to false,
+                "an old-style note to myself" to true,
+                "keys for one of my devices" to true, "shared history for someone else" to false,
+            ),
+            got,
+        )
+    }
+
+    /** A queued self-copy sealed again after my head moved keeps the tag; the other side's never gets it. */
+    @Test fun silentSurvivesAReseal() = runBlocking<Unit> {
+        val (a, _) = both()
+        val eng = a.eng!!
+        eng.refresh(bob.pubkey)
+        val rumor = GiftWrap.rumor(14, me, listOf(listOf("p", bob.pubkey)), "x", now)
+        for (who in listOf(me, bob.pubkey)) {
+            val q = SealedEngine.Queued(rumor, who, sh.belfry.core.crypto.Hex.encode(ByteArray(32) { 3 }), Sealing.seal(rumor, phone, who, eng.chainOf(who)!!.head.lb, now))
+            val again = eng.resealIfNeeded(q)
+            assertEquals(eng.chainOf(who)!!.head.lb, again.wrap.tag("lb"), "sealed again to the head")
+            assertEquals(who == me, silent(again.wrap))
+        }
+    }
+
+    /** The tag is on the wrap only: seals and rumors are what they were. */
+    @Test fun silentIsOnTheWrapOnly() = runBlocking<Unit> {
+        val eng = engine(); eng.start("Pixel 8", "phone")
+        val a = side(eng)
+        a.dm.send(notes, "A note")
+        val w = a.host.queued.single().signed!!
+        assertEquals(listOf(listOf("p", me), listOf("lb", eng.chainOf(me)!!.head.lb), listOf("silent", "1")), w.tags)
+        val o = opened(eng, w)
+        assertEquals(listOf(listOf("p", me)), o.rumor.tags)
+        val old = side(null)
+        old.dm.send(notes, "An old note")
+        val ow = old.host.queued.single().signed!!
+        assertEquals(listOf(listOf("p", me)), assertNotNull(GiftWrap.unwrap(ow, alice)).rumor.tags)
+    }
+
+    private val sv get() = v["silent"] as JsonObject
+
+    @Test fun vectorsSilentCarries() {
+        val all = (sv["carries"] as JsonArray).map { it as JsonObject }
+        val got = observed()
+        // made by the engine's own paths and checked there: SealedEngineTest.itWasMeOnceForAll, DirectMessagesSealedTest (mail)
+        val elsewhere = mapOf("an 8563" to true, "a mail for the belfry" to false)
+        assertEquals((got.keys + elsewhere.keys).toSet(), all.map { it.s("what")!! }.toSet())
+        for (c in all) {
+            val what = c.s("what")!!
+            assertEquals((c["expected"] as JsonObject)["silent"]!!.jsonPrimitive.boolean, got[what] ?: elsewhere.getValue(what), what)
+        }
+    }
+
+    @Test fun vectorsSilentTags() {
+        assertEquals(strs(sv["tag"]), GiftWrap.SILENT)
+        val all = (sv["tags"] as JsonArray).map { it as JsonObject }
+        assertTrue(all.size >= 12)
+        for (c in all) {
+            val tags = (c["tags"] as JsonArray).map { strs(it) }
+            val wrap = Event("", "", 0, 1059, tags, "", "")
+            assertEquals((c["expected"] as JsonObject)["silent"]!!.jsonPrimitive.boolean, GiftWrap.isSilent(wrap), c.s("name"))
+        }
+        // never read on anything but a wrap
+        assertFalse(GiftWrap.isSilent(Event("", "", 0, 14, listOf(GiftWrap.SILENT), "", "")))
+    }
+
+    @Test fun vectorsSilentWrapsOpenAsBefore() = runBlocking<Unit> {
+        val account = LocalSigner((keys[sv.s("account")!!] as JsonObject).s("secret")!!)
+        val kc = KeyChain().also { it.add(pub(sv.s("letterbox")!!), sv.s("letterbox_secret")!!) }
+        val all = (sv["wraps"] as JsonArray).map { it as JsonObject }
+        assertTrue(all.size >= 4)
+        for (c in all) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val wrap = ev(c["wrap"] as JsonObject)
+            assertTrue(wrap.isValid(), name)
+            assertEquals(e["silent"]!!.jsonPrimitive.boolean, GiftWrap.isSilent(wrap), name)
+            val want = (e["rumor"] as JsonObject).s("id")
+            if (c["sealed"]!!.jsonPrimitive.boolean) {
+                val o = assertIs<Opening.Opened>(Sealing.open(wrap, kc), name)
+                assertEquals(want, o.rumor.id, name); assertEquals(e.s("seal_pubkey"), o.sealPubkey, name)
+            } else {
+                assertEquals(Opening.NotSealed, Sealing.open(wrap, kc), name)
+                val o = assertNotNull(GiftWrap.unwrap(wrap, account), name)
+                assertEquals(want, o.rumor.id, name); assertEquals(e.s("seal_pubkey"), o.sealPubkey, name)
+            }
+        }
+        // and through the whole reading path: the sealed one lands in Notes once, the old-style one too
+        relay.events.clear()
+        val root = ((v["notes"] as JsonObject)["wrap"] as JsonObject)["chain"] as JsonObject
+        relay.add(ev(root["anchor"] as JsonObject)); evs(root["rosters"]).forEach { relay.add(it) }
+        val device = LocalSigner((keys["alice_phone"] as JsonObject).s("secret")!!)
+        val eng = engine(account, device, Ports(account, mapOf(pub(sv.s("letterbox")!!) to sv.s("letterbox_secret")!!)))
+        eng.start("Pixel 8", "phone")
+        val a = side(eng, account)
+        a.dm.offer(all.map { ev(it["wrap"] as JsonObject) }); a.dm.process()
+        assertEquals(listOf("Where the shed key hangs"), a.dm.snapshot.value.thread(Notes.conv(account.pubkey)).map { it.text })
     }
 
     // ---- vectors/sealed.json "notes" -------------------------------------------------------------

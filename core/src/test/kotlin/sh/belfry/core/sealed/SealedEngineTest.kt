@@ -160,6 +160,9 @@ class SealedEngineTest {
         // the anchor names the new head
         assertEquals(head.head.id, relay.events.single { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }.tag("head"))
         assertTrue(phone.refresh(alice.pubkey)!!.ready)
+        // the keys went to my own device: silent wraps (sealed.md §4 "Silent wraps"), no push for them
+        val keys = relay.to(aliceLaptop.pubkey)
+        assertTrue(keys.isNotEmpty() && keys.all { sh.belfry.core.dm.GiftWrap.isSilent(it) })
     }
 
     /** §5.2 step 2: each condition that fails asks instead (Allow / Not me), and nothing is handed over. */
@@ -258,6 +261,7 @@ class SealedEngineTest {
         val wrap = wraps.last()
         val chain = phone.chainOf(alice.pubkey)!!
         assertEquals(chain.head.lb, wrap.tag("lb"))
+        assertTrue(sh.belfry.core.dm.GiftWrap.isSilent(wrap), "to my own account only: a silent wrap (sealed.md §4)")
         // its shape, as the laptop opens it
         val o = assertIs<Opening.Opened>(Sealing.open(wrap, laptop.keys))
         assertEquals(Sealing.CONFIRM, o.rumor.kind)

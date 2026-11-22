@@ -9,6 +9,7 @@ adds: every existing case is written back byte for byte. Python 3, no dependency
 """
 import hashlib, json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.dont_write_bytecode = True
 from sealed_confirm_vectors import compact, nip44_encrypt, rumor, sign_event
 
 def h(what): return hashlib.sha256(('belfry sealed vectors/notes/' + what).encode()).hexdigest()

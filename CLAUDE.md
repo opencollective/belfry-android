@@ -266,6 +266,9 @@ minSdk 26, JDK 17.
   way on a device that can seal (`SealedEngine.planHere`, `makeChain`; held as `DirectMessages.NOTES_CHAIN` = "Sending…");
   `NotesLine` in `ConversationScreen`. Vectors `sealed.json` → `notes` (`tools/sealed_notes_vectors.py`), `NotesTest`,
   `NotesShotsTest`. Demo: `EncryptionService.demoNotSealed()` for the unsealed look.
+- Silent wraps (SPEC 19.67; sealed.md §4): a wrap that addresses only its own sender carries `["silent","1"]` (no push):
+  `GiftWrap.wrap(silent =)` / `Sealing.seal(silent =)`, set by the callers named in the SPEC. A new place that wraps to
+  myself or to one of my devices must pass it; a wrap to anyone else never does. Vectors `sealed.json` → `silent`.
 
 ## UI rules (the owner's, not negotiable)
 

@@ -20,14 +20,26 @@ object GiftWrap {
     fun rumor(kind: Int, pubkey: String, tags: List<Tag>, content: String, createdAt: Long = unixNow()): Event =
         Event("", pubkey, createdAt, kind, tags, content, "").withId()
 
-    /** Seal (signed by SIGNER, the author) and wrap (signed by a one-time key) RUMOR for TO. */
-    suspend fun wrap(rumor: Event, to: String, signer: Signer): Event {
+    /**
+     * A wrap that addresses only its own sender says so (docs/sealed.md §4 "Silent wraps", SPEC 19.67): the
+     * belfry sends no push for it. On the outer kind 1059 only; readers ignore it. Only this exact tag counts.
+     */
+    val SILENT: Tag = listOf("silent", "1")
+
+    fun isSilent(wrap: Event): Boolean = wrap.kind == 1059 && wrap.tags.any { it == SILENT }
+
+    /**
+     * Seal (signed by SIGNER, the author) and wrap (signed by a one-time key) RUMOR for TO. SILENT: the wrap
+     * addresses only its own sender (my own copy, a note to myself: TO is the signer; or keys for one of my
+     * own devices, which the caller says).
+     */
+    suspend fun wrap(rumor: Event, to: String, signer: Signer, silent: Boolean = to == signer.pubkey): Event {
         if (!Hex.isKey(to)) throw IllegalArgumentException("not a key")
         val sealed = signer.nip44Encrypt(to, rumor.copy(sig = "").toJsonString())
         val seal = signer.sign(EventTemplate(13, sealed, emptyList(), backdate()))
         val oneTime = LocalSigner.random()
         val content = oneTime.nip44EncryptNow(to, seal.toJsonString())
-        return oneTime.signNow(EventTemplate(1059, content, listOf(listOf("p", to)), backdate()))
+        return oneTime.signNow(EventTemplate(1059, content, listOfNotNull(listOf("p", to), SILENT.takeIf { silent }), backdate()))
     }
 
     /**

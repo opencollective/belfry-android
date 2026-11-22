@@ -266,6 +266,9 @@ class DirectMessagesSealedTest {
         a.second.send("m:ana@example.org", "Hello Ana", subject = "Visit")
         assertEquals(0, a.third.calls, "no signer call for mail on a ready chain")
         assertTrue(host.queued.any { it.signed!!.tag("p") == host.bridge && it.signed!!.tag("lb") == null }, "to the mail key")
+        // silent wraps (sealed.md §4): the wrap for the belfry's mail key never, my own copy always
+        assertTrue(host.queued.filter { it.signed!!.tag("p") == host.bridge }.none { GiftWrap.isSilent(it.signed!!) })
+        assertTrue(host.queued.filter { it.signed!!.tag("p") == alice.pubkey }.let { own -> own.isNotEmpty() && own.all { GiftWrap.isSilent(it.signed!!) } })
         assertTrue(host.queued.any { it.signed!!.tag("lb") != null }, "the self-copy sealed to my head")
         // a device whose state is unknown (start not done): held, never the signer
         val sa = CountingSigner(alice)

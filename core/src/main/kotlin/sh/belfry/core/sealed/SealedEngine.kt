@@ -241,7 +241,7 @@ class SealedEngine(
     private suspend fun shareHistoryHere(person: String, rumors: List<Event>) {
         val chain = refresh(person) ?: throw NotDone()
         val shares = Sealing.shareRumors(account, person, rumors.filter { it.kind in Sealing.SHARED_KINDS }.sortedBy { it.createdAt }, clock())
-        for (sh in shares) if (!ports.publish(Sealing.seal(sh, device, person, chain.head.lb, clock()))) throw NotDone()
+        for (sh in shares) if (!ports.publish(Sealing.seal(sh, device, person, chain.head.lb, clock(), silent = person == account))) throw NotDone()
         sharedAfter[person] = clock()
         saveState()
     }
@@ -700,7 +700,7 @@ class SealedEngine(
             val rumor = Sealing.confirmRumor(device.pubkey, account, dev, roster, clock())
             // my own rule first: what my other devices would ignore is not sent
             if (chain.addedBy(dev)?.id != roster || Sealing.acceptConfirm(rumor, device.pubkey, chain) !is Sealing.Confirm.Accept) continue
-            val sent = try { ports.publish(Sealing.seal(rumor, device, account, chain.head.lb, clock())) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { false }
+            val sent = try { ports.publish(Sealing.seal(rumor, device, account, chain.head.lb, clock(), silent = true)) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { false }
             if (sent) trace("confirm: sent") else left.add(dev to roster)
         }
         owed(left)
@@ -972,7 +972,7 @@ class SealedEngine(
 
     /** The wraps of a rumor for a Seal plan. A rumor over 40 000 bytes is refused. */
     fun seal(rumor: Event, plan: Plan.Seal): List<Queued> =
-        plan.heads.map { (who, lb) -> Queued(rumor, who, lb, Sealing.seal(rumor, device, who, lb, clock())) }
+        plan.heads.map { (who, lb) -> Queued(rumor, who, lb, Sealing.seal(rumor, device, who, lb, clock(), silent = who == account)) } // my own copy is silent (§4)
 
     /** A wrap waiting in the outbox, with what it was sealed to. */
     data class Queued(val rumor: Event, val recipient: String, val lb: String, val wrap: Event)
@@ -981,7 +981,7 @@ class SealedEngine(
     fun resealIfNeeded(q: Queued): Queued {
         val head = chainOf(q.recipient)?.head?.lb ?: return q
         if (!Sealing.needsReseal(q.lb, head)) return q
-        return Queued(q.rumor, q.recipient, head, Sealing.seal(q.rumor, device, q.recipient, head, clock()))
+        return Queued(q.rumor, q.recipient, head, Sealing.seal(q.rumor, device, q.recipient, head, clock(), silent = q.recipient == account))
     }
 
     // ---- receiving (§4) -----------------------------------------------------------------------

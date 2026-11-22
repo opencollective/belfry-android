@@ -2651,3 +2651,24 @@ myself". Not built: to-dos and pins inside Notes, "Save to Notes".
 Vectors: `vectors/sealed.json` → `notes` (what is a note: 9 rumors; the single wrap on a chain that is not ready;
 6 plans; made by `tools/sealed_notes_vectors.py`, read by `NotesTest`). Known limit: a note written on another of
 my devices still raises the belfry's generic "dm" push here until the app has read it.
+
+### 19.67 Silent wraps (2026-11-23; the lead; contract collective-belfry docs/sealed.md §4 "Silent wraps" at belfry-sh 27e149a)
+
+A wrap (kind 1059) that addresses only its own sender carries one more tag, `["silent", "1"]`, after `p` (and
+`lb`): the belfry sends no push for it, so my own copies and notes no longer say "New message" on my other
+devices. On the outer wrap only; seals, rumors, keys and encryption are untouched. Where Android adds it:
+
+- `GiftWrap.wrap(rumor, to, signer, silent = to == signer.pubkey)`: the old-style copy to myself of a message or a
+  file (`DirectMessages.oldWay`, `prepareFile`) and an old-style note to myself;
+- `Sealing.seal(…, silent)` from `SealedEngine.seal` and `resealIfNeeded` (`silent` = the recipient is my own
+  account: the sealed self-copy of a message, file, reaction, take-back or mail, and a sealed note), from
+  `sendOwedConfirms` (the 8563, always) and from `shareHistoryHere` (only if the history went to my own account);
+- `Sealing.keysFor`: the key hand-over to one of my own devices (always).
+
+Never on a wrap to another account (the recipient's wrap, a mail for the belfry's key, shared history), and not on
+typing wraps (kind 21059, never to oneself). Readers ignore it and every wrap tag they do not know
+(`Sealing.open`, `GiftWrap.unwrap` read only `lb` and the content); only the exact two-element tag counts
+(`GiftWrap.isSilent`; another value, a missing value or a third element is read as absent, the wrap stays valid;
+given twice is still silent). Vectors: `vectors/sealed.json` → `silent` (10 kinds of wrap, 12 tag lists, 4 real
+wraps; `tools/sealed_silent_vectors.py`, read by `NotesTest`). This replaces 19.66's known limit once the belfry
+honours the tag; wraps made by older apps still push.
