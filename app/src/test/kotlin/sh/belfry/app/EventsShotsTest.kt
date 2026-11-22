@@ -27,7 +27,7 @@ class EventsShotsTest : DemoShots() {
 
     /** events/people: Hosts (with their role) · Going · Maybe, from the faces row. */
     @Test fun people() {
-        demoShot("event-people", act = { compose.onNodeWithTag("event-tab-2").performClick() }) { EventScreen(repair.coord) }
+        demoShot("event-people", act = { compose.onNodeWithTag("event-faces").performClick() }) { EventScreen(repair.coord) }
         compose.onNodeWithTag("event-people").assertExists()
     }
 
