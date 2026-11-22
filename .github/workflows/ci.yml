@@ -49,6 +49,28 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      # Robolectric fetches its Android runtime from Maven Central when the tests start; Central
+      # answers 429 to GitHub's runners now and then, failing every test. Keep it between runs,
+      # and when it is missing fetch it here, patiently.
+      - name: Robolectric's Android runtime (kept between runs)
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-android-all-14-10818077-i7
+      - name: Fetch it when it is not there
+        run: |
+          v=14-robolectric-10818077-i7
+          dir="$HOME/.m2/repository/org/robolectric/android-all-instrumented/$v"
+          mkdir -p "$dir"
+          for ext in pom pom.sha512 jar jar.sha512; do
+            f="$dir/android-all-instrumented-$v.$ext"
+            if [ ! -s "$f" ]; then
+              curl -fsSL --retry 8 --retry-delay 20 --retry-all-errors -o "$f.part" \
+                "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/$v/android-all-instrumented-$v.$ext" \
+                && mv "$f.part" "$f" || echo "could not fetch $ext now: the tests will try themselves"
+            fi
+          done
+          ls -la "$dir"
       - name: Firebase config (push), when the GOOGLE_SERVICES_JSON secret is set
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
