@@ -77,6 +77,8 @@ object MailInbox {
                 when (l.tags.firstOrNull { it.size >= 3 && it[0] == "l" && it[2] == World.INBOX_NS }?.get(1)) {
                     "open" -> status = CardStatus.OPEN
                     "closed" -> status = CardStatus.CLOSED
+                    // automatic after a reply was delivered (docs/one-shape.md 4); a newer received mail reopens it below
+                    "answered" -> status = CardStatus.WAITING
                     "assigned" -> assignee = l.t("p")?.takeIf { it.isNotEmpty() }
                 }
             } else {
