@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -38,7 +39,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import sh.belfry.app.ui.kit.ActionGroup
+import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BelfrySheet
+import sh.belfry.app.ui.kit.BusyRow
 import sh.belfry.app.ui.kit.BelfryTextField
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.Hairline
@@ -53,6 +57,10 @@ import sh.belfry.core.dm.Report
 import sh.belfry.core.engine.Session
 import sh.belfry.core.mail.Mime
 import sh.belfry.core.mail.ParsedMail
+import sh.belfry.core.model.Actions
+import sh.belfry.core.model.InboxThread
+import sh.belfry.core.model.MailInbox
+import sh.belfry.core.model.OneShape
 import sh.belfry.core.model.MailOriginal
 import sh.belfry.core.model.Message
 import sh.belfry.core.model.Special
@@ -69,7 +77,17 @@ internal class PendingReply(
     val cardId: String,
     /** The thread's Message-IDs (SPEC 19.33: References = the last 10 then In-Reply-To). */
     val references: List<String> = emptyList(),
-)
+    /** Reply all (docs/one-shape.md 4): everyone else, as Cc; one `rcpt-to` each. */
+    val cc: List<String> = emptyList(),
+    /** The internal draft this sends (`["draft", id]`). */
+    val draftId: String? = null,
+    /** The thread's first card: what gets `answered` once delivered. */
+    val threadId: String = cardId,
+    /** Who it goes to, as shown ("Lou and 2 more"). */
+    val names: List<String> = listOf(first),
+) {
+    val toLine: String get() = MailInbox.names(names, 1)
+}
 
 /**
  * The one answer on its way out. It lives outside the feed because the card that started it may
@@ -114,7 +132,7 @@ internal object ReplyQueue {
             // from a background thread after its screen had gone kept the next test's Compose from
             // ever going idle (CardsShotsTest after undoSendBar, CI 2026-11-18 / 19)
             val result: Pair<String?, String?> = try {
-                session.sendAsChannel(p.channel, p.to, p.subject, p.text, p.inReplyTo, p.cardId, p.references) to null
+                session.sendAsChannel(p.channel, p.to, p.subject, p.text, p.inReplyTo, p.cardId, p.references, p.cc, p.draftId, p.threadId) to null
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -123,7 +141,7 @@ internal object ReplyQueue {
             }
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 val id = result.first
-                if (id != null) { drafts.remove(p.cardId); sent = id to p.first } else failed = p to (result.second ?: "The e-mail could not be sent. Try again.")
+                if (id != null) { drafts.remove(p.cardId); sent = id to p.toLine } else failed = p to (result.second ?: "The e-mail could not be sent. Try again.")
             }
         }
     }
@@ -164,7 +182,7 @@ internal fun UndoSendHost(groupId: String, second: suspend () -> Unit = { delay(
             }
             if (ReplyQueue.pending === p) ReplyQueue.fire(session, p)
         }
-        NoticeBar("Sending to ${p.first} in $left s", "Undo", "undo-send") { ReplyQueue.undo() }
+        NoticeBar("Sending to ${p.toLine}…", "Undo · $left", "undo-send") { ReplyQueue.undo() }
         return
     }
 
@@ -331,5 +349,105 @@ internal fun FullMailSheet(subject: String, original: MailOriginal, onDismiss: (
                 }
             }
         }
+    }
+}
+
+/**
+ * Reply all (docs/one-shape.md 4; canvas one-shape/email-compose): a full sheet. From is the
+ * channel's address (fixed, a lock); To the sender of the latest e-mail; Cc everyone else it was
+ * for (`OneShape.replyAll`: never our own domain, never Bcc, at most 20); Subject "Re: …"; the text;
+ * the e-mail it answers folded under it. Save draft = an internal draft the team sees (kind 1111
+ * `mail-draft`; its author's edit is a kind 1010); Send = 8 seconds to undo, then the kind 1301.
+ */
+@Composable
+internal fun MailComposeSheet(groupId: String, t: InboxThread, draft: Message?, onDismiss: () -> Unit) {
+    val session = LocalSession.current
+    val world = LocalWorld.current
+    val c = Belfry.colors
+    val last = t.lastIn ?: return
+    val r = remember(last.m.id) { OneShape.replyAll(last.address, last.m.ev.tags, world.ctx.domain) }
+    val known = remember(last.m.id) { (last.to + last.cc).associate { it.address to it.name } + (last.address to last.name) }
+    fun shown(a: String) = known[a]?.takeIf { it.isNotEmpty() } ?: a
+    val names = (listOfNotNull(r.to) + r.cc).map(::shown)
+    val first = (r.to?.let(::shown) ?: last.address).split(' ').firstOrNull { it.isNotEmpty() } ?: last.address
+    var subject by remember(t.id) { mutableStateOf(replySubject(t)) }
+    var text by remember(t.id, draft?.id) { mutableStateOf(draft?.text ?: ReplyQueue.drafts[last.m.id] ?: "") }
+    var quoted by remember { mutableStateOf(false) }
+    val mine = draft != null && draft.pubkey == world.me
+
+    BelfrySheet(onDismiss = onDismiss, modifier = Modifier.testTag("mail-compose")) {
+        Column(Modifier.padding(bottom = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Cancel", Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClick = onDismiss).padding(horizontal = 4.dp, vertical = 8.dp),
+                    fontSize = 15.sp, color = c.text,
+                )
+                Text(if (draft != null) "Internal draft" else "Reply all", Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                BusyButton(
+                    "Send",
+                    onClick = {
+                        val to = r.to ?: return@BusyButton
+                        ReplyQueue.queue(session, PendingReply(groupId, to, first, subject.trim().ifEmpty { replySubject(t) }, text.trim(), last.messageId, last.m.id, t.refs,
+                            cc = r.cc, draftId = draft?.id, threadId = t.id, names = names))
+                        onDismiss()
+                    },
+                    small = true, icon = BelfryIcons.Send, enabled = text.isNotBlank() && r.to != null,
+                    modifier = Modifier.testTag("compose-send"),
+                )
+            }
+            Hairline()
+            ComposeField("From") {
+                Text(world.mailAddress(groupId), Modifier.weight(1f), fontSize = 15.sp, color = c.text)
+                androidx.compose.material3.Icon(BelfryIcons.Lock, contentDescription = "Fixed: the channel's address", tint = c.muted, modifier = Modifier.size(16.dp))
+            }
+            ComposeField("To") { Text(r.to?.let(::shown) ?: "Nobody to answer", Modifier.weight(1f).testTag("compose-to"), fontSize = 15.sp, color = c.text) }
+            if (r.cc.isNotEmpty()) ComposeField("Cc") { Text(r.cc.joinToString(", ", transform = ::shown), Modifier.weight(1f).testTag("compose-cc"), fontSize = 15.sp, color = c.text) }
+            Gap(8)
+            BelfryTextField(subject, { subject = it }, Modifier.fillMaxWidth().testTag("compose-subject"), label = "Subject")
+            Gap(8)
+            BelfryTextField(
+                text, { text = it; if (draft == null) ReplyQueue.drafts[last.m.id] = it },
+                Modifier.fillMaxWidth().testTag("compose-text"), placeholder = "Write to $first…", singleLine = false, minLines = 6, maxLines = 14,
+            )
+            Text(
+                if (quoted) "Hide ${first}’s e-mail" else "··· ${first}’s e-mail",
+                Modifier.padding(top = 6.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button) { quoted = !quoted }.padding(vertical = 6.dp).testTag("compose-quote"),
+                fontSize = 14.sp, color = c.muted,
+            )
+            if (quoted) {
+                Text(
+                    last.m.text.removePrefix("**${last.subject}**").trimStart(),
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(c.surface).padding(10.dp),
+                    fontSize = 14.sp, lineHeight = 19.sp, color = c.muted,
+                )
+            }
+            Gap(12)
+            ActionGroup {
+                BusyRow(
+                    "Save draft",
+                    onClick = {
+                        val root = t.root ?: return@BusyRow
+                        if (mine) session.editMessage(groupId, draft!!, text.trim()) else session.send(Actions.mailDraft(groupId, root.ev, text.trim()))
+                        ReplyQueue.drafts.remove(last.m.id)
+                        onDismiss()
+                    },
+                    icon = BelfryIcons.Edit, sub = "An internal draft: only the team sees it", enabled = text.isNotBlank(),
+                    modifier = Modifier.testTag("compose-save"),
+                )
+                if (mine) BusyRow("Delete draft", onClick = { session.deleteMessage(groupId, draft!!.id); onDismiss() }, icon = BelfryIcons.Trash, danger = true, modifier = Modifier.testTag("compose-delete"))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComposeField(label: String, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val c = Belfry.colors
+    Column {
+        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.width(64.dp), fontSize = 14.sp, color = c.muted)
+            content()
+        }
+        Hairline()
     }
 }

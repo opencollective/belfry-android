@@ -2305,3 +2305,29 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   row's (the new root's device), else "a new device" (no quotes; canvas v124); Android keeps no e-mail: "your e-mail".
 - **Known limit:** a second fresh start forgets the first chain (only the previous pinned chain is
   remembered), so devices of the first chain can no longer hand their keys back.
+
+### 19.53 One shape: the e-mail thread (2026-11-22; contract collective-belfry docs/one-shape.md 4; canvas one-shape/email-*)
+
+- **Who it was for.** Inbox and sent cards are read for `["to", address, name]` and
+  `["cc", address, name]` (`MailInbox.people`: at most 20, first of each address, lower case).
+  A card with a Cc shows "Cc Dev Patel, park@example.org" on its second line.
+- **Reply all is the only reply** (a round icon on each received e-mail). Recipients =
+  `OneShape.replyAll(mail-from of the latest received e-mail, its tags, domain)`. The kind 1301 has
+  one `rcpt-to` per recipient (sender first, no duplicates, max 20), `["e", <the e-mail answered>]`,
+  and `["draft", <id>]` when it sends an internal draft. MIME: `To: <sender>`, `Cc: <a>, <b>`,
+  In-Reply-To / References as in 19.33.
+- **Answered is automatic.** After the 1301's delivery report (7679) says `delivered`, the sending
+  device queues the `belfry/inbox` label `answered` on the thread's first card, once per e-mail
+  (`Session.answerOnDelivery`; kept in memory: a device that dies before the report arrives does
+  not label it). Readers: `answered` → Answered; a received e-mail newer than the newest
+  answered / closed label reopens (`MailInbox.state`, `OneShape.threadState`). Anyone may also
+  "Mark answered" by hand.
+- **Internal drafts**: kind 1111 on the thread's first card with `["mail-draft", "1"]`, by a
+  channel admin (`Actions.mailDraft`); a non-admin's is a plain team comment. Its author edits
+  (1010) or deletes (5) it. Hidden once a sent card names it (`["draft", id]`) or deleted
+  (`InboxThread.drafts`, `OneShape.visibleDrafts`). Drafts never count as comments.
+- **Undo**: Send waits 8 s in memory (`ReplyQueue`, "Sending to Lou and 2 more… Undo · 8")
+  before the 1301 is wrapped; it is not an outbox item (gift-wrapped mail never was), and leaving
+  the thread sends at once.
+- App: three states (`MailLevel` TINY / MID / FULL; MID while open, TINY once answered or
+  closed); the composer is the team's ("Comment for the team"), no Reply / Comment switch.

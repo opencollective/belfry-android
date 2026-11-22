@@ -97,11 +97,12 @@ class R6ShotsTest : DemoShots() {
         assertFalse(world.readOnlyClosed(g))
     }
 
-    /** channels/mail-comment: the same thread in Comment mode (yellow). channels/mail-row and mail-reply are mail-feed / mail-thread. */
+    /** One shape (docs/one-shape.md 4): no Reply / Comment switch any more; the composer is the team's. */
     @Test fun mailComment() {
         val t = world.mailThreads(Demo.HELLO).list.first()
-        demoShot("mail-comment") { sh.belfry.app.ui.cards.MailThreadScreen(Demo.HELLO, t, startWithComment = true) }
-        compose.onNodeWithTag("mode-comment").assertExists()
+        demoShot("mail-comment") { sh.belfry.app.ui.cards.MailThreadScreen(Demo.HELLO, t) }
+        compose.onNodeWithTag("mode-comment").assertDoesNotExist()
+        compose.onNodeWithTag("mail-header").assertExists()
     }
 
     /** channels/proposal-top: a proposal's chat opens with the proposal on top, at half, its votes and turnout. */

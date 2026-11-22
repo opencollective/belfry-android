@@ -312,6 +312,8 @@ object Mime {
         inReplyTo: String? = null,
         references: String? = null,
         now: Long = System.currentTimeMillis() / 1000,
+        /** Reply all (docs/one-shape.md 4): the others, as a Cc header. */
+        cc: List<String> = emptyList(),
     ): BuiltMail {
         val messageId = "<${UUID.randomUUID()}@$domain>"
         val name = NAME_UNSAFE.matcher(fromName).replaceAll("")
@@ -319,6 +321,8 @@ object Mime {
         val display = if (name.isEmpty()) "" else (if (isAscii(name)) "\"$name\"" else word(name)) + " "
         h.add("From: $display<$from>")
         h.add("To: <$to>")
+        val copied = cc.map { NEWLINES.matcher(it).replaceAll("").trim() }.filter { it.contains('@') && it != to }.distinct()
+        if (copied.isNotEmpty()) h.add("Cc: " + copied.joinToString(", ") { "<$it>" })
         h.add("Subject: " + word(NEWLINES.matcher(subject).replaceAll(" ")))
         h.add("Date: " + DATE.format(Instant.ofEpochSecond(now)))
         h.add("Message-ID: $messageId")

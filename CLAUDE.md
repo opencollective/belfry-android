@@ -200,7 +200,8 @@ minSdk 26, JDK 17.
   closed channels, `NotifyChoice`, proposal options / turnout / versions); `ui/info/NotifySheet.kt`
   (the pull-down's one row that opens a sheet); `ChannelSettingsForm` = Who can read it;
   `JoinBar` / `ApplySheet` for closed channels too (`needsJoinBar`, `readOnlyClosed`);
-  `MailThreadScreen` with Reply / Comment (`Composer(tint =)`, `MessageRow(tag =)`);
+  `MailThreadScreen` (since one shape, SPEC 19.53: `MailLevel` three states, Reply all icon → `MailComposeSheet`,
+  internal drafts, automatic Answered via `Session.answerOnDelivery`; no Reply / Comment switch);
   `ui/cards/ProposalTop.kt` inside `ChannelScreen` for proposal chats (`proposalStart`).
   Screenshots `R6ShotsTest`. Demo: closed `Demo.TOOLS`.
 

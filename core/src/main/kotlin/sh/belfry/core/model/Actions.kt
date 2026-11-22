@@ -203,6 +203,16 @@ object Actions {
     fun setCardStatus(groupId: String, card: String, closed: Boolean): Draft =
         Draft(Target.GROUPS, 1985, tags = listOf(listOf("h", groupId), listOf("L", World.INBOX_NS), listOf("l", if (closed) "closed" else "open", World.INBOX_NS), listOf("e", card)))
 
+    /** docs/one-shape.md 4: the thread's first card is answered (sent by the app whose reply was delivered, or by hand). */
+    fun markAnswered(groupId: String, card: String): Draft =
+        Draft(Target.GROUPS, 1985, tags = listOf(listOf("h", groupId), listOf("L", World.INBOX_NS), listOf("l", "answered", World.INBOX_NS), listOf("e", card)))
+
+    /** An internal draft of a reply all: a NIP-22 comment on the thread's first card with `["mail-draft", "1"]` (docs/one-shape.md 4). */
+    fun mailDraft(groupId: String, root: sh.belfry.core.nostr.Event, text: String): Draft {
+        val d = postThreadReply(groupId, root.id, root.pubkey, root.kind, text)
+        return d.copy(tags = d.tags + listOf(listOf(OneShape.MAIL_DRAFT, "1")))
+    }
+
     /** Who has an e-mail card; `assignee` "" = nobody. */
     fun assignCard(groupId: String, card: String, assignee: String): Draft =
         Draft(Target.GROUPS, 1985, tags = listOf(listOf("h", groupId), listOf("L", World.INBOX_NS), listOf("l", "assigned", World.INBOX_NS), listOf("e", card)) +

@@ -29,7 +29,18 @@ data class MailItem(
     val by: String?,
     /** The whole e-mail on Blossom (in only). */
     val original: MailOriginal?,
+    /** Who it was for (docs/one-shape.md 4): `["to", address, name]`, never Bcc; empty on cards before 2026-11-22. */
+    val to: List<MailPerson> = emptyList(),
+    val cc: List<MailPerson> = emptyList(),
+    /** out: the internal draft it sent (`["draft", id]`). */
+    val draftId: String? = null,
 )
+
+/** An address on a card's `to` / `cc` tag: an outsider is an address only, with the name their mail gave. */
+data class MailPerson(val address: String, val name: String) {
+    /** The name, else the address. */
+    val shown: String get() = name.ifEmpty { address }
+}
 
 /** A shared inbox's e-mail thread. [id] = its first e-mail's event id (route, labels, replies). */
 data class InboxThread(
@@ -48,6 +59,10 @@ data class InboxThread(
     val state: CardState,
     /** Every Message-ID in it, oldest first (References of an answer). */
     val refs: List<String>,
+    /** The internal drafts still shown (docs/one-shape.md 4): by its admins, not sent, not deleted; oldest first. */
+    val drafts: List<Message> = emptyList(),
+    /** Its `belfry/inbox` labels (any of its e-mails), oldest first: the activity lines. */
+    val labels: List<sh.belfry.core.nostr.Event> = emptyList(),
 ) {
     val root: Message? get() = mails.firstOrNull()?.m
     val latest: MailItem? get() = mails.lastOrNull()
@@ -60,6 +75,34 @@ class MailThreadIndex(val list: List<InboxThread>, val of: Map<String, Int>) {
 }
 
 object MailInbox {
+    /** A card's `to` / `cc` tags (docs/one-shape.md 4), at most 20 in all, first of each address. */
+    fun people(tags: List<List<String>>, kind: String): List<MailPerson> {
+        val seen = HashSet<String>()
+        return tags.filter { it.size >= 2 && it[0] == kind && it[1].contains('@') }.take(OneShape.MAX_RECIPIENTS)
+            .mapNotNull { t -> val a = t[1].trim().lowercase(); if (seen.add(a)) MailPerson(a, t.getOrNull(2)?.trim().orEmpty()) else null }
+    }
+
+    /**
+     * "Lou, Dev Patel and 1 more": the first [shown] names (each a name, else its address), then how
+     * many more. Used by the sent card and the Undo bar.
+     */
+    fun names(list: List<String>, shown: Int = 2): String {
+        if (list.isEmpty()) return ""
+        if (list.size <= shown) return if (list.size == 1) list[0] else list.dropLast(1).joinToString(", ") + " and " + list.last()
+        return list.take(shown).joinToString(", ") + " and ${list.size - shown} more"
+    }
+
+    /**
+     * The drafts a thread shows: kind 1111 with `mail-draft` 1 under its first card, by one of
+     * [admins], minus those a sent card names (`OneShape.visibleDrafts`; deleted ones never reach
+     * the [replies] at all).
+     */
+    fun drafts(replies: List<Message>, admins: Set<String>, sentDraftIds: Set<String>): List<Message> {
+        val mine = replies.filter { OneShape.isMailDraft(it.ev) && it.pubkey in admins }
+        val keep = OneShape.visibleDrafts(mine.map { it.id to it.pubkey }, sentDraftIds, emptyList()).toSet()
+        return mine.filter { it.id in keep }
+    }
+
     /** "address|base subject" (lower case, spaces folded): how a sender's thread is found without references. */
     fun subjectKey(address: String, subject: String): String =
         address.lowercase() + "|" + MailThreads.foldSpaces(MailThreads.baseSubject(subject).lowercase())

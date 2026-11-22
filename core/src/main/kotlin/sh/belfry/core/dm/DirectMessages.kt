@@ -1184,6 +1184,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     suspend fun sendAsChannel(
         channel: String, channelName: String, to: String, subject: String, text: String, inReplyTo: String?, cardId: String,
         fromLocal: String = channel, references: String? = null,
+        /** Reply all: the others (Cc), one `rcpt-to` each (docs/one-shape.md 4). */
+        cc: List<String> = emptyList(),
+        /** The internal draft this sends (`["draft", id]`), so every app hides it. */
+        draftId: String? = null,
     ): String {
         val bridge = host.bridgeKey() ?: throw DmException("This belfry does not send e-mail yet.")
         val me = host.me
@@ -1191,10 +1195,13 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val name = host.realName(me)
         val built = Mime.buildMail(
             fromName = if (name.isNotEmpty()) "$name for $channelName" else channelName, from = from, to = to, subject = subject, text = text,
-            domain = host.domain, inReplyTo = inReplyTo, references = references, now = host.now(),
+            domain = host.domain, inReplyTo = inReplyTo, references = references, now = host.now(), cc = cc,
         )
         val emailId = UUID.randomUUID().toString()
-        val rumor = GiftWrap.rumor(1301, me, listOf(listOf("email-id", emailId), listOf("mail-from", from), listOf("rcpt-to", to), listOf("subject", subject), listOf("e", cardId)), built.raw, host.now())
+        val rcpts = (listOf(to) + cc).map { it.trim().lowercase() }.filter { it.contains('@') }.distinct().take(sh.belfry.core.model.OneShape.MAX_RECIPIENTS)
+        val tags = listOf(listOf("email-id", emailId), listOf("mail-from", from)) + rcpts.map { listOf("rcpt-to", it) } +
+            listOf(listOf("subject", subject), listOf("e", cardId)) + listOfNotNull(draftId?.let { listOf("draft", it) })
+        val rumor = GiftWrap.rumor(1301, me, tags, built.raw, host.now())
         synchronized(lock) { reports[emailId] = Report(Report.QUEUED, "Sending…"); channelSends.add(emailId) }
         publish()
         if (host.localOnly) {

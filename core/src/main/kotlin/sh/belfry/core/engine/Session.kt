@@ -7,6 +7,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -31,6 +32,7 @@ import sh.belfry.core.dm.DmCandidate
 import sh.belfry.core.dm.DmException
 import sh.belfry.core.dm.DmHost
 import sh.belfry.core.dm.DmSnapshot
+import sh.belfry.core.dm.Report
 import sh.belfry.core.mail.MailPart
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Buttons
@@ -1717,21 +1719,54 @@ class Session(
         return dm.convFor(input, w.people.map { (pk, name) -> DmCandidate(pk, name, w.profiles[pk]?.nip05) })
     }
 
-    /** Answers an e-mail card as the shared inbox channel (its admins only). Returns the email-id for `dms.value.report(id)`. */
-    suspend fun sendAsChannel(channel: String, to: String, subject: String, text: String, inReplyTo: String?, cardId: String, references: List<String> = emptyList()): String = dmCall {
+    /**
+     * Answers an e-mail card as the shared inbox channel (its admins only). Returns the email-id for
+     * `dms.value.report(id)`. Reply all (docs/one-shape.md 4): [to] = the sender, [cc] = the others,
+     * one `rcpt-to` each; [draftId] = the internal draft it sends. Once the bridge reports it
+     * delivered, this device labels [threadId] (the thread's first card) `answered`, once.
+     */
+    suspend fun sendAsChannel(
+        channel: String, to: String, subject: String, text: String, inReplyTo: String?, cardId: String, references: List<String> = emptyList(),
+        cc: List<String> = emptyList(), draftId: String? = null, threadId: String = cardId,
+    ): String = dmCall {
         guard()
         val w = _world.value
         val name = w.group(channel)?.name ?: channel
         // SPEC 19.33: from the channel's plain alias; References = the thread's other ids (last 10) then In-Reply-To
         val refs = (references.filter { it != inReplyTo }.takeLast(10) + listOfNotNull(inReplyTo)).joinToString(" ").ifEmpty { null }
-        val id = dm.sendAsChannel(channel, name, to, subject, text, inReplyTo, cardId, w.mailLocal(channel), refs)
+        val id = dm.sendAsChannel(channel, name, to, subject, text, inReplyTo, cardId, w.mailLocal(channel), refs, cc, draftId)
         if (localOnly) {
-            // the demo plays the bridge: the answer shows in the channel
+            // the demo plays the bridge: the answer shows in the channel, with who it went to
             val key = groupsKey
+            val copied = cc.filter { !it.equals(to, ignoreCase = true) }.distinct()
+            // the names the card it answers gave (the bridge keeps them the same way)
+            val card = w.all.firstOrNull { it.id == cardId }
+            val names = HashMap<String, String>()
+            if (card != null) {
+                for (t in card.tags) if (t.size >= 3 && (t[0] == "to" || t[0] == "cc")) names[t[1].lowercase()] = t[2]
+                card.t("mail-from")?.let { a -> names[a.lowercase()] = card.t("mail-name").orEmpty() }
+            }
+            fun named(a: String) = names[a.lowercase()].orEmpty()
             if (key != null) addToLog(listOf(Event("out-" + Random.hex(8), key, clock(), 9,
-                listOf(listOf("h", channel), listOf("subject", subject), listOf("mail-to", to), listOf("sent-by", me), listOf("e", cardId, "", "reply"), listOf("client", "belfry-mail-out")), text)))
+                listOf(listOf("h", channel), listOf("subject", subject), listOf("mail-to", to), listOf("to", to, named(to))) + copied.map { listOf("cc", it, named(it)) } +
+                    listOf(listOf("sent-by", me), listOf("e", cardId, "", "reply"), listOf("client", "belfry-mail-out")) + listOfNotNull(draftId?.let { listOf("draft", it) }),
+                text)))
         }
+        answerOnDelivery(id, channel, threadId)
         id
+    }
+
+    private val answeredSent = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /** docs/one-shape.md 4: after the delivery report says delivered, the thread's first card gets `answered` (once per e-mail). */
+    private fun answerOnDelivery(emailId: String, channel: String, threadId: String) {
+        scope.launch(Dispatchers.Default) {
+            val r = withTimeoutOrNull(ANSWER_WAIT_MS) {
+                dm.snapshot.first { it.report(emailId)?.status.let { s -> s == Report.DELIVERED || s == Report.FAILED } }.report(emailId)
+            } ?: return@launch
+            if (r.status != Report.DELIVERED || !answeredSent.add(emailId) || stopped) return@launch
+            try { send(Actions.markAnswered(channel, threadId)) } catch (e: Exception) { /* guest mode or stopped: nothing to label */ }
+        }
     }
 
     /** An e-mail's attachments with their bytes. */
@@ -2184,5 +2219,7 @@ class Session(
         const val SLOW_SIGNER_MS = 1_000L
         /** How long the demo's belfry takes to answer a button. */
         @Volatile var DEMO_ANSWER_MS = 900L
+        /** How long a reply sent as a channel waits for its delivery report before it is no longer labelled answered. */
+        const val ANSWER_WAIT_MS = 24 * 3600 * 1000L
     }
 }

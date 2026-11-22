@@ -380,6 +380,17 @@ object Demo {
         raw(groups, now - 26 * h, 9, listOf(listOf("h", HELLO), listOf("subject", "Re: Visit with a school class"), listOf("mail-to", "noor@school.example"), listOf("sent-by", maya.pubkey), listOf("e", c1.id, "", "reply"), listOf("client", "belfry-mail-out")),
             "Dear Noor, with pleasure. Tuesday or Thursday mornings work best. How about 12 May at 9:30?")
         say(lena, HELLO, now - 25 * h, "I can show them the compost. Kids love the worms.")
+        // answered: labelled after the reply was delivered (docs/one-shape.md 4)
+        post(maya, now - 26 * h + 60, Actions.markAnswered(HELLO, c1.id))
+        // reply all: who the mail was for (to / cc), who has it, the team's talk, an internal draft
+        val lou = raw(groups, now - 3 * h, 9, listOf(listOf("h", HELLO), listOf("subject", "Park cleaning on Saturday"), listOf("mail-from", "lou@example.com"), listOf("mail-name", "Lou"),
+            listOf("message-id", "<park-clean-1@example.com>"), listOf("belfry-auth", "pass"), listOf("to", "hello@$DOMAIN", "hello"), listOf("cc", "dev@example.com", "Dev Patel"),
+            listOf("cc", "park@example.org", ""), listOf("client", "belfry-mail")),
+            "**Park cleaning on Saturday**\n\nHello! Could you lend us rakes and gloves for the park cleaning on Saturday? We'd be about 15.")
+        post(maya, now - 3 * h + 360, Actions.assignCard(HELLO, lou.id, maya.pubkey))
+        post(maya, now - 3 * h + 420, Actions.postThreadReply(HELLO, lou, "I know Lou, I'll answer. Lena, are the rakes in the shed?"))
+        post(lena, now - 3 * h + 960, Actions.postThreadReply(HELLO, lou, "Yes, 12 rakes and a box of gloves."))
+        post(me, now - 3 * h + 1500, Actions.mailDraft(HELLO, lou, "Hi Lou, yes! We can lend you 12 rakes and a box of gloves. Pick them up Friday after 6 PM at the hall."))
         card(now - 2 * h, "delivery@gardenshop.example", "The Garden Shop", "Your order is on its way", "Your order of 6 bags of potting soil will be delivered on Friday between 8 and 12. Someone needs to be there to sign.", "<order-7781@gardenshop.example>", false)
 
         // the charter (SPEC 19.32): three agreements by me (a steward), two ticked by me, one changed since

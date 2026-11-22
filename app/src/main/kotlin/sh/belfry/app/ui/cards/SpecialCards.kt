@@ -259,6 +259,9 @@ internal fun InboxCardView(groupId: String, m: Message, card: Special.InboxCard,
     MailFrame(modifier.testTag("inbox-card"), strong = true) {
         MailLabel(BelfryIcons.Inbox, "E-mail received · " + ChatFormat.time(world, m.at))
         Text(who, fontSize = 13.sp, lineHeight = 18.sp, color = c.muted)
+        // docs/one-shape.md 4: who else it was for, on its own line, only when there is a Cc
+        val cc = sh.belfry.core.model.MailInbox.people(m.ev.tags, "cc")
+        if (cc.isNotEmpty()) Text("Cc " + cc.joinToString(", ") { it.shown }, fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = Modifier.testTag("inbox-cc"))
         if (!card.verified) Text("unverified sender", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = c.danger)
         Subject(card.subject)
         MarkdownText(m.body.ifEmpty { "(empty)" })
@@ -344,7 +347,9 @@ private fun SentCard(groupId: String, m: Message, s: Special.SentAsChannel, modi
     val by = if (s.by.isNotEmpty()) world.displayName(s.by) else "a member"
     MailFrame(modifier.testTag("sent-card"), strong = false) {
         MailLabel(BelfryIcons.Send, "E-mail sent by $by as $groupId@ · " + ChatFormat.time(world, m.at))
-        if (s.to.isNotEmpty()) Text("To ${s.to}", fontSize = 13.sp, lineHeight = 18.sp, color = Belfry.colors.muted)
+        val people = (sh.belfry.core.model.MailInbox.people(m.ev.tags, "to") + sh.belfry.core.model.MailInbox.people(m.ev.tags, "cc")).map { it.shown }
+        if (people.isNotEmpty()) Text("Sent by e-mail to " + sh.belfry.core.model.MailInbox.names(people), fontSize = 13.sp, lineHeight = 18.sp, color = Belfry.colors.muted)
+        else if (s.to.isNotEmpty()) Text("To ${s.to}", fontSize = 13.sp, lineHeight = 18.sp, color = Belfry.colors.muted)
         Subject(s.subject)
         if (m.text.isNotEmpty()) MarkdownText(m.text)
     }

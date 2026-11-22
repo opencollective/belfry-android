@@ -962,6 +962,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 when (e.tags.firstOrNull { it.size >= 3 && it[0] == "l" && it[2] == INBOX_NS }?.get(1)) {
                     "open" -> out[card] = c.copy(status = CardStatus.OPEN)
                     "closed" -> out[card] = c.copy(status = CardStatus.CLOSED)
+                    "answered" -> out[card] = c.copy(status = CardStatus.WAITING)
                     "assigned" -> out[card] = c.copy(assignee = e.t("p")?.takeIf { it.isNotEmpty() })
                     else -> out[card] = c
                 }
@@ -982,7 +983,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         if (e.pubkey != key || from.isNullOrEmpty() || !e.hasTag("client", "belfry-mail")) return null
         val o = e.tags.firstOrNull { it.size >= 4 && it[0] == "mail-original" && it[1].startsWith("https://") && it[2].isNotEmpty() && it[3].isNotEmpty() }
         return MailItem(m, true, from.lowercase(), e.t("mail-name") ?: "", e.t("subject") ?: "", e.t("message-id")?.takeIf { it.isNotEmpty() },
-            e.t("belfry-auth") == "pass", null, o?.let { MailOriginal(it[1], it[2], it[3]) })
+            e.t("belfry-auth") == "pass", null, o?.let { MailOriginal(it[1], it[2], it[3]) },
+            MailInbox.people(e.tags, "to"), MailInbox.people(e.tags, "cc"))
     }
 
     /** What went out as the channel (only the bridge posts these, with the groups key). */
@@ -991,7 +993,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val key = ctx.groupsKey ?: return null
         if (e.pubkey != key || !e.hasTag("client", "belfry-mail-out")) return null
         return MailItem(m, false, e.t("mail-to") ?: "", "", e.t("subject") ?: "", e.t("message-id")?.takeIf { it.isNotEmpty() },
-            true, e.t("sent-by")?.takeIf { it.isNotEmpty() }, null)
+            true, e.t("sent-by")?.takeIf { it.isNotEmpty() }, null,
+            MailInbox.people(e.tags, "to"), MailInbox.people(e.tags, "cc"), e.t("draft")?.takeIf { it.isNotEmpty() })
     }
 
     private val mailCache: ConcurrentHashMap<String, MailThreadIndex> = seeded(prev) { it.mailCache }
@@ -1037,23 +1040,33 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             th.last = maxOf(th.last, m.at)
         }
         if (list.isEmpty()) return MailThreadIndex.EMPTY
-        // the team's replies, under any of the thread's e-mails
+        // the team's replies, under any of the thread's e-mails (internal drafts apart: docs/one-shape.md 4)
         val threads = threadsOf(groupId)
-        for (th in list) for (id in th.ids) {
-            val r = threads[id] ?: continue
-            th.replies += r.count
-            th.last = maxOf(th.last, r.last)
-            for (w in r.who) if (w !in th.who) th.who.add(w)
+        val admins = group(groupId)?.admins.orEmpty()
+        val draftsOf = HashMap<String, List<Message>>()
+        for (th in list) {
+            val drafts = threadReplies(groupId, th.id).filter { OneShape.isMailDraft(it.ev) && it.pubkey in admins }
+            draftsOf[th.id] = drafts
+            for (id in th.ids) {
+                val r = threads[id] ?: continue
+                th.replies += r.count
+                th.last = maxOf(th.last, r.last)
+                for (w in r.who) if (w !in th.who) th.who.add(w)
+            }
+            th.replies -= drafts.size
         }
         // state: Open → Answered once something went out → Open again when they write back; Closed
         // and who has it are NIP-32 labels (belfry/inbox) on any of its e-mails, latest wins
         val labels = inGroupSorted(groupId).filter { e -> e.kind == 1985 && e.id !in deleted && e.tags.any { it.size >= 2 && it[0] == "L" && it[1] == INBOX_NS } }
         val out = list.map { th ->
             val ids = th.ids.toSet()
+            val own = labels.filter { (it.t("e") ?: "") in ids }
+            val sent = th.mails.mapNotNull { it.draftId }.toSet()
             InboxThread(
                 id = th.id, mails = th.mails, ids = th.ids, address = th.address, name = th.name, subject = th.subject,
                 lastIn = th.lastIn, last = th.last, replies = th.replies, who = th.who, refs = th.refs,
-                state = MailInbox.state(th.id, th.mails, labels.filter { (it.t("e") ?: "") in ids }),
+                state = MailInbox.state(th.id, th.mails, own),
+                drafts = MailInbox.drafts(draftsOf[th.id].orEmpty(), admins, sent), labels = own,
             )
         }
         return MailThreadIndex(out, of)
@@ -1063,8 +1076,11 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun mailThread(groupId: String, id: String): InboxThread? = mailThreads(groupId).threadOf(id)
 
     /** The team's replies in a thread (NIP-22 under any of its e-mails), oldest first. */
-    fun mailThreadReplies(groupId: String, t: InboxThread): List<Message> =
-        t.ids.flatMap { threadReplies(groupId, it) }.sortedWith(compareBy<Message> { it.at }.thenBy { it.id })
+    fun mailThreadReplies(groupId: String, t: InboxThread): List<Message> {
+        val admins = group(groupId)?.admins.orEmpty()
+        return t.ids.flatMap { threadReplies(groupId, it) }.filter { !(OneShape.isMailDraft(it.ev) && it.pubkey in admins) }
+            .sortedWith(compareBy<Message> { it.at }.thenBy { it.id })
+    }
 
     // ---- member labels and the Members tab -----------------------------------------------------
 
