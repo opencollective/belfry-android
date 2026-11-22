@@ -1,5 +1,6 @@
 package sh.belfry.app
 
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -51,7 +52,7 @@ class ChannelSettingsShotsTest : DemoShots() {
         compose.onNodeWithTag("posts-proposal").performScrollTo().performClick()
         compose.waitForIdle()
         // still on: the switch is locked
-        compose.onNodeWithTag("posts-proposal").assertIsNotEnabledCompat()
+        compose.onNodeWithTag("posts-proposal").assertIsNotEnabled()
     }
 
     /** channels/settings → E-mail: a belfry admin edits the part before the @, the live check says Available. */
@@ -74,9 +75,5 @@ class ChannelSettingsShotsTest : DemoShots() {
         }) { ChannelPlaceScreen(Demo.GENERAL, ChannelPlaceKey.SETTINGS) }
         assertTrue(compose.onAllNodesWithText("always first in everyone's menu", substring = true).fetchSemanticsNodes().isNotEmpty())
         assertTrue(compose.onAllNodesWithTag("pin-me").fetchSemanticsNodes().isEmpty())
-    }
-
-    private fun androidx.compose.ui.test.SemanticsNodeInteraction.assertIsNotEnabledCompat() {
-        assert(androidx.compose.ui.test.isNotEnabled())
     }
 }
