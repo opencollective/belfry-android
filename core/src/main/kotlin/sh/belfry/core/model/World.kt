@@ -202,6 +202,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         var relayAdmins: Set<String> = emptySet()
         var parent: String? = null
         var closed = false
+        var isPrivate = false
         var prompt: String? = null
         var vouches = 0
         var archived = false
@@ -217,7 +218,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * activity; the deleted ones (a 9008, or the relay said it has none: [WorldContext.groupsAbsent]);
      * per id its newest 9007 / 9002 / 39000.
      */
-    class GroupIndex(val all: List<Group>, val deleted: Set<String>, val newestMeta: Map<String, Long>)
+    class GroupIndex(val all: List<Group>, val deleted: Set<String>, val newestMeta: Map<String, Long>, val hiddenPrivate: Set<String> = emptySet())
 
     val groupIndex: GroupIndex by lazy { readGroups() }
 
@@ -263,6 +264,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 }
                 val access = if (e.tags.any { it.firstOrNull() == "closed" }) true else if (e.tags.any { it.firstOrNull() == "open" }) false else null
                 if (access != null && (g.metaAt["closed"] ?: 0) <= e.createdAt) { g.closed = access; g.metaAt["closed"] = e.createdAt }
+                // SPEC 19.59: `private` / `public` (NIP-29); a 9002 that says neither keeps what was said
+                val priv = if (e.tags.any { it.firstOrNull() == "private" }) true else if (e.tags.any { it.firstOrNull() == "public" }) false else null
+                if (priv != null && (g.metaAt["private"] ?: 0) <= e.createdAt) { g.isPrivate = priv; g.metaAt["private"] = e.createdAt }
                 val prompt = e.t("prompt")
                 if (prompt != null && (g.metaAt["prompt"] ?: 0) <= e.createdAt) { g.prompt = prompt; g.metaAt["prompt"] = e.createdAt }
                 // the vouches rule goes with the access tags: open / closed without it = admins accept
@@ -325,6 +329,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         if (ctx.placeNames) for (g in map.values) PlaceNames.display(g.id, g.name)?.let { g.name = it }
         for ((k, e) in applied) {
             val g = map[k.first] ?: continue
+            // a Private group takes no requests: its 9021s are never shown or answered (SPEC 19.59)
+            if (g.isPrivate) continue
             if (e.pubkey in g.members || (decided[k] ?: 0) >= e.createdAt) continue
             g.applications.add(Application(e.pubkey, e.content, e.createdAt, e))
         }
@@ -335,7 +341,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         // (events and proposals never; a group known from its own 39000 / 9007 / 9002 is live, and
         // its events arriving later clear the mark: web groupstate.ts)
         for (id in ctx.groupsAbsent.keys) if (Presence.mayBeAbsent(id) && id !in newestMeta && map[id]?.pending != true) gone.add(id)
-        val all = map.values.filter { it.id !in gone }
+        // a Private group I'm not in is in no list, card, count or search (SPEC 19.59): left out here
+        val hidden = map.values.filter { GroupJoin.hides(it.isPrivate, me, it.members, it.admins, it.reading) }.mapTo(HashSet()) { it.id }
+        val all = map.values.filter { it.id !in gone && it.id !in hidden }
             .sortedWith(compareBy<G> { if (it.id == "general") 0 else 1 }.thenByDescending { it.lastActivity })
             .map {
                 // never the id as a name (Xavier, 2026-11-18): until its metadata arrives, the kind's word
@@ -345,10 +353,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                     lastActivity = it.lastActivity, members = it.members, admins = it.admins, type = typeOfId(it.id),
                     parent = it.parent, closed = it.closed, prompt = it.prompt, applications = it.applications, pending = it.pending,
                     reading = it.reading, archived = it.archived, vouches = it.vouches, rawName = it.rawName,
-                    relayAdmins = it.relayAdmins, creator = it.creator,
+                    relayAdmins = it.relayAdmins, creator = it.creator, isPrivate = it.isPrivate,
                 )
             }
-        return GroupIndex(all, gone, newestMeta)
+        return GroupIndex(all, gone, newestMeta, hidden)
     }
 
     /** The belfry admins' latest `belfry:channel-order` (SPEC 19.34, Categories.kt); anyone else's is ignored. */

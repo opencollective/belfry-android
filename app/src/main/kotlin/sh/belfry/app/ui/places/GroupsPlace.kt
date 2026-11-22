@@ -122,6 +122,7 @@ private fun GroupRow(world: World, g: Group, unread: Int, onClick: () -> Unit) {
     val n = g.members.size
     val state = when {
         mine && world.groupRequestsFor(g).isNotEmpty() -> "${world.groupRequestsFor(g).size} asking to join"
+        mine && g.isPrivate -> "private"
         mine -> world.group(g.parent ?: "")?.let { "in ${it.name}" }
         g.closed -> "by application"
         else -> "open to join"

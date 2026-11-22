@@ -65,6 +65,8 @@ private const val GENERAL_ID = "general"
 /** The bar that asks to join (web JoinBar): a group I'm not in; a closed channel I'm not in and don't run (never #general). */
 fun World.needsJoinBar(g: Group): Boolean {
     if (me in g.members || me in g.admins) return false
+    // a Private group has no Join / Apply (SPEC 19.59; one I'm not in is not even listed)
+    if (g.isPrivate) return false
     if (g.isPod) return true
     return g.type == ChannelType.CHANNEL && g.closed && g.id != GENERAL_ID && !canAdmin(g)
 }

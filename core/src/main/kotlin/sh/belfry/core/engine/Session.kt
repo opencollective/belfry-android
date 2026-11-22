@@ -1471,7 +1471,7 @@ class Session(
     private fun synthesizeRelayEvents(ev: Event) {
         val h = ev.tag("h") ?: return
         if (ev.kind != 9007 && ev.kind != 9002) return
-        val meta = ev.tags.filter { it.isNotEmpty() && it[0] in setOf("name", "about", "picture", "closed", "open", "prompt") }
+        val meta = ev.tags.filter { it.isNotEmpty() && it[0] in setOf("name", "about", "picture", "closed", "open", "prompt", "private", "public") }
         val out = ArrayList<Event>()
         if (ev.kind == 9002 || meta.isNotEmpty()) out.add(Event("meta-" + ev.id, ev.pubkey, ev.createdAt, 39000, listOf(listOf("d", h)) + meta, ""))
         if (ev.kind == 9007) out.add(Event("members-" + ev.id, ev.pubkey, ev.createdAt, 39002, listOf(listOf("d", h), listOf("p", ev.pubkey)), ""))
@@ -1571,11 +1571,11 @@ class Session(
         return id
     }
 
-    /** A new pod under PARENT (a channel or a pod); returns its id. */
-    suspend fun createPod(name: String, about: String, parent: String, access: PodAccess = PodAccess()): String {
+    /** A new pod under PARENT (a channel or a pod), ADD put in by me right after its 9007 (SPEC 19.59); returns its id. */
+    suspend fun createPod(name: String, about: String, parent: String, access: PodAccess = PodAccess(), add: List<String> = emptyList()): String {
         val id = Actions.newPodId(name)
         synchronized(createdHere) { createdHere[id] = clock() }
-        send(Actions.createPod(id, name.trim(), about.trim(), parent, access))
+        send(Actions.createPod(id, name.trim(), about.trim(), parent, access, add.filter { it != me }))
         return id
     }
 

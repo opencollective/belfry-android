@@ -74,7 +74,6 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import sh.belfry.core.model.NewEvent
 import sh.belfry.core.model.NewProposal
-import sh.belfry.core.model.PodAccess
 import sh.belfry.core.model.ProposalStatus
 import java.time.Instant
 import java.time.LocalDate
@@ -132,58 +131,6 @@ fun CreateChannelScreen(category: String? = null) {
                 onError = { error = shown(it) },
             )
             Muted("Every member can read and write in a channel.")
-        }
-    }
-}
-
-/** "Who can join": open or closed, and for a closed pod the question applicants answer. */
-@Composable
-internal fun AccessFields(closed: Boolean, prompt: String, onClosed: (Boolean) -> Unit, onPrompt: (String) -> Unit) {
-    Column {
-        Muted("Who can join")
-        Gap(6)
-        Segmented(listOf("Open", "Closed"), if (closed) 1 else 0, { onClosed(it == 1) }, Modifier.fillMaxWidth())
-        Gap(6)
-        Muted(if (closed) "Apply, admins admit" else "Any member joins")
-        if (closed) {
-            Gap(12)
-            BelfryTextField(prompt, onPrompt, Modifier.fillMaxWidth(), label = "Question applicants answer", placeholder = Actions.DEFAULT_PROMPT, singleLine = false, minLines = 2, maxLines = 4, keyboardOptions = words)
-        }
-    }
-}
-
-@Composable
-fun CreatePodScreen(parent: String) {
-    val session = LocalSession.current
-    val world = LocalWorld.current
-    val nav = LocalNav.current
-    var name by remember { mutableStateOf("") }
-    var about by remember { mutableStateOf("") }
-    var closed by remember { mutableStateOf(false) }
-    var prompt by remember { mutableStateOf("") }
-    var tried by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val where = world.group(parent)
-    CardScreen("New group") {
-        PageColumn {
-            BelfryTextField(name, { name = it }, Modifier.fillMaxWidth().testTag("create-name"), label = "Name", placeholder = "e.g. Garden crew", error = if (tried && name.isBlank()) "Give the group a name" else null, keyboardOptions = words)
-            BelfryTextField(about, { about = it }, Modifier.fillMaxWidth(), label = "What is it working on?", singleLine = false, minLines = 3, maxLines = 6, keyboardOptions = words)
-            AccessFields(closed, prompt, { closed = it }, { prompt = it })
-            error?.let { ErrorLine(it) }
-            BusyButton(
-                "Create group",
-                onClick = {
-                    tried = true
-                    error = null
-                    if (name.isNotBlank()) {
-                        val id = session.createPod(name.trim(), about.trim(), parent, PodAccess(closed, prompt))
-                        nav.openChannel(id)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth().testTag("create-submit"),
-                onError = { error = shown(it) },
-            )
-            Muted("A working group inside ${where?.name ?: parent}, with its own members, chat, events, photos and groups.")
         }
     }
 }

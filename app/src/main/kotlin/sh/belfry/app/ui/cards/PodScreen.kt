@@ -66,7 +66,7 @@ fun PodScreen(id: String) {
     var declining by remember(id) { mutableStateOf<Application?>(null) }
     val parent = g.parent?.let { world.group(it) }
 
-    CardScreen(g.name, subtitle = (if (g.closed) "Closed group" else "Group") + " · " + CardFormat.members(g.members.size)) {
+    CardScreen(g.name, subtitle = (if (g.isPrivate) "Private group" else if (g.closed) "Closed group" else "Group") + " · " + CardFormat.members(g.members.size)) {
         PageColumn {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ChannelIcon(ChannelGlyph.Pod, size = 44.dp)
@@ -79,8 +79,8 @@ fun PodScreen(id: String) {
             if (g.about.isNotEmpty()) MarkdownText(g.about, rich = false)
 
             Panel {
-                Text(if (g.closed) "Closed: apply, admins admit" else "Open: any member joins", fontSize = 15.sp, color = c.text)
-                if (g.closed) {
+                Text(if (g.isPrivate) "Private: only invited people" else if (g.closed) "Closed: apply, admins admit" else "Open: any member joins", fontSize = 15.sp, color = c.text)
+                if (g.closed && !g.isPrivate) {
                     Gap(4)
                     Muted("Question: " + (g.prompt?.takeIf { it.isNotBlank() } ?: "—"))
                 }
@@ -93,7 +93,7 @@ fun PodScreen(id: String) {
             ActionGroup {
                 ActionRow("Open the group's chat", onClick = { nav.openChannel(id) }, modifier = Modifier.testTag("pod-chat"), icon = BelfryIcons.Thread, chevron = true)
                 when {
-                    inIt -> Unit
+                    inIt || g.isPrivate -> Unit
                     !g.closed -> BusyRow("Join group", onClick = { session.send(Actions.join(id)) }, modifier = Modifier.testTag("pod-join"), icon = BelfryIcons.Plus)
                     applied -> ActionRow("Request sent", onClick = null, icon = BelfryIcons.Clock, sub = "The group’s admins will answer.", enabled = false)
                     else -> ActionRow("Apply to join", onClick = { asking = true }, modifier = Modifier.testTag("pod-apply"), icon = BelfryIcons.Plus, sub = "Answer the group's question")

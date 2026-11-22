@@ -164,17 +164,23 @@ fun Actions.groupMeta(
     prompt: String? = null,
     vouches: Int? = null,
     archived: Boolean? = null,
+    /** SPEC 19.59: Private (closed + private) or not; null keeps what G is. */
+    isPrivate: Boolean? = null,
 ): Draft {
     val raw = name ?: g.rawName.ifEmpty { g.name }
     val tags = arrayListOf(listOf("h", g.id), listOf("name", PlaceNames.wire(g.id, raw)), listOf("about", about ?: g.about))
     val pic = picture ?: g.picture ?: ""
     if (pic.isNotEmpty()) tags.add(listOf("picture", pic))
-    val isClosed = closed ?: g.closed
+    val priv = isPrivate ?: g.isPrivate
+    val isClosed = (closed ?: g.closed) || priv
     tags.add(listOf(if (isClosed) "closed" else "open"))
+    // a group says public or private on every 9002 (the relay replaces the whole metadata: SPEC 19.59)
+    if (priv) tags.add(listOf("private")) else if (g.isPod) tags.add(listOf("public"))
     val p = (prompt ?: g.prompt ?: "").jsTrim()
-    if (isClosed) tags.add(listOf("prompt", p.ifEmpty { Actions.DEFAULT_PROMPT }))
+    // a Private group takes no requests (no question, no vouches); a Closed group may have no question yet
+    if (isClosed && !priv && (p.isNotEmpty() || !g.isPod)) tags.add(listOf("prompt", p.ifEmpty { Actions.DEFAULT_PROMPT }))
     val v = vouches ?: g.vouches
-    if (isClosed && v > 0) tags.add(listOf("vouches", v.coerceIn(1, 5).toString()))
+    if (isClosed && !priv && v > 0) tags.add(listOf("vouches", v.coerceIn(1, 5).toString()))
     if (archived != null) tags.add(listOf("archived", if (archived) "1" else "0")) else if (g.archived) tags.add(listOf("archived", "1"))
     return Draft(sh.belfry.core.outbox.Target.GROUPS, 9002, tags = tags)
 }

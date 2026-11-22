@@ -77,6 +77,8 @@ data class Group(
     val creator: String? = null,
     /** Its name arrived (39000 / 9002 / a place name); false = [name] is only the kind's word (SPEC 19.39). */
     val named: Boolean = true,
+    /** NIP-29 `private` (SPEC 19.59): a Private group; only its members see it ([GroupJoin]). */
+    val isPrivate: Boolean = false,
 ) {
     val isEvent get() = type == ChannelType.EVENT
     val isPod get() = type == ChannelType.POD

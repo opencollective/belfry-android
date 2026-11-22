@@ -2455,3 +2455,30 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   A reply counts as unread for its conversation like any message; the read mark is the conversation's.
   Only a message that is out (not held, not failed), not itself a reply, in a conversation this
   device can write to, offers Reply.
+
+### 19.59 Groups: open, closed, private; New group; "add one" top right (2026-11-22; collective-belfry docs/one-shape.md "Groups: open, closed, private"; canvas home/groups, groups/new, groups/new-pick, groups/settings-closed, n-groups-new)
+
+- Who can join, three choices (form and Settings): Open "Any member can join" = `open` + `public`;
+  Closed "Members apply to join" = `closed` + `public` (+ `prompt` / `vouches` from Settings only);
+  Private "Only invited people" = `closed` + `private`. On the 9007 and the 9002 (NIP-29; no belfry
+  tag, never `hidden`). Every later 9002 of a group repeats `public` or `private` (the relay replaces
+  the whole metadata). `POST /group-meta` (an admin by role) takes `"private": true|false` next to
+  `closed`. A new Closed group starts with no question and "by its stewards"; a Private one never
+  carries `prompt` / `vouches`.
+- New group (the ＋ top right of Groups, of GROUPS in the drawer, of a channel's Groups screen):
+  step 1 name / "What is it working on?" / who can join, Next; step 2 a grid of the belfry's members
+  (`World.memberKeys`: no guests, agents or removed people; me left out), search, "Add N people" /
+  Skip. Either makes the group: 9007, 9002, one 9000 per person by the creator
+  (`["h", g]`, `["p", pk, "member"]`), then the announcement (a 9 with `pod`) in the parent: the
+  Townsquare from Groups, the channel when made from a channel. A Private group posts no announcement
+  anywhere (it reads as living under `general`).
+- Private, filtered by the app (never left to the relay): a Private group I'm not in (member, admin
+  or a guest let in) is left out of `World`'s group index (`GroupIndex.hiddenPrivate`), so of every
+  list, card, count and search; a 9021 to a Private group is never an application, a request count
+  or a log line; no Join / Apply for it. Rules: `core/model/GroupJoin.kt` (`GroupJoin`, `hides`,
+  `tags`, `takesRequests`, `pickableMembers`, `Actions.addMembers`), `World.readGroups`,
+  `Actions.groupMeta(isPrivate =)`, `needsJoinBar`; tests `GroupJoinTest`.
+- Xavier's rule for list screens: "add one" is an icon top right, never a first row. The belfry's
+  Members already had it; a channel's Members (Invite someone → `Routes.invite`) and a channel's
+  Groups (New group) now have the ＋ top right instead of a first-row button, same condition as
+  before (not a guest, the channel not locked).

@@ -236,6 +236,12 @@ minSdk 26, JDK 17.
   `Task.due` / `doneAt` read in `World.readTasks`. App: `ui/info/TodoScreen.kt` (`TodoLevel` tiny / mid / full,
   `DueSheet` with Material pickers). Screenshots `TodoShapeShotsTest`.
 
+- Groups: open, closed, private (SPEC 19.59): `core/model/GroupJoin.kt` (the three choices, their tags,
+  `hides` — a Private group I'm not in is left out of `World`'s group index, so of everything; its 9021s
+  are dropped), `ui/cards/NewGroupScreens.kt` (`CreatePodScreen` = New group in two steps, the face grid;
+  `GroupJoinChoices` also in a group's Settings). Screenshots `GroupsShotsTest`. Demo: `Demo.POD_PRIVATE`
+  (I'm in), `Demo.POD_SECRET` (I'm not: must never show).
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.
@@ -244,6 +250,7 @@ minSdk 26, JDK 17.
   bordered buttons.
 - Discord is the reference for layout and behaviour.
 - No horizontal scrolling of a screen. A back arrow never pushes a screen.
+- On a list screen "add one" is an icon top right (the ＋ of Groups, Members), never a first row.
 - The Belfry look: near-black / white surfaces (`ui/theme`), dynamic colour off.
 
 ## Rules

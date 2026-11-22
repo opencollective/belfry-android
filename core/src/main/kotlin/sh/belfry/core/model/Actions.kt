@@ -19,7 +19,8 @@ data class Draft(val target: Target, val kind: Int, val content: String = "", va
     fun template(createdAt: Long = 0): EventTemplate = EventTemplate(kind, content, tags, createdAt)
 }
 
-data class PodAccess(val closed: Boolean = false, val prompt: String = "")
+/** Who can join a pod: [closed] (+ the question) and, SPEC 19.59, [isPrivate] (closed + private; no question). */
+data class PodAccess(val closed: Boolean = false, val prompt: String = "", val isPrivate: Boolean = false)
 
 data class NewEvent(
     val title: String,
@@ -85,17 +86,27 @@ object Actions {
     fun editChannel(id: String, name: String, about: String): Draft =
         Draft(Target.GROUPS, 9002, tags = listOf(listOf("h", id), listOf("name", name), listOf("about", about)))
 
-    private fun accessTags(a: PodAccess): List<Tag> =
-        if (a.closed) listOf(listOf("closed"), listOf("prompt", a.prompt.jsTrim().ifEmpty { DEFAULT_PROMPT })) else listOf(listOf("open"))
+    // SPEC 19.59: open + public / closed + public (+ its question when it has one) / closed + private
+    private fun accessTags(a: PodAccess): List<Tag> {
+        val closed = a.closed || a.isPrivate
+        val q = a.prompt.jsTrim()
+        return GroupJoin.tags(closed, a.isPrivate) + if (closed && !a.isPrivate && q.isNotEmpty()) listOf(listOf("prompt", q)) else emptyList()
+    }
 
     fun newPodId(name: String, newId: (Int) -> String = { randomId(it) }): String = "pod-" + slug(name, newId).sliceUnits(24) + "-" + newId(2)
 
-    /** A pod: its own group `pod-…`, announced in its parent (channel or pod) by a post with a `pod` tag. */
-    fun createPod(id: String, name: String, about: String, parent: String = "general", access: PodAccess = PodAccess()): List<Draft> = listOf(
-        Draft(Target.GROUPS, 9007, tags = listOf(listOf("h", id))),
-        Draft(Target.GROUPS, 9002, tags = listOf(listOf("h", id), listOf("name", name), listOf("about", about)) + accessTags(access)),
-        Draft(Target.GROUPS, 9, "⬡ New pod: $name" + (if (about.isNotEmpty()) " · $about" else ""), listOf(listOf("h", parent), listOf("pod", id))),
-    )
+    /**
+     * A pod: its own group `pod-…`, announced in its parent (channel or pod) by a post with a `pod`
+     * tag — never a Private one (SPEC 19.59: it posts no announcement anywhere). ADD: the people the
+     * creator adds at once, one 9000 each right after the 9007 / 9002.
+     */
+    fun createPod(id: String, name: String, about: String, parent: String = "general", access: PodAccess = PodAccess(), add: List<String> = emptyList()): List<Draft> =
+        listOf(
+            Draft(Target.GROUPS, 9007, tags = listOf(listOf("h", id)) + GroupJoin.tags(access.closed || access.isPrivate, access.isPrivate)),
+            Draft(Target.GROUPS, 9002, tags = listOf(listOf("h", id), listOf("name", name), listOf("about", about)) + accessTags(access)),
+        ) + addMembers(id, add) + if (access.isPrivate) emptyList() else listOf(
+            Draft(Target.GROUPS, 9, "⬡ New pod: $name" + (if (about.isNotEmpty()) " · $about" else ""), listOf(listOf("h", parent), listOf("pod", id))),
+        )
 
     fun editPod(id: String, name: String, about: String, access: PodAccess): Draft =
         Draft(Target.GROUPS, 9002, tags = listOf(listOf("h", id), listOf("name", name), listOf("about", about)) + accessTags(access))

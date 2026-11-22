@@ -41,6 +41,7 @@ import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.ButtonKind
 import sh.belfry.app.ui.kit.EmptyState
+import sh.belfry.app.ui.kit.IconAction
 import sh.belfry.app.ui.kit.MarkdownText
 import sh.belfry.app.ui.kit.PodIcon
 import sh.belfry.app.ui.kit.TopBar
@@ -80,7 +81,12 @@ fun ChannelPlaceScreen(id: String, key: String) {
         else -> if (g?.isPod == true) "Group settings" else "Settings"
     }
     Column(Modifier.fillMaxSize().background(c.bg).testTag("place-$key")) {
-        TopBar(title, subtitle = g?.name, navigation = { BackButton { nav.back() } })
+        // Xavier's rule for list screens: "add one" is an icon top right, never a first row (SPEC 19.59)
+        val mayAdd = g != null && !world.isLocked(id) && !world.amGuest
+        TopBar(title, subtitle = g?.name, navigation = { BackButton { nav.back() } }, actions = {
+            if (mayAdd && key == ChannelPlaceKey.MEMBERS) IconAction(BelfryIcons.Plus, "Invite someone", { nav.go(Routes.invite(id)) }, modifier = Modifier.testTag("members-invite"))
+            if (mayAdd && key == ChannelPlaceKey.GROUPS) IconAction(BelfryIcons.Plus, "New group", { nav.go(Routes.createPod(id)) }, modifier = Modifier.testTag("groups-new"))
+        })
         if (g == null) {
             EmptyState("This channel is not here", icon = BelfryIcons.Hash)
             return@Column
@@ -96,13 +102,7 @@ fun ChannelPlaceScreen(id: String, key: String) {
                 ChannelPlaceKey.TODOS -> TasksTab(id)
                 ChannelPlaceKey.PHOTOS -> FilesTab(id)
                 ChannelPlaceKey.GROUPS -> GroupsList(id)
-                ChannelPlaceKey.MEMBERS -> {
-                    if (!world.isLocked(id) && !world.amGuest) {
-                        BusyButton("Invite someone", onClick = { nav.go(Routes.invite(id)) }, modifier = Modifier.fillMaxWidth().testTag("members-invite"), icon = BelfryIcons.Users)
-                        Spacer(Modifier.height(12.dp))
-                    }
-                    MembersTab(g)
-                }
+                ChannelPlaceKey.MEMBERS -> MembersTab(g)
                 else -> SettingsPlace(g)
             }
         }
@@ -163,10 +163,6 @@ private fun GroupsList(id: String) {
     val nav = LocalNav.current
     val c = Belfry.colors
     val list = world.pods(id)
-    if (!world.isLocked(id) && !world.amGuest) {
-        BusyButton("New group", onClick = { nav.go(Routes.createPod(id)) }, modifier = Modifier.fillMaxWidth(), kind = ButtonKind.Ghost, icon = BelfryIcons.Plus)
-        Spacer(Modifier.height(8.dp))
-    }
     if (list.isEmpty()) {
         EmptyState("No groups here yet", icon = BelfryIcons.Pod)
         return
