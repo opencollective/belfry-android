@@ -1,5 +1,7 @@
 package sh.belfry.core.model
 
+import sh.belfry.core.nostr.Tag
+
 // Groups: open, closed, private (SPEC 19.59; collective-belfry docs/one-shape.md "Groups: open,
 // closed, private (2026-11-22)"; canvas groups/new, groups/new-pick, groups/settings-closed).
 //
