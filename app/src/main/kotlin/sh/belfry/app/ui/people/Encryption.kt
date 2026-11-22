@@ -262,7 +262,7 @@ fun EncryptionContent(seal: ConvSeal, mine: List<MyDevice>, world: World, now: L
 
 /** messages/encryption-new-device: the amber banner at the top of Messages on a new device. */
 @Composable
-internal fun EarlierLockedBanner(onShowHow: () -> Unit) {
+internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, onShowHow: () -> Unit) {
     val c = Belfry.colors
     Row(
         Modifier
@@ -277,7 +277,7 @@ internal fun EarlierLockedBanner(onShowHow: () -> Unit) {
         Icon(BelfryIcons.Lock, contentDescription = null, tint = c.orange, modifier = Modifier.size(20.dp).padding(top = 1.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(SealedText.BANNER_TITLE, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             Text(SealedText.BANNER_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
             Text(
                 "Show how", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.orange,

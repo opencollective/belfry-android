@@ -287,6 +287,11 @@ class DmSnapshot(
     /** When this snapshot was made (Unix seconds): the 90-day floor of the read state. */
     val now: Long = 0,
     val reactions: List<DmReaction> = emptyList(),
+    /**
+     * Sealed wraps to my letterbox this device can't open yet (Verdict LOCKED: not allowed, or its key
+     * not here): no conversation shows them, so Messages says how many are waiting and their push stays.
+     */
+    val lockedCount: Int = 0,
 ) {
     private val reactsByTarget: Map<String, List<DmReaction>> by lazy { reactions.groupBy { it.target } }
 
@@ -546,6 +551,21 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private val busy = Mutex()
     /** Sealed wraps kept for later (locked here, or the author's chain not loaded yet), by id. */
     private val kept = LinkedHashMap<String, Event>()
+    /**
+     * Wraps that came LOCKED (this device has no secret for their letterbox), id → wrap created_at:
+     * counted until they open or are dropped, kept across restarts so the waiting line and its push
+     * survive one; at most [MAX_LOCKED], none older than the 30-day keep (+ 2 days of wrap jitter).
+     */
+    private val locked = LinkedHashMap<String, Long>()
+    private var lockedWritten: List<String>? = null
+
+    /** Under [lock]. */
+    private fun capLocked() {
+        val floor = host.now() - sh.belfry.core.sealed.Sealing.KEEP_FOR - 2 * 86400L
+        locked.entries.removeAll { it.value < floor }
+        val over = locked.size - MAX_LOCKED
+        if (over > 0) locked.keys.take(over).forEach { locked.remove(it) }
+    }
     /** The kept list's ids as last written (it is written only when they change: fourth review 2c). */
     private var keptWritten: List<String>? = null
 
@@ -599,6 +619,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             refused[rid] = Held(r, o["to"].arr()?.mapNotNull { it.str() } ?: emptyList(), o["self"].bool() ?: true, o.s("conv") ?: return@forEach)
         }
         parseJsonOrNull(store.get(K_SEALED_RUMORS) ?: "").arr()?.forEach { el -> el.obj()?.let { Event.fromJson(it) }?.let { sealedRumors[it.id] = it } }
+        parseJsonOrNull(store.get(K_LOCKED) ?: "").obj()?.forEach { (id, v) -> v.long()?.let { locked[id] = it } }
+        capLocked()
         backlog.addAll(kept.values) // tried again at each start
         // a message marked pending whose wraps are gone from the outbox is out
         val waiting = host.outbox().mapNotNull { it.dm }.toSet()
@@ -617,6 +639,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 store.set(K_GONE, buildJsonObject { for ((k, v) in gone) put(k, JsonPrimitive(v)) }.toString())
                 val keptIds = kept.keys.toList()
                 if (keptIds != keptWritten) { store.set(K_KEPT, JsonArray(kept.values.map { it.toJson() }).toString()); keptWritten = keptIds }
+                val lockedIds = locked.keys.toList()
+                if (lockedIds != lockedWritten) { store.set(K_LOCKED, buildJsonObject { for ((id, t) in locked) put(id, JsonPrimitive(t)) }.toString()); lockedWritten = lockedIds }
                 store.set(K_SEALED_RUMORS, JsonArray(sealedRumors.values.map { it.toJson() }).toString())
                 store.set(K_REFUSED, buildJsonObject {
                     for ((rid, h) in refused) put(rid, buildJsonObject {
@@ -632,7 +656,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                     for ((wid, q) in sealQ) put(wid, buildJsonObject { put("rumor", q.rumor.toJson()); put("to", JsonPrimitive(q.recipient)); put("lb", JsonPrimitive(q.lb)) })
                 }.toString())
             }
-            DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now(), reacts.values.toList())
+            DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now(), reacts.values.toList(), locked.size)
         }
         _snapshot.value = snap
     }
@@ -670,16 +694,17 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 when (got.verdict) {
                     sh.belfry.core.sealed.Sealing.Verdict.ACCEPT -> {
                         try { takeSealed(got.rumor!!, got.sealPubkey) } catch (x: Exception) { }
-                        synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id) }
+                        synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id); locked.remove(e.id) }
                     }
                     sh.belfry.core.sealed.Sealing.Verdict.KEEP, sh.belfry.core.sealed.Sealing.Verdict.LOCKED ->
                         synchronized(lock) {
                             backlog.removeAll { it.id == e.id }
+                            if (got.verdict == sh.belfry.core.sealed.Sealing.Verdict.LOCKED) { locked[e.id] = e.createdAt; capLocked() } else locked.remove(e.id)
                             // to my letterbox, this device without its secret: not kept, not seen; read again
                             // from the relay when keys arrive (fourth review 2b)
                             if (got.stored) { kept[e.id] = e; capKept() } else kept.remove(e.id)
                         }
-                    else -> synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id) }
+                    else -> synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept.remove(e.id); locked.remove(e.id) }
                 }
                 changed = true
                 continue
@@ -706,7 +731,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         if (eng != null) {
             val (seenNow, letGo) = eng.drainSettled()
             if (seenNow.isNotEmpty() || letGo.isNotEmpty()) synchronized(lock) {
-                for (id in seenNow) { seen.add(id); kept.remove(id) }
+                for (id in seenNow) { seen.add(id); kept.remove(id); locked.remove(id) }
                 for (id in letGo) kept.remove(id)
                 changed = true
             }
@@ -1426,6 +1451,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         const val K_REACTS = "dm-reactions"
         const val K_GONE = "dm-reactions-gone"
         const val K_KEPT = "dm-sealed-kept"
+        const val K_LOCKED = "dm-sealed-locked"
+        const val MAX_LOCKED = 500
         const val K_HELD = "dm-held"
         const val K_SEALQ = "dm-sealed-queue"
         const val K_SEALED_RUMORS = "dm-sealed-rumors"

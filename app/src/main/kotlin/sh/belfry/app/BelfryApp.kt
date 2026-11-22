@@ -51,8 +51,8 @@ class BelfryApp : Application() {
             // read elsewhere (SPEC 19.27): the delivered notifications of what is read go
             readWatch?.cancel()
             readWatch = scope.launch(Dispatchers.Default) {
-                kotlinx.coroutines.flow.combine(s.readState, s.dms) { r, d -> r to d.unreadTotal }.collect { (r, n) ->
-                    AndroidPush.clearRead(this@BelfryApp, s, r, n)
+                kotlinx.coroutines.flow.combine(s.readState, s.dms) { r, d -> Triple(r, d.unreadTotal, d.lockedCount) }.collect { (r, n, l) ->
+                    AndroidPush.clearRead(this@BelfryApp, s, r, n, l)
                 }
             }
             scope.launch(Dispatchers.Default) {

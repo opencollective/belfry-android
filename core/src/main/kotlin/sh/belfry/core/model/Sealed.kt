@@ -220,6 +220,12 @@ object SealedText {
     const val LOCKED_HERE = "Locked on this device"
     /** canvas v84: a device not yet allowed reads no sealed message, old or new. */
     const val BANNER_TITLE = "Messages are locked on this device"
+    /**
+     * Sealed messages that came to this device and can't be opened here yet (Xavier's mail to himself,
+     * 2026-11-22): no conversation shows them. Words until belfry-canvas draws the board.
+     */
+    fun waitingMessages(n: Int): String =
+        if (n == 1) "1 message is waiting for another of your devices" else "$n messages are waiting for another of your devices"
     const val LOCKED_BLOCK = "Locked on this device"
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."

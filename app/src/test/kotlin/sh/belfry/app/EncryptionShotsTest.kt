@@ -113,6 +113,21 @@ class EncryptionShotsTest : DemoShots() {
         assertTrue(compose.onAllNodesWithTag("seal-locked-row", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
     }
 
+    /**
+     * Xavier's mail to himself (2026-11-22; canvas v177 draft messages/encryption-waiting-list): a device
+     * not allowed yet that received sealed messages it can't open says how many wait, even when no
+     * conversation it knows is locked.
+     */
+    @Test fun waitingMessages() {
+        demoShot("encryption-waiting-messages") {
+            val d = sh.belfry.app.ui.nav.LocalDms.current
+            val waiting = sh.belfry.core.dm.DmSnapshot(d.items, d.reports, d.read, d.me, d.now, d.reactions, lockedCount = 3)
+            androidx.compose.runtime.CompositionLocalProvider(sh.belfry.app.ui.nav.LocalDms provides waiting) { MessagesScreen() }
+        }
+        compose.onNodeWithTag("seal-banner").assertExists()
+        compose.onNodeWithText("3 messages are waiting for another of your devices").assertExists()
+    }
+
     @Test fun showHow() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device-steps") { UnlockStepsScreen() }

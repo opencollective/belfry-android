@@ -105,9 +105,12 @@ fun MessagesScreen(
             actions = { IconAction(BelfryIcons.Plus, "New message", { nav.go(Routes.NEW_CONVERSATION) }) },
         )
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 6.dp)) {
-            // a new device (canvas messages/encryption-new-device): earlier messages are locked here
-            if (seal.earlierLocked && list.any { it.conv in seal.locked }) {
-                item(key = "seal-banner") { EarlierLockedBanner { nav.go(Routes.UNLOCK_STEPS) } }
+            // a new device (canvas messages/encryption-new-device): earlier messages are locked here; and
+            // sealed messages that came but can't be opened here show in no conversation, so the banner
+            // says how many wait (Xavier's mail to himself on a phone not yet allowed, 2026-11-22)
+            if (seal.earlierLocked || dms.lockedCount > 0) {
+                val title = if (dms.lockedCount > 0) sh.belfry.core.model.SealedText.waitingMessages(dms.lockedCount) else sh.belfry.core.model.SealedText.BANNER_TITLE
+                item(key = "seal-banner") { EarlierLockedBanner(title) { nav.go(Routes.UNLOCK_STEPS) } }
             }
             if (list.isEmpty()) {
                 item(key = "empty") {
