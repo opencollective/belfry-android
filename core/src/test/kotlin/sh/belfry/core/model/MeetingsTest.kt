@@ -158,9 +158,9 @@ class MeetingsTest {
         assertTrue(bob in now.invited)
         assertTrue(now.meeting)
         assertTrue(carol !in w.meetingPeople(now))
-        // checking in opens a quarter of an hour before the start
-        assertTrue(!Meetings.checkInOpen(now, now.start - 16 * 60))
-        assertTrue(Meetings.checkInOpen(now, now.start - 15 * 60))
+        // checking in opens at the start
+        assertTrue(!Meetings.checkInOpen(now, now.start - 1))
+        assertTrue(Meetings.checkInOpen(now, now.start))
     }
 
     @Test
@@ -281,7 +281,14 @@ class MeetingsTest {
         assertTrue(EventInvites.version(now, listOf(bob), null, "wss://g", "UTC").isEmpty())
         // the invited see it under Invited
         assertTrue(world(plain, me = bob).isInvited(now))
-        val (text, picks) = EventInvites.line(w, listOf(bob, carol))
-        assertTrue(text.startsWith("invited @") && picks.map { it.second } == listOf(bob, carol))
+        // the chat's line: h, a p each, the mark; the text is the fallback for clients that don't know it
+        val line = EventInvites.message(now.groupId, listOf(bob, carol))!!
+        assertEquals(9, line.kind)
+        assertEquals(listOf(listOf("h", now.groupId), listOf("p", bob), listOf("p", carol), listOf("invited", "event")), line.tags)
+        assertTrue(line.content.startsWith("invited nostr:npub1"))
+        assertEquals(listOf(bob, carol), EventInvites.invitedBy(w, now, draft(alice, t0 + 200, line)))
+        // someone who is not a host: an ordinary message
+        assertNull(EventInvites.invitedBy(w, now, draft(dave, t0 + 201, line)))
+        assertNull(EventInvites.invitedBy(w, now, ev(alice, t0 + 202, 9, "invited them", listOf(listOf("h", now.groupId), listOf("p", bob)))))
     }
 }

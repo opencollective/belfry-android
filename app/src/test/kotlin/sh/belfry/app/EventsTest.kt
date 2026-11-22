@@ -388,9 +388,10 @@ class EventsTest : DemoShots() {
         while (tries++ < 200 && world.eventByLink(e.d)?.invited != who) { settle(); Thread.sleep(25) }
         val now = world.eventByLink(e.d)!!
         assertEquals(who, now.invited)
-        assertEquals(1, world.all.count { it.kind == 9 && it.tag("h") == e.groupId && it.pubkey == session.me && it.content.startsWith("invited ") })
+        assertEquals(1, world.all.count { it.kind == 9 && it.tag("h") == e.groupId && it.pubkey == session.me && it.content.startsWith("invited nostr:npub1") && it.tags.contains(listOf("invited", "event")) })
         // nobody was put in the chat, nobody got a role
         assertEquals(0, world.all.count { it.kind == 9000 && it.tag("h") == e.groupId && it.tag("p") in who })
         demoShot("event-invited-line") { EventScreen(e.coord) }
+        compose.onNodeWithTag("invited-line").assertExists()
     }
 }

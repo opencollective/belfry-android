@@ -97,9 +97,8 @@ object Meetings {
         return last.filter { it.value.second == 9001 }.keys
     }
 
-    /** Checking people in opens a quarter of an hour before the start (people arrive early); before, a host can only remove. */
-    const val CHECK_IN_EARLY = 15 * 60L
-    fun checkInOpen(e: CalEvent, now: Long): Boolean = now >= e.start - CHECK_IN_EARLY
+    /** Checking people in opens when the meeting starts (Xavier's word); before, a host can only remove. */
+    fun checkInOpen(e: CalEvent, now: Long): Boolean = now >= e.start
 
     /** A host marks PUBKEY as there (ON) or not. */
     fun checkIn(e: CalEvent, pubkey: String, on: Boolean): Draft = Draft(
@@ -210,7 +209,7 @@ fun World.meetingPlaces(): List<String> =
 /**
  * Inviting members to an event that is not a meeting (SPEC 19.65): a host's new version of the
  * event with one `["p",<pubkey>,"","invited"]` each (so it shows under their Calendar · Invited),
- * and a message in the event's chat, "invited @A @B" with the people mentioned. Nobody is put in
+ * and a marked line in the event's chat (drawn "<host> invited <names>"). Nobody is put in
  * the chat and nobody gets a role.
  */
 object EventInvites {
@@ -227,9 +226,27 @@ object EventInvites {
         return EventActions.edit(e, Meetings.formOf(e, zone), g, groupsRelay, fresh.map { listOf("p", it, "", "invited") })
     }
 
-    /** The chat's line and who it mentions (name → key), as the composer's picks. */
-    fun line(w: World, keys: List<String>): Pair<String, List<Pair<String, String>>> {
-        val picks = keys.distinct().map { w.displayName(it) to it }
-        return ("invited " + picks.joinToString(" ") { "@" + it.first }) to picks
+    val MARK = listOf("invited", "event")
+
+    /**
+     * The chat's line: a kind 9 by the host, `h`, one `p` per person and `["invited","event"]`; its
+     * content is the readable fallback for clients that don't know the tag ("invited nostr:npub…").
+     */
+    fun message(groupId: String, keys: List<String>): Draft? {
+        val who = keys.distinct().filter { Hex.isKey(it) }
+        val refs = who.mapNotNull { try { "nostr:" + sh.belfry.core.crypto.Bech32.npub(it) } catch (x: IllegalArgumentException) { null } }
+        if (refs.isEmpty()) return null
+        return Draft(Target.GROUPS, 9, "invited " + refs.joinToString(" "), listOf(listOf("h", groupId)) + who.map { listOf("p", it) } + listOf(MARK))
+    }
+
+    /**
+     * Who a message of the event's chat says was invited, when it is such a line by a host (the
+     * maker, a co-host by role, a belfry admin); null: an ordinary message (anyone else's mark
+     * counts for nothing).
+     */
+    fun invitedBy(w: World, e: CalEvent, ev: sh.belfry.core.nostr.Event): List<String>? {
+        if (ev.kind != 9 || ev.tags.none { it == MARK }) return null
+        if (ev.pubkey != e.creator && ev.pubkey !in e.hosts && ev.pubkey !in w.ctx.communityAdmins) return null
+        return ev.tags.filter { it.size >= 2 && it[0] == "p" && Hex.isKey(it[1]) }.map { it[1] }.distinct().ifEmpty { null }
     }
 }

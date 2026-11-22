@@ -658,6 +658,22 @@ fun AnswerLine(item: sh.belfry.core.model.FeedItem.Answer) {
     }
 }
 
+/** "Xavier invited Lina Moreau and Ben Okafor" in an event's chat (names, never ids), and its time. */
+@Composable
+fun InvitedLine(by: String, who: List<String>, at: Long) {
+    val world = LocalWorld.current
+    val c = Belfry.colors
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("invited-line"), verticalAlignment = Alignment.CenterVertically) {
+        Icon(BelfryIcons.Users, contentDescription = null, tint = c.muted, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            (if (by == world.me) "You" else world.displayName(by)) + " invited " + sh.belfry.core.model.EventShape.names(who.map { if (it == world.me) "you" else world.displayName(it) }),
+            fontSize = 14.sp, color = c.text, modifier = Modifier.weight(1f),
+        )
+        Text(ChatFormat.time(world, at), fontSize = 12.sp, color = c.faint)
+    }
+}
+
 /** Who comes, pushed over the event (from "15 going · 3 maybe ›"): Hosts · Going · Maybe. Back returns. */
 @Composable
 internal fun EventPeopleScreen(e: CalEvent, onBack: () -> Unit) {

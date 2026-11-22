@@ -2575,7 +2575,7 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
 - **Hosts.** Only the person who made it is "Host"; "Co-host" is someone made one (an admin by
   role); the belfry's admins (admins of every chat through its 39001) and the door are neither.
   A row says "Host · Confirmed", "Invited", …
-- **For a host, per person:** before check-in opens (15 minutes before the start,
+- **For a host, per person:** before check-in opens (at the start,
   `Meetings.checkInOpen`), a ✕ that asks, then takes the person off: `9001 [["h",<chat>],["p",<pubkey>]]`
   and a new version of the event without their `p … invited` (`Meetings.uninvite`; never the
   maker). Someone whose latest 9000 / 9001 in the chat is a 9001 is no longer among the meeting's
@@ -2607,6 +2607,11 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
 - **Invite people** (hosts; not a meeting, which has its own people): members only, a search and
   ticks, no roles (nobody becomes a member or a steward from an event). It publishes a new version
   of the event with one `["p",<pubkey>,"","invited"]` per person (the tag a meeting uses, 19.23;
-  the event then shows under their Calendar · Invited until they answer) and posts one message in
-  the event's chat, `invited nostr:<npub> nostr:<npub> …` with the people mentioned ("Xavier:
-  invited @Lina @Ben" in the feed). Nobody is put in the chat. `EventInvites` (core).
+  the event then shows under their Calendar · Invited until they answer: **a reader shows Invited
+  for any event carrying my `p … invited`, not only one with `t meeting`**) and posts one marked
+  line in the event's chat: kind 9 by the host, tags `["h",<chat>]`, one `["p",<pubkey>]` per
+  person and `["invited","event"]`; its content is the readable fallback, `invited nostr:<npub> …`.
+  A client that knows the tag draws a system line "‹host› invited ‹names›" (names, never ids) when
+  its author is a host (the maker, a co-host by role, a belfry admin); anyone else's is an ordinary
+  message, as it is for an old client. Nobody is put in the chat. Telling the invitee (push, mail)
+  is the belfry's, from the event's `p … invited` tags. `EventInvites` (core).

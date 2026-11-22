@@ -271,8 +271,7 @@ class EventsService internal constructor(private val s: Session) {
         if (fresh.isEmpty()) return
         val drafts = sh.belfry.core.model.EventInvites.version(now, fresh, world.group(now.groupId), s.community.groupsRelay, s.zoneId)
         if (drafts.isNotEmpty()) s.send(drafts)
-        val (text, picks) = sh.belfry.core.model.EventInvites.line(world, fresh)
-        s.postMessage(now.groupId, text, picked = picks)
+        sh.belfry.core.model.EventInvites.message(now.groupId, fresh)?.let { s.send(it) }
     }
 
     /** A host takes someone off the meeting (out of its chat, off the event). */
