@@ -525,6 +525,8 @@ private fun MailPreview(m: MailItem, open: Boolean, canMail: Boolean, onReply: (
                 }
                 if (canMail) { Spacer(Modifier.width(8.dp)); ReplyAllIcon(onReply) }
             }
+            // its pictures and files after it (canvas v179 one-shape/email-pictures)
+            MailAttachments(m.original, Modifier.padding(start = 40.dp, end = 12.dp, bottom = 4.dp))
         }
     }
 }

@@ -426,8 +426,11 @@ private fun Attachments(d: Dm) {
             }
         }
     }
-    Column(Modifier.padding(top = 6.dp)) {
-        d.attachments.forEachIndexed { i, a ->
+    // pictures in the message (Xavier, 2026-11-22), the rest as file rows that save the file; a picture
+    // that can't be read (a large mail not fetched, an undecodable part) falls back to its row
+    val pictures = d.attachments.indices.filter { sh.belfry.core.model.Pictures.isPicture(d.attachments[it].type, d.attachments[it].name) }
+    val fileRow: @Composable (Int, Boolean) -> Unit = { i, failed ->
+        val a = d.attachments[i]
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -446,9 +449,19 @@ private fun Attachments(d: Dm) {
                 Spacer(Modifier.width(8.dp))
                 Text(a.name.ifEmpty { "attachment" }, fontSize = 14.sp, color = c.text, maxLines = 1, modifier = Modifier.weight(1f))
                 Spacer(Modifier.width(8.dp))
-                Text(fileSize(a.size), fontSize = 12.sp, color = c.muted)
+                Text(if (failed) sh.belfry.app.ui.kit.PICTURE_FAILED else fileSize(a.size), fontSize = 12.sp, color = c.muted)
             }
+    }
+    Column(Modifier.padding(top = 6.dp)) {
+        if (pictures.isNotEmpty()) {
+            sh.belfry.app.ui.kit.InlinePictures(
+                key = d.rid, count = pictures.size, names = pictures.map { d.attachments[it].name.ifEmpty { null } },
+                load = { val parts = session.attachmentsOf(d); pictures.map { parts.getOrNull(it)?.data } },
+                fallback = { j -> fileRow(pictures[j], true) },
+            )
+            Spacer(Modifier.height(4.dp))
         }
+        for (i in d.attachments.indices) if (i !in pictures) fileRow(i, false)
         val n = note
         if (n != null) Text(n, fontSize = 12.sp, color = c.muted, modifier = Modifier.padding(top = 2.dp))
     }

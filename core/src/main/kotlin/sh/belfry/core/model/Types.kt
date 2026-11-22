@@ -86,7 +86,8 @@ data class Group(
 }
 
 data class Media(val url: String, val mime: String, val name: String? = null, val w: Int? = null, val h: Int? = null) {
-    val isImage get() = mime.startsWith("image/")
+    /** A picture shown in the message ([Pictures]: by type, else by the URL's extension). */
+    val isImage get() = Pictures.isPicture(mime, url) || Pictures.isPicture(mime, name)
 }
 
 /** A member's e-mail kept whole on the file server (AES-256-GCM; key and nonce base64). */

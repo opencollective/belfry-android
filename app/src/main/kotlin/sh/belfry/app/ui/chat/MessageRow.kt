@@ -191,7 +191,13 @@ fun MessageRow(
                 Text(extra.joinToString("  ") { "#$it" }, fontSize = 13.sp, color = c.orange, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             val pictures = if (m.media.size > 1) m.media.filter { it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
-            for (media in m.media) MediaView(media, session, chat, pictures)
+            // several pictures: the DM grid (canvas v179), then the other files; else each in its place
+            if (pictures.size >= 2) {
+                MediaGrid(m.media.filter { it.isImage && it.url in pictures }, chat, pictures)
+                for (media in m.media) if (!(media.isImage && media.url in pictures)) MediaView(media, session, chat, pictures)
+            } else {
+                for (media in m.media) MediaView(media, session, chat, pictures)
+            }
             if (pending != null) for (a in pending.attachments) PendingAttachment(a, session, chat)
             val reactions = world.reactionsOf(groupId, m.id)
             // no to-do mark here any more (web 2026-11-12): the ⏳ / ☑️ reactions say it
@@ -348,6 +354,37 @@ private fun MediaView(media: Media, session: Session, chat: ChatState, pictures:
             Image(bitmap, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else if (LocalNetworkImages.current && media.url.startsWith("https://")) {
             AsyncImage(model = media.url, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        }
+    }
+}
+
+/**
+ * Two or more pictures of a channel message (canvas v179, the DM grid): two side by side, three as two +
+ * one wide, four or more as 2 × 2 with "+N" on the fourth; a tap opens the viewer on that picture.
+ */
+@Composable
+private fun MediaGrid(images: List<Media>, chat: ChatState, urls: List<String>) {
+    val c = Belfry.colors
+    val shown = images.take(4)
+    val more = images.size - 4
+    val network = LocalNetworkImages.current
+    Column(Modifier.padding(top = 4.dp).widthIn(max = 280.dp).fillMaxWidth().testTag("media-grid"), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        for ((r, row) in shown.chunked(2).withIndex()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                for ((i, media) in row.withIndex()) {
+                    val wide = row.size == 1
+                    val cell = (if (wide) Modifier.fillMaxWidth().aspectRatio(2f) else Modifier.weight(1f).aspectRatio(1f))
+                        .clip(RoundedCornerShape(10.dp)).background(c.surface2)
+                        .clickable(role = Role.Image, onClickLabel = "Open the photo") { chat.viewer = ViewerImage(media.url, null, media.name, urls, urls.indexOf(media.url).coerceAtLeast(0)) }
+                    Box(cell, contentAlignment = Alignment.Center) {
+                        Icon(BelfryIcons.Image, contentDescription = media.name ?: "Photo", tint = c.faint, modifier = Modifier.size(24.dp))
+                        if (network) AsyncImage(model = media.url, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        if (r * 2 + i == shown.size - 1 && more > 0) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
+                            Text("+$more", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                        }
+                    }
+                }
+            }
         }
     }
 }

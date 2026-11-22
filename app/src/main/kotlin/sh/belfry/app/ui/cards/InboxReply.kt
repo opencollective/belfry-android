@@ -295,7 +295,7 @@ private fun HeaderLine(label: String, value: String, sub: String? = null) {
 private val mailHttp: OkHttpClient by lazy { OkHttpClient() }
 
 /** Fetches and opens a whole e-mail kept on the file server. Null when it cannot be opened. */
-private suspend fun openOriginal(o: MailOriginal): ParsedMail? = withContext(Dispatchers.IO) {
+internal suspend fun openOriginal(o: MailOriginal): ParsedMail? = withContext(Dispatchers.IO) {
     try {
         if (!o.url.startsWith("https://")) return@withContext null
         mailHttp.newCall(Request.Builder().url(o.url).build()).execute().use { res ->
@@ -344,7 +344,7 @@ internal fun FullMailSheet(subject: String, original: MailOriginal, onDismiss: (
                     )
                     if (got.attachments.isNotEmpty()) {
                         Gap(8)
-                        Muted("${got.attachments.size} attachment(s), shown in the message.")
+                        Muted(if (got.attachments.size == 1) "1 attachment, shown in the message." else "${got.attachments.size} attachments, shown in the message.")
                     }
                 }
             }

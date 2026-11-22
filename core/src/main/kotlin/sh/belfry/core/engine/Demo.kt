@@ -538,13 +538,26 @@ object Demo {
         dm(me, listOf(me), now - 4 * day, "Note to self: bring the 13 mm spanner back to Tomás.")
 
         val myAddress = "$myUser@$DOMAIN"
-        suspend fun mailIn(at: Long, sender: String, address: String, subject: String, text: String, id: String, verified: Boolean) {
-            val body = "From: \"$sender\" <$address>\r\nTo: <$myAddress>\r\nSubject: $subject\r\nMessage-ID: $id\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n$text\r\n"
+        // FILES: (name, type, demo resource) attached after the text (inline pictures, 2026-11-22)
+        suspend fun mailIn(at: Long, sender: String, address: String, subject: String, text: String, id: String, verified: Boolean, files: List<Triple<String, String, String>> = emptyList()) {
+            val head = "From: \"$sender\" <$address>\r\nTo: <$myAddress>\r\nSubject: $subject\r\nMessage-ID: $id\r\n"
+            val body = if (files.isEmpty()) "${head}Content-Type: text/plain; charset=utf-8\r\n\r\n$text\r\n" else {
+                val b = "demo-boundary-" + sha256Hex(id).take(8)
+                val parts = StringBuilder("--$b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n$text\r\n")
+                for ((name, type, res) in files) {
+                    val bytes = Demo::class.java.getResourceAsStream("/demo/$res")?.use { it.readBytes() } ?: continue
+                    val b64 = java.util.Base64.getMimeEncoder(76, "\r\n".toByteArray()).encodeToString(bytes)
+                    parts.append("--$b\r\nContent-Type: $type; name=\"$name\"\r\nContent-Disposition: attachment; filename=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n\r\n$b64\r\n")
+                }
+                parts.append("--$b--\r\n")
+                "${head}MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"$b\"\r\n\r\n$parts"
+            }
             val rumor = GiftWrap.rumor(1301, bridge.pubkey, listOf(listOf("email-id", "demo-in-" + sha256Hex(id).take(12)), listOf("mail-from", address), listOf("p", me.pubkey),
                 listOf("subject", subject), listOf("belfry-auth", if (verified) "pass" else "none")), body, at)
             wraps.add(GiftWrap.wrap(rumor, me.pubkey, bridge))
         }
-        mailIn(now - 5 * h, "Ana Pereira", "ana@example.org", "Visiting next week", "Hi! I'm in town next week and would love to see the commons. Is Wednesday afternoon a good time?\n\nAna", "<visit-1@example.org>", true)
+        mailIn(now - 5 * h, "Ana Pereira", "ana@example.org", "Visiting next week", "Hi! I'm in town next week and would love to see the commons. Is Wednesday afternoon a good time? Here is our garden last spring, and the map.\n\nAna", "<visit-1@example.org>", true,
+            listOf(Triple("garden.jpg", "image/jpeg", "seedlings-2.jpg"), Triple("How to find us.pdf", "application/pdf", "garden-plan.pdf")))
         val answer = Mime.buildMail(myName, myAddress, "ana@example.org", "Re: Visiting next week", "Hi Ana, Wednesday works. Come by at 3, I'll show you around.", DOMAIN, "<visit-1@example.org>", null, now - 4 * h)
         val sentId = "demo-email-1"
         val sent = GiftWrap.rumor(1301, me.pubkey, listOf(listOf("email-id", sentId), listOf("mail-from", myAddress), listOf("rcpt-to", "ana@example.org"), listOf("subject", "Re: Visiting next week")), answer.raw, now - 4 * h)

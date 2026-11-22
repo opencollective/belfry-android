@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithText
 import org.junit.Test
 import sh.belfry.app.ui.people.ConversationScreen
 import sh.belfry.app.ui.people.MeScreen
@@ -100,6 +102,15 @@ class PeopleShotsTest : DemoShots() {
 
     @Test fun conversationMail() = demoShot("conversation-mail") {
         ConversationScreen(MailThreads.mailThreadOf("ana@example.org", "Visiting next week"))
+    }
+
+    /** canvas v179 messages/email-pictures: Ana's photo in the message after the text, the PDF as a row under it. */
+    @Test fun conversationMailPicture() {
+        demoShot("conversation-mail-picture", act = { compose.waitUntil(10_000) { compose.onAllNodesWithTag("inline-picture").fetchSemanticsNodes().isNotEmpty() }; compose.waitForIdle() }) {
+            ConversationScreen(MailThreads.mailThreadOf("ana@example.org", "Visiting next week"))
+        }
+        compose.onNodeWithTag("inline-picture").assertExists()
+        compose.onNodeWithText("How to find us.pdf").assertExists()
     }
 
     @Test fun conversationMailUnverified() = demoShot("conversation-mail-unverified") {
