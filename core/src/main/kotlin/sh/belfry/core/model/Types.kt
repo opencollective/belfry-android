@@ -195,6 +195,10 @@ sealed interface FeedItem {
         override val at get() = p.at
         override val key get() = p.key
     }
+    /** In an event's chat: someone's answer to the event, at its time ("Lina Moreau is going"; one shape). */
+    data class Answer(val pubkey: String, val status: Rsvp, override val at: Long) : FeedItem {
+        override val key get() = "rsvp:" + pubkey
+    }
 }
 
 /** A feed item with what the list needs to lay it out. */

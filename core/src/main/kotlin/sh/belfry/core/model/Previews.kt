@@ -79,7 +79,10 @@ private fun World.readPreviews(groupId: String): List<ActivityPreview> {
         }
         out.add(ActivityPreview(m.id, kind, m.pubkey, verb, ref, title, m.at))
     }
+    // the event's own chat draws its answers as plain lines (FeedItem.Answer), never as previews
+    val ownEvent = calEventFor(groupId)?.coord
     for (e in calendar) {
+        if (e.coord == ownEvent) continue
         if (groupId !in e.channels && !(e.meeting && e.madeIn == groupId)) continue
         val kind = if (e.meeting) PreviewKind.MEETING else PreviewKind.EVENT
         for ((pk, r) in e.rsvps) {

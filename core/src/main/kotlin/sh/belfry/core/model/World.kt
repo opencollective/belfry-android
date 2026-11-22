@@ -549,7 +549,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * in another channel redraws nothing here.
      */
     fun feedKey(groupId: String): FeedKey =
-        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId), previews(groupId)))
+        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId), previews(groupId), calEventFor(groupId)?.rsvpEvents ?: emptyMap<String, Event>()))
 
     /** Compared part by part, by identity (the activity previews by value: they are made anew per snapshot). */
     class FeedKey internal constructor(private val parts: Array<Any>) {
@@ -572,6 +572,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         if (topic == null) {
             for (t in mt.list) items.add(FeedItem.MailThread(t))
             for (j in guestJoins(groupId)) items.add(FeedItem.Join(j))
+            // an event's chat: each person's latest answer, where they gave it (one shape)
+            calEventFor(groupId)?.let { e -> for ((pk, ev) in e.rsvpEvents) e.rsvps[pk]?.let { items.add(FeedItem.Answer(pk, it, ev.createdAt)) } }
             val byId = list.associateBy { it.id }
             for ((rootId, info) in threadsOf(groupId)) {
                 if (rootId in mt.of) continue

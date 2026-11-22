@@ -71,6 +71,9 @@ object Demo {
     const val SWAP_D = "2026-swap01"
     const val SWAP_SLUG = "seed-swap"
     const val REPAIR_D = "2026-repair"
+    /** One shape (SPEC 19.54): an online event with a cover (Jitsi, next week) and one happening now (Google Meet, no cover). */
+    const val PLAN_D = "2026-plan01"
+    const val CALL_D = "2026-call01"
 
     private fun key(name: String): LocalSigner = LocalSigner(sha256Hex("belfry-demo:" + name.lowercase()))
 
@@ -266,9 +269,16 @@ object Demo {
         }
         // ---- Belfry events: ev-<d> groups, their URL sent in a channel ------------------------------
         val swapStart = ((now + 8 * day) / day) * day + 11 * h
+        // covers kept on the device like a picture not uploaded yet (the demo has no file server)
+        fun cover(name: String, res: String): String? {
+            val bytes = Demo::class.java.getResourceAsStream("/demo/$res")?.use { it.readBytes() } ?: return null
+            store.putBlob("cover:$name", bytes)
+            return Session.LOCAL_BLOB + "cover:$name"
+        }
         val swap = EventForm(
             title = "Seed swap", description = "Bring seeds in **paper envelopes**, labelled. Take what you will sow.",
             start = swapStart, end = swapStart + 2 * h, tz = "UTC", location = "By the greenhouse", visibility = Visibility.PUBLIC, slug = SWAP_SLUG,
+            cover = cover("swap", "seedlings-2.jpg"),
         )
         EventActions.create(swap, SWAP_D, maya.pubkey, gr, mr).forEachIndexed { i, d -> post(maya, now - 3 * day + i, d) }
         lists("ev-$SWAP_D", now - 3 * day + 5, listOf(listOf("name", "Seed swap"), listOf("about", "Bring seeds in **paper envelopes**, labelled.")), listOf(maya), listOf(maya))
@@ -278,7 +288,39 @@ object Demo {
             post(joris, now - 2 * day, EventActions.rsvp(cal, Rsvp.ACCEPTED, joris.pubkey))
             post(aroha, now - 2 * day + 60, EventActions.rsvp(cal, Rsvp.ACCEPTED, aroha.pubkey))
             post(ines, now - 2 * day + 120, EventActions.rsvp(cal, Rsvp.TENTATIVE, ines.pubkey))
+            post(lena, now - day + 300, EventActions.rsvp(cal, Rsvp.ACCEPTED, lena.pubkey))
+            post(sam, now - 20 * h, EventActions.rsvp(cal, Rsvp.ACCEPTED, sam.pubkey))
         }
+        say(joris, "ev-$SWAP_D", now - 2 * day + 30, "I have too many bean seeds from last year, I'll bring a box.")
+        say(aroha, "ev-$SWAP_D", now - day, "Can I bring seedlings too, or only seeds?")
+        say(maya, "ev-$SWAP_D", now - day + 600, "Seedlings are welcome! Put a label on the pot.")
+        // an online event next week (Jitsi, with a cover) and a call happening now (Google Meet, no cover)
+        val planStart = ((now + 6 * day) / day) * day + 19 * h
+        val plan = EventForm(
+            title = "Garden planning", description = "Bring your seed list, we'll plan the beds for spring.",
+            start = planStart, end = planStart + h, tz = "UTC", online = "https://meet.jit.si/riverside-garden-planning", cover = cover("plan", "seedlings-3.jpg"),
+        )
+        EventActions.create(plan, PLAN_D, lena.pubkey, gr, mr).forEachIndexed { i, d -> post(lena, now - day + i, d) }
+        lists("ev-$PLAN_D", now - day + 5, listOf(listOf("name", "Garden planning"), listOf("about", "Bring your seed list.")), listOf(lena), listOf(lena))
+        val callStart = now - 5 * 60
+        val call = EventForm(
+            title = "Tool library call", description = "Fifteen minutes on who keeps which tools over the winter.",
+            start = callStart, end = callStart + h, tz = "UTC", online = "https://meet.google.com/abc-defg-hij",
+        )
+        EventActions.create(call, CALL_D, tomas.pubkey, gr, mr).forEachIndexed { i, d -> post(tomas, now - 2 * day + 30 + i, d) }
+        lists("ev-$CALL_D", now - 2 * day + 40, listOf(listOf("name", "Tool library call"), listOf("about", "Who keeps which tools.")), listOf(tomas), listOf(tomas))
+        val early = World(events.toList(), emptyList(), WorldContext(me.pubkey, DOMAIN, NAME, emptySet(), groups.pubkey, bridge.pubkey, ZoneOffset.UTC))
+        early.calEvent("31923:${lena.pubkey}:$PLAN_D")?.let { cal ->
+            post(maya, now - 20 * h, EventActions.rsvp(cal, Rsvp.ACCEPTED, maya.pubkey))
+            post(joris, now - 18 * h, EventActions.rsvp(cal, Rsvp.ACCEPTED, joris.pubkey))
+            post(kofi, now - 10 * h, EventActions.rsvp(cal, Rsvp.TENTATIVE, kofi.pubkey))
+        }
+        say(lena, "ev-$PLAN_D", now - day + 60, "Bring your seed list, we'll plan the beds for spring.")
+        early.calEvent("31923:${tomas.pubkey}:$CALL_D")?.let { cal ->
+            post(sam, now - day, EventActions.rsvp(cal, Rsvp.ACCEPTED, sam.pubkey))
+            post(lena, now - 3 * h, EventActions.rsvp(cal, Rsvp.ACCEPTED, lena.pubkey))
+        }
+        say(tomas, "ev-$CALL_D", now - 30 * 60, "The link is up, join when you can.")
         val repairStart = ((now + 9 * day) / day) * day + 14 * h
         val repair = EventForm(
             title = "Repair café", description = "Bring something broken. We have **six tables** and two soldering irons.",

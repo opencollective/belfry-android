@@ -2389,3 +2389,24 @@ Nothing new on the wire. Behaviour:
   about an item that needs me (a to-do on me, an upcoming event I haven't answered and don't
   host, a vote I haven't cast) starts open. Open / closed is kept per line on the device only
   (store key `preview-open`). Inside an item's own conversation the lines stay plain.
+
+### 19.56 One shape: the event screen (2026-11-22; canvas one-shape/event-default, -default-online, -tiny, -full; lead's ruling 5)
+Nothing new on the wire: everything is read from the event (31923), its RSVPs (31925) and its chat.
+- **Three states.** Mid (how it opens while the event needs me: open and not answered, "still
+  going?", or a host with people asking; `World.eventNeedsMe`): the cover across the full width at
+  16:9 (scaled to the width, never cropped sideways) with ‹ and ••• floating on it (no cover: the
+  usual header), then the title, 📅 when, the place (a link to the maps app, `geo:`), "Hosted by …",
+  faces + "n going · m maybe ›" (opens People), two lines of the description + More, and Going /
+  Maybe / Can't go always visible (mine filled, ticked and bold). Tiny (once answered; also after
+  scrolling the chat): two header lines, the title then the icon row: my answer ("✓ Going", green
+  and bold), 📅 day · time (lead), 👥 going, ✓ open to-dos, 📁 files, 🖼 photos. Full (pull or More):
+  the place with Directions, hosts, the whole description, who comes, to-dos / files / photos as
+  links, the answer, then tickets, address, host tools. A meeting or an older calendar event still
+  opens full. The chat (no more Chat · Photos · People tabs) is below mid and tiny.
+- **Online.** Each `r` link: 📹 "Online · <service>" (`Actions.meetingLabel`: Jitsi, Google Meet,
+  Zoom, Teams, else the host name) linking to the call, and Join on the same line, enabled from 10
+  minutes before the start until the end (start + 2 h without an end; `EventShape.joinOpen`); off,
+  it shows a clock.
+- **Answers in the event's chat.** Each person's latest RSVP is a feed item at its time
+  (`FeedItem.Answer`): "You’re going" / "You might go" / "You can’t go", others "Lina Moreau is
+  going" / "might go" / "can’t go" (`EventShape.answerLine`). A changed answer moves the line.

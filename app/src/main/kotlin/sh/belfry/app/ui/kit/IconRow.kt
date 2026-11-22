@@ -36,6 +36,8 @@ data class RowItem(
     val lead: Boolean = false,
     /** In the text colour, medium weight (a to-do's assignee); otherwise the row's grey. */
     val strong: Boolean = false,
+    /** Its own colour, also in semi-bold (an event's "✓ Going": green); null = the row's colour or the lead's. */
+    val tint: Color? = null,
 )
 
 /** The lead item's colour: blue on both themes, also set in semi-bold (e-ink: weight carries it, not hue). */
@@ -55,7 +57,7 @@ fun IconRow(items: List<RowItem>, modifier: Modifier = Modifier, color: Color = 
         modifier = modifier.testTag("icon-row"),
         content = {
             for (it in items) {
-                val tint = if (it.lead) lead else if (it.strong) Belfry.colors.text else color
+                val tint = it.tint ?: if (it.lead) lead else if (it.strong) Belfry.colors.text else color
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.testTag("row-item-${it.key}").clearAndSetSemantics { contentDescription = it.spoken },
@@ -66,7 +68,7 @@ fun IconRow(items: List<RowItem>, modifier: Modifier = Modifier, color: Color = 
                     }
                     if (it.text.isNotEmpty()) Text(
                         it.text, color = tint, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Clip,
-                        fontWeight = if (it.lead) FontWeight.SemiBold else if (it.strong) FontWeight.Medium else FontWeight.Normal,
+                        fontWeight = if (it.lead || it.tint != null) FontWeight.SemiBold else if (it.strong) FontWeight.Medium else FontWeight.Normal,
                     )
                 }
             }

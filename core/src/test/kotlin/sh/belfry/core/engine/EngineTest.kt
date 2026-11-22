@@ -685,7 +685,7 @@ class EngineTest {
         assertEquals(2, w.pods(Demo.GENERAL).size)
         assertEquals(1, w.group(Demo.POD_CLOSED)?.applications?.size)
         assertTrue(w.group(Demo.POD_CLOSED)?.closed == true)
-        assertEquals(3, w.calendar.size, w.calendar.map { it.title }.toString())
+        assertEquals(5, w.calendar.size, w.calendar.map { it.title }.toString()) // + Garden planning (online, cover) and Tool library call (online, now)
         val cal = w.calendar.single { !it.isNew }
         assertEquals("Spring dinner", cal.title)
         val swap = w.calendar.single { it.d == Demo.SWAP_D }
