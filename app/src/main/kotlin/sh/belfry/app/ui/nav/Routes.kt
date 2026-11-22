@@ -107,6 +107,9 @@ object Routes {
     /** [conv] is a DmSnapshot conversation key: `n:<pubkeys>`, `m:<address>|<subject key>` or `m:<address>`. */
     fun conversation(conv: String) = "conversation/${enc(conv)}"
     const val NEW_CONVERSATION = "new-conversation"
+    /** A direct message's thread (docs/one-shape.md 3): [root] is the message's rumor id. */
+    const val DM_THREAD = "dm-thread/{conv}/{root}"
+    fun dmThread(conv: String, root: String) = "dm-thread/${enc(conv)}/${enc(root)}"
     /** A sealed conversation's Encryption screen: only these devices can read it (canvas messages/encryption-devices). */
     const val ENCRYPTION = "encryption/{conv}"
     fun encryption(conv: String) = "encryption/${enc(conv)}"

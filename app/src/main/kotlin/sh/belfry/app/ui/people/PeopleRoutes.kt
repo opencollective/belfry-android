@@ -22,6 +22,7 @@ fun NavGraphBuilder.peopleRoutes() {
     composable(Routes.MESSAGES) { MessagesScreen() }
     composable(Routes.CONVERSATION) { entry -> ConversationScreen(entry.arg("conv")) }
     composable(Routes.NEW_CONVERSATION) { NewConversationScreen() }
+    composable(Routes.DM_THREAD) { entry -> DmThreadScreen(entry.arg("conv"), entry.arg("root")) }
     composable(Routes.ENCRYPTION) { entry -> EncryptionScreen(entry.arg("conv")) }
     composable(Routes.UNLOCK_STEPS) { UnlockStepsScreen() }
 }

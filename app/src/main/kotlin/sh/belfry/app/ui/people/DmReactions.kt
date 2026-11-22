@@ -99,7 +99,7 @@ internal fun DmReactionChips(d: Dm, chips: List<DmChip>, onAdd: () -> Unit, modi
 /** A long-press on a bubble: the reactions row (not for e-mail), then Copy text. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun DmMessageSheet(d: Dm, chips: List<DmChip>, emojiOnly: Boolean, onClose: () -> Unit) {
+internal fun DmMessageSheet(d: Dm, chips: List<DmChip>, emojiOnly: Boolean, onClose: () -> Unit, onReply: ((Dm) -> Unit)? = null) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -126,6 +126,15 @@ internal fun DmMessageSheet(d: Dm, chips: List<DmChip>, emojiOnly: Boolean, onCl
                 }
             }
             Spacer(Modifier.height(14.dp))
+        }
+        // the same hold menu as in a channel (docs/one-shape.md 3, canvas one-shape/dm-actions): Reply,
+        // then Copy text. No Make a to-do / Pin in DMs in this build (sealed rules first) and no
+        // Copy link: a direct message has no link (no link scheme for DMs yet)
+        if (!emojiOnly && onReply != null) {
+            ActionGroup {
+                ActionRow("Reply", onClick = { onClose(); onReply(d) }, icon = BelfryIcons.Reply, modifier = Modifier.testTag("dm-menu-reply"))
+            }
+            if (d.text.isNotEmpty()) Spacer(Modifier.height(12.dp))
         }
         if (!emojiOnly && d.text.isNotEmpty()) {
             ActionGroup {

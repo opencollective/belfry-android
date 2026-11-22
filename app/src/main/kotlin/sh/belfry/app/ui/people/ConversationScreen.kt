@@ -98,6 +98,8 @@ fun ConversationScreen(conv: String) {
     val session = LocalSession.current
     val nav = LocalNav.current
     val list = dms.thread(conv)
+    // replies show under their root, not in line (docs/one-shape.md 3); a reply whose root is unknown does
+    val inline = dms.inline(conv)
     val mail = dms.isMail(conv)
     val newMail = dms.isNewMail(conv)
     val address = if (mail) dms.mailAddress(conv) else ""
@@ -134,8 +136,8 @@ fun ConversationScreen(conv: String) {
     // as usual, then one amber block in place of the rest; no composer
     val lockedHere = seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
-    val rows: List<Any> = remember(list, seal, until) {
-        val shown = DmGroups.collapse(list.filter { it.at < until })
+    val rows: List<Any> = remember(inline, seal, until) {
+        val shown = DmGroups.collapse(inline.filter { it.at < until })
         val merged = if (seal == null || seal.notices.isEmpty()) shown
         else (shown.map { r -> (if (r is DmGroup) r.at else (r as Dm).at) to r } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
         // history someone shared with this device (canvas v86): a "Shared by" line above each block
@@ -215,10 +217,12 @@ fun ConversationScreen(conv: String) {
                     when (r) {
                         is Dm -> {
                             val shared = seal?.shared?.any { it.holds(r.at) } == true
+                            val replies = dms.replies(conv, r.rid).size
+                            val openReplies = if (replies > 0) ({ nav.go(Routes.dmThread(conv, r.rid)) }) else null
                             if (shared) {
-                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }) }
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies) }
                             } else {
-                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false })
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies)
                             }
                         }
                         is DmGroup -> FilesBubble(r, dms, world, group = peers.size > 1, onMenu = { rid, emojiOnly -> acting = rid to emojiOnly }) {
@@ -248,7 +252,10 @@ fun ConversationScreen(conv: String) {
         }
         acting?.let { (rid, emojiOnly) ->
             val d = list.firstOrNull { it.rid == rid }
-            if (d == null) acting = null else DmMessageSheet(d, dms.reactionsOf(d.rid), emojiOnly, onClose = { acting = null })
+            if (d == null) acting = null else DmMessageSheet(
+                d, dms.reactionsOf(d.rid), emojiOnly, onClose = { acting = null },
+                onReply = if (DmThreadRules.canReply(d, lockedHere)) ({ m -> nav.go(Routes.dmThread(conv, m.rid)) }) else null,
+            )
         }
         if (seal != null && sealState.waitingKeys && !lockedHere) {
             // allowed, the key not here yet (canvas v96): clears by itself when it arrives
@@ -295,7 +302,7 @@ fun ConversationScreen(conv: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu: (emojiOnly: Boolean) -> Unit, notSealed: (() -> Unit)? = null, onCancelHeld: (suspend () -> Boolean)? = null) {
+internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu: (emojiOnly: Boolean) -> Unit, notSealed: (() -> Unit)? = null, onCancelHeld: (suspend () -> Boolean)? = null, replies: Int = 0, onReplies: (() -> Unit)? = null) {
     val c = Belfry.colors
     val session = LocalSession.current
     val retry = rememberBusy()
@@ -379,6 +386,7 @@ private fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu:
         }
         if (waiting) HeldLine(d, dms, world, onCancelHeld)
         if (chips.isNotEmpty()) DmReactionChips(d, chips, onAdd = { onMenu(true) })
+        if (replies > 0 && onReplies != null) RepliesLink(replies, onReplies)
     }
 }
 

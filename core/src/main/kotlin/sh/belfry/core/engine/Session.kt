@@ -1639,7 +1639,7 @@ class Session(
     /** A conversation's sealed messages, for Share history (§8). */
     fun sealedRumors(conv: String): List<sh.belfry.core.nostr.Event> = dm.sealedRumorsOf(conv)
 
-    suspend fun sendDm(conv: String, text: String, subject: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject) } }
+    suspend fun sendDm(conv: String, text: String, subject: String? = null, root: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject, root = root) } }
 
     /** When this phone last sent a DM or e-mail (ms): a "dm" push right after it is my own copy (SPEC 19.19). */
     @Volatile var lastDmSentMs: Long = 0L
