@@ -2455,3 +2455,21 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   A reply counts as unread for its conversation like any message; the read mark is the conversation's.
   Only a message that is out (not held, not failed), not itself a reply, in a conversation this
   device can write to, offers Reply.
+
+### 19.59 Joining the belfry: a line in the main channel (2026-11-22; Xavier via the lead; docs/one-shape.md "Joining the belfry"; canvas one-shape/townsquare-join)
+
+- **Wire** (the belfry's `joined.py`, read only here): once per person whose membership opens, the
+  groups key publishes in `general` a kind 9000 with `["h","general"]`, `["p",<pubkey>,"member"]`,
+  `["joined","belfry"]`, `["name",<name>]`, and `["agent","1"]` for an agent.
+- **Reading** (`World.belfryJoins`, only for `general`): 9000s signed by `WorldContext.groupsKey` that
+  carry `["joined","belfry"]`; once per person, the first. Left out: a 9000 with `invited-by` (a
+  guest's: it keeps its own guest line, `guestJoins`, never two lines), a reading guest
+  (`["reading","1"]`, or reading only), someone in `removedSilent`, and someone taken out of general
+  by a later 9001 who never wrote a 9 or 1111. A 9000 without the tag draws nothing (people who
+  joined before this date have no line). No groups key known: no lines.
+- **Drawing** (`FeedItem.BelfryJoined`, `BelfryJoinRow`): an activity line at its time, not a
+  message (no menu, no replies, no reactions): the face (an agent without a picture: a robot on a
+  dark disc), "‹name› joined ‹belfry name›" with the name semi-bold, the time. An agent: "‹name›,
+  ‹owner›'s agent, joined ‹belfry name›" ("your agent" when it is mine, "an agent" with no known
+  owner; owner from belfry.json `agents`). The name is the profile's, else the `name` tag; the belfry
+  name is `communityName`, else "the belfry". The whole line opens the person's profile.

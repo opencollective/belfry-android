@@ -549,7 +549,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * in another channel redraws nothing here.
      */
     fun feedKey(groupId: String): FeedKey =
-        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId), previews(groupId), calEventFor(groupId)?.rsvpEvents ?: emptyMap<String, Event>()))
+        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId), belfryJoins(groupId), previews(groupId), calEventFor(groupId)?.rsvpEvents ?: emptyMap<String, Event>()))
 
     /** Compared part by part, by identity (the activity previews by value: they are made anew per snapshot). */
     class FeedKey internal constructor(private val parts: Array<Any>) {
@@ -572,6 +572,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         if (topic == null) {
             for (t in mt.list) items.add(FeedItem.MailThread(t))
             for (j in guestJoins(groupId)) items.add(FeedItem.Join(j))
+            for (j in belfryJoins(groupId)) items.add(FeedItem.BelfryJoined(j))
             // an event's chat: each person's latest answer, where they gave it (one shape)
             calEventFor(groupId)?.let { e -> for ((pk, ev) in e.rsvpEvents) e.rsvps[pk]?.let { items.add(FeedItem.Answer(pk, it, ev.createdAt)) } }
             val byId = list.associateBy { it.id }
@@ -692,6 +693,45 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         }
         // taken out again without ever writing here (a cleaned-up double sign-up): no line
         out.filter { (it.pubkey in wrote || (gone[it.pubkey] ?: 0) < it.at) && it.pubkey !in removedSilent }.sortedBy { it.at }
+    }
+
+    private val belfryJoinsCache: ConcurrentHashMap<String, List<BelfryJoin>> = seeded(prev) { it.belfryJoinsCache }
+
+    /**
+     * Who joined the belfry, oldest first (SPEC 19.59): only in general, the groups key's 9000s with
+     * `["joined","belfry"]`, once per person (the first). None for a guest's 9000 (`invited-by`: its
+     * own line), a reading guest, or someone taken out of general since who never wrote.
+     */
+    fun belfryJoins(groupId: String): List<BelfryJoin> = belfryJoinsCache.getOrPut(groupId) {
+        val key = ctx.groupsKey
+        if (groupId != "general" || key.isNullOrEmpty()) return@getOrPut emptyList()
+        val list = inGroupSorted(groupId)
+        val gone = HashMap<String, Long>()
+        for (e in list) if (e.kind == 9001) e.t("p")?.takeIf { it.isNotEmpty() }?.let { gone[it] = maxOf(gone[it] ?: 0, e.createdAt) }
+        val reading = group(groupId)?.reading ?: emptySet()
+        val seen = HashSet<String>()
+        val out = ArrayList<BelfryJoin>()
+        for (e in list) {
+            if (e.kind != 9000 || e.pubkey != key || !e.hasTag("joined", "belfry")) continue
+            if (!e.t("invited-by").isNullOrEmpty() || e.t(GuestMode.TAG) == "1") continue
+            val p = e.t("p")?.takeIf { it.isNotEmpty() } ?: continue
+            if (!seen.add(p)) continue
+            if (p in reading || p in readingOnly || p in removedSilent) continue
+            // taken out again later and never wrote anywhere: no line
+            if ((gone[p] ?: 0) >= e.createdAt && ofKind(9).none { it.pubkey == p } && ofKind(1111).none { it.pubkey == p }) continue
+            out.add(BelfryJoin(e.id, p, e.t("name").orEmpty(), e.t("agent") == "1", e.createdAt))
+        }
+        out
+    }
+
+    /** The words of a [BelfryJoin] line: (the name, in bold, and the whole line). */
+    fun belfryJoinLine(j: BelfryJoin): Pair<String, String> {
+        val name = if (j.pubkey == me) "You" else realName(j.pubkey).ifEmpty { j.name.trim() }.ifEmpty { displayName(j.pubkey) }
+        val place = ctx.communityName.ifEmpty { "the belfry" }
+        if (!j.agent && !isAgent(j.pubkey)) return name to "$name joined $place"
+        val owner = agentOwner(j.pubkey)
+        val whose = when { owner == null -> "an agent"; owner == me -> "your agent"; else -> "${displayName(owner)}'s agent" }
+        return name to "$name, $whose, joined $place"
     }
 
     /** Everyone brought in by a guest link or as a member's agent (9000 with `invited-by`, belfry.json

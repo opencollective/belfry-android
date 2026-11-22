@@ -170,6 +170,16 @@ data class GuestJoin(
     val chip: String? get() = if (member) null else if (agent) "agent" else if (unsaved) "guest · not saved" else "guest"
 }
 
+/** Someone who joined the belfry, as the groups key announced it in general (SPEC 19.59). */
+data class BelfryJoin(
+    val id: String,
+    val pubkey: String,
+    /** The `name` tag: the name when they have no profile yet. */
+    val name: String,
+    val agent: Boolean,
+    val at: Long,
+)
+
 sealed interface FeedItem {
     val at: Long
     val key: String
@@ -181,6 +191,11 @@ sealed interface FeedItem {
     data class Join(val j: GuestJoin) : FeedItem {
         override val at get() = j.at
         override val key get() = "j" + j.id
+    }
+    /** "Lina Moreau joined Riverside Commons": a line in the main channel (SPEC 19.59). */
+    data class BelfryJoined(val j: BelfryJoin) : FeedItem {
+        override val at get() = j.at
+        override val key get() = "bj" + j.id
     }
     /** An older thread back in the feed at its latest reply. */
     /** A shared inbox's e-mail thread, where its latest activity is (SPEC 19.33). */

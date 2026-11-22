@@ -674,6 +674,7 @@ class EngineTest {
         assertTrue(w.feedRows(Demo.GENERAL, null, emptySet()).isNotEmpty())
         assertTrue(w.feed(Demo.GENERAL).any { it is sh.belfry.core.model.FeedItem.Activity }, "a thread that resurfaces")
         assertTrue(w.feed(Demo.GENERAL).count { it is sh.belfry.core.model.FeedItem.Join } >= 3, "guest joins")
+        assertEquals(listOf(Demo.rosa.pubkey, Demo.pip.pubkey), w.feed(Demo.GENERAL).filterIsInstance<sh.belfry.core.model.FeedItem.BelfryJoined>().map { it.j.pubkey }, "belfry joins (SPEC 19.59)")
         assertTrue(w.threadsOf(Demo.GENERAL).values.any { it.count == 4 })
         assertTrue(w.reactions(Demo.GENERAL).isNotEmpty())
         val joins = w.guestJoins(Demo.GENERAL)
