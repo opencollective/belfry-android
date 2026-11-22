@@ -67,7 +67,8 @@ class OneShapeVectorsTest {
 
     @Test fun threadState() = cases("threadState").forEach { c ->
         val labels = c["labels"]!!.jsonArray.map { it.jsonObject }.map { OneShape.StatusLabel(it.s("id"), it["created_at"]!!.jsonPrimitive.long, it.s("l")) }
-        assertEquals(c.s("expect"), OneShape.threadState(c["received"]!!.jsonArray.map { it.jsonPrimitive.long }, labels), c.s("name"))
+        val sent = (c["sent"] as? JsonArray)?.map { it.jsonPrimitive.long } ?: emptyList()
+        assertEquals(c.s("expect"), OneShape.threadState(c["received"]!!.jsonArray.map { it.jsonPrimitive.long }, labels, sent), c.s("name"))
     }
 
     @Test fun drafts() = cases("drafts").forEach { c ->
