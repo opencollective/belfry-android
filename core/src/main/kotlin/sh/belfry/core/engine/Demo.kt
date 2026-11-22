@@ -23,6 +23,7 @@ import sh.belfry.core.model.NewEvent
 import sh.belfry.core.model.NewProposal
 import sh.belfry.core.model.People
 import sh.belfry.core.model.PodAccess
+import sh.belfry.core.model.GroupJoin
 import sh.belfry.core.model.ProposalStatus
 import sh.belfry.core.model.Rsvp
 import sh.belfry.core.model.Share
@@ -66,6 +67,9 @@ object Demo {
     const val TOOLS = "tools-5d1e"
     const val POD_OPEN = "pod-reading-circle-a1b2"
     const val POD_CLOSED = "pod-finance-9f3c"
+    /** SPEC 19.59: a Private group I'm in (no announcement), and one I'm not in (never shown). */
+    const val POD_PRIVATE = "pod-surprise-party-7c3d"
+    const val POD_SECRET = "pod-board-prep-2e8f"
     const val EVENT_GROUP = "ws-e1a2b3c4"
     /** Belfry events (ev-<d>): an open one Maya hosts, and one by application that I host. */
     const val SWAP_D = "2026-swap01"
@@ -206,6 +210,17 @@ object Demo {
         Actions.createPod(POD_CLOSED, "Finance", "Budgets and the yearly accounts. Members are admitted one by one.", GENERAL, closed).forEachIndexed { i, d -> post(me, d1 + 8000 + i, d) }
         lists(POD_CLOSED, d1 + 8001, listOf(listOf("name", "Finance"), listOf("about", "Budgets and the yearly accounts. Members are admitted one by one."), listOf("closed"), listOf("prompt", closed.prompt)), listOf(me), listOf(me, lena))
         post(sam, d1 + 9000, Actions.join(POD_CLOSED, "I keep the books for two associations and would like to help with the yearly accounts."))
+        // Private (SPEC 19.59): closed + private, made with its people, no announcement anywhere
+        val surprise = "A party for Tomás's 70th. Not a word to him!"
+        Actions.createPod(POD_PRIVATE, "Surprise party", surprise, GENERAL, GroupJoin.PRIVATE.access(), listOf(me.pubkey, lena.pubkey, kofi.pubkey))
+            .forEachIndexed { i, d -> post(maya, d1 + 8500 + i, d) }
+        lists(POD_PRIVATE, d1 + 8501, listOf(listOf("name", "Surprise party"), listOf("about", surprise), listOf("closed"), listOf("private")), listOf(maya), listOf(maya, me, lena, kofi))
+        // a request to a Private group: never shown, never answered
+        post(sam, d1 + 8600, Actions.join(POD_PRIVATE, "Can I help with the party?"))
+        // one I'm not in: in no list, card, count or search
+        Actions.createPod(POD_SECRET, "Board prep", "Agendas before the board meets.", GENERAL, GroupJoin.PRIVATE.access(), listOf(kofi.pubkey))
+            .forEachIndexed { i, d -> post(aroha, d1 + 8700 + i, d) }
+        lists(POD_SECRET, d1 + 8701, listOf(listOf("name", "Board prep"), listOf("about", "Agendas before the board meets."), listOf("closed"), listOf("private")), listOf(aroha), listOf(aroha, kofi))
         val (propGroup, propDrafts) = Actions.createProposal(
             NewProposal("Shared tool library", "Buy good tools once and lend them out from the shed",
                 "## Why\nEveryone owns a drill that is used ten minutes a year.\n\n## What\n- a locked cabinet in the shed\n- a paper list and a channel to book tools\n- 400 EUR from the common budget\n\n## Who\nTomás and Kofi look after it.",

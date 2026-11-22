@@ -2491,3 +2491,64 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   are asked at a time, only for rows on screen. Redirects are not followed, no other host (never
   Gravatar) is asked. The demo, tests (`LocalNetworkImages`) and
   previews ask nothing: initials.
+
+### 19.61 Groups: open, closed, private; New group; "add one" top right (2026-11-22; collective-belfry docs/one-shape.md "Groups: open, closed, private"; canvas home/groups, groups/new, groups/new-pick, groups/settings-closed, n-groups-new)
+
+- Who can join, three choices (form and Settings): Open "Any member can join" = `open` + `public`;
+  Closed "Members apply to join" = `closed` + `public` (+ `prompt` / `vouches` from Settings only);
+  Private "Only invited people" = `closed` + `private`. On the 9007 and the 9002 (NIP-29; no belfry
+  tag, never `hidden`). Every later 9002 of a group repeats `public` or `private` (the relay replaces
+  the whole metadata). `POST /group-meta` (an admin by role) takes `"private": true|false` next to
+  `closed`. A new Closed group starts with no question and "by its stewards"; a Private one never
+  carries `prompt` / `vouches`.
+- New group (the ＋ top right of Groups, of GROUPS in the drawer, of a channel's Groups screen):
+  step 1 name / "What is it working on?" / who can join, Next; step 2 a grid of the belfry's members
+  (`World.memberKeys`: no guests, agents or removed people; me left out), search, "Add N people" /
+  Skip. Either makes the group: 9007, 9002, one 9000 per person by the creator
+  (`["h", g]`, `["p", pk, "member"]`), then the announcement (a 9 with `pod`) in the parent: the
+  Townsquare from Groups, the channel when made from a channel. A Private group posts no announcement
+  anywhere (it reads as living under `general`).
+- Private, filtered by the app (never left to the relay): a Private group I'm not in (member, admin
+  or a guest let in) is left out of `World`'s group index (`GroupIndex.hiddenPrivate`), so of every
+  list, card, count and search; a 9021 to a Private group is never an application, a request count
+  or a log line; no Join / Apply for it. Rules: `core/model/GroupJoin.kt` (`GroupJoin`, `hides`,
+  `tags`, `takesRequests`, `pickableMembers`, `Actions.addMembers`), `World.readGroups`,
+  `Actions.groupMeta(isPrivate =)`, `needsJoinBar`; tests `GroupJoinTest`.
+- Xavier's rule for list screens: "add one" is an icon top right, never a first row. The belfry's
+  Members already had it; a channel's Members (Invite someone → `Routes.invite`) and a channel's
+  Groups (New group) now have the ＋ top right instead of a first-row button, same condition as
+  before (not a guest, the channel not locked).
+
+### 19.62 A channel's Settings and pull-down; Posts as kinds; the channel's address from the belfry (2026-11-22; Xavier's order; collective-belfry docs/one-shape.md "A channel's Settings" at ef67c93, docs/mail.md "A channel's address" at Belfry fd21c0e; canvas channels/pull-down, channels/settings, channels/settings-townsquare, n-channel-settings)
+
+- Pull-down: no e-mail address line (nor in the pulled-all-the-way about). The address lives in
+  Settings → E-mail only.
+- Settings, top to bottom: Name and Description · Who can read it (a group: Who can join) · Posts ·
+  E-mail (the address, E-mails from anyone, Forward e-mails) · Pin · Save. No Notifications (the
+  pull-down's own row). Someone who may not edit the channel sees only Pin.
+- Posts: four switches, all on by default, the last one on can't be switched off: Messages
+  `message`, Threads `thread`, Events `event`, Proposals `proposal`. In `belfry:web:<channel>` next
+  to `posts`: `"accepts": [...]` (absent = all). Writing `accepts` also writes `posts`: the single
+  kind when thread / event / proposal is alone, else `"anything"` (Android keeps an old
+  `"request"` while all four are on). Reading prefers `accepts` (unknown kinds dropped, empty =
+  absent), else `posts` (`thread` / `event` / `proposal` = that alone, anything else = all). Written
+  into the newest copy with every other key kept. `core/model/ChannelPosts.kt`,
+  `World.WebPage.accepts`, `Actions.webSettings(accepts =)`; tests `ChannelPostsTest`.
+  Composer (Android, small): Messages off and Threads on → the composer stays, its placeholder says
+  "Start a thread"; Messages and Threads off → the composer is replaced by "New event" / "New
+  proposal" buttons for the kinds that are on.
+- The channel's address: `POST <api>/mail-alias` (NIP-98). `{channel}` → `{channel, alias, address,
+  custom, may_set}` for any member, asked once a session per channel when it opens and kept in the
+  store (`Session.mailAlias`, `WorldContext.mailAddresses`); `World.mailAddress` / `mailLocal` /
+  `shownMailAddress` use it (shown, the reply's From, answers as the channel), else the app's own
+  working out (`autoMailLocal`; 404 / 405 / 409 `unsupported` = an older belfry). `{channel, check}` →
+  `{state: available|taken|invalid|reserved, alias}`: the live check while a belfry admin types (400
+  ms debounce, the state in words). `{channel, alias: x|null}` sets / clears it (belfry admins,
+  `may_set`); errors 403 `not_allowed`, 409 `taken|reserved|archived`, 422 `invalid`, 503 `signer` →
+  fixed words (`MailAlias.ERRORS`), never the server's text. The part before the @ is editable only
+  with `may_set`, read-only for the channel's other admins; Save saves it first (a refusal keeps
+  the form open with its words); "Use the automatic address" clears a custom one. The demo answers
+  locally. `core/net/MailAlias.kt`, `core/engine/MailAliases.kt`, `ui/info/ChannelAddress.kt`; tests
+  `MailAliasTest`.
+- Pin: "Pin for me", and for the belfry's admins "Pin for everyone". The main channel: one plain
+  line, "Townsquare is always first in everyone's menu." (not a disabled control).

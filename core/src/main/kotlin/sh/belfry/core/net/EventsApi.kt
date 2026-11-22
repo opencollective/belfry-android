@@ -181,7 +181,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
      * the relay refuses their own 9002). Returns the `archived` the belfry answers with, null when
      * it says nothing about it (a belfry from before archiving).
      */
-    suspend fun groupMeta(channel: String, name: String? = null, about: String? = null, closed: Boolean? = null, prompt: String? = null, archived: Boolean? = null): Boolean? {
+    suspend fun groupMeta(channel: String, name: String? = null, about: String? = null, closed: Boolean? = null, prompt: String? = null, archived: Boolean? = null, isPrivate: Boolean? = null): Boolean? {
         val (status, body) = api.signedFetch(signer, api.community.apiBase + "/group-meta", "POST", buildJsonObject {
             put("channel", JsonPrimitive(channel))
             if (name != null) put("name", JsonPrimitive(name))
@@ -189,6 +189,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
             if (closed != null) put("closed", JsonPrimitive(closed))
             if (prompt != null) put("prompt", JsonPrimitive(prompt))
             if (archived != null) put("archived", JsonPrimitive(archived))
+            if (isPrivate != null) put("private", JsonPrimitive(isPrivate))
         })
         if (status !in 200..299) checkinFail(status, body, "The change could not be saved.", setOf("not_allowed", "not_found", "invalid", "relay", "archived", "always_open"))
         return body?.get("archived")?.bool()

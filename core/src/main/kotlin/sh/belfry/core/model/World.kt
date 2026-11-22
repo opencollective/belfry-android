@@ -202,6 +202,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         var relayAdmins: Set<String> = emptySet()
         var parent: String? = null
         var closed = false
+        var isPrivate = false
         var prompt: String? = null
         var vouches = 0
         var archived = false
@@ -217,7 +218,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * activity; the deleted ones (a 9008, or the relay said it has none: [WorldContext.groupsAbsent]);
      * per id its newest 9007 / 9002 / 39000.
      */
-    class GroupIndex(val all: List<Group>, val deleted: Set<String>, val newestMeta: Map<String, Long>)
+    class GroupIndex(val all: List<Group>, val deleted: Set<String>, val newestMeta: Map<String, Long>, val hiddenPrivate: Set<String> = emptySet())
 
     val groupIndex: GroupIndex by lazy { readGroups() }
 
@@ -263,6 +264,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 }
                 val access = if (e.tags.any { it.firstOrNull() == "closed" }) true else if (e.tags.any { it.firstOrNull() == "open" }) false else null
                 if (access != null && (g.metaAt["closed"] ?: 0) <= e.createdAt) { g.closed = access; g.metaAt["closed"] = e.createdAt }
+                // SPEC 19.59: `private` / `public` (NIP-29); a 9002 that says neither keeps what was said
+                val priv = if (e.tags.any { it.firstOrNull() == "private" }) true else if (e.tags.any { it.firstOrNull() == "public" }) false else null
+                if (priv != null && (g.metaAt["private"] ?: 0) <= e.createdAt) { g.isPrivate = priv; g.metaAt["private"] = e.createdAt }
                 val prompt = e.t("prompt")
                 if (prompt != null && (g.metaAt["prompt"] ?: 0) <= e.createdAt) { g.prompt = prompt; g.metaAt["prompt"] = e.createdAt }
                 // the vouches rule goes with the access tags: open / closed without it = admins accept
@@ -325,6 +329,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         if (ctx.placeNames) for (g in map.values) PlaceNames.display(g.id, g.name)?.let { g.name = it }
         for ((k, e) in applied) {
             val g = map[k.first] ?: continue
+            // a Private group takes no requests: its 9021s are never shown or answered (SPEC 19.59)
+            if (g.isPrivate) continue
             if (e.pubkey in g.members || (decided[k] ?: 0) >= e.createdAt) continue
             g.applications.add(Application(e.pubkey, e.content, e.createdAt, e))
         }
@@ -335,7 +341,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         // (events and proposals never; a group known from its own 39000 / 9007 / 9002 is live, and
         // its events arriving later clear the mark: web groupstate.ts)
         for (id in ctx.groupsAbsent.keys) if (Presence.mayBeAbsent(id) && id !in newestMeta && map[id]?.pending != true) gone.add(id)
-        val all = map.values.filter { it.id !in gone }
+        // a Private group I'm not in is in no list, card, count or search (SPEC 19.59): left out here
+        val hidden = map.values.filter { GroupJoin.hides(it.isPrivate, me, it.members, it.admins, it.reading) }.mapTo(HashSet()) { it.id }
+        val all = map.values.filter { it.id !in gone && it.id !in hidden }
             .sortedWith(compareBy<G> { if (it.id == "general") 0 else 1 }.thenByDescending { it.lastActivity })
             .map {
                 // never the id as a name (Xavier, 2026-11-18): until its metadata arrives, the kind's word
@@ -345,10 +353,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                     lastActivity = it.lastActivity, members = it.members, admins = it.admins, type = typeOfId(it.id),
                     parent = it.parent, closed = it.closed, prompt = it.prompt, applications = it.applications, pending = it.pending,
                     reading = it.reading, archived = it.archived, vouches = it.vouches, rawName = it.rawName,
-                    relayAdmins = it.relayAdmins, creator = it.creator,
+                    relayAdmins = it.relayAdmins, creator = it.creator, isPrivate = it.isPrivate,
                 )
             }
-        return GroupIndex(all, gone, newestMeta)
+        return GroupIndex(all, gone, newestMeta, hidden)
     }
 
     /** The belfry admins' latest `belfry:channel-order` (SPEC 19.34, Categories.kt); anyone else's is ignored. */
@@ -875,7 +883,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     // `belfry:web:<channel>` by one of its admins or by the relay's own key (the default
     // channels). "visibility": public | members; "posts": proposal | event | request.
 
-    data class WebPage(val on: Boolean, val slug: String, val visibility: String, val posts: String?)
+    /** [accepts]: the kinds of post it takes (SPEC 19.60, [ChannelPosts.read]). */
+    data class WebPage(val on: Boolean, val slug: String, val visibility: String, val posts: String?, val accepts: Set<PostKind> = ChannelPosts.ALL)
 
     /** The `belfry:web:<channel>` settings by their `d`, and who first signed each channel's metadata: read once. */
     private val webEvents: Map<String, List<Event>> by lazy {
@@ -903,7 +912,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val vis = c["visibility"]?.str()
         val members = vis == "members" || (vis == null && c["list"]?.str() == "own")
         val posts = c["posts"]?.str()?.takeIf { it in setOf("thread", "proposal", "event", "request") }
-        return WebPage(c["on"]?.let { truthy(it) } == true, c["slug"]?.str().orEmpty(), if (members) "members" else "public", posts)
+        return WebPage(c["on"]?.let { truthy(it) } == true, c["slug"]?.str().orEmpty(), if (members) "members" else "public", posts, ChannelPosts.read(c))
     }
 
     /**
@@ -922,8 +931,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** A public channel: its page on the web is on and anyone may read it (a globe, not a hash). */
     fun isPublicChannel(g: Group?): Boolean = webPage(g)?.let { it.on && it.visibility == "public" } == true
 
-    /** The channel's e-mail address: what its answers go out from (SPEC 19.33: the plain alias, [mailLocal]). */
-    fun mailAddress(groupId: String): String = "${mailLocal(groupId)}@${ctx.domain}"
+    /**
+     * The channel's e-mail address: what its answers go out from. The belfry's own answer
+     * (`POST /mail-alias`, SPEC 19.60, [WorldContext.mailAddresses]) when this device has it, else
+     * worked out here (SPEC 19.33: the plain alias, [mailLocal]).
+     */
+    fun mailAddress(groupId: String): String = ctx.mailAddresses[groupId] ?: "${mailLocal(groupId)}@${ctx.domain}"
 
     /**
      * The left part of a channel's e-mail address (SPEC 19.33, web model.ts mailLocal, server
@@ -931,7 +944,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * a belfry admin or the relay's key made it (its first 9007; none known: yes) and exactly one
      * group answers to that alias; else its id.
      */
-    fun mailLocal(g: Group): String {
+    fun mailLocal(g: Group): String = ctx.mailAddresses[g.id]?.substringBefore('@')?.takeIf { it.isNotEmpty() } ?: autoMailLocal(g)
+
+    /** [mailLocal] as worked out here, whatever the belfry said (its automatic address). */
+    fun autoMailLocal(g: Group): String {
         fun bare(id: String) = id.replace(ID_TAIL, "")
         val raw = g.rawName
         val want = slugify(raw).ifEmpty { bare(g.id) }
@@ -949,7 +965,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     }
 
     /** The address to give people for this channel. */
-    fun shownMailAddress(g: Group): String = "${mailLocal(g)}@${ctx.domain}"
+    fun shownMailAddress(g: Group): String = ctx.mailAddresses[g.id] ?: "${mailLocal(g)}@${ctx.domain}"
 
     /** Why this page address can't be the channel's (fixed text), or null when it can. SLUG is [slugify]'d. */
     fun webSlugProblem(g: Group, slug: String): String? = when {

@@ -57,7 +57,7 @@ import sh.belfry.core.model.showsRow
 
 /**
  * The channel's pull-down (iOS 2026-11-17, web ChannelLine.tsx at r3): from the top, under the
- * header: the description, the channel's e-mail address, the pinned message not hidden, then a
+ * header: the description, the pinned message not hidden (no e-mail address: Settings has it), then a
  * menu of rows that each PUSH one of the channel's screens: Pinned, Events, To decide, To-dos,
  * Photos, Files, Groups, Topics, Members (Invite inside), Notifications, Log, Settings (its
  * admins). Never a list unfolded in place.
@@ -78,18 +78,7 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         if (g.about.isNotBlank()) {
             MarkdownText(g.about.trim(), fontSize = 16.sp, maxLines = 4, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).testTag("pull-about"))
         }
-        // the about line (one shape: what was the header's third line): who can write, who can read
-        if (!g.isEvent && !g.isProposal) {
-            val address = world.mailAddress(groupId)
-            val write = if (inbox) "Anyone can write to $address; each e-mail opens its own thread here." else "E-mails to $address are posted here."
-            val community = world.ctx.communityName.ifEmpty { "the belfry" }
-            val read = when { n.isPublic -> "Public: anyone on the web can read it."; g.closed -> "Closed: only its members read it."; g.isPod -> "Only the group's members read it."; else -> "Everyone in $community can read this channel." }
-            Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).testTag("pull-about-line"), verticalAlignment = Alignment.Top) {
-                Icon(Icons.Outlined.MailOutline, contentDescription = null, tint = c.muted, modifier = Modifier.padding(top = 1.dp).size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("$write $read", fontSize = 14.sp, lineHeight = 19.sp, color = c.muted)
-            }
-        }
+        // no e-mail address line here (SPEC 19.60, Xavier 2026-11-22): the address lives in Settings → E-mail
         // the pinned message I haven't hidden, with Hide
         world.pinned(groupId).firstOrNull { it.id !in chat.hiddenPins }?.let { m ->
             Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { chat.closeLine(); onShowMessage(m.id) }.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)) {

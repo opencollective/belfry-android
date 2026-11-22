@@ -401,8 +401,8 @@ class MembersService internal constructor(private val s: Session) {
      * `POST /group-meta` in the outbox. Both show the change at once; a final refusal shows in
      * the channel's header ([World.failedSettings]).
      */
-    suspend fun saveGroupMeta(g: Group, name: String? = null, about: String? = null, closed: Boolean? = null, prompt: String? = null, vouches: Int? = null) {
-        val d = Actions.groupMeta(g, name = name, about = about, closed = closed, prompt = prompt, vouches = vouches)
+    suspend fun saveGroupMeta(g: Group, name: String? = null, about: String? = null, closed: Boolean? = null, prompt: String? = null, vouches: Int? = null, isPrivate: Boolean? = null) {
+        val d = Actions.groupMeta(g, name = name, about = about, closed = closed, prompt = prompt, vouches = vouches, isPrivate = isPrivate)
         if (world.mayModerate(g) || demo) { s.send(d); return }
         val body = kotlinx.serialization.json.buildJsonObject {
             put("channel", kotlinx.serialization.json.JsonPrimitive(g.id))
@@ -410,6 +410,8 @@ class MembersService internal constructor(private val s: Session) {
             if (about != null) put("about", kotlinx.serialization.json.JsonPrimitive(about))
             if (closed != null) put("closed", kotlinx.serialization.json.JsonPrimitive(closed))
             if (prompt != null) put("prompt", kotlinx.serialization.json.JsonPrimitive(prompt))
+            // SPEC 19.59: `private` next to `closed`
+            if (isPrivate != null) put("private", kotlinx.serialization.json.JsonPrimitive(isPrivate))
         }
         s.queueApi("/group-meta", body, d.kind, d.tags)
     }

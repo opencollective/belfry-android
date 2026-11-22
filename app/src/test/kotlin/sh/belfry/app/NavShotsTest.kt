@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -127,10 +128,10 @@ class NavShotsTest : DemoShots() {
 
     @Test fun pinForMeAndForEveryone() {
         compose.setContent { BelfryTheme { InDemo { ChannelPlaceScreen(Demo.RANDOM, ChannelPlaceKey.SETTINGS) } } }
-        compose.onNodeWithTag("pin-me").performClick()
+        compose.onNodeWithTag("pin-me").performScrollTo().performClick()
         compose.waitForIdle()
         assertTrue(Demo.RANDOM in session.pins.value.c)
-        compose.onNodeWithTag("pin-everyone").performClick()
+        compose.onNodeWithTag("pin-everyone").performScrollTo().performClick()
         compose.waitUntil(10_000) { settle(); Demo.RANDOM in world.everyonePins() }
         // every other key of the channel-order event is kept, and the main channel can't be unpinned
         assertEquals(listOf(Demo.GENERAL, Demo.HELLO, Demo.RANDOM), world.everyonePins())

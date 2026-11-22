@@ -102,7 +102,10 @@ object ChannelLog {
 /** Everything that happened in a channel, newest first (at most LIMIT lines). */
 fun World.channelLog(groupId: String, limit: Int = 1000): List<LogItem> {
     val titles = tasks(groupId).associate { it.id to it.title }
+    // a Private group takes no requests: its 9021s are never shown (SPEC 19.59)
+    val noRequests = group(groupId)?.isPrivate == true
     return groupEventsSorted(groupId).asReversed().asSequence()
+        .filter { !(noRequests && it.kind == 9021) }
         .mapNotNull { ChannelLog.item(it, titles) { pk -> displayName(pk) } }
         .take(limit).toList()
 }

@@ -65,6 +65,8 @@ private const val GENERAL_ID = "general"
 /** The bar that asks to join (web JoinBar): a group I'm not in; a closed channel I'm not in and don't run (never #general). */
 fun World.needsJoinBar(g: Group): Boolean {
     if (me in g.members || me in g.admins) return false
+    // a Private group has no Join / Apply (SPEC 19.59; one I'm not in is not even listed)
+    if (g.isPrivate) return false
     if (g.isPod) return true
     return g.type == ChannelType.CHANNEL && g.closed && g.id != GENERAL_ID && !canAdmin(g)
 }
@@ -182,8 +184,19 @@ fun World.proposalVersions(p: Proposal): List<ProposalVersion> {
  * / Threads / Events / Proposals; web ChannelInfo). One event for both; every other key kept.
  * POSTS null = anything. Null when nothing changes.
  */
-fun Actions.webSettings(g: Group, world: World, now: Long, public: Boolean, posts: String?): Draft? {
+fun Actions.webSettings(g: Group, world: World, now: Long, public: Boolean, posts: String?, accepts: Set<PostKind>? = null): Draft? {
     val vis = setVisibility(g, public, world, now)
+    // SPEC 19.60: Posts as the kinds it takes (`accepts` + the old `posts` for older apps)
+    if (accepts != null) {
+        val had = world.webContent(g)
+        if (accepts == ChannelPosts.read(had) && (had.containsKey("accepts") || accepts == ChannelPosts.ALL)) return vis
+        val base = vis?.let { parseJsonObject(it.content) } ?: had
+        val c = LinkedHashMap(ChannelPosts.write(base, accepts))
+        if (!c.containsKey("slug")) c["slug"] = JsonPrimitive(world.webPage(g)?.slug?.takeIf { it.isNotEmpty() } ?: World.slugify(g.rawName.ifEmpty { g.name }))
+        if (!c.containsKey("visibility")) c["visibility"] = JsonPrimitive(if (public) "public" else "members")
+        if (!c.containsKey("on")) c["on"] = JsonPrimitive(world.webPage(g)?.on ?: false)
+        return webPage(g.id, JsonObject(c))
+    }
     val was = world.webPage(g)?.posts
     if (posts == was) return vis
     val base = vis?.let { parseJsonObject(it.content) } ?: world.webContent(g)

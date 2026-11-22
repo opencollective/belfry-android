@@ -50,7 +50,10 @@ import sh.belfry.app.ui.signin.openInBrowser
 import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Group
-import sh.belfry.core.model.PodAccess
+import sh.belfry.core.model.GroupJoin
+import sh.belfry.core.model.ChannelPosts
+import sh.belfry.core.model.PostKind
+import sh.belfry.app.ui.cards.GroupJoinChoices
 import sh.belfry.core.model.World
 
 /** The tabs of a channel's page, in the web's order (c6579a0). */
@@ -220,13 +223,15 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
                 Text("Group in", fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
                 LinkWord(channelLabel(parent, parent.id)) { nav.openChannel(parent.id) }
                 Dot()
-                Text(if (g.closed) "closed: apply, admins admit" else "open: any member joins", fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
+                Text(when { g.isPrivate -> "private: only invited people"; g.closed -> "closed: apply, admins admit"; else -> "open: any member joins" }, fontSize = 15.sp, color = c.text, modifier = Modifier.padding(vertical = 4.dp))
             }
         }
-        if (!compact && g.closed) Text("Question: " + (g.prompt?.ifBlank { null } ?: "—"), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = gap)
+        if (!compact && g.closed && !g.isPrivate) Text("Question: " + (g.prompt?.ifBlank { null } ?: "—"), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = gap)
         Row(gap) {
             when {
                 member -> BusyButton("Leave group", onClick = { leaving = true }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("about-leave"))
+                // a Private group has no Join / Ask to join (SPEC 19.59)
+                g.isPrivate -> {}
                 !g.closed -> BusyButton("Join group", onClick = { session.send(Actions.join(g.id)) }, small = true)
                 g.applications.any { it.pubkey == world.me } -> Text("You asked to join: its admins will answer.", fontSize = 15.sp, color = c.muted)
                 else -> BusyButton("Ask to join", onClick = { applying = true }, small = true)
@@ -237,7 +242,8 @@ fun AboutBody(g: Group, compact: Boolean = false, onMembers: () -> Unit = {}, on
     // the plain slug (bugs@ rather than bugs-c3e5@) when no other channel answers to it
     val address = world.shownMailAddress(g)
     var copied by remember { mutableStateOf(false) }
-    Text(
+    // pulled down (compact): no address line (SPEC 19.60: it lives in Settings → E-mail)
+    if (!compact) Text(
         buildAnnotatedString {
             append(if (world.isInbox(g)) "✉️ Anyone can e-mail " else "✉️ Members can e-mail ")
             withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(address) }
@@ -313,7 +319,7 @@ fun ChannelSettingsSheet(g: Group, onClose: () -> Unit) {
 }
 
 @Composable
-fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean = false) {
+fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean = false, pin: (@Composable () -> Unit)? = null) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -324,6 +330,8 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
     var about by remember(g.id) { mutableStateOf(g.about) }
     var prompt by remember(g.id) { mutableStateOf(g.prompt ?: "") }
     var vouches by remember(g.id) { mutableStateOf(g.vouches) }
+    // a group: who can join, the same three choices as New group (SPEC 19.59)
+    var join by remember(g.id) { mutableStateOf(GroupJoin.of(g)) }
     var openMail by remember(g.id) { mutableStateOf(wasInbox) }
     // touched = sent on Save even when it ends where it started (the start may have been read stale)
     var mailTouched by remember(g.id) { mutableStateOf(false) }
@@ -331,9 +339,12 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
     val wasAccess = remember(g.id) { world.channelAccess(g) }
     var access by remember(g.id) { mutableStateOf(wasAccess) }
     var askPublic by remember(g.id) { mutableStateOf(askPublicAtOnce) }
-    // Posts (channels/settings): anything, or one type only
-    val wasPosts = remember(g.id) { world.webPage(g)?.posts }
-    var posts by remember(g.id) { mutableStateOf(wasPosts) }
+    // Posts (SPEC 19.60, channels/settings): the kinds it takes, all on by default, one at least
+    val wasAccepts = remember(g.id) { world.webPage(g)?.accepts ?: ChannelPosts.ALL }
+    var accepts by remember(g.id) { mutableStateOf(wasAccepts) }
+    // E-mail: the channel's address through the belfry (SPEC 19.60)
+    val address = if (g.type == ChannelType.CHANNEL) rememberAddressEdit(g) else null
+    var saveError by remember { mutableStateOf<String?>(null) }
     val busy = rememberBusy()
     val kind = if (g.isPod) "group" else "channel"
 
@@ -343,7 +354,42 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
         about, { about = it }, label = "Description", hint = "Markdown works, links become clickable",
         singleLine = false, minLines = 3, enabled = !busy.busy,
     )
-    if (g.type == ChannelType.CHANNEL || g.isPod) {
+    if (g.isPod) {
+        Spacer(Modifier.height(14.dp))
+        Hint("Who can join")
+        Spacer(Modifier.height(6.dp))
+        GroupJoinChoices(join, { join = it }, enabled = !busy.busy, modifier = Modifier.testTag("settings-access"))
+        // groups/settings-closed: the request question and who accepts, for Closed only
+        if (join == GroupJoin.CLOSED) {
+            Spacer(Modifier.height(14.dp))
+            Hint("Requests")
+            Spacer(Modifier.height(6.dp))
+            BelfryTextField(prompt, { prompt = it }, label = "Question people answer when they ask", placeholder = Actions.DEFAULT_PROMPT, singleLine = false, enabled = !busy.busy, modifier = Modifier.testTag("settings-prompt"))
+            Spacer(Modifier.height(12.dp))
+            Hint("Requests are accepted")
+            Spacer(Modifier.height(6.dp))
+            ActionGroup(Modifier.testTag("settings-vouch")) {
+                ActionRow(
+                    "By its stewards", onClick = { vouches = 0 }, icon = BelfryIcons.Users, enabled = !busy.busy,
+                    sub = "A steward accepts or declines each request.",
+                    modifier = Modifier.testTag("vouch-stewards").semantics { selected = vouches == 0 },
+                    trailing = { if (vouches == 0) Icon(BelfryIcons.Check, "Selected", tint = c.text, modifier = Modifier.size(22.dp)) },
+                )
+                Hairline()
+                ActionRow(
+                    "When members vouch", onClick = { if (vouches == 0) vouches = 2 }, icon = Icons.Outlined.PersonAdd, enabled = !busy.busy,
+                    sub = "Once enough of its members vouch (not guests, not agents), they’re in. Stewards can still answer.",
+                    modifier = Modifier.testTag("vouch-members").semantics { selected = vouches > 0 },
+                    trailing = { if (vouches > 0) Icon(BelfryIcons.Check, "Selected", tint = c.text, modifier = Modifier.size(22.dp)) },
+                )
+            }
+            if (vouches > 0) {
+                Spacer(Modifier.height(8.dp))
+                Segmented((1..5).map { if (it == 1) "1 vouch" else "$it" }, vouches - 1, { vouches = it + 1 }, enabled = !busy.busy)
+            }
+        }
+    }
+    if (g.type == ChannelType.CHANNEL) {
         Spacer(Modifier.height(14.dp))
         Hint("Who can read it")
         Spacer(Modifier.height(6.dp))
@@ -365,43 +411,31 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
             }
         }
         Hint("A change counts from now on. Messages keep the visibility they were posted with.", Modifier.padding(top = 6.dp))
-        if (g.isPod && access == ChannelAccess.CLOSED) {
-            Spacer(Modifier.height(12.dp))
-            BelfryTextField(prompt, { prompt = it }, label = "Question people answer when they ask", placeholder = Actions.DEFAULT_PROMPT, singleLine = false, enabled = !busy.busy)
-            Spacer(Modifier.height(12.dp))
-            Hint("Requests are accepted")
-            Spacer(Modifier.height(6.dp))
-            Segmented(listOf("By its stewards", "When members vouch"), if (vouches > 0) 1 else 0, { vouches = if (it == 1) maxOf(vouches, 2) else 0 }, enabled = !busy.busy, modifier = Modifier.testTag("settings-vouch"))
-            if (vouches > 0) {
-                Spacer(Modifier.height(8.dp))
-                Segmented((1..5).map { if (it == 1) "1 vouch" else "$it" }, vouches - 1, { vouches = it + 1 }, enabled = !busy.busy)
-            }
-            Hint(
-                if (vouches > 0) "Once enough of its members vouch (not guests, not agents), they’re in. Stewards can still answer." else "A steward accepts or declines each request.",
-                Modifier.padding(top = 6.dp),
-            )
-        }
     }
     if (g.type == ChannelType.CHANNEL) {
         Spacer(Modifier.height(14.dp))
         Hint("Posts")
         Spacer(Modifier.height(6.dp))
-        val choices = listOf(null to "Anything", "thread" to "Threads", "event" to "Events", "proposal" to "Proposals")
-        Segmented(choices.map { it.second }, choices.indexOfFirst { it.first == posts }.coerceAtLeast(0), { posts = choices[it].first }, enabled = !busy.busy, modifier = Modifier.testTag("settings-posts"))
-        Hint(
-            when (posts) {
-                "thread" -> "Every post has a title; talk goes in its thread."
-                "event" -> "The composer becomes \u201cNew event\u201d."
-                "proposal" -> "Proposals to discuss and vote on."
-                "request" -> "Requests from the web; members turn them into proposals."
-                else -> "Messages, threads, events, proposals."
-            },
-            Modifier.padding(top = 6.dp),
-        )
+        ActionGroup(Modifier.testTag("settings-posts")) {
+            for (k in PostKind.entries) {
+                val on = k in accepts
+                SwitchRow(
+                    k.label, on, { want -> accepts = ChannelPosts.toggle(accepts, k, want) },
+                    // the last one on can't be switched off
+                    enabled = !busy.busy && ChannelPosts.mayTurnOff(accepts, k),
+                    sub = k.line, modifier = Modifier.testTag("posts-${k.key}"),
+                )
+            }
+        }
+        Hint("All on by default; at least one stays on.", Modifier.padding(top = 6.dp))
     }
     Spacer(Modifier.height(14.dp))
-    Hint("E-mail · ${world.shownMailAddress(g)}")
+    Hint("E-mail")
     Spacer(Modifier.height(6.dp))
+    if (address != null) {
+        AddressSection(g, address, enabled = !busy.busy)
+        Spacer(Modifier.height(10.dp))
+    }
     ActionGroup {
         SwitchRow(
             "E-mails from anyone", openMail, { openMail = it; mailTouched = true }, icon = BelfryIcons.Inbox, enabled = !busy.busy,
@@ -409,33 +443,56 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
         )
     }
     if (g.type == ChannelType.CHANNEL) MailForwardRow(g.id)
+    if (pin != null) {
+        Spacer(Modifier.height(14.dp))
+        pin()
+    }
+    saveError?.let { Text(it, fontSize = 13.sp, color = c.danger, modifier = Modifier.padding(top = 10.dp).testTag("settings-error")) }
     Spacer(Modifier.height(16.dp))
     BusyButton(
         "Save",
         onClick = {
             val n = name.trim()
             val a = about.trim()
-            if (g.type == ChannelType.CHANNEL || g.isPod) {
+            saveError = null
+            // the address first: a refusal (taken, reserved…) keeps the form open with its words
+            address?.save(session)
+            if (g.type == ChannelType.CHANNEL) {
                 // public / members only first, then closed (going closed from public writes both)
                 // one web-settings event for who reads it and its type of post
-                Actions.webSettings(g, world, session.now(), access == ChannelAccess.PUBLIC, if (g.type == ChannelType.CHANNEL) posts else wasPosts)?.let { session.send(it) }
+                Actions.webSettings(g, world, session.now(), access == ChannelAccess.PUBLIC, world.webPage(g)?.posts, accepts = accepts)?.let { session.send(it) }
             }
+            if (g.isPod) {
+                // a group (SPEC 19.59): Open / Closed (+ its question, who accepts) / Private
+                val joinChanged = join != GroupJoin.of(g)
+                val closedRules = join == GroupJoin.CLOSED && (prompt.trim() != (g.prompt ?: "") || vouches != g.vouches)
+                if (n != raw || a != g.about || joinChanged || closedRules) {
+                    session.members.saveGroupMeta(
+                        g, name = n, about = a,
+                        closed = if (joinChanged) join.closed else null,
+                        prompt = if (join == GroupJoin.CLOSED) prompt.trim() else null,
+                        vouches = if (join == GroupJoin.CLOSED) vouches else null,
+                        isPrivate = if (joinChanged) join.isPrivate else null,
+                    )
+                }
+            } else {
             val closed = access == ChannelAccess.CLOSED
-            val closedChanged = (g.type == ChannelType.CHANNEL || g.isPod) && closed != g.closed
-            val podChanged = g.isPod && closed && (prompt != (g.prompt ?: "") || vouches != g.vouches)
-            if (n != raw || a != g.about || closedChanged || podChanged) {
+            val closedChanged = g.type == ChannelType.CHANNEL && closed != g.closed
+            if (n != raw || a != g.about || closedChanged) {
                 // one 9002 keeping every other setting (picture, archived: SPEC 19.30)
                 session.members.saveGroupMeta(
                     g, name = n, about = a,
-                    closed = if (closedChanged || podChanged) closed else null,
-                    prompt = if (closed && (closedChanged || podChanged)) (if (g.isPod) prompt else g.prompt ?: "") else null,
-                    vouches = if (g.isPod && closed) vouches else if (closedChanged) 0 else null,
+                    closed = if (closedChanged) closed else null,
+                    prompt = if (closed && closedChanged) g.prompt ?: "" else null,
+                    vouches = if (closedChanged) 0 else null,
                 )
+            }
             }
             if (mailTouched || openMail != wasInbox) session.send(Actions.setInbox(g.id, openMail))
             onClose()
         },
         modifier = Modifier.fillMaxWidth().testTag("settings-save"), enabled = name.isNotBlank(), busy = busy,
+        onError = { saveError = (it as? sh.belfry.core.engine.ActionException)?.message ?: "Not saved. Try again." },
     )
     if (askPublic) {
         AlertDialog(

@@ -109,9 +109,10 @@ internal fun PodCard(podId: String, fallback: String, modifier: Modifier = Modif
         Column(Modifier.weight(1f)) {
             CardTitle(g.name)
             if (g.about.isNotEmpty()) Muted(g.about, maxLines = 2)
-            Muted((if (g.closed) "Closed group" else "Group") + " · " + CardFormat.members(g.members.size) + (if (inIt) " · you’re in" else ""), maxLines = 1)
+            Muted((if (g.isPrivate) "Private group" else if (g.closed) "Closed group" else "Group") + " · " + CardFormat.members(g.members.size) + (if (inIt) " · you’re in" else ""), maxLines = 1)
         }
-        if (!inIt) {
+        // a Private group has no Join / Apply (SPEC 19.59)
+        if (!inIt && !g.isPrivate) {
             GapW(8)
             when {
                 !g.closed -> BusyButton("Join", onClick = { session.send(Actions.join(podId)) }, small = true)
