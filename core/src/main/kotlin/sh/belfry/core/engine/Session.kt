@@ -1744,7 +1744,7 @@ class Session(
             val names = HashMap<String, String>()
             if (card != null) {
                 for (t in card.tags) if (t.size >= 3 && (t[0] == "to" || t[0] == "cc")) names[t[1].lowercase()] = t[2]
-                card.t("mail-from")?.let { a -> names[a.lowercase()] = card.t("mail-name").orEmpty() }
+                card.tag("mail-from")?.let { a -> names[a.lowercase()] = card.tag("mail-name").orEmpty() }
             }
             fun named(a: String) = names[a.lowercase()].orEmpty()
             if (key != null) addToLog(listOf(Event("out-" + Random.hex(8), key, clock(), 9,

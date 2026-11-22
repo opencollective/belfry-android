@@ -494,7 +494,7 @@ private fun labelLine(world: World, e: Event): Pair<androidx.compose.ui.graphics
     val who = if (e.pubkey == world.me) "You" else world.displayName(e.pubkey)
     return when (l) {
         "assigned" -> {
-            val p = e.t("p")?.takeIf { it.isNotEmpty() }
+            val p = e.tag("p")?.takeIf { it.isNotEmpty() }
             when {
                 p == null -> BelfryIcons.User to bold(who, "let it go")
                 p == e.pubkey -> BelfryIcons.User to bold(who, "took it")
