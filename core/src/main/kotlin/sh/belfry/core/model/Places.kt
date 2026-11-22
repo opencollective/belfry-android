@@ -109,7 +109,7 @@ fun World.guestDaysLeft(now: Long): String? {
 fun World.guestChannels(): List<Group> = groups.filter { (me in it.members || me in it.reading) && !it.isEvent && it.id != Charter.ID }
 
 /** Members of the belfry (the Townsquare's people, guests and agents left out). */
-fun World.memberKeys(): Set<String> = (group("general")?.members ?: emptySet()).filter { !isGuest(it) && !isAgent(it) }.toSet()
+fun World.memberKeys(): Set<String> = (group("general")?.members ?: emptySet()).filter { !isGuest(it) && !isAgent(it) && it !in removedSilent }.toSet()
 
 /**
  * A new member's first minutes (web welcomeDue): shown once on a device that saw the account's

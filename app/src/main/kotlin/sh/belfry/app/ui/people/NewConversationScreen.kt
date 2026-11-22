@@ -50,7 +50,7 @@ fun NewConversationScreen() {
     var to by rememberSaveable { mutableStateOf("") }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     val skip = setOfNotNull(world.ctx.groupsKey, world.ctx.bridgeKey, world.me)
-    val people = world.profiles.entries.filter { it.key !in skip && (!it.value.name.isNullOrEmpty() || !it.value.nip05.isNullOrEmpty()) }
+    val people = world.profiles.entries.filter { it.key !in skip && it.key !in world.removedSilent && (!it.value.name.isNullOrEmpty() || !it.value.nip05.isNullOrEmpty()) }
         .sortedBy { fold(it.value.name ?: it.value.nip05 ?: "") }
     val q = fold(to.trim())
     val matches = (if (q.isEmpty()) people else people.filter { fold(it.value.name ?: "").contains(q) || (it.value.nip05 ?: "").lowercase().contains(q) }).take(8)

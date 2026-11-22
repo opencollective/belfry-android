@@ -691,7 +691,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             ))
         }
         // taken out again without ever writing here (a cleaned-up double sign-up): no line
-        out.filter { it.pubkey in wrote || (gone[it.pubkey] ?: 0) < it.at }.sortedBy { it.at }
+        out.filter { (it.pubkey in wrote || (gone[it.pubkey] ?: 0) < it.at) && it.pubkey !in removedSilent }.sortedBy { it.at }
     }
 
     /** Everyone brought in by a guest link or as a member's agent (9000 with `invited-by`, belfry.json
@@ -1433,7 +1433,34 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     /** People who can be mentioned or messaged: (pubkey, name) of everyone with a name, me left out. */
     val people: List<Pair<String, String>> by lazy {
-        profiles.entries.filter { it.key != me && !it.value.name.isNullOrEmpty() && it.key !in readingOnly }.map { it.key to it.value.name!! }
+        profiles.entries.filter { it.key != me && !it.value.name.isNullOrEmpty() && it.key !in readingOnly && it.key !in removedSilent }.map { it.key to it.value.name!! }
+    }
+
+    /**
+     * Taken out and never wrote (the lead, 2026-11-22: Enspiral's guests "Marcel" 3–9): in every group
+     * where they had a 9000 / 9001 the latest is a 9001, they are in no group now, the register doesn't
+     * call them a member or an agent, and they never posted a message or a thread reply anywhere. They
+     * show nowhere (join lines, Members, the mention picker, people lists); someone removed who wrote
+     * still shows as the author of their messages, and nowhere else.
+     */
+    val removedSilent: Set<String> by lazy {
+        val latest = HashMap<Pair<String, String>, Event>()
+        for (e in ofKind(9000) + ofKind(9001)) {
+            val p = e.t("p")?.takeIf { it.isNotEmpty() } ?: continue
+            val k = (e.t("h") ?: continue) to p
+            val had = latest[k]
+            if (had == null || BY_TIME.compare(had, e) < 0) latest[k] = e
+        }
+        val removed = HashSet<String>()
+        val kept = HashSet<String>()
+        for ((k, e) in latest) if (e.kind == 9001) removed.add(k.second) else kept.add(k.second)
+        removed.removeAll(kept)
+        if (removed.isEmpty()) return@lazy removed
+        for (g in allGroups) removed.removeAll(g.members)
+        for (e in ofKind(9)) removed.remove(e.pubkey)
+        for (e in ofKind(1111)) removed.remove(e.pubkey)
+        removed.removeAll { it == me || ctx.kinds[it] == "member" || ctx.kinds[it] == "agent" }
+        removed
     }
 
     // ---- search (SPEC 14) ----------------------------------------------------------------------
