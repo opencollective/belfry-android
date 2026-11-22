@@ -87,6 +87,9 @@ class EncryptionService internal constructor(private val s: Session) {
         else inChain
         val dms = s.dms.value
         val world = s.world.value
+        // Notes to myself are sealed as soon as I have a chain, ready or not, also before the first note
+        // (docs/one-shape.md, SPEC 19.66): the lock and its line show from then on
+        if (mine != null) e.markSealed(sh.belfry.core.model.Notes.conv(me))
         val sealed = e.sealedSince.toMap().mapValues { (conv, since) ->
             if (MailThreads.isMail(conv)) ConvSeal(mail = listOf(dms.convName(conv, world)), since = since)
             else {
@@ -360,6 +363,12 @@ class EncryptionService internal constructor(private val s: Session) {
     fun demoOnlyDevice() {
         if (!demo) return
         _state.value = _state.value.let { st -> st.copy(myDevices = st.myDevices.filter { it.thisDevice }, earlierLocked = false, locked = emptySet()) }
+    }
+
+    /** Demo and tests: an account that is not sealed (an agent, a member holding their own key): nothing sealed, no lock. */
+    fun demoNotSealed() {
+        if (!demo) return
+        _state.value = SealState()
     }
 
     /** Demo and tests: a device just linked by scanning my code. */

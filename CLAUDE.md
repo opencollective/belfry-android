@@ -260,6 +260,13 @@ minSdk 26, JDK 17.
   vectors' `confirm` section, `tools/sealed_confirm_vectors.py`), `SealedEngine.addedWasMe` sends it (owed until
   sent), `receive` settles it before anything else: an 8563 never reaches `DirectMessages`.
 
+- Notes to myself (SPEC 19.66; docs/one-shape.md "Notes to myself"; canvas messages/notes-list, one-shape/notes-*): the
+  conversation whose only participant is me (`n:<me>`, one `p` = me), always the first row (`DmSnapshot.messagesRows`,
+  `NotesRow`), never unread. Words and the `p` rule in `core/model/Notes.kt`. Sealed without `ready` and never the old
+  way on a device that can seal (`SealedEngine.planHere`, `makeChain`; held as `DirectMessages.NOTES_CHAIN` = "Sending…");
+  `NotesLine` in `ConversationScreen`. Vectors `sealed.json` → `notes` (`tools/sealed_notes_vectors.py`), `NotesTest`,
+  `NotesShotsTest`. Demo: `EncryptionService.demoNotSealed()` for the unsealed look.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

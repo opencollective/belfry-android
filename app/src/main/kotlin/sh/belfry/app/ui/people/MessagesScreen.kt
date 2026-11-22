@@ -95,7 +95,8 @@ fun MessagesScreen(
     val session = LocalSession.current
     val nav = LocalNav.current
     val address = world.myAddress
-    val list = dms.threads
+    // Notes to myself first, always (also when empty), then every other conversation (SPEC 19.66)
+    val rows = dms.messagesRows
     val now = session.now()
     val seal by session.encryption.state.collectAsState()
     Column(Modifier.fillMaxSize().background(c.bg)) {
@@ -122,7 +123,12 @@ fun MessagesScreen(
                 // added, the key on its way (messages/encryption-locked-added): goes by itself
                 item(key = "seal-added-here") { AddedHereBanner(seal) }
             }
-            if (list.isEmpty()) {
+            items(rows, key = { it.conv }) { r ->
+                val t = r.thread
+                if (r.notes) NotesRow(r, dms, world, now, sealed = seal.seal(r.conv) != null, locked = r.conv in seal.locked) { nav.go(Routes.conversation(r.conv)) }
+                else if (t != null) ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) }
+            }
+            if (rows.none { !it.notes }) {
                 item(key = "empty") {
                     EmptyState(
                         "No messages yet",
@@ -131,7 +137,6 @@ fun MessagesScreen(
                     )
                 }
             }
-            items(list, key = { it.conv }) { t -> ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) } }
             item(key = "new") {
                 Box(Modifier.fillMaxWidth().padding(16.dp)) {
                     BusyButton(
@@ -144,12 +149,52 @@ fun MessagesScreen(
     }
 }
 
+/**
+ * Notes to myself (docs/one-shape.md, canvas messages/notes-list): the first row, pinned for good. The
+ * notes icon, the name with a pin, the last note (a small lock before it when sealed) or "Only you can
+ * read these". Never a count: it is never unread.
+ */
+@Composable
+private fun NotesRow(row: sh.belfry.core.dm.MessagesRow, dms: DmSnapshot, world: World, now: Long, sealed: Boolean, locked: Boolean, onClick: () -> Unit) {
+    val c = Belfry.colors
+    val last = row.thread?.last
+    val preview = if (last == null) sh.belfry.core.model.Notes.EMPTY_PREVIEW
+    else dms.fileLine(last) ?: Markdown.plain(world.namedRefs(last.text)).lineSequence().firstOrNull { it.isNotBlank() } ?: ""
+    Row(
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp).testTag("notes-row"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(44.dp).clip(CircleShape).background(c.text), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(BelfryIcons.Note, contentDescription = null, tint = c.bg, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(sh.belfry.core.model.Notes.TITLE, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                Spacer(Modifier.width(6.dp))
+                androidx.compose.material3.Icon(BelfryIcons.Pin, contentDescription = sh.belfry.core.model.Notes.PINNED, tint = c.muted, modifier = Modifier.size(14.dp).testTag("notes-pin"))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = if (locked) Modifier.testTag("seal-locked-row") else Modifier) {
+                if (locked || (sealed && last != null)) {
+                    androidx.compose.material3.Icon(BelfryIcons.Lock, contentDescription = if (locked) null else sh.belfry.core.model.Notes.LOCK, tint = c.muted, modifier = Modifier.size(14.dp).testTag("notes-row-lock"))
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(if (locked) sh.belfry.core.model.SealedText.LOCKED_HERE else preview, fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (last != null) {
+            Spacer(Modifier.width(10.dp))
+            Text(ChatFormat.short(world, last.at, now), fontSize = 12.sp, color = c.muted, maxLines = 1)
+        }
+    }
+}
+
 @Composable
 private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, locked: Boolean = false, onClick: () -> Unit) {
     val c = Belfry.colors
     val mail = dms.isMail(t.conv)
     // every row: a face, the name in bold, one line: the subject for an e-mail thread, else the last message
-    val title = if (mail) dms.convName(t.conv, world) else if (dms.peers(t.conv).let { it.isEmpty() || it == listOf(world.me) }) "Notes to yourself" else dms.convName(t.conv, world)
+    val title = if (mail) dms.convName(t.conv, world) else if (dms.peers(t.conv).let { it.isEmpty() || it == listOf(world.me) }) sh.belfry.core.model.Notes.TITLE else dms.convName(t.conv, world)
     val first = LocalDms.current.fileLine(t.last) ?: Markdown.plain(world.namedRefs(t.last.text)).lineSequence().firstOrNull { it.isNotBlank() } ?: if (t.last.attachments.isNotEmpty()) "Attachment" else ""
     val preview = if (mail) dms.threadName(t.conv) else (if (t.last.mine) "You: " else "") + first
     val typing by sh.belfry.app.ui.nav.LocalSession.current.typing.collectAsState()

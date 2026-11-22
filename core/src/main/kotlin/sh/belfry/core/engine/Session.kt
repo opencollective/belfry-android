@@ -282,7 +282,10 @@ class Session(
                 // pins and sealed conversations beside the conversation data (wiped with the account), one value
                 { store.get(K_SEALED_STATE) } to { v -> if (!stopped) store.set(K_SEALED_STATE, v) }), // never after sign-out's wipe
             device, me, clock = clock, guest = false,
-        )
+        ).also { e ->
+            // a note to myself written while I have no chain: the first-device path, now (SPEC 19.66)
+            e.makeChain = { withContext(Dispatchers.Default) { sealedStart() } }
+        }
     }
 
     /** Keys arrived: kept wraps tried again, and every wrap to me read again from 0, paged (§5.5). */

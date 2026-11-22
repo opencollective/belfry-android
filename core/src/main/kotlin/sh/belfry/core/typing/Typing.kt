@@ -87,7 +87,8 @@ object Typing {
     fun placeOfRumor(rumor: Event, me: String): TypingPlace? {
         if (rumor.kind != KIND) return null
         val conv = MailThreads.nostrConv(rumor.pubkey, rumor.tagValues("p"), me)
-        if (MailThreads.peers(conv).isEmpty()) return null
+        // nobody else in it (Notes to myself, SPEC 19.66): no typing there, sent or shown
+        if (recipients(conv, me).isEmpty()) return null
         return TypingPlace.dm(conv)
     }
 

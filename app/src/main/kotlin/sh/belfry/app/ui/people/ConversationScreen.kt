@@ -109,12 +109,12 @@ fun ConversationScreen(conv: String) {
     val title = when {
         newMail -> "New e-mail to $who"
         mail -> dms.threadName(conv)
-        toSelf -> "Notes to yourself"
+        toSelf -> sh.belfry.core.model.Notes.TITLE
         else -> dms.convName(conv, world)
     }
     val sub = when {
         mail -> if (who != address) "$who · $address" else "E-mail · $address"
-        toSelf -> "Only you can read them"
+        toSelf -> ""
         else -> peers.mapNotNull { world.profiles[it]?.nip05?.takeIf { a -> a.isNotEmpty() } }.joinToString(", ")
     }
     val state = rememberLazyListState()
@@ -191,20 +191,23 @@ fun ConversationScreen(conv: String) {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })
             },
         )
+        // Notes to myself (docs/one-shape.md, SPEC 19.66): the screen starts with one fixed line; the lock and the
+        // "nobody else" sentence only when sealed
+        if (toSelf) NotesLine(sealed = seal != null) { nav.go(Routes.encryption(conv)) }
         if (rows.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 EmptyState(
-                    if (mail) "A new e-mail to $address" else "No messages yet",
+                    if (mail) "A new e-mail to $address" else if (toSelf) sh.belfry.core.model.Notes.TITLE else "No messages yet",
                     text = if (mail) {
                         "Its subject names the thread. It goes out from ${world.myAddress ?: "your address here"}; answers land in the thread."
                     } else if (toSelf) {
-                        "Write yourself a note. Only you can read it."
+                        sh.belfry.core.model.Notes.EMPTY_TEXT
                     } else if (peers.size > 1) {
                         "Only the people here can read them."
                     } else {
                         "Only you two can read them."
                     },
-                    icon = BelfryIcons.Mail,
+                    icon = if (toSelf) BelfryIcons.Note else BelfryIcons.Mail,
                 )
             }
         } else {
@@ -243,8 +246,8 @@ fun ConversationScreen(conv: String) {
                 }
             }
         }
-        // canvas v110 messages/typing-dm (never for e-mail)
-        if (!mail) {
+        // canvas v110 messages/typing-dm (never for e-mail, never in Notes to myself)
+        if (!mail && !toSelf) {
             val lastDm = remember(list) { HashMap<String, Long>().also { m -> for (d in list) if (d.at > (m[d.from] ?: 0L)) m[d.from] = d.at } }
             sh.belfry.app.ui.chat.TypingLine(sh.belfry.core.typing.TypingPlace.dm(conv)) { lastDm[it] ?: 0L }
         }
@@ -276,7 +279,7 @@ fun ConversationScreen(conv: String) {
             )
         } else Composer(
             composer,
-            placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else "Message",
+            placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else if (toSelf) sh.belfry.core.model.Notes.PLACEHOLDER else "Message",
             onSend = { text, files, _, _ ->
                 if (files.isNotEmpty() && !mail) {
                     // pictures with the text as their caption (canvas v109)
@@ -295,11 +298,35 @@ fun ConversationScreen(conv: String) {
             modifier = Modifier.navigationBarsPadding(),
             photos = !mail,
             onPlus = if (!mail) ({ plusOpen = true }) else null,
-            typingPlace = if (mail) null else sh.belfry.core.typing.TypingPlace.dm(conv),
+            typingPlace = if (mail || toSelf) null else sh.belfry.core.typing.TypingPlace.dm(conv),
         )
         if (plusOpen) DmPlusSheet(conv, composer, onClose = { plusOpen = false }, onRecord = { recording = true })
         if (recording) DmRecorderSheet(conv) { recording = false }
     }
+}
+
+/**
+ * The fixed first line of Notes to myself. Sealed: a lock and "Encrypted for your own devices. Nobody else
+ * can read your notes, not the belfry's admins either." (a tap opens Encryption, as the header's lock does).
+ * Not sealed: no lock, "Private to your account. Not end-to-end encrypted on this account."
+ */
+@Composable
+internal fun NotesLine(sealed: Boolean, onLock: () -> Unit) {
+    val c = Belfry.colors
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (sealed) Modifier.clickable(role = Role.Button, onClickLabel = "Encryption", onClick = onLock) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .testTag(if (sealed) "notes-line-sealed" else "notes-line-unsealed"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (sealed) {
+            Icon(BelfryIcons.Lock, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+        }
+        Text(sh.belfry.core.model.Notes.line(sealed), fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
+    }
+    Hairline()
 }
 
 @OptIn(ExperimentalFoundationApi::class)

@@ -2608,3 +2608,46 @@ notice). When my chain, or the roster named, isn't known yet the wrap is kept an
 shows a notice already answered. An 8563 never reaches the conversations (not a message, never marks a conversation
 sealed), and is never shared or taken in a shared history (8564). Vectors: `vectors/sealed.json` → `confirm`
 (the chain, 15 cases, one real wrap; made by `tools/sealed_confirm_vectors.py`).
+
+### 19.66 Notes to myself (2026-11-23; Xavier; contract collective-belfry docs/one-shape.md "Notes to myself" at belfry-sh ec048e3; canvas Messages v6 note n-notes, boards messages/notes-list, one-shape/notes-empty, notes-thread, notes-unsealed)
+
+The first row of Messages, always, also when empty: **Notes to myself**, with a pin, then the last note or "Only you
+can read these". It can't be unpinned, archived or hidden, never counts as unread (not in the row, not in any
+total). Every word is in `core/model/Notes.kt`; the list is `DmSnapshot.messagesRows`.
+
+It is the ordinary direct conversation whose only participant is me (conversation id `n:<my account>`), no new kind:
+
+```
+kind 14 (a file: kind 15), pubkey = my account, exactly one ["p", <my account>]
+```
+
+Replies (`["e", root, "", "root"]`), reactions (7) and take-backs (5) as in any direct conversation, each with that
+one `p`. A rumor of mine with no `p` at all (what older apps wrote) is read as a note too. Nobody else can write
+into it: the conversation of a rumor is its author and its `p` tags. No typing events, sent or shown.
+
+**Sealed** (docs/sealed.md) as soon as I have a chain: one wrap, to my own head letterbox, the seal signed
+by this device, no signer call. It does NOT wait for `ready` (the only reader is me); every other conversation
+still does. `SealedEngine.plan` for this conversation:
+
+- I have a chain, this device is in its head with the key → seal;
+- I have a chain, this device is not in its head → the note is held with the usual waiting words until the device
+  is added (never the old way);
+- no chain, known from a complete answer after authentication (the last 10 minutes) → the device makes the chain
+  now, the first-device path (`makeChain` = the session's `sealedStart`), and the note is held, shown as
+  "Sending…", until the chain is anchored; then it is sealed (at once when the chain is made within the send);
+- no chain known and no complete answer → held the same way; no chain is made, nothing is sent;
+- the relay refused my first roster → held; never the old way.
+
+On a device that can seal a note is never sent the old way. An account that cannot seal (no device key: an agent,
+a member holding their own key, a guest; the demo) sends one NIP-17 wrap to its own account through the signer.
+
+The screen: the header "Notes to myself" with the lock, then one fixed line, "Encrypted for your own devices.
+Nobody else can read your notes, not the belfry's admins either." (the lock and the line open Encryption). Not
+sealed: no lock, and "Private to your account. Not end-to-end encrypted on this account." The lock follows the
+chain, not the first note (`EncryptionService.refresh` marks the conversation sealed when I have a chain). Old
+unsealed notes stay; one arriving the old way after sealing is marked like any old message. Message box "Note to
+myself". Not built: to-dos and pins inside Notes, "Save to Notes".
+
+Vectors: `vectors/sealed.json` → `notes` (what is a note: 9 rumors; the single wrap on a chain that is not ready;
+6 plans; made by `tools/sealed_notes_vectors.py`, read by `NotesTest`). Known limit: a note written on another of
+my devices still raises the belfry's generic "dm" push here until the app has read it.

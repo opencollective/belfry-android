@@ -169,7 +169,7 @@ fun DmThreadScreen(conv: String, root: String) {
             }
         }
         if (first != null) {
-            sh.belfry.app.ui.chat.TypingLine(sh.belfry.core.typing.TypingPlace.dm(conv)) { 0L }
+            if (!sh.belfry.core.model.Notes.isNotes(conv, world.me)) sh.belfry.app.ui.chat.TypingLine(sh.belfry.core.typing.TypingPlace.dm(conv)) { 0L }
         }
         acting?.let { (rid, emojiOnly) ->
             val d = all.firstOrNull { it.rid == rid }
@@ -191,7 +191,7 @@ fun DmThreadScreen(conv: String, root: String) {
                 onSend = { text, _, _, _ -> session.sendDm(conv, text, root = root) },
                 modifier = Modifier.navigationBarsPadding(),
                 photos = false,
-                typingPlace = sh.belfry.core.typing.TypingPlace.dm(conv),
+                typingPlace = if (sh.belfry.core.model.Notes.isNotes(conv, world.me)) null else sh.belfry.core.typing.TypingPlace.dm(conv),
             )
         }
     }

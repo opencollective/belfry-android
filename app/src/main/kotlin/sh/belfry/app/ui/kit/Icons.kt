@@ -114,6 +114,8 @@ object BelfryIcons {
     val Phone by lazy { icon("phone", rect(6.5f, 2.5f, 11f, 19f, 2.5f), "M11 18.5h2") }
     val Tablet by lazy { icon("tablet", rect(4f, 3f, 16f, 18f, 2.5f), "M11 18h2") }
     val Computer by lazy { icon("computer", rect(3f, 4.5f, 18f, 12f, 2f), "M2 20h20M9 16.5l-.5 3.5M15 16.5l.5 3.5") }
+    /** A sheet of paper with lines: Notes to myself. */
+    val Note by lazy { icon("note", "M6 3h9l4 4v14H6z", "M15 3v4h4", "M9 12h6M9 16h4") }
     val Retry by lazy { icon("retry", "M20 12a8 8 0 1 1-2.6-5.9", "M20 4v5h-5") }
 
     /** Every icon with its name, for the kit gallery. */
@@ -126,7 +128,7 @@ object BelfryIcons {
             "pin" to Pin, "map pin" to MapPin, "image" to Image, "close" to Close, "check" to Check, "chevron" to Chevron,
             "down" to ChevronDown, "back" to Back, "more" to More, "inbox" to Inbox, "upload" to Upload, "shield" to Shield,
             "at" to At, "globe" to Globe, "react" to SmilePlus, "logout" to Logout, "lock" to Lock, "clock" to Clock,
-            "retry" to Retry, "unlock" to Unlock, "phone" to Phone, "tablet" to Tablet, "computer" to Computer,
+            "retry" to Retry, "unlock" to Unlock, "phone" to Phone, "tablet" to Tablet, "computer" to Computer, "note" to Note,
         )
     }
 }

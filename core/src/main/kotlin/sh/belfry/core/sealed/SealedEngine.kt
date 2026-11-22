@@ -926,12 +926,38 @@ class SealedEngine(
     /** How to send in CONV to PARTICIPANTS (me included): every chain asked again first (≤ 3 s). */
     suspend fun plan(conv: String, participants: Collection<String>): Plan = kotlinx.coroutines.withContext(confined) { planHere(conv, participants) }
 
+    /**
+     * Makes my chain when I have none (the first-device path, [start]): the session sets it, since [start]
+     * needs this device's name. Asked for by a note to myself written before the chain exists.
+     */
+    @Volatile var makeChain: (suspend () -> Unit)? = null
+
+    /** A complete answer of the last 10 minutes, on a live connection, showing that I have no chain at all. */
+    private fun knowsNoChainOfMine(): Boolean {
+        val k = known[account] ?: return false
+        val at = k.completeAt ?: return false
+        return k.chain == null && clock() - at < 600
+    }
+
     private suspend fun planHere(conv: String, participants: Collection<String>): Plan {
         val people = (participants + account).toSet()
         withTimeoutOrNull(3000) { people.forEach { refresh(it) } }
+        // Notes to myself (docs/one-shape.md, SPEC 19.66): the conversation whose only participant is me. Sealed
+        // as soon as I have a chain, `ready` or not (the only reader is me); and on a device that can seal never
+        // sent the old way because the chain isn't there yet.
+        val notes = !guest && people.size == 1 && sh.belfry.core.model.Notes.isNotes(conv, account)
+        if (notes && chainOf(account) == null && !sealedSince.containsKey(conv)) {
+            // a definite "no chain": made now, as a first device does (never on silence or an incomplete answer:
+            // start() asks again itself and makes one only from a complete answer after authentication)
+            if (mine == Mine.UNKNOWN && !firstRefused && knowsNoChainOfMine()) {
+                try { makeChain?.invoke() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+            }
+            // not there (yet): the note waits on the device, shown as sending, and is sealed once the chain is anchored
+            if (chainOf(account) == null) return Plan.Hold
+        }
         val chains = people.associateWith { chainOf(it) }
         val sealed = sealedSince.containsKey(conv)
-        if (!sealed && Sealing.canSeal(people, chains)) { sealedSince[conv] = clock(); saveState() }
+        if (!sealed && (Sealing.canSeal(people, chains) || (notes && chains[account] != null))) { sealedSince[conv] = clock(); saveState() }
         if (sealedSince.containsKey(conv)) {
             val heads = people.associateWith { chains[it]?.head?.lb ?: lastHead[it] }
             // nothing sealed or sent into a sealed conversation while this device isn't in my head (0.7.7)
@@ -939,6 +965,7 @@ class SealedEngine(
             heads.entries.firstOrNull { it.value == null }?.let { return Plan.Refuse("Not sent yet: their new device isn't ready.", who = it.key) }
             return Plan.Seal(heads.mapValues { it.value!! })
         }
+        if (notes) return Plan.Hold // never the old way on a device that can seal
         if (people.any { knowsNoReadyChain(it) }) return Plan.OldWay
         return Plan.Hold
     }

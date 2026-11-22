@@ -515,7 +515,8 @@ object Demo {
         val wraps = ArrayList<Event>()
         suspend fun dm(from: LocalSigner, to: List<LocalSigner>, at: Long, text: String, reactions: List<Pair<LocalSigner, String>> = emptyList(), root: String? = null): String {
             // root: a reply in that message's thread (docs/one-shape.md 3)
-            val rumor = GiftWrap.rumor(14, from.pubkey, to.filter { it !== from }.map { listOf("p", it.pubkey) } + listOfNotNull(root?.let { sh.belfry.core.model.OneShape.dmReplyTag(it) }), text, at)
+            // a note to myself (SPEC 19.66): exactly one p tag, my own account
+            val rumor = GiftWrap.rumor(14, from.pubkey, (if (to.all { it === from }) listOf(listOf("p", from.pubkey)) else to.filter { it !== from }.map { listOf("p", it.pubkey) }) + listOfNotNull(root?.let { sh.belfry.core.model.OneShape.dmReplyTag(it) }), text, at)
             wraps.add(GiftWrap.wrap(rumor, me.pubkey, from))
             // reactions to it (canvas home/conversation): a kind 7 rumor, e = the message's rumor id, k = 14
             for ((who, emoji) in reactions) {
@@ -536,7 +537,7 @@ object Demo {
             val plain = Demo::class.java.getResourceAsStream("/demo/$res")?.use { it.readBytes() } ?: return
             val sealed = sh.belfry.core.dm.DmFiles.seal(plain)
             store.putBlob("dmc:" + sealed.x, sealed.ciphertext)
-            val tags = sh.belfry.core.dm.DmFiles.tags(to.filter { it !== from }.map { it.pubkey }, mime, sealed, name = name, dim = dim, duration = duration, group = group)
+            val tags = sh.belfry.core.dm.DmFiles.tags(to.filter { it !== from }.map { it.pubkey }.ifEmpty { listOf(me.pubkey) }, mime, sealed, name = name, dim = dim, duration = duration, group = group)
             val rumor = GiftWrap.rumor(sh.belfry.core.dm.DmFiles.KIND, from.pubkey, tags, Session.LOCAL_BLOB + "dmc:" + sealed.x, at)
             wraps.add(GiftWrap.wrap(rumor, me.pubkey, from))
         }
@@ -554,7 +555,12 @@ object Demo {
         dm(tomas, trio, now - 3 * day, "Shall we buy the wood for the pantry shelves together?")
         dm(lena, trio, now - 3 * day + 600, "Yes. The budget allows 150 EUR.")
         dm(me, trio, now - 3 * day + 900, "I can drive on Friday afternoon.")
-        dm(me, listOf(me), now - 4 * day, "Note to self: bring the 13 mm spanner back to Tomás.")
+        // Notes to myself (docs/one-shape.md, canvas one-shape/notes-thread): a few notes and a picture
+        dm(me, listOf(me), now - 4 * day, "Bring the 13 mm spanner back to Tomás.")
+        dm(me, listOf(me), now - 27 * h, "Ask Lena about the big soup pots for Sunday")
+        dm(me, listOf(me), now - 27 * h + 720, "The seedlings, day 9:")
+        dmFile(me, listOf(me), now - 27 * h + 721, "seedlings-1.jpg", "image/jpeg", dim = "640x480")
+        dm(me, listOf(me), now - 75 * 60, "Bring the extension reel, 2 plugs")
 
         val myAddress = "$myUser@$DOMAIN"
         // FILES: (name, type, demo resource) attached after the text (inline pictures, 2026-11-22)

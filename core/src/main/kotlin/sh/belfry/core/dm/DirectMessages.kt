@@ -277,6 +277,11 @@ data class DmThread(val conv: String, val last: Dm, val unread: Int, val count: 
     val isMail: Boolean get() = MailThreads.isMail(conv)
 }
 
+/** A row of Messages: a conversation, or Notes to myself (THREAD null while it has no note). */
+data class MessagesRow(val conv: String, val thread: DmThread?, val notes: Boolean) {
+    val unread: Int get() = if (notes) 0 else thread?.unread ?: 0
+}
+
 /** Everything the Messages screens show: an immutable snapshot (a new one after every change). */
 class DmSnapshot(
     val items: List<Dm>,
@@ -308,12 +313,27 @@ class DmSnapshot(
 
     private val byConv: Map<String, List<Dm>> by lazy { items.groupBy { it.conv }.mapValues { (_, l) -> l.sortedBy { it.at } } }
 
-    /** Conversations, the most recent first. */
+    /** Conversations, the most recent first. Notes to myself never counts as unread. */
     val threads: List<DmThread> by lazy {
         byConv.map { (conv, list) ->
             val upTo = read.readUpTo('d', conv, now)
-            DmThread(conv, list.last(), list.count { !it.mine && it.at > upTo }, list.size)
+            DmThread(conv, list.last(), if (conv == notesConv) 0 else list.count { !it.mine && it.at > upTo }, list.size)
         }.sortedByDescending { it.last.at }
+    }
+
+    /** Notes to myself (docs/one-shape.md, SPEC 19.66): the conversation whose only participant is me. */
+    val notesConv: String get() = sh.belfry.core.model.Notes.conv(me)
+
+    /** The last note, null while there is none (the row is there all the same). */
+    val lastNote: Dm? get() = thread(notesConv).lastOrNull()
+
+    /**
+     * The Messages list: Notes to myself first, always (also when empty; it can't be unpinned, archived
+     * or hidden, and is never unread), then every other conversation, the most recent first.
+     */
+    val messagesRows: List<MessagesRow> by lazy {
+        val others = threads.filter { it.conv != notesConv }.map { MessagesRow(it.conv, it, notes = false) }
+        if (me.isEmpty()) others else listOf(MessagesRow(notesConv, threads.firstOrNull { it.conv == notesConv }, notes = true)) + others
     }
 
     /** How many conversations have something unread. */
@@ -382,6 +402,7 @@ class DmSnapshot(
         if (held != null) return when {
             d.heldWhy == "too_long" -> HELD_TOO_LONG
             d.heldWhy == DirectMessages.LOCKED -> sh.belfry.core.model.SealedText.WRITE_LATER
+            d.heldWhy == DirectMessages.NOTES_CHAIN -> "Sending…" // a note waiting for my chain (SPEC 19.66)
             d.heldWhy?.startsWith("device:") == true -> null // named by the screen ("‹Name›'s new device isn't ready.")
             now - held >= 60 -> HELD_LONG
             else -> HELD_FIRST
@@ -897,7 +918,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                     sh.belfry.core.sealed.SealedEngine.Plan.Hold -> {
                         // a reaction or a take-back has no bubble to wait in: not sent, said at once (the review's 16)
                         if (rumor.kind == 7 || rumor.kind == 5) throw DmException("Not sent yet: this device can't reach the belfry to check how to lock it. Try again in a moment.")
-                        hold(rumor, to, self, conv, null); return false
+                        // a note written before my chain is anchored: shown as sending, sealed once it is
+                        hold(rumor, to, self, conv, if (sh.belfry.core.model.Notes.isNotes(conv, host.me)) NOTES_CHAIN else null); return false
                     }
                     sh.belfry.core.sealed.SealedEngine.Plan.Locked -> {
                         if (rumor.kind == 7 || rumor.kind == 5) throw DmException(sh.belfry.core.model.SealedText.WRITE_LATER)
@@ -942,7 +964,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             val who = if (h.rumor.kind == 1301) emptyList() else h.to.filter { it != host.me }
             val plan = try { eng.plan(h.conv, who) } catch (e: Exception) { continue }
             when (plan) {
-                sh.belfry.core.sealed.SealedEngine.Plan.Hold -> update(rid) { it.copy(heldWhy = null) }
+                sh.belfry.core.sealed.SealedEngine.Plan.Hold -> update(rid) { it.copy(heldWhy = if (sh.belfry.core.model.Notes.isNotes(h.conv, host.me)) NOTES_CHAIN else null) }
                 sh.belfry.core.sealed.SealedEngine.Plan.Locked -> update(rid) { it.copy(heldWhy = LOCKED) }
                 is sh.belfry.core.sealed.SealedEngine.Plan.Refuse -> if (plan.who != null) update(rid) { it.copy(heldWhy = "device:${plan.who}") } else {
                     synchronized(lock) { held.remove(rid) }
@@ -1048,7 +1070,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             val to = MailThreads.peers(conv)
             if (to.any { !Hex.isKey(it) }) throw DmException("This is not a valid Nostr key.")
             // a reply (docs/one-shape.md 3): ["e", root, "", "root"]; wrapped and sealed like any other 14
-            val rumor = GiftWrap.rumor(14, me, to.filter { it != me }.map { listOf("p", it) } + listOfNotNull(group?.let { listOf("group", it) }, root?.let { OneShape.dmReplyTag(it) }), text, at ?: nextAt())
+            val rumor = GiftWrap.rumor(14, me, sh.belfry.core.model.Notes.pTags(conv, me, to) + listOfNotNull(group?.let { listOf("group", it) }, root?.let { OneShape.dmReplyTag(it) }), text, at ?: nextAt())
             set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true, group = group, root = root))
             publish()
             try {
@@ -1127,7 +1149,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             val mime = f.mime.ifEmpty { "application/octet-stream" }
             // the key and nonce are chosen now and kept with the item: a retry uploads the same ciphertext
             val meta = buildList {
-                others.forEach { add(listOf("p", it)) }
+                addAll(sh.belfry.core.model.Notes.pTags(conv, me, others)) // a note: my own account, once
                 add(listOf("file-type", mime))
                 add(listOf("_key", sh.belfry.core.crypto.Random.hex(32)))
                 add(listOf("_nonce", sh.belfry.core.crypto.Random.hex(12)))
@@ -1271,7 +1293,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val me = host.me
         val to = MailThreads.peers(d.conv)
         if (mine != null) {
-            val rumor = GiftWrap.rumor(5, me, listOf(listOf("e", mine.rid), listOf("k", "7")) + to.filter { it != me }.map { listOf("p", it) }, "", host.now())
+            val rumor = GiftWrap.rumor(5, me, listOf(listOf("e", mine.rid), listOf("k", "7")) + sh.belfry.core.model.Notes.pTags(d.conv, me, to), "", host.now())
             synchronized(lock) { reacts.remove(mine.rid); gone[mine.rid] = me }
             publish()
             deliver(rumor, to, conv = d.conv)
@@ -1352,7 +1374,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val rid = item.dm ?: return
         val me = host.me
         val d = synchronized(lock) { items[rid] } ?: return
-        if (item.tags.none { it.size >= 2 && it[0] == "p" && it[1] != me }) return
+        // my own copy failing says nothing, except in Notes to myself, where it is the only wrap
+        if (!sh.belfry.core.model.Notes.isNotes(d.conv, me) && item.tags.none { it.size >= 2 && it[0] == "p" && it[1] != me }) return
         val why = item.error?.takeIf { it.isNotEmpty() } ?: "The relay refused it."
         update(rid) { it.copy(failed = why) }
         if (d.emailId != null) synchronized(lock) { reports[d.emailId] = Report(Report.FAILED, why) }
@@ -1446,6 +1469,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     companion object {
         /** heldWhy: this device isn't in my head (the locked thread's words). */
         const val LOCKED = "locked"
+        /** [Dm.heldWhy] of a note to myself that waits for my chain to be made and anchored (SPEC 19.66). */
+        const val NOTES_CHAIN = "notes-chain"
         const val K_ITEMS = "dm-items"
         const val K_SEEN = "dm-seen"
         const val K_REPORTS = "dm-reports"
