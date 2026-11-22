@@ -336,7 +336,8 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
     // touched = sent on Save even when it ends where it started (the start may have been read stale)
     var mailTouched by remember(g.id) { mutableStateOf(false) }
     // who reads it (round 6, SPEC 19.41): members only / public (asks first) / closed
-    val wasAccess = remember(g.id) { world.channelAccess(g) }
+    // a group: who reads its page (members only / public), next to who can join (SPEC 19.59 as ruled at d85f408)
+    val wasAccess = remember(g.id) { if (g.isPod) (if (world.isPublicChannel(g)) ChannelAccess.PUBLIC else ChannelAccess.MEMBERS) else world.channelAccess(g) }
     var access by remember(g.id) { mutableStateOf(wasAccess) }
     var askPublic by remember(g.id) { mutableStateOf(askPublicAtOnce) }
     // Posts (SPEC 19.60, channels/settings): the kinds it takes, all on by default, one at least
@@ -388,6 +389,33 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
                 Segmented((1..5).map { if (it == 1) "1 vouch" else "$it" }, vouches - 1, { vouches = it + 1 }, enabled = !busy.busy)
             }
         }
+        // who reads its page, as before 0.8 (same wire, same words); a Private group has no Public
+        val isPriv = join == GroupJoin.PRIVATE
+        val shown = if (isPriv) ChannelAccess.MEMBERS else access
+        Spacer(Modifier.height(14.dp))
+        Hint("Who can read its page")
+        Spacer(Modifier.height(6.dp))
+        ActionGroup(Modifier.testTag("settings-page")) {
+            val rows = buildList {
+                add(Triple(ChannelAccess.MEMBERS, BelfryIcons.Lock, "Members only" to "Everyone with a pass in this belfry"))
+                if (!isPriv) add(Triple(ChannelAccess.PUBLIC, BelfryIcons.Globe, "Public" to "Anyone on the web can read it. Only members write."))
+            }
+            rows.forEachIndexed { i, (a, icon, words) ->
+                if (i > 0) Hairline()
+                ActionRow(
+                    words.first,
+                    onClick = { if (a != access) { if (a == ChannelAccess.PUBLIC) askPublic = true else access = a } },
+                    icon = icon, sub = words.second, enabled = !busy.busy,
+                    modifier = Modifier.testTag("access-${a.key}").semantics { selected = shown == a },
+                    trailing = { if (shown == a) Icon(BelfryIcons.Check, "Selected", tint = c.text, modifier = Modifier.size(22.dp)) },
+                )
+            }
+        }
+        Hint(
+            if (isPriv && access == ChannelAccess.PUBLIC) "A private group's page is for its members only: it stops being public when you save."
+            else "A change counts from now on. Messages keep the visibility they were posted with.",
+            Modifier.padding(top = 6.dp),
+        )
     }
     if (g.type == ChannelType.CHANNEL) {
         Spacer(Modifier.height(14.dp))
@@ -463,6 +491,8 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
                 Actions.webSettings(g, world, session.now(), access == ChannelAccess.PUBLIC, world.webPage(g)?.posts, accepts = accepts)?.let { session.send(it) }
             }
             if (g.isPod) {
+                // its page: members only / public as before 0.8; a Private group's page is members only
+                Actions.webSettings(g, world, session.now(), access == ChannelAccess.PUBLIC && join != GroupJoin.PRIVATE, world.webPage(g)?.posts)?.let { session.send(it) }
                 // a group (SPEC 19.59): Open / Closed (+ its question, who accepts) / Private
                 val joinChanged = join != GroupJoin.of(g)
                 val closedRules = join == GroupJoin.CLOSED && (prompt.trim() != (g.prompt ?: "") || vouches != g.vouches)
