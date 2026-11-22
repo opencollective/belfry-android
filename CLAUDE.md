@@ -236,6 +236,10 @@ minSdk 26, JDK 17.
   `Task.due` / `doneAt` read in `World.readTasks`. App: `ui/info/TodoScreen.kt` (`TodoLevel` tiny / mid / full,
   `DueSheet` with Material pickers). Screenshots `TodoShapeShotsTest`.
 
+- Faces of e-mail correspondents (SPEC 19.60, canvas home/messages): `core/model/MailFace.kt` (hash, initials,
+  colour, cache times) + `ui/people/MailFaces.kt` (`MailFaceView` with the envelope corner, `MailFaceCache`:
+  `<api>/avatar/<hash>` in the cache dir). `ConvFace` uses it for e-mail threads. Screenshots `MailFacesShotsTest`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

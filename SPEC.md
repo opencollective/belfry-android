@@ -2471,3 +2471,23 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   of Messages, in Devices and in Encryption: "‹name› was added just now · It can read your conversations",
   "Not you? Remove it" (asks, then §5.6: the session revoked first, the roster without it, a new letterbox)
   and "It was me". The adding device shows it too.
+
+### 19.60 The Messages list: faces, not envelopes (2026-11-22; docs/one-shape.md "The Messages list: faces, not envelopes"; canvas home/messages v186)
+
+- Every row of Messages is a face, the name in bold, then one line: the subject for an e-mail
+  thread, else the last message. An envelope is never the face; a small envelope on the face's
+  corner marks an e-mail row. Members' DMs keep their profile picture or initial; group DMs as before.
+- An outside correspondent's face: `GET <api base>/avatar/<hash>` (default
+  `https://belfry.<domain>/api/v1/avatar/<hash>`), hash = lowercase hex sha256 of the trimmed,
+  lowercased address (`MailFace.hash`). 200 with an `image/*` body = the picture; 404 or any failure =
+  a disc with initials (`MailFace.initials`: first letters of the name's first and last words, a part in
+  brackets left out, "Ana Pereira" → "AP"; no name → the address's first letter, "P") on the colour
+  `MailFace.colorIndex` (the first 6 hex digits of the hash modulo the palette, the members' rule).
+- No auth. Cached by hash in the app's cache dir (`mail-faces/`, names `Slots.key(hash, slot)`), rules
+  `MailFace.keep`: 200 = the picture for 30 days; 404 = no picture for 7 days, or for its
+  `Cache-Control: max-age` when shorter (600 = "try later"); 429 (the /api limit, 60 a minute per IP,
+  shared with the app's other calls) and any other failure = "later", never "no picture": not cached,
+  asked again after Retry-After or 2 minutes, initials (or an older picture) meanwhile. At most 3 faces
+  are asked at a time, only for rows on screen. Redirects are not followed, no other host (never
+  Gravatar) is asked. The demo, tests (`LocalNetworkImages`) and
+  previews ask nothing: initials.
