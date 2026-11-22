@@ -26,7 +26,7 @@ import sh.belfry.core.model.everyonePins
 import sh.belfry.core.model.isPreview
 import sh.belfry.core.model.townList
 
-/** Navigation v2 (canvas nav2/*, docs/one-shape.md §1): the bar, the menu, Add a channel, previews, pins, the composer's ＋. */
+/** Navigation v2 (canvas nav2 boards, docs/one-shape.md §1): the bar, the menu, Add a channel, previews, pins, the composer's ＋. */
 class NavShotsTest : DemoShots() {
     private fun shell(place: ShellState.Place) = ShellState(Demo.GENERAL).apply { this.place = place }
     private fun list() = world.townList(session.pins.value.c, session.now())
