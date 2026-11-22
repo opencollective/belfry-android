@@ -11,6 +11,8 @@ import sh.belfry.core.model.Charter
 import sh.belfry.core.model.charterToAgree
 import sh.belfry.core.model.groupRequestCount
 import sh.belfry.core.model.myTodos
+import sh.belfry.core.model.myPods
+import sh.belfry.core.model.townList
 import sh.belfry.core.read.Unread
 
 /** What waits for me, as the places' badges count it (iOS AppModel+Home: homeCount, townUnread). */
@@ -20,9 +22,18 @@ data class PlaceCounts(
     val mentions: Int,
     val dms: Int,
     val todosOnMe: Int,
-    /** Town channels with something unread (☰'s count in Town). */
+    /** Town channels with something unread (before Navigation v2; kept for the guest drawer). */
     val town: Int,
+    /** Conversations with new messages (Messages in the bar and the menu). */
+    val dmConvs: Int = 0,
+    /** New messages in my groups (Groups in the bar). */
+    val groups: Int = 0,
+    /** New messages in the channels of my Town list (pinned and recent). */
+    val channels: Int = 0,
 ) {
+    /** ☰'s badge (nav2/drawer): what is new across the menu's rows (channels, groups, conversations); not Today or Mentions. */
+    val menu: Int get() = channels + groups + dmConvs
+
     /** The dot on Home: something waits for me (nothing for a guest). */
     fun home(guest: Boolean): Int = if (guest) 0 else requests + mentions + dms + todosOnMe + toAgree
 }
@@ -38,6 +49,8 @@ fun rememberPlaceCounts(): PlaceCounts {
     val agents by session.members.agentRequests.collectAsState()
     LaunchedEffect(session) { try { session.members.refreshRequests() } catch (e: Exception) { } }
     val now = session.now()
+    val pins by session.pins.collectAsState()
+    val list = androidx.compose.runtime.remember(world, pins, now / 3600) { world.townList(pins.c, now) }
     val town = world.groups.count { it.type == sh.belfry.core.model.ChannelType.CHANNEL && it.id != Charter.ID && Unread.channel(world, read, it.id, now) > 0 }
     return PlaceCounts(
         requests = if (world.amGuest) 0 else people.size + agents.size + world.groupRequestCount(),
@@ -46,5 +59,8 @@ fun rememberPlaceCounts(): PlaceCounts {
         dms = dms.unreadTotal,
         todosOnMe = world.myTodos().first.size,
         town = town,
+        dmConvs = dms.threads.count { it.unread > 0 },
+        groups = world.myPods().sumOf { Unread.channel(world, read, it.id, now) },
+        channels = list.list.sumOf { Unread.channel(world, read, it, now) },
     )
 }

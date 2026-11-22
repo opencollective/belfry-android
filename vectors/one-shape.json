@@ -2,7 +2,7 @@
  "about": "One shape and Navigation v2 (collective-belfry docs/one-shape.md, canvas v171-172). Written by belfry-android; belfry-ios copies it byte for byte. Pubkeys are plain names here; ids are plain strings and compare as strings.",
  "generated_by": "belfry-android, by hand",
  "recent": {
-  "about": "The Town list. Pins first: everyone's (channel-order \"pinned\", in its order), then mine (belfry:pins), deduplicated, ids not in `known` skipped. Then recent: channels in `known`, not pinned, where within the last 30 days (created_at > now - 30*86400) I posted (kind 9 or 1111 by me), reacted (kind 7 by me) or was mentioned (a kind 9 or 1111 by someone else with [\"p\", me]); opening (seen) never counts. Recent are ordered by the channel's newest kind 9 / 1111 / 7 by anyone (any age), newest first, ties by channel id ascending. The channel of an event is its first h tag.",
+  "about": "The Town list. The main channel `general` comes first whenever it is known, pinned or not (it can't be unpinned). Then pins: everyone's (channel-order \"pinned\", in its order), then mine (belfry:pins), deduplicated, ids not in `known` skipped. Then recent: channels in `known`, not pinned, where within the last 30 days (created_at > now - 30*86400) I posted (kind 9 or 1111 by me), reacted (kind 7 by me) or was mentioned (a kind 9 or 1111 by someone else with [\"p\", me]); opening (seen) never counts. Recent are ordered by the channel's newest kind 9 / 1111 / 7 by anyone (any age), newest first, ties by channel id ascending. The channel of an event is its first h tag.",
   "cases": [
    {
     "name": "pins then recent",
@@ -301,6 +301,64 @@
      "list": [
       "y",
       "z"
+     ]
+    }
+   },
+   {
+    "name": "general always first, even unpinned",
+    "me": "me",
+    "now": 1795000000,
+    "known": [
+     "general",
+     "hello",
+     "garden"
+    ],
+    "pinsAll": [
+     "hello"
+    ],
+    "pinsMine": [
+     "general"
+    ],
+    "events": [
+     {
+      "id": "g1",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1794913600,
+      "tags": [
+       [
+        "h",
+        "garden"
+       ]
+      ],
+      "content": "x"
+     },
+     {
+      "id": "g2",
+      "pubkey": "me",
+      "kind": 9,
+      "created_at": 1794827200,
+      "tags": [
+       [
+        "h",
+        "general"
+       ]
+      ],
+      "content": "y"
+     }
+    ],
+    "expect": {
+     "pinned": [
+      "general",
+      "hello"
+     ],
+     "recent": [
+      "garden"
+     ],
+     "list": [
+      "general",
+      "hello",
+      "garden"
      ]
     }
    }
