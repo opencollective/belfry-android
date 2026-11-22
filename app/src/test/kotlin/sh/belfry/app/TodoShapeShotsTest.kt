@@ -15,7 +15,7 @@ import sh.belfry.core.engine.Demo
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Task
 
-/** The to-do in one shape (canvas one-shape/todo-conversation, -mid, -pulled, -done; SPEC 19.53). */
+/** The to-do in one shape (canvas one-shape/todo-conversation, -mid, -pulled, -done; SPEC 19.54). */
 class TodoShapeShotsTest : DemoShots() {
     private fun task(group: String, title: String): Task = world.tasks(group).first { it.title == title }
     private val cable get() = task(Demo.KITCHEN, "Bring the extension cable")

@@ -312,7 +312,9 @@ object Demo {
         say(maya, GARDEN, now - 5 * h, "Seed swap this Sunday at 11, by the greenhouse. #seeds")
         say(aroha, KITCHEN, now - 2 * day, "Thursday dinner: dal, rice, flatbread. **12 seats**, 7 taken.")
         say(sam, KITCHEN, now - day, "Count me in. I can do the dishes.")
-        say(lena, KITCHEN, now - 90 * 60, "Put me down for two seats, please.")
+        val seats = say(lena, KITCHEN, now - 90 * 60, "Put me down for two seats, please.")
+        // Navigation v2: a reaction of mine brings #kitchen into my menu as a recent channel
+        post(me, now - 80 * 60, Actions.react(KITCHEN, seats.id, lena.pubkey, "👍"))
         val rice = post(aroha, now - 2 * day + 60, Actions.addTask(KITCHEN, "Buy rice and lentils"))
         // one shape, the to-do: Sam bought them and marked it done, quietly; Aroha thanked him
         post(sam, now - day + 3 * h, Actions.taskAction(KITCHEN, rice.id, "claim"))
@@ -408,7 +410,11 @@ object Demo {
             // a steward reworded the third: my tick is stale, it asks me again
             post(me, now - 2 * day, Charter.edit(a3.id, "Quiet hours after 22:00, every day", "In the hall, the garden and the street.", 3))
         }
+        // Navigation v2 (docs/one-shape.md §1): the stewards pin the Townsquare and the front desk for everyone
+        raw(maya, t0 + 900, 30078, listOf(listOf("d", World.ORDER_D)), sh.belfry.core.model.OneShape.withEveryonePins(null, listOf(GENERAL, HELLO)))
         store.addEvents(events)
+        // and I pinned #garden for myself (kept on the device in the demo)
+        store.set(PinSync.K_STATE, PinSync.localContent(listOf(GARDEN), now - 3 * day))
         store.set(Session.K_GROUPS_KEY, groups.pubkey)
         store.set(Session.K_BRIDGE, bridge.pubkey)
 
