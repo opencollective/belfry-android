@@ -2557,3 +2557,54 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   visibility as before 0.8: same wire, same words, Public asks first). A Private group has no
   Public row; a group made Private while its page is public is saved as members only (its web
   settings written with `on`/`visibility` members, as going members only always did).
+
+### 19.64 Sealed: the waiting view names who can unlock; It was me once for all (8563) (2026-11-22; Xavier via the lead; contract collective-belfry docs/sealed.md §5.2 step 2b at belfry-sh 3c20015; canvas Messages v5 note n-e2e-locked-named, boards messages/encryption-new-device, -waiting-list, -devices-waiting, -locked-thread, -waiting, -locked-added, -start-fresh)
+
+**The waiting view.** A device that is not in my head (or is in it without the key) says, wherever it showed the
+lock before (the Messages banner, the block in a conversation, the Encryption screen, the composer's place):
+
+- which device holds the key, by its **session name** (`application · device` of its row in `/api/me/sessions`,
+  chat sessions only; never a key or an id): "Open **Chat · Safari on Mac**. This device is added by itself as soon as
+  that one is open."; several: "Open A or B. … as soon as one is open."; none known: "Open Belfry on another device of
+  yours. …". The names of my head's devices are kept on the device as last read (store key `sealed-head-names`), so the
+  view works offline; a waiting device cannot open the §3.5 name records (they are under the letterbox).
+- the state: "Asked 9:40 PM · waiting for one of your devices" (the time of the last 8562 the relay took, kept across
+  restarts; the device's own 12 h / 24 h setting; the day too when it wasn't today), "Not asked yet · this device asks
+  as soon as it is online" before that (and it then asks at once). Once it is in the head with the key still on its
+  way: "Added 9:42 PM" / "Your messages open here in a moment.", which goes by itself.
+- "Nothing to approve on this device." No Allow step anywhere on the waiting device. The link is "No other device?"
+  (was "Show how"): the same pushed screen, now titled so, naming the device, saying that the people I write to can
+  share history, and ending with "I don't have another device · Start fresh on this device" (the only way in to §5.4).
+- the composer's place in a locked conversation: "You can write here once this device is added."; in the head without
+  the key: the state line and "Open ‹device›. Nothing to approve here."
+
+As data: `SealState.unlockers` (names), `askedAt`, `addedAt`. Every word is in `core/model/Sealed.kt` (`SealedText`,
+`Unlockers`): the exact wording still waits for Xavier.
+
+**It was me, once (kind 8563).** Tapping "It was me" on a "‹device› was added" notice clears it on this device at once
+(the local note, as before) and sends, sealed like any rumor (§4: seal signed by this device, wrap `p` = my account,
+`lb` = my head letterbox), straight to the community relay:
+
+```
+kind 8563, pubkey = the confirming device, created_at = now, content ""
+["p", <account>], ["device", <added device>], ["e", <id of the roster that added it>]
+```
+
+It is owed until the relay took it (sent again at each upkeep), and only a device that was in the roster before the
+one named by `e` sends it. A device that opens one clears its notice for `device` when ALL hold, and otherwise
+ignores it without a word:
+
+1. the rumor is exactly that shape: kind 8563, `pubkey` = the key that signed the seal, content empty, exactly one
+   `p` (my account), one `device`, one `e`;
+2. `e` is a roster of my valid chain that **added** `device` (in it, not in the roster before; never the root);
+3. the seal's signer is in the roster **before** that one (the added device can't confirm itself, nor can two
+   devices added together confirm each other);
+4. the seal's signer is in the head now.
+
+A notice is cleared only for the roster that last added the device (a device removed and added again is a new
+notice). When my chain, or the roster named, isn't known yet the wrap is kept and judged again when the chain moves
+(30 days at most), like any sealed rumor whose chain isn't loaded. Accepted ones are remembered for good (the notes
+`confirmed:<device>:<roster>` beside the keys), so a device added later, which reads its letterbox from 0, never
+shows a notice already answered. An 8563 never reaches the conversations (not a message, never marks a conversation
+sealed), and is never shared or taken in a shared history (8564). Vectors: `vectors/sealed.json` → `confirm`
+(the chain, 15 cases, one real wrap; made by `tools/sealed_confirm_vectors.py`).

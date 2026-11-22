@@ -161,7 +161,7 @@ private fun DeviceIcon(kind: DeviceKind) {
 private fun MyDeviceRows(devices: List<MyDevice>, now: Long, world: World) {
     devices.forEach { d ->
         SealRow(
-            d.name, sub = SealedText.addedLine(d, now, world.ctx.zone), badge = if (d.thisDevice) "This device" else null,
+            d.name, sub = SealedText.addedLine(d, now, world.ctx.zone, rememberH24()), badge = if (d.thisDevice) "This device" else null,
             leading = { DeviceIcon(d.kind) }, modifier = Modifier.testTag("seal-my-device"),
         )
     }
@@ -189,9 +189,13 @@ fun EncryptionScreen(conv: String) {
     val waiting = st.earlierLocked || st.waitingKeys
     Page("Encryption") {
         AddedDeviceCards()
-        // a device not allowed yet: say so first, with the steps (then what it knows, if anything)
-        if (waiting) {
-            EarlierLockedBanner(SealedText.CANT_READ_YET, SealedText.ALLOW_ELSEWHERE) { nav.go(Routes.UNLOCK_STEPS) }
+        // a device not added yet: say so first, who can open it and where things stand (canvas Messages v5
+        // messages/encryption-devices-waiting); added, the key on its way: "Added … · open here in a moment"
+        if (st.earlierLocked) {
+            EarlierLockedBanner(SealedText.CANT_READ_YET, st) { nav.go(Routes.UNLOCK_STEPS) }
+            Spacer(Modifier.height(8.dp))
+        } else if (st.waitingKeys) {
+            AddedHereBanner(st)
             Spacer(Modifier.height(8.dp))
         }
         when {
@@ -276,9 +280,57 @@ fun EncryptionContent(seal: ConvSeal, mine: List<MyDevice>, world: World, now: L
     if (seal.mail.isNotEmpty()) Box(Modifier.testTag("seal-mail-sentence")) { Sentence(BelfryIcons.Mail, SealedText.MAIL) }
 }
 
-/** messages/encryption-new-device: the amber banner at the top of Messages on a new device. */
+/** The device's own clock: 24-hour or AM / PM, as set in Android. */
 @Composable
-internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, text: String = SealedText.BANNER_TEXT, onShowHow: () -> Unit) {
+internal fun rememberH24(): Boolean = android.text.format.DateFormat.is24HourFormat(androidx.compose.ui.platform.LocalContext.current)
+
+/** A sentence whose device names are set in bold ("Open **Chat · Safari on Mac**. …"): never colour alone. */
+@Composable
+internal fun NamedText(parts: List<Pair<String, Boolean>>, modifier: Modifier = Modifier, fontSize: androidx.compose.ui.unit.TextUnit = 14.sp, color: androidx.compose.ui.graphics.Color = Belfry.colors.text) {
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        for ((t, name) in parts) {
+            if (name) { pushStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold)); append(t); pop() } else append(t)
+        }
+    }
+    Text(text, fontSize = fontSize, lineHeight = (fontSize.value + 5).sp, color = color, modifier = modifier)
+}
+
+/**
+ * What every waiting view says (canvas Messages v5, note n-e2e-locked-named): which device holds the
+ * key, by its session name; where things stand ("Asked 9:40 PM · waiting for one of your devices");
+ * that there is nothing to approve here; and "No other device?" (the way to Start fresh).
+ */
+@Composable
+internal fun WaitingLines(st: sh.belfry.core.model.SealState, onNoOther: (() -> Unit)?) {
+    val c = Belfry.colors
+    val session = LocalSession.current
+    val world = LocalWorld.current
+    NamedText(SealedText.openParts(st.unlockers), Modifier.padding(top = 2.dp).testTag("seal-open-device"))
+    Text(
+        SealedText.askedLine(st.askedAt, session.now(), world.ctx.zone, rememberH24()), fontSize = 14.sp, lineHeight = 19.sp,
+        fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.padding(top = 6.dp).testTag("seal-asked"),
+    )
+    Text(SealedText.NOTHING_TO_APPROVE, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
+    if (onNoOther != null) NoOtherLink(onNoOther)
+}
+
+@Composable
+private fun NoOtherLink(onClick: () -> Unit) {
+    Text(
+        SealedText.NO_OTHER_LINK, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Belfry.colors.orange,
+        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+        modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 6.dp).testTag("seal-show-how"),
+    )
+}
+
+/**
+ * messages/encryption-new-device (+ -waiting-list, -devices-waiting): the amber banner on a device not
+ * added yet. With STATE (this device waits): the named device, the state line, nothing to approve.
+ * Without (in my head, an older key missing): the plain sentence.
+ */
+@Composable
+internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, state: sh.belfry.core.model.SealState? = null, onShowHow: () -> Unit) {
     val c = Belfry.colors
     Row(
         Modifier
@@ -294,13 +346,43 @@ internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, text: 
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            Text(text, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
-            Text(
-                "Show how", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.orange,
-                modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onShowHow)
-                    .padding(vertical = 6.dp).testTag("seal-show-how"),
-            )
+            if (state != null) WaitingLines(state, onShowHow) else {
+                Text(SealedText.BANNER_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
+                NoOtherLink(onShowHow)
+            }
         }
+    }
+}
+
+/** messages/encryption-locked-added: this device was added, its key is on the way. Goes by itself. */
+@Composable
+internal fun AddedHereBanner(st: sh.belfry.core.model.SealState) {
+    val c = Belfry.colors
+    val session = LocalSession.current
+    val world = LocalWorld.current
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp))
+            .background(c.surface).padding(horizontal = 14.dp, vertical = 12.dp).testTag("seal-added-here"),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp).padding(top = 1.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(SealedText.addedHereTitle(st.addedAt, session.now(), world.ctx.zone, rememberH24()), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+            Text(SealedText.ADDED_HERE_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
+        }
+    }
+}
+
+/** messages/encryption-waiting: in place of the composer while this device, added, waits for its key. */
+@Composable
+internal fun WaitingKeysLines(st: sh.belfry.core.model.SealState, modifier: Modifier = Modifier) {
+    val c = Belfry.colors
+    val session = LocalSession.current
+    val world = LocalWorld.current
+    Column(modifier) {
+        Text(SealedText.askedLine(st.askedAt, session.now(), world.ctx.zone, rememberH24()), fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+        NamedText(SealedText.openParts(st.unlockers, short = true), Modifier.padding(top = 2.dp), color = c.muted)
     }
 }
 
@@ -353,7 +435,7 @@ internal fun AddedDeviceCards(modifier: Modifier = Modifier) {
     }
 }
 
-/** "Show how": unlock with another device, three steps (a pushed screen). */
+/** "No other device?" (was "Show how"): the device that can open this one, sharing, and Start fresh (a pushed screen). */
 @Composable
 fun UnlockStepsScreen() {
     val session = LocalSession.current
@@ -362,7 +444,7 @@ fun UnlockStepsScreen() {
     var confirming by rememberSaveable { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     Page(SealedText.UNLOCK_TITLE) {
-        UnlockStepsContent(canStartFresh = st.earlierLocked, onNoOther = { error = null; confirming = true })
+        UnlockStepsContent(canStartFresh = st.earlierLocked, onNoOther = { error = null; confirming = true }, unlockers = st.unlockers)
         if (error != null) Text(error!!, fontSize = 14.sp, color = Belfry.colors.danger, modifier = Modifier.padding(top = 10.dp).testTag("seal-fresh-error"))
     }
     if (confirming) {
@@ -387,22 +469,14 @@ fun UnlockStepsScreen() {
 }
 
 /**
- * canvas v84 messages/encryption-start-fresh: the steps with another device, the hint, and (on a
- * device not in my head) "I don't have another device · Start fresh on this device".
+ * canvas Messages v5 messages/encryption-start-fresh: with another device (named; nothing to approve,
+ * no Allow step), the people I write to can share, and (on a device not in my head) "I don't have
+ * another device · Start fresh on this device": the only way in to Start fresh.
  */
 @Composable
-fun UnlockStepsContent(canStartFresh: Boolean = false, onNoOther: () -> Unit = {}) {
-    val c = Belfry.colors
+fun UnlockStepsContent(canStartFresh: Boolean = false, onNoOther: () -> Unit = {}, unlockers: List<String> = emptyList()) {
     SectionTitle(SealedText.UNLOCK_WITH)
-    SealedText.UNLOCK_STEPS.forEachIndexed { i, step ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
-            Box(Modifier.size(28.dp).clip(RoundedCornerShape(14.dp)).background(c.surface2), contentAlignment = Alignment.Center) {
-                Text("${i + 1}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            }
-            Spacer(Modifier.width(12.dp))
-            Text(step, fontSize = 16.sp, lineHeight = 22.sp, color = c.text, modifier = Modifier.weight(1f).padding(top = 3.dp))
-        }
-    }
+    NamedText(SealedText.unlockParts(unlockers), Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("seal-unlock-with"), fontSize = 16.sp)
     Hint(SealedText.UNLOCK_NONE, Modifier.padding(top = 12.dp))
     if (canStartFresh) {
         Spacer(Modifier.height(18.dp))
@@ -563,7 +637,7 @@ internal fun rememberNoticeOpener(conv: String): (DeviceNotice) -> Unit {
 internal object LockedHere
 
 @Composable
-internal fun LockedBlock(since: Long?, world: World, now: Long, onShowHow: () -> Unit) {
+internal fun LockedBlock(state: sh.belfry.core.model.SealState, onShowHow: () -> Unit) {
     val c = Belfry.colors
     Row(
         Modifier
@@ -579,13 +653,8 @@ internal fun LockedBlock(since: Long?, world: World, now: Long, onShowHow: () ->
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(SealedText.LOCKED_BLOCK, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            if (since != null) {
-                Text(SealedText.lockedFrom(since, now, world.ctx.zone), fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
-            }
-            Text(
-                "Show how", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.orange,
-                modifier = Modifier.padding(top = 6.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onShowHow).padding(vertical = 6.dp),
-            )
+            // who can open it and where things stand (canvas Messages v5 messages/encryption-locked-thread)
+            WaitingLines(state, onShowHow)
         }
     }
 }

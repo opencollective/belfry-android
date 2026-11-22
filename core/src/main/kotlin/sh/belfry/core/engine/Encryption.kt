@@ -55,10 +55,28 @@ class EncryptionService internal constructor(private val s: Session) {
         val mine = e.chainOf(me)
         val names = try { e.deviceNames() } catch (x: Exception) { emptyMap() }
         fun kindOf(k: String?) = when (k) { "tablet" -> DeviceKind.TABLET; "computer" -> DeviceKind.COMPUTER; else -> DeviceKind.PHONE }
+        // a waiting device can't open my device names (§3.5: they are under the letterbox): the devices that hold
+        // the key are named by their sessions, live or as last read (canvas Messages v5, n-e2e-locked-named)
+        val noKey = e.inHeadWithoutKey
+        val waitingHere = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING || noKey
+        val others = mine?.devices.orEmpty().filter { it != e.device.pubkey }
+        var sessionNames: Map<String, String> = emptyMap()
+        var unlockers: List<String> = emptyList()
+        if (waitingHere && others.isNotEmpty()) {
+            val kept = keptHeadNames()
+            val rows = try { s.sessions() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { null }
+            val live = rows?.filter { it.chat }?.mapNotNull { r -> r.clientPubkey?.let { k -> sh.belfry.core.model.Unlockers.sessionName(r.applicationName, r.device)?.let { k to it } } }?.toMap()
+            sessionNames = if (live != null) kept.filterKeys { it in others } + live.filterKeys { it in others } else kept
+            if (live != null && sessionNames != kept) keepHeadNames(sessionNames)
+            // read live: only the devices that still have a session can open anything; else every name known
+            unlockers = sh.belfry.core.model.Unlockers.names(others, if (live != null) live else sessionNames, live != null)
+        }
+        // not asked yet (a start that could not reach the relay): ask now, then say when
+        if (waitingHere && e.lastAskedAt == 0L) try { e.askAgain(s.linkSecret, force = false) } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
         val inChain = mine?.devices.orEmpty().map { d ->
             val n = names[d]
             MyDevice(
-                d, n?.name ?: if (d == e.device.pubkey) s.deviceName else "A device", kindOf(n?.kind ?: if (d == e.device.pubkey) s.deviceKind else null),
+                d, n?.name ?: if (d == e.device.pubkey) s.deviceName else sessionNames[d] ?: "A device", kindOf(n?.kind ?: if (d == e.device.pubkey) s.deviceKind else null),
                 mine!!.addedAt(d) ?: 0, mine.addedFrom(d)?.let { names[it]?.name }, thisDevice = d == e.device.pubkey,
                 removable = e.canRemove(d),
             )
@@ -114,7 +132,6 @@ class EncryptionService internal constructor(private val s: Session) {
         }
         // allowed but no key yet (canvas v96 messages/encryption-waiting): messages it can read show as
         // usual, no banner, the composer waits; only "not in my head" locks (294c94f (1))
-        val noKey = e.inHeadWithoutKey
         val waiting = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING && !noKey
         val fe = e.freshElsewhere?.let { f ->
             val name = try { s.sessions().firstOrNull { it.clientPubkey == f.device }?.device } catch (x: Exception) { null }
@@ -135,7 +152,18 @@ class EncryptionService internal constructor(private val s: Session) {
             myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
             locked = if (waiting) sealed.keys else emptySet(),
             asks = asks, linked = linked, waitingKeys = e.inHeadWithoutKey,
+            unlockers = unlockers, askedAt = if (waitingHere) e.lastAskedAt else 0L,
+            addedAt = if (noKey) mine?.addedAt(e.device.pubkey) ?: 0L else 0L,
         )
+    }
+
+    /** The session names of my head's devices as last read (device key → name), for the waiting view offline. */
+    private fun keptHeadNames(): Map<String, String> =
+        (sh.belfry.core.nostr.parseJsonOrNull(s.store.get(Session.K_SEALED_HEAD_NAMES) ?: "") as? kotlinx.serialization.json.JsonObject)
+            ?.mapNotNull { (k, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.content?.let { k to it } }?.toMap().orEmpty()
+
+    private fun keepHeadNames(names: Map<String, String>) {
+        try { s.store.set(Session.K_SEALED_HEAD_NAMES, kotlinx.serialization.json.JsonObject(names.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString()) } catch (x: Exception) { }
     }
 
     /** Give my new device access (the prompt on my other devices). The first to answer wins. */
@@ -236,7 +264,7 @@ class EncryptionService internal constructor(private val s: Session) {
         delay(400)
         val st = _state.value
         val me = st.thisDevice ?: MyDevice("d-new", s.deviceName, DeviceKind.PHONE, s.now(), from = null, thisDevice = true, active = s.now())
-        _state.value = st.copy(earlierLocked = false, locked = emptySet(), myDevices = listOf(me.copy(added = s.now(), from = null, allowed = true)))
+        _state.value = st.copy(earlierLocked = false, locked = emptySet(), myDevices = listOf(me.copy(added = s.now(), from = null, allowed = true)), unlockers = emptyList(), askedAt = 0)
     }
 
     /**
@@ -288,7 +316,7 @@ class EncryptionService internal constructor(private val s: Session) {
     // ---- the demo ------------------------------------------------------------------------------
 
     /** Demo and tests: this device is new, its earlier conversations locked (the amber banner). */
-    fun demoAsNewDevice() {
+    fun demoAsNewDevice(unlockers: List<String> = listOf("Chat · Firefox on Linux"), asked: Boolean = true) {
         if (!demo) return
         val st = _state.value
         val now = s.now()
@@ -297,13 +325,16 @@ class EncryptionService internal constructor(private val s: Session) {
         val mine = listOf(
             MyDevice("d-new", "Pixel 8", DeviceKind.PHONE, now - 120, from = null, thisDevice = true, active = now, allowed = false),
         ) + st.myDevices.map { it.copy(thisDevice = false) }
-        _state.value = st.copy(earlierLocked = true, locked = older, myDevices = mine)
+        _state.value = st.copy(earlierLocked = true, locked = older, myDevices = if (asked) mine else mine.map { if (it.thisDevice) it.copy(added = 0) else it },
+            unlockers = unlockers, askedAt = if (asked) now - 120 else 0L)
     }
 
     /** Demo and tests: this device is allowed but its key hasn't arrived (canvas v96). */
     fun demoWaitingKeys() {
         if (!demo) return
-        _state.value = _state.value.copy(waitingKeys = true, earlierLocked = false, locked = emptySet())
+        val now = s.now()
+        _state.value = _state.value.copy(waitingKeys = true, earlierLocked = false, locked = emptySet(),
+            unlockers = listOf("Chat · Firefox on Linux"), askedAt = now - 300, addedAt = now - 60)
     }
 
     /** Demo and tests: a device of mine was just added without a prompt (canvas v183). */

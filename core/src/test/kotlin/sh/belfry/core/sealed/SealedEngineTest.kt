@@ -214,6 +214,174 @@ class SealedEngineTest {
         assertTrue(phone.addedNotices().isEmpty())
     }
 
+    // ---- §5.2 step 2b: "It was me" once for all my devices (kind 8563) ---------------------------
+
+    private fun sealedToAlice() = relay.events.filter { it.kind == 1059 && it.tag("p") == alice.pubkey && it.tag("lb") != null }
+
+    /** A new device of Alice's, added without a prompt by her phone, with its keys. */
+    private suspend fun autoAdd(phone: SealedEngine, d: LocalSigner, name: String): SealedEngine {
+        now += 10
+        server.live(alice.pubkey, d.pubkey, name)
+        val e = engine(alice, d); e.start(name, "phone")
+        val req = relay.events.last { it.kind == Sealing.REQUEST && it.pubkey == d.pubkey }
+        assertIs<SealedEngine.OnRequest.AllowedAuto>(phone.onRequest(req))
+        relay.to(d.pubkey).forEach { e.onDeviceWrap(it) }
+        assertEquals(SealedEngine.Mine.IN_HEAD, e.mine)
+        return e
+    }
+
+    /** Phone and laptop in the head, both having looked; then the tablet is added without a prompt. */
+    private suspend fun withTablet(): Triple<SealedEngine, SealedEngine, LocalSigner> {
+        val (phone, laptop, _) = world()
+        now += 5
+        assertTrue(phone.addedNotices().isEmpty()); assertTrue(laptop.addedNotices().isEmpty())
+        val tab = LocalSigner.random()
+        autoAdd(phone, tab, "Galaxy Tab")
+        return Triple(phone, laptop, tab)
+    }
+
+    private fun confirmWrap(by: LocalSigner, added: String, roster: String, chain: Chain) =
+        Sealing.seal(Sealing.confirmRumor(by.pubkey, alice.pubkey, added, roster, now), by, alice.pubkey, chain.head.lb, now)
+
+    /** "It was me" on the phone: its notice goes at once, an 8563 goes to my own letterbox, and the laptop's notice goes when it reads it. */
+    @Test fun itWasMeOnceForAll() = runBlocking<Unit> {
+        val (phone, laptop, tab) = withTablet()
+        laptop.refresh(alice.pubkey)
+        assertEquals(listOf(tab.pubkey), phone.addedNotices().map { it.device })
+        assertEquals(listOf(tab.pubkey), laptop.addedNotices().map { it.device })
+        val before = sealedToAlice().size
+        now += 1
+        phone.addedWasMe(tab.pubkey)
+        assertTrue(phone.addedNotices().isEmpty(), "the device that was tapped clears at once")
+        val wraps = sealedToAlice()
+        assertEquals(before + 1, wraps.size, "one sealed wrap to my own letterbox")
+        val wrap = wraps.last()
+        val chain = phone.chainOf(alice.pubkey)!!
+        assertEquals(chain.head.lb, wrap.tag("lb"))
+        // its shape, as the laptop opens it
+        val o = assertIs<Opening.Opened>(Sealing.open(wrap, laptop.keys))
+        assertEquals(Sealing.CONFIRM, o.rumor.kind)
+        assertEquals(alicePhone.pubkey, o.rumor.pubkey); assertEquals(alicePhone.pubkey, o.sealPubkey)
+        assertEquals(listOf(listOf("p", alice.pubkey), listOf("device", tab.pubkey), listOf("e", chain.addedBy(tab.pubkey)!!.id)), o.rumor.tags)
+        assertEquals("", o.rumor.content)
+        var told = 0; laptop.onConfirmed = { told++ }
+        val got = laptop.receive(wrap, null) { "never a conversation" }
+        assertEquals(Sealing.Verdict.DROP, got.verdict, "settled: marked seen")
+        assertNull(got.rumor, "never handed on as a message")
+        assertFalse(laptop.sealedSince.containsKey("never a conversation"))
+        assertTrue(laptop.addedNotices().isEmpty(), "answered once: gone on the laptop too")
+        assertEquals(1, told)
+        // read again (a restart, a re-read from 0): still answered, told once
+        laptop.receive(wrap, null) { null }
+        assertEquals(1, told)
+        assertTrue(engine(alice, aliceLaptop).also { it.start("Firefox on Linux", "computer") }.addedNotices().isEmpty(), "kept across restarts")
+        assertFalse(Sealing.CONFIRM in Sealing.SHARED_KINDS, "never part of a shared history")
+    }
+
+    /** The 8563 arrives before the laptop read the roster it names: kept, and accepted when the chain is there. */
+    @Test fun itWasMeBeforeTheRoster() = runBlocking<Unit> {
+        val (phone, laptop, tab) = withTablet()
+        phone.addedWasMe(tab.pubkey)
+        val wrap = sealedToAlice().last()
+        assertEquals(Sealing.Verdict.KEEP, laptop.receive(wrap, null) { null }.verdict)
+        laptop.refresh(alice.pubkey) // the roster that added the tablet
+        assertTrue(laptop.addedNotices().isEmpty(), "accepted on the retry: the notice never shows")
+        assertTrue(wrap.id in laptop.drainSettled().first)
+    }
+
+    /** Not sent while the relay refuses it; owed, and sent at the next upkeep. */
+    @Test fun itWasMeIsOwedUntilSent() = runBlocking<Unit> {
+        val (phone, laptop, tab) = withTablet()
+        laptop.refresh(alice.pubkey)
+        val before = sealedToAlice().size
+        relay.refusing.add(1059)
+        phone.addedWasMe(tab.pubkey)
+        assertTrue(phone.addedNotices().isEmpty(), "this device's own note doesn't wait for the relay")
+        assertEquals(before, sealedToAlice().size)
+        relay.refusing.clear()
+        phone.upkeep()
+        assertEquals(before + 1, sealedToAlice().size)
+        phone.upkeep()
+        assertEquals(before + 1, sealedToAlice().size, "sent once")
+        laptop.receive(sealedToAlice().last(), null) { null }
+        assertTrue(laptop.addedNotices().isEmpty())
+    }
+
+    /** Each thing that makes an 8563 worth nothing: ignored without a word, the notice stays. */
+    @Test fun itWasMeRejections() = runBlocking<Unit> {
+        val (phone, laptop, tab) = withTablet()
+        laptop.refresh(alice.pubkey)
+        val chain = laptop.chainOf(alice.pubkey)!!
+        val added = chain.addedBy(tab.pubkey)!!
+        suspend fun stays(wrap: Event, why: String) {
+            val got = laptop.receive(wrap, null) { null }
+            assertEquals(Sealing.Verdict.DROP, got.verdict, why); assertNull(got.rumor, why)
+            assertEquals(listOf(tab.pubkey), laptop.addedNotices().map { it.device }, why)
+        }
+        // the seal's signer is not in the roster before: the added device itself
+        stays(confirmWrap(tab, tab.pubkey, added.id, chain), "the added device confirms itself")
+        // a wrong roster id: the one before (it added the laptop), the root
+        stays(confirmWrap(alicePhone, tab.pubkey, chain.rosters[chain.rosters.indexOf(added) - 1].id, chain), "a roster that didn't add it")
+        stays(confirmWrap(alicePhone, tab.pubkey, chain.root.id, chain), "the root")
+        // the wrong device for that roster
+        stays(confirmWrap(alicePhone, aliceLaptop.pubkey, added.id, chain), "another device")
+        // somebody else's device, sealed to my letterbox
+        stays(confirmWrap(bobPhone, tab.pubkey, added.id, chain), "not a device of mine")
+        // the rumor says it is from the account, the seal is the phone's
+        stays(Sealing.seal(GiftWrap.rumor(Sealing.CONFIRM, alice.pubkey, listOf(listOf("p", alice.pubkey), listOf("device", tab.pubkey), listOf("e", added.id)), "", now), alicePhone, alice.pubkey, chain.head.lb, now), "pubkey is not the seal's signer")
+        // the right one still clears it
+        assertEquals(Sealing.Verdict.DROP, laptop.receive(confirmWrap(alicePhone, tab.pubkey, added.id, chain), null) { null }.verdict)
+        assertTrue(laptop.addedNotices().isEmpty())
+    }
+
+    /** The seal's signer was there before, but is no longer in the head: ignored. */
+    @Test fun itWasMeFromARemovedDevice() = runBlocking<Unit> {
+        val (phone, laptop, tab) = withTablet()
+        laptop.refresh(alice.pubkey)
+        val then = laptop.chainOf(alice.pubkey)!!
+        val added = then.addedBy(tab.pubkey)!!
+        assertIs<Sealing.Confirm.Accept>(Sealing.acceptConfirm(Sealing.confirmRumor(aliceLaptop.pubkey, alice.pubkey, tab.pubkey, added.id, now), aliceLaptop.pubkey, then), "while it is in the head, the laptop's word counts")
+        now += 10
+        phone.remove(aliceLaptop.pubkey)
+        val chain = phone.chainOf(alice.pubkey)!!
+        assertFalse(aliceLaptop.pubkey in chain.devices)
+        // sealed to the letterbox the laptop still knows; the phone opens it and ignores it
+        val wrap = confirmWrap(aliceLaptop, tab.pubkey, added.id, then)
+        assertIs<Opening.Opened>(Sealing.open(wrap, phone.keys))
+        assertEquals(Sealing.Verdict.DROP, phone.receive(wrap, null) { null }.verdict)
+        assertEquals(listOf(tab.pubkey), phone.addedNotices().map { it.device }, "the notice stays")
+    }
+
+    /** A device added later reads the 8563 from its letterbox and never shows the notice already answered. */
+    @Test fun itWasMeForALaterDevice() = runBlocking<Unit> {
+        val (phone, _, tab) = withTablet()
+        phone.addedWasMe(tab.pubkey)
+        val watch = LocalSigner.random()
+        val w = autoAdd(phone, watch, "Belfry for iPhone")
+        // as if it had been looking all along: without the 8563 it would show the laptop and the tablet
+        portsOf[watch.pubkey]!!.notes["added-notices-since"] = "0"
+        w.refresh(alice.pubkey)
+        assertEquals(setOf(aliceLaptop.pubkey, tab.pubkey), w.addedNotices().map { it.device }.toSet())
+        for (wrap in sealedToAlice()) w.receive(wrap, null) { null }
+        assertEquals(listOf(aliceLaptop.pubkey), w.addedNotices().map { it.device }, "the tablet was answered before this device came; the laptop never was")
+    }
+
+    /** "Asked 21:40": when this device last asked is kept across restarts (the waiting view, offline too). */
+    @Test fun askedAtIsKept() = runBlocking<Unit> {
+        server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
+        engine(alice, alicePhone).start("Pixel 8", "phone")
+        now += 100
+        val laptop = engine(alice, aliceLaptop)
+        assertEquals(0L, laptop.lastAskedAt, "not asked yet")
+        laptop.start("Firefox on Linux", "computer")
+        assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
+        assertEquals(now, laptop.lastAskedAt)
+        val asked = now
+        now += 500
+        relay.silent = true
+        assertEquals(asked, engine(alice, aliceLaptop).lastAskedAt, "after a restart, before any answer")
+    }
+
     @Test fun linkAllowsAtOnce() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         server.live(alice.pubkey, aliceLaptop.pubkey, "Firefox on Linux")

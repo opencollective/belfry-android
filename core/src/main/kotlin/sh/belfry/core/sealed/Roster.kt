@@ -121,6 +121,14 @@ class Chain(val account: String, val rosters: List<Roster>, /** The end of the a
     /** When DEVICE first appeared (the roster's created_at). */
     fun addedAt(device: String): Long? = rosters.firstOrNull { device in it.devices }?.createdAt
 
+    /** The roster that last ADDED DEVICE (in it, not in the one before; never the root), when it is still in the head. */
+    fun addedBy(device: String): Roster? {
+        if (device !in head.devices) return null
+        var by: Roster? = null
+        for (i in 1 until rosters.size) if (device in rosters[i].devices && device !in rosters[i - 1].devices) by = rosters[i]
+        return by
+    }
+
     /** Device changes after roster SINCE (by id; null = from the root), oldest first. */
     fun changesAfter(since: String?): List<RosterChange> {
         val start = if (since == null) 0 else rosters.indexOfFirst { it.id == since }.let { if (it < 0) return emptyList() else it + 1 }

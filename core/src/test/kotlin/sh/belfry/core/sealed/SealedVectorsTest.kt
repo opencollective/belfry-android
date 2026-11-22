@@ -20,7 +20,8 @@ import kotlin.test.assertTrue
 
 /**
  * vectors/sealed.json (collective-belfry belfry-sh 8290e37, sha256 572c8f01…8a95e4), shared with
- * the web, iOS and the server: chains, wraps, the ceiling and packing, hand-over, link, ready, history.
+ * the web, iOS and the server: chains, wraps, the ceiling and packing, hand-over, link, ready, history;
+ * and `confirm` (§5.2 step 2b, kind 8563), added here on 2026-11-22 by tools/sealed_confirm_vectors.py.
  */
 class SealedVectorsTest {
     private val v = Vectors.load("sealed.json")
@@ -83,6 +84,47 @@ class SealedVectorsTest {
             val verdict = Sealing.verdict(o, author, firstSeen = 0, now = 31 * 86400L, belfry = c.s("belfry"))
             assertEquals(e["accepted"]!!.jsonPrimitive.boolean, verdict == Sealing.Verdict.ACCEPT, name)
         }
+    }
+
+    /** §5.2 step 2b (kind 8563): the accept rule on each case, and the one real wrap. */
+    @Test fun confirm() {
+        val c = v["confirm"] as JsonObject
+        val ch = c["chain"] as JsonObject
+        val chain = chainOf(ch["anchor"] as JsonObject, evs(ch["rosters"]))!!
+        assertEquals(4, chain.rosters.size)
+        val all = (c["cases"] as JsonArray).map { it as JsonObject }
+        assertTrue(all.size >= 15)
+        for (k in all) {
+            val name = k.s("name")!!
+            val e = k["expected"] as JsonObject
+            val r = k["rumor"] as JsonObject
+            val rumor = rumorOf(r)
+            assertEquals(r.s("id"), rumor.id, name)
+            val got = Sealing.acceptConfirm(rumor, k.s("seal_pubkey")!!, chain)
+            assertEquals(e["accepted"]!!.jsonPrimitive.boolean, got is Sealing.Confirm.Accept, "$name: $got")
+            if (got is Sealing.Confirm.Accept) { assertEquals(e.s("device"), got.device, name); assertEquals(e.s("roster"), got.roster, name) }
+            // never shared, never a message: an 8564 holding it gives nothing
+            assertTrue(rumor.kind !in Sealing.SHARED_KINDS, name)
+        }
+        // what this implementation sends is the accepted case's rumor, to the letter
+        val first = all.first()["rumor"] as JsonObject
+        val tags = ev(JsonObject(first + mapOf("content" to JsonPrimitive("")))).tags
+        val mine = Sealing.confirmRumor(first.s("pubkey")!!, c.s("account")!!, tags.first { it[0] == "device" }[1], tags.first { it[0] == "e" }[1], first["created_at"]!!.jsonPrimitive.long)
+        assertEquals(first.s("id"), mine.id)
+        assertEquals(first.toString(), mine.copy(sig = "").toJsonString(), "serialised as the vectors are")
+        // the wrap: opened with my head letterbox, judged by the same rule
+        val w = c["wrap"] as JsonObject
+        val we = w["expected"] as JsonObject
+        val o = Sealing.open(ev(w["wrap"] as JsonObject), KeyChain().also { it.add(pub(w.s("letterbox")!!), w.s("letterbox_secret")!!) })
+        assertTrue(o is Opening.Opened)
+        o as Opening.Opened
+        assertEquals(we.s("seal_pubkey"), o.sealPubkey)
+        assertEquals((we["rumor"] as JsonObject).s("id"), o.rumor.id)
+        assertEquals(Sealing.CONFIRM, o.rumor.kind)
+        assertEquals(we["accepted"]!!.jsonPrimitive.boolean, Sealing.acceptConfirm(o.rumor, o.sealPubkey, chain) is Sealing.Confirm.Accept)
+        // and an 8563 inside a shared history is not taken
+        val share = Sealing.shareRumors(pub("alice"), pub("alice"), listOf(o.rumor), 0)
+        assertTrue(Sealing.acceptShared(share.first(), pub("alice_phone"), chain, pub("alice")).isEmpty())
     }
 
     private fun rumorOf(o: JsonObject): Event {

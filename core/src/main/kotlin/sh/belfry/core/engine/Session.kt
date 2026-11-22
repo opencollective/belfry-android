@@ -367,6 +367,8 @@ class Session(
         val e = sealed ?: return
         e.trace("sealedStart mine=${e.mine} headNoKey=${e.inHeadWithoutKey}")
         if (e.onKeys == null) e.onKeys = { launchSafely { rereadWraps() } }
+        // "It was me" on another of my devices (8563, §5.2 step 2b): the notice goes here too
+        if (e.onConfirmed == null) e.onConfirmed = { launchSafely { encryption.refresh() } }
         // a correspondent's (or my own) chain moved: the wraps kept for it are tried again (§4; the review's 1)
         if (e.onChain == null) e.onChain = { who ->
             launchSafely { dm.retryKept(); dm.process(); resubscribeIfSealedGrew() }
@@ -2272,6 +2274,8 @@ class Session(
         private const val WATCHDOG_MS = 15_000L
         const val SEALED_UPKEEP_MS = 6 * 3600 * 1000L
         const val K_SEALED_STATE = "sealed-state"
+        /** The session names of my head's devices as last read (device key → name): the waiting view offline. */
+        const val K_SEALED_HEAD_NAMES = "sealed-head-names"
         /** Tests shorten it. */
         @Volatile var PUBLISH_TIMEOUT_MS = 15_000L
         /** A signer request at least this slow gets a line of its own in the send trace. */

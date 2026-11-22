@@ -238,7 +238,7 @@ fun ConversationScreen(conv: String) {
                         }
                         is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
                         is SharedBlock -> SharedByRow(r, world) { why = r }
-                        else -> LockedBlock(seal?.since, world, now) { nav.go(Routes.UNLOCK_STEPS) }
+                        else -> LockedBlock(sealState) { nav.go(Routes.UNLOCK_STEPS) }
                     }
                 }
             }
@@ -267,14 +267,8 @@ fun ConversationScreen(conv: String) {
         }
         if (seal != null && sealState.waitingKeys && !lockedHere) {
             // allowed, the key not here yet (canvas v96): clears by itself when it arrives
-            Row(
-                Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-waiting-keys"),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Spinner(size = 14.dp)
-                Spacer(Modifier.width(10.dp))
-                Text(sh.belfry.core.model.SealedText.WAITING_KEYS, fontSize = 14.sp, color = c.muted)
-            }
+            // "Asked 9:40 PM · waiting for one of your devices" / "Open ‹device›. Nothing to approve here." (Messages v5)
+            WaitingKeysLines(sealState, Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-waiting-keys"))
         } else if (lockedHere) {
             Text(
                 sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,

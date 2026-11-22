@@ -756,6 +756,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     /** A sealed rumor the engine accepted: a message, a reaction, or a shared history (§8). */
     private suspend fun takeSealed(rumor: Event, sealPubkey: String?) {
         val eng = host.sealed
+        // "It was me" (8563, sealed.md §5.2 step 2b) is the engine's and stops there: never a message
+        if (rumor.kind == sh.belfry.core.sealed.Sealing.CONFIRM) return
         if (rumor.kind == sh.belfry.core.sealed.Sealing.SHARE) {
             if (eng == null || sealPubkey == null) return
             val chain = eng.chainOf(rumor.pubkey) ?: eng.refresh(rumor.pubkey)

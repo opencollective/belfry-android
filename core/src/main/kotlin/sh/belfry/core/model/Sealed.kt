@@ -102,6 +102,16 @@ data class SealState(
     val freshElsewhere: FreshElsewhere? = null,
     /** Devices added without a prompt here, not answered yet (canvas v183 messages/encryption-device-added). */
     val added: List<AddedDevice> = emptyList(),
+    /**
+     * While this device waits (not in my head, or in it without the key): the devices that hold the key,
+     * by their session names ("Chat · Safari on Mac"), never a key or an id. Empty = not known:
+     * the screens then say "Belfry on another device of yours" (canvas Messages v5, n-e2e-locked-named).
+     */
+    val unlockers: List<String> = emptyList(),
+    /** When this device last asked to be added (Unix seconds; 0 = not yet). */
+    val askedAt: Long = 0,
+    /** In my head, the key not here yet: when this device was added (Unix seconds; 0 = not so, or unknown). */
+    val addedAt: Long = 0,
 ) {
     fun seal(conv: String): ConvSeal? = sealed[conv]
     val thisDevice: MyDevice? get() = myDevices.firstOrNull { it.thisDevice }
@@ -112,6 +122,36 @@ data class SealState(
      * when this device is still waiting to be allowed, and for guests (no devices at all).
      */
     val onlyDevice: Boolean get() = !earlierLocked && !waitingKeys && myDevices.size == 1 && myDevices[0].thisDevice
+}
+
+/**
+ * Who can unlock a waiting device (canvas Messages v5, n-e2e-locked-named): the session names of my
+ * head's other devices. Pure, so the engine's service and the tests name them the same way.
+ */
+object Unlockers {
+    /** "Chat · Safari on Mac": the application and the device of a row of /api/me/sessions, as Devices shows them. */
+    fun sessionName(application: String?, device: String?): String? {
+        val a = application?.trim().orEmpty().take(80)
+        val d = device?.trim().orEmpty().take(80)
+        return when {
+            a.isEmpty() && d.isEmpty() -> null
+            d.isEmpty() -> a
+            a.isEmpty() || d.contains(a, ignoreCase = true) -> d
+            else -> "$a · $d"
+        }
+    }
+
+    /**
+     * The names to show for DEVICES (my head's devices but this one), from NAMES (device → session
+     * name; live or kept from the last read). A device with no known name is "another device of
+     * yours" ([SealedText.UNKNOWN_DEVICE]), said once and last; when the session list was read just
+     * now (LIVE) and others are named, a device with no session is left out: it can't open anything.
+     */
+    fun names(devices: List<String>, names: Map<String, String>, live: Boolean): List<String> {
+        val known = devices.mapNotNull { names[it]?.takeIf { n -> n.isNotBlank() } }.distinct()
+        val unnamed = devices.any { names[it].isNullOrBlank() }
+        return if (unnamed && (known.isEmpty() || !live)) known + SealedText.UNKNOWN_DEVICE else known
+    }
 }
 
 /** The fixed words of the encryption screens, so every screen and test say the same. */
@@ -158,16 +198,79 @@ object SealedText {
     fun recent(c: DeviceChange?, now: Long): Boolean = c != null && now - c.at <= 30 * 86400L
 
     /** Under one of my devices: "Added 2 Oct · from iPhone". */
-    fun addedLine(d: MyDevice, now: Long, zone: ZoneId): String =
-        if (!d.allowed) notAllowedLine(d, now, zone)
+    fun addedLine(d: MyDevice, now: Long, zone: ZoneId, h24: Boolean = true): String =
+        if (!d.allowed) notAllowedLine(d, now, zone, h24)
         else "Added " + day(d.added, now, zone) + (d.from?.let { " · from $it" } ?: "")
 
-    /** canvas v182 messages/encryption-devices-waiting: "Not allowed yet · asked 22 Nov". */
-    fun notAllowedLine(d: MyDevice, now: Long, zone: ZoneId): String =
-        "Not allowed yet" + (if (d.added > 0) " · asked " + day(d.added, now, zone) else "")
+    /** canvas Messages v5 messages/encryption-devices-waiting: "Not added yet · asked 9:40 PM". */
+    fun notAllowedLine(d: MyDevice, now: Long, zone: ZoneId, h24: Boolean = true): String =
+        NOT_ADDED + (if (d.added > 0) " · asked " + stamp(d.added, now, zone, h24) else "")
+    const val NOT_ADDED = "Not added yet"
+
+    // ---- the waiting device says who can unlock and where things stand (canvas Messages v5, note
+    // n-e2e-locked-named; boards messages/encryption-new-device, -waiting-list, -devices-waiting,
+    // -locked-thread, -waiting, -locked-added, -start-fresh). The exact wording waits for Xavier:
+    // every string of it is here.
+
+    private val CLOCK_12 = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
+    private val CLOCK_24 = DateTimeFormatter.ofPattern("HH:mm", Locale.ENGLISH)
+
+    /** "9:40 PM" or "21:40": the device's own way (H24 = its 24-hour setting). */
+    fun clock(at: Long, zone: ZoneId, h24: Boolean): String = (if (h24) CLOCK_24 else CLOCK_12).format(Instant.ofEpochSecond(at).atZone(zone))
+
+    /** The time today, "21 Nov 9:40 PM" on another day. */
+    fun stamp(at: Long, now: Long, zone: ZoneId, h24: Boolean): String =
+        if (date(at, zone) == date(now, zone)) clock(at, zone, h24) else day(at, now, zone) + " " + clock(at, zone, h24)
+
+    /** A device of my head whose session name isn't known. */
+    const val UNKNOWN_DEVICE = "another device of yours"
+    /** No name known at all: "Open Belfry on another device of yours." */
+    const val OPEN_UNKNOWN = "Belfry on another device of yours"
+    const val OPEN = "Open "
+    const val OPEN_OR = " or "
+    const val ADDED_BY_ITSELF_ONE = "This device is added by itself as soon as that one is open."
+    const val ADDED_BY_ITSELF_MANY = "This device is added by itself as soon as one is open."
+    const val NOTHING_TO_APPROVE = "Nothing to approve on this device."
+    const val NOTHING_TO_APPROVE_HERE = "Nothing to approve here."
+
+    /** "A", "A or B", "A, B or C". */
+    private fun joined(names: List<String>): List<Pair<String, Boolean>> {
+        val out = ArrayList<Pair<String, Boolean>>()
+        names.forEachIndexed { i, n ->
+            if (i > 0) out.add((if (i == names.size - 1) OPEN_OR else ", ") to false)
+            out.add(n to (n != UNKNOWN_DEVICE && n != OPEN_UNKNOWN))
+        }
+        return out
+    }
+
+    /**
+     * "Open Chat · Safari on Mac. This device is added by itself as soon as that one is open." as
+     * pieces (text, is a device's name: the screens set names in bold). Several: "Open A or B. … as
+     * soon as one is open." None known: "Open Belfry on another device of yours. …".
+     */
+    fun openParts(names: List<String>, short: Boolean = false): List<Pair<String, Boolean>> {
+        val shown = names.ifEmpty { listOf(OPEN_UNKNOWN) }.let { if (it == listOf(UNKNOWN_DEVICE)) listOf(OPEN_UNKNOWN) else it }
+        val tail = if (short) NOTHING_TO_APPROVE_HERE else if (shown.size == 1) ADDED_BY_ITSELF_ONE else ADDED_BY_ITSELF_MANY
+        return listOf(OPEN to false) + joined(shown) + (". $tail" to false)
+    }
+
+    fun openText(names: List<String>, short: Boolean = false): String = openParts(names, short).joinToString("") { it.first }
+
+    const val NOT_ASKED = "Not asked yet · this device asks as soon as it is online"
+    /** "Asked 9:40 PM · waiting for one of your devices"; not asked yet: said plainly. */
+    fun askedLine(askedAt: Long, now: Long, zone: ZoneId, h24: Boolean): String =
+        if (askedAt <= 0) NOT_ASKED else "Asked " + stamp(askedAt, now, zone, h24) + " · waiting for one of your devices"
+
+    /** messages/encryption-locked-added: "Added 9:42 PM" / "Your messages open here in a moment." */
+    fun addedHereTitle(addedAt: Long, now: Long, zone: ZoneId, h24: Boolean): String =
+        if (addedAt <= 0) "Added" else "Added " + stamp(addedAt, now, zone, h24)
+    const val ADDED_HERE_TEXT = "Your messages open here in a moment."
+
+    /** The link on the banners and the locked block, and the title of the screen it opens (was "Show how"). */
+    const val NO_OTHER_LINK = "No other device?"
 
     /** The same in Devices, with when it was last active. */
-    fun activeLine(d: MyDevice, now: Long, zone: ZoneId): String {
+    fun activeLine(d: MyDevice, now: Long, zone: ZoneId, h24: Boolean = true): String {
         val a = d.active
         val active = when {
             d.thisDevice || (a != null && now - a < 5 * 60) -> "active now"
@@ -181,7 +284,7 @@ object SealedText {
                 }
             }
         }
-        return addedLine(d, now, zone) + (active?.let { " · $it" } ?: "")
+        return addedLine(d, now, zone, h24) + (active?.let { " · $it" } ?: "")
     }
 
     /** A thread's device line. NAME is the person's display name (mine: "You"). */
@@ -244,8 +347,6 @@ object SealedText {
     const val ADDED_TEXT = "It can read your conversations"
     const val ADDED_REMOVE = "Not you? Remove it"
     const val ADDED_MINE = "It was me"
-    /** canvas v182: what to do, under [CANT_READ_YET]. */
-    const val ALLOW_ELSEWHERE = "Open Belfry on a device where you already read your messages and tap Allow"
     /**
      * Sealed messages that came to this device and can't be opened here yet (Xavier's mail to himself,
      * 2026-11-22): no conversation shows them. Words until belfry-canvas draws the board.
@@ -254,8 +355,8 @@ object SealedText {
         if (n == 1) "1 message is waiting for another of your devices" else "$n messages are waiting for another of your devices"
     const val LOCKED_BLOCK = "Locked on this device"
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
-        "Messages from ${day(since, now, zone)} on can be read once another device of yours allows this one."
-    const val WRITE_LATER = "You can write here once this device is allowed."
+        "Messages from ${day(since, now, zone)} on can be read once another device of yours adds this one."
+    const val WRITE_LATER = "You can write here once this device is added."
     const val WAITING_KEYS = "Waiting for another of your devices…"
     const val ALLOW_WAITING = "Not allowed yet: waiting for your other device"
     const val NOT_SEALED = "Not sealed"
@@ -264,20 +365,18 @@ object SealedText {
     fun sharedBy(name: String): String = "Shared by $name"
     fun sharedWhy(name: String): String =
         "$name sent you these earlier messages. They come from $name's device, so the app can't check them the way it checks new ones."
+    /** Under the count of waiting messages on a device that IS in my head (an older key is missing): nothing to name. */
     const val BANNER_TEXT = "Open Belfry on another device of yours to unlock them."
     const val ASK_TEXT = "It will read all your messages, including earlier ones."
     const val ASK_NOT_ME = "Not me removes that device and signs it out."
     const val LINKED_TEXT = "It can read your conversations, including earlier ones."
     const val LINKED_CONFIRM = "Scanning your code was the confirmation: nothing more to allow."
     const val REMOVE_TEXT = "It will be signed out and stop reading new messages, in all your conversations. What it already shows stays on it."
-    val UNLOCK_STEPS = listOf(
-        "Open Belfry on a phone, tablet or computer where you're already signed in.",
-        "It asks whether to give this device access: tap Allow.",
-        "Your conversations open here.",
-    )
-    const val UNLOCK_NONE = "No other device? The people you write to can share a conversation's history with this device."
+    /** "No other device?" (messages/encryption-start-fresh), under "With another device": the named device(s), nothing to approve. */
+    fun unlockParts(names: List<String>): List<Pair<String, Boolean>> = openParts(names) + (" $NOTHING_TO_APPROVE_HERE" to false)
+    const val UNLOCK_NONE = "The people you write to can also share a conversation's history with this device."
     /** canvas v84 messages/encryption-start-fresh (+ -confirm), approved for Xavier 2026-11-21. */
-    const val UNLOCK_TITLE = "Unlock this device"
+    const val UNLOCK_TITLE = NO_OTHER_LINK
     const val UNLOCK_WITH = "With another device"
     const val NO_OTHER = "I don't have another device"
     const val START_FRESH_ROW = "Start fresh on this device"

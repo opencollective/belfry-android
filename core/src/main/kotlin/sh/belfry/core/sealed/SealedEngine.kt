@@ -16,9 +16,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 
 /**
- * The device side of sealed conversations (sealed.md v1 up to ac5574b): the first device, a new
- * device's request, Allow / Not me, removal, ready, the key hand-over, choosing how to send, and
- * opening what arrives. Pure: the relay, the session list, the account's signer and the key store
+ * The device side of sealed conversations (sealed.md v1 up to ac5574b; §5.2 step 2b at 3c20015): the
+ * first device, a new device's request, Allow / Not me, "It was me" once for all (8563), removal,
+ * ready, the key hand-over, choosing how to send, and opening what arrives. Pure: the relay, the session list, the account's signer and the key store
  * are given ([SealedPorts]), so the engine runs against a fake relay in tests.
  *
  * Rules kept here (the web's bugs, the lead's review):
@@ -385,8 +385,14 @@ class SealedEngine(
     }
 
     private var lastAsk = 0L
-    /** When this device last asked to be allowed (Unix seconds; 0 = not in this run): "asked …". */
-    val lastAskedAt: Long get() = lastAsk
+    /**
+     * When this device last asked to be allowed (Unix seconds; 0 = never): "Asked 21:40 · waiting…".
+     * From this run, else the time kept from an earlier one (shown offline too). The back-off above
+     * counts only this run's [lastAsk], as before.
+     */
+    val lastAskedAt: Long get() = if (lastAsk > 0) lastAsk else keptAsk ?: (ports.loadNote(NOTE_ASKED)?.toLongOrNull() ?: 0L).also { keptAsk = it }
+    @Volatile private var keptAsk: Long? = null
+    private fun asked() { lastAsk = clock(); keptAsk = lastAsk; ports.saveNote(NOTE_ASKED, lastAsk.toString()) }
 
     /**
      * A device waiting for its keys asks again (§5.2 / §5.5; the review's 4): every 24 h, and at
@@ -425,7 +431,7 @@ class SealedEngine(
             // counted only when the relay took it: a request sent before AUTH lands is refused, and
             // the device asks again once the connection is signed in
             if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))) {
-                lastAsk = clock()
+                asked()
                 askedThisConnection = true
                 askedForHead = c.head.lb
                 owedAsk = false
@@ -439,7 +445,7 @@ class SealedEngine(
     /** The request at start: counted (once a minute, once per connection) only when the relay took it. */
     private suspend fun askAtStart(link: String?) {
         if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, link, clock())))) {
-            lastAsk = clock()
+            asked()
             askedThisConnection = true
             askedForHead = known[account]?.chain?.head?.lb
             owedAsk = false
@@ -497,6 +503,7 @@ class SealedEngine(
     suspend fun upkeep() {
         for (p in known.keys.toList()) if (p != account) try { refresh(p) } catch (e: Exception) { }
         locked { refresh(account)?.let { anchorOwnTail(it) } }
+        try { kotlinx.coroutines.withContext(confined) { sendOwedConfirms() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
         checkSessions()
         checkReady()
     }
@@ -656,12 +663,68 @@ class SealedEngine(
         chain.changesAfter(null)
             .filter { it.added && it.at >= since && it.device != device.pubkey && it.device in chain.devices }
             .filter { ports.loadNote("prompted:${it.device}") == null && ports.loadNote("added-ok:${it.device}") == null }
+            // answered "It was me" on another of my devices (§5.2 step 2b): the 8563 this device accepted
+            .filter { ch -> chain.addedBy(ch.device)?.let { ports.loadNote("confirmed:${ch.device}:${it.id}") } == null }
             .distinctBy { it.device }
             .map { AddedNotice(it.device, it.at) }
     }
 
-    /** "It was me": the notice for DEV goes, on this device. */
-    suspend fun addedWasMe(dev: String) = kotlinx.coroutines.withContext(confined) { ports.saveNote("added-ok:$dev", clock().toString()) }
+    /**
+     * "It was me": the notice for DEV goes on this device at once (the local note, as before), and a
+     * sealed 8563 to my own head letterbox clears it on my other devices (§5.2 step 2b). The 8563 is
+     * owed until the relay took it (tried again at each upkeep); it is only sent by a device that was
+     * in the roster before the one that added DEV, since no other device's word is accepted.
+     */
+    suspend fun addedWasMe(dev: String): Unit = kotlinx.coroutines.withContext(confined) {
+        ports.saveNote("added-ok:$dev", clock().toString())
+        try {
+            withTimeoutOrNull(3000) { refreshHere(account) }
+            val chain = chainOf(account) ?: return@withContext
+            val by = chain.addedBy(dev) ?: return@withContext
+            owed((owed() + (dev to by.id)).distinct())
+            sendOwedConfirms()
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { trace("confirm: not sent yet") }
+    }
+
+    private fun owed(): List<Pair<String, String>> =
+        ports.loadNote(NOTE_OWED).orEmpty().split(' ').mapNotNull { it.split(':').takeIf { p -> p.size == 2 && hexOk(p[0]) && hexOk(p[1]) }?.let { p -> p[0] to p[1] } }
+    private fun owed(list: List<Pair<String, String>>) = ports.saveNote(NOTE_OWED, list.joinToString(" ") { "${it.first}:${it.second}" })
+
+    /** The 8563s still to send (confined). One that no longer means anything (the device left, this one can't vouch) is forgotten. */
+    private suspend fun sendOwedConfirms() {
+        val todo = owed()
+        if (todo.isEmpty() || mine != Mine.IN_HEAD) return
+        val chain = chainOf(account) ?: return
+        val left = ArrayList<Pair<String, String>>()
+        for ((dev, roster) in todo) {
+            val rumor = Sealing.confirmRumor(device.pubkey, account, dev, roster, clock())
+            // my own rule first: what my other devices would ignore is not sent
+            if (chain.addedBy(dev)?.id != roster || Sealing.acceptConfirm(rumor, device.pubkey, chain) !is Sealing.Confirm.Accept) continue
+            val sent = try { ports.publish(Sealing.seal(rumor, device, account, chain.head.lb, clock())) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { false }
+            if (sent) trace("confirm: sent") else left.add(dev to roster)
+        }
+        owed(left)
+    }
+
+    /** Told when an 8563 was accepted (a notice answered on another of my devices): the screens look again. */
+    @Volatile var onConfirmed: (() -> Unit)? = null
+
+    /**
+     * An opened 8563 (§5.2 step 2b): true = accepted (the note that clears the notice is kept for
+     * good), false = ignored, null = can't tell yet (my chain, or the roster it names, isn't here).
+     * Never a message: it stops here.
+     */
+    private fun takeConfirm(o: Opening.Opened): Boolean? = when (val c = Sealing.acceptConfirm(o.rumor, o.sealPubkey, known[account]?.chain)) {
+        is Sealing.Confirm.Accept -> {
+            if (ports.loadNote("confirmed:${c.device}:${c.roster}") == null) {
+                ports.saveNote("confirmed:${c.device}:${c.roster}", clock().toString())
+                onConfirmed?.invoke()
+            }
+            true
+        }
+        is Sealing.Confirm.Reject -> false
+        Sealing.Confirm.Later -> null
+    }
 
     private val answered = java.util.concurrent.ConcurrentHashMap<String, OnRequest>()
     private val newestRequest = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -689,6 +752,8 @@ class SealedEngine(
         /** §5.2 step 2: devices added in the last 24 h before a new one asks again. */
         const val AUTO_PER_DAY = 3
         private const val NOTE_NOTICES_SINCE = "added-notices-since"
+        private const val NOTE_ASKED = "asked-at"
+        private const val NOTE_OWED = "confirm-owed"
 
         /** Devices added to CHAIN by rosters dated in the 24 h before NOW (the root not counted), from roster times only. */
         fun recentlyAdded(chain: Chain, now: Long): Int = chain.changesAfter(null).count { it.added && it.at > now - 86_400L }
@@ -938,6 +1003,17 @@ class SealedEngine(
     private suspend fun receiveHere(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received {
         val o = Sealing.open(wrap, keys)
         val firstSeen = pending[wrap.id]?.second ?: firstSeenStored[wrap.id] ?: clock().also { firstSeenStored[wrap.id] = it }
+        // "It was me" from another of my devices (§5.2 step 2b): judged against my own chain, never a message.
+        // Its pubkey is a device, not an account: none of what follows applies to it.
+        if (o is Opening.Opened && o.rumor.kind == Sealing.CONFIRM) {
+            val decided = takeConfirm(o)
+            if (decided == null && clock() - firstSeen < Sealing.KEEP_FOR) {
+                pending[wrap.id] = wrap to firstSeen; capPending(); stateDirty = true
+                return Received(Sealing.Verdict.KEEP)
+            }
+            pending.remove(wrap.id); firstSeenStored.remove(wrap.id)
+            return Received(Sealing.Verdict.DROP) // settled either way: seen, and nothing for the conversations
+        }
         val author = (o as? Opening.Opened)?.rumor?.pubkey
         // the author's chain, read again when unknown OR when it doesn't hold the seal's device (a stale chain); the
         // back-off is spent only then (re-review (1))
@@ -1007,6 +1083,11 @@ class SealedEngine(
     private suspend fun retryPending() {
         for ((id, p) in pending.entries.toList()) {
             val o = Sealing.open(p.first, keys)
+            if (o is Opening.Opened && o.rumor.kind == Sealing.CONFIRM) {
+                // an 8563 kept until my chain held the roster it names (§5.2 step 2b)
+                if (takeConfirm(o) != null || clock() - p.second >= Sealing.KEEP_FOR) { pending.remove(id); firstSeenStored.remove(id); settledSeen.add(id); stateDirty = true }
+                continue
+            }
             val author = (o as? Opening.Opened)?.rumor?.pubkey
             // opened only now (keys came): the author's chain read when it doesn't hold the seal's device (with the back-off)
             if (o is Opening.Opened && author != null && author != account && mayAsk(author)) {
