@@ -861,7 +861,8 @@ class SealedEngineTest {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
         val phone = engine(alice, alicePhone); phone.start("Pixel 8", "phone")
         val stranger = LocalSigner.random(); server.live(alice.pubkey, stranger.pubkey, "Unknown laptop")
-        val req = stranger.signNow(Sealing.request(alice.pubkey, stranger.pubkey, null, now))
+        // older than its session (§5.2 step 2): asked, not added at once
+        val req = stranger.signNow(Sealing.request(alice.pubkey, stranger.pubkey, null, now - 300))
         assertTrue(phone.answerRequests(listOf(req)).single().second is SealedEngine.OnRequest.Ask)
         phone.notMe(stranger.pubkey)
         assertEquals(SealedEngine.OnRequest.Ignore, phone.answerRequests(listOf(req)).single().second, "no prompt again")

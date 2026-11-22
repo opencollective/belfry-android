@@ -615,7 +615,8 @@ class SealedEngine(
      * - this device in the head it holds (pinned), the head on the anchored end, this device trusted (§3.4),
      *   holding the head letterbox's secret (to hand it over);
      * - fewer than 3 devices added by rosters dated in the last 24 h (not the root; roster times only,
-     *   no local memory): a fourth asks.
+     *   no local memory): a fourth asks;
+     * - and (ours) never a device the chain had and dropped: a removal isn't undone by a session that survived.
      */
     private suspend fun mayAllowWithoutPrompt(req: Event, dev: String): Boolean {
         val now = clock()
@@ -625,6 +626,9 @@ class SealedEngine(
         if (head.head.id != pin.head || head.root.id != pin.root) return false
         if (head.anchored != head.head.id) return false
         if (device.pubkey !in head.devices) return false
+        // a device my chain had and dropped (removed; its session somehow still live) never comes back
+        // by itself: it asks (an addition to the contract, so a missed revoke can't undo a removal)
+        if (head.everHad(dev)) return false
         if (pin.trusted != null && device.pubkey !in pin.trusted) return false
         if (keys.secretFor(head.head.lb) == null) return false
         if (recentlyAdded(head, now) >= AUTO_PER_DAY) return false

@@ -2464,7 +2464,7 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   unknown → ask) and not more than 30 days old; this device in the pinned head, the head on the anchored
   end, this device trusted, holding the head letterbox's secret; fewer than 3 devices added by rosters
   dated in the last 24 h (`recentlyAdded`, the root not counted, roster times only). A link code still
-  allows at once and doesn't count. Allow itself is unchanged: roster n+1 first, keys only once it landed.
+  allows at once and doesn't count. Never a device the chain had and dropped (asks: a removal whose revoke failed isn't undone). Allow itself is unchanged: roster n+1 first, keys only once it landed.
 - **The notice** (`addedNotices`): every device my head gained by a roster dated after this device first
   looked (note `added-notices-since`), not allowed from this device's own prompt or link (note
   `prompted:<device>`), still in the head, not answered (note `added-ok:<device>`). Shown as a card on top

@@ -49,9 +49,11 @@ class SealedSessionTest {
         srv.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path ?: ""
+                // sessions "opened" after every request (§5.2 step 2: a request before its session − 120 s asks): these tests
+                // count requests and hand-overs, so a new device keeps waiting for Allow instead of being added at once
                 if (path.endsWith("/me/sessions")) {
                     val rows = live.joinToString(",") { k ->
-                        """{"application_name":"Belfry for Android","device":"Phone","bunker_pubkey":"${"cc".repeat(32)}","created_at":"2026-11-21T00:00:00Z","last_activity":"2026-11-21T00:00:00Z","client_pubkey":"$k","chat":true}"""
+                        """{"application_name":"Belfry for Android","device":"Phone","bunker_pubkey":"${"cc".repeat(32)}","created_at":"2099-01-01T00:00:00Z","last_activity":"2026-11-21T00:00:00Z","client_pubkey":"$k","chat":true}"""
                     }
                     return MockResponse().setBody("""{"sessions":[$rows]}""").setHeader("Content-Type", "application/json")
                 }
