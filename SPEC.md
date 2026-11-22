@@ -2455,3 +2455,19 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   A reply counts as unread for its conversation like any message; the read mark is the conversation's.
   Only a message that is out (not held, not failed), not itself a reply, in a conversation this
   device can write to, offers Reply.
+
+### 19.59 The Messages list: faces, not envelopes (2026-11-22; docs/one-shape.md "The Messages list: faces, not envelopes"; canvas home/messages v186)
+
+- Every row of Messages is a face, the name in bold, then one line: the subject for an e-mail
+  thread, else the last message. An envelope is never the face; a small envelope on the face's
+  corner marks an e-mail row. Members' DMs keep their profile picture or initial; group DMs as before.
+- An outside correspondent's face: `GET <api base>/avatar/<hash>` (default
+  `https://belfry.<domain>/api/v1/avatar/<hash>`), hash = lowercase hex sha256 of the trimmed,
+  lowercased address (`MailFace.hash`). 200 with an `image/*` body = the picture; 404 or any failure =
+  a disc with initials (`MailFace.initials`: first letters of the name's first and last words, a part in
+  brackets left out, "Ana Pereira" → "AP"; no name → the address's first letter, "P") on the colour
+  `MailFace.colorIndex` (the first 6 hex digits of the hash modulo the palette, the members' rule).
+- Cached by hash in the app's cache dir (`mail-faces/`, names `Slots.key(hash, slot)`): a picture 30
+  days, a 404 7 days (`MailFace.fresh`); other failures are retried after 10 minutes. Redirects are
+  not followed, no other host (never Gravatar) is asked. The demo, tests (`LocalNetworkImages`) and
+  previews ask nothing: initials.

@@ -58,11 +58,15 @@ import sh.belfry.core.markdown.Markdown
 import sh.belfry.core.model.World
 import sh.belfry.core.model.namedRefs
 
-/** The face of a conversation: the other person, or an envelope for an e-mail thread. */
+/**
+ * The face of a conversation (canvas home/messages, SPEC 19.59): the other person; for an e-mail
+ * thread the correspondent's picture from the belfry, else their initials, with a small envelope
+ * on the corner. Never an envelope as the face.
+ */
 @Composable
-internal fun ConvFace(conv: String, dms: DmSnapshot, world: World, size: Dp = 40.dp) {
+internal fun ConvFace(conv: String, dms: DmSnapshot, world: World, size: Dp = 44.dp) {
     if (dms.isMail(conv)) {
-        ChannelIcon(ChannelGlyph.Mail, size = size)
+        MailFaceView(dms.mailAddress(conv), dms.convName(conv, world), size = size)
     } else {
         val peer = dms.peers(conv).firstOrNull() ?: world.me
         Avatar(world.face(peer), size = size)
@@ -138,9 +142,10 @@ fun MessagesScreen(
 private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, locked: Boolean = false, onClick: () -> Unit) {
     val c = Belfry.colors
     val mail = dms.isMail(t.conv)
-    val title = if (mail) dms.threadName(t.conv) else if (dms.peers(t.conv).let { it.isEmpty() || it == listOf(world.me) }) "Notes to yourself" else dms.convName(t.conv, world)
+    // every row: a face, the name in bold, one line: the subject for an e-mail thread, else the last message
+    val title = if (mail) dms.convName(t.conv, world) else if (dms.peers(t.conv).let { it.isEmpty() || it == listOf(world.me) }) "Notes to yourself" else dms.convName(t.conv, world)
     val first = LocalDms.current.fileLine(t.last) ?: Markdown.plain(world.namedRefs(t.last.text)).lineSequence().firstOrNull { it.isNotBlank() } ?: if (t.last.attachments.isNotEmpty()) "Attachment" else ""
-    val preview = (if (mail) dms.convName(t.conv, world) + " · " else "") + (if (t.last.mine) "You: " else "") + first
+    val preview = if (mail) dms.threadName(t.conv) else (if (t.last.mine) "You: " else "") + first
     val typing by sh.belfry.app.ui.nav.LocalSession.current.typing.collectAsState()
     val oneToOne = !mail && dms.peers(t.conv).let { it.size == 1 && it[0] != world.me }
     val typingHere = oneToOne && typing.who(sh.belfry.core.typing.TypingPlace.dm(t.conv)) { pk -> if (t.last.from == pk) t.last.at else 0L }.isNotEmpty()
@@ -151,7 +156,7 @@ private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, loc
         ConvFace(t.conv, dms, world)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 16.sp, fontWeight = if (t.unread > 0) FontWeight.SemiBold else FontWeight.Medium, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, fontSize = 16.sp, fontWeight = if (t.unread > 0) FontWeight.Bold else FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (locked) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("seal-locked-row")) {
                     androidx.compose.material3.Icon(BelfryIcons.Lock, contentDescription = null, tint = c.muted, modifier = Modifier.size(14.dp))
