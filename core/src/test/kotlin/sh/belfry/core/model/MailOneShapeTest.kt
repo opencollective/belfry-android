@@ -101,6 +101,9 @@ class MailOneShapeTest {
         assertEquals(2, t2.mails.size)
         assertEquals(CardStatus.OPEN, t2.state.status)
         assertEquals("open", OneShape.threadState(listOf(1000, 1600), listOf(OneShape.StatusLabel(answered.id, 1500, "answered"))))
+        // a sent card alone counts as answered at its time (threads answered before 0.8.0 have no label)
+        assertEquals(CardStatus.WAITING, world(listOf(card, sent)).mailThreads(g).list.single().state.status)
+        assertEquals(CardStatus.OPEN, world(listOf(card, sent, again)).mailThreads(g).list.single().state.status)
     }
 
     @Test

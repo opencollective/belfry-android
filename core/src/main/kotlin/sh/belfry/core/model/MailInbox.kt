@@ -134,6 +134,14 @@ object MailInbox {
                 }
             }
         }
+        // the status itself is the shared rule (vectors/one-shape.json "thread_state"): labels, each sent card
+        // as `answered` at its time, a newer received e-mail reopens; the walk above keeps who has it
+        val statusLabels = labels.mapNotNull { l ->
+            val v = l.tags.firstOrNull { it.size >= 3 && it[0] == "l" && it[2] == World.INBOX_NS }?.get(1) ?: return@mapNotNull null
+            OneShape.StatusLabel(l.id, l.createdAt, v)
+        }
+        val shared = OneShape.threadState(mails.filter { it.incoming }.map { it.m.at }, statusLabels, mails.filter { !it.incoming }.map { it.m.at })
+        status = when (shared) { "closed" -> CardStatus.CLOSED; "answered" -> CardStatus.WAITING; else -> CardStatus.OPEN }
         return CardState(status, assignee, answered)
     }
 }
