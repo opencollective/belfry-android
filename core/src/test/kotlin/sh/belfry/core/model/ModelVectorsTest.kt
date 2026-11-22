@@ -194,6 +194,7 @@ class ModelVectorsTest {
                             assertEquals(x["root"].sOrNull(), item.root.id, name)
                             assertEquals(x["last"].sOrNull(), item.last.id, name)
                         }
+                        is FeedItem.Preview -> throw AssertionError("$name: World.feed never holds previews")
                     }
                     assertEquals(x["at"].long(), item.at, name)
                 }

@@ -549,12 +549,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * in another channel redraws nothing here.
      */
     fun feedKey(groupId: String): FeedKey =
-        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId)))
+        FeedKey(arrayOf(epoch, messages(groupId), allReplies(groupId), reactions(groupId), threadsOf(groupId), guestJoins(groupId), previews(groupId)))
 
-    /** Compared part by part, by identity. */
+    /** Compared part by part, by identity (the activity previews by value: they are made anew per snapshot). */
     class FeedKey internal constructor(private val parts: Array<Any>) {
         override fun equals(other: Any?): Boolean =
-            other is FeedKey && parts.size == other.parts.size && parts.indices.all { parts[it] === other.parts[it] }
+            other is FeedKey && parts.size == other.parts.size && parts.indices.all { parts[it] === other.parts[it] || (parts[it] is PreviewList && parts[it] == other.parts[it]) }
         override fun hashCode(): Int = parts.size
     }
 
@@ -592,9 +592,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
      * 300 s, a non-message item, an unfolded thread ([openThreads]: root ids), or when it is an
      * announcement, an e-mail or a card.
      */
-    fun feedRows(groupId: String, topic: String? = null, openThreads: Set<String> = emptySet()): List<FeedRow> {
+    fun feedRows(groupId: String, topic: String? = null, openThreads: Set<String> = emptySet()): List<FeedRow> =
+        rowsOf(groupId, feed(groupId, topic), openThreads)
+
+    /** [items] (in feed order) with [feedRows]' layout hints. */
+    internal fun rowsOf(groupId: String, items: List<FeedItem>, openThreads: Set<String>): List<FeedRow> {
         val g = group(groupId)
-        val items = feed(groupId, topic)
         val out = ArrayList<FeedRow>(items.size)
         var prev: FeedItem? = null
         for (item in items) {
@@ -1000,6 +1003,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     }
 
     private val mailCache: ConcurrentHashMap<String, MailThreadIndex> = seeded(prev) { it.mailCache }
+    /** Activity previews per channel (Previews.kt); never taken over: they read the calendar and proposals too. */
+    internal val previewCache: ConcurrentHashMap<String, PreviewList> = ConcurrentHashMap()
 
     /** GROUP's e-mail threads, oldest first, and which thread each e-mail is in. */
     fun mailThreads(groupId: String): MailThreadIndex = mailCache.getOrPut(groupId) { readMailThreads(groupId) }

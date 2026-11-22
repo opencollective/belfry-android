@@ -64,6 +64,7 @@ import sh.belfry.core.model.pinned
  */
 @Composable
 fun ChannelPlaceScreen(id: String, key: String) {
+    if (key == ChannelPlaceKey.EMAILS) return sh.belfry.app.ui.chat.EmailsScreen(id)
     val c = Belfry.colors
     val world = LocalWorld.current
     val nav = LocalNav.current

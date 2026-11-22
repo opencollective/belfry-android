@@ -1,6 +1,7 @@
 package sh.belfry.app
 
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -101,8 +102,9 @@ class LineShotsTest : DemoShots() {
         compose.waitUntil(10_000) { world.isPinned(Demo.KITCHEN, mine.id) && chat.acting == null }
         assertEquals(listOf(mine.id), world.pinned(Demo.KITCHEN).map { it.id })
         compose.waitUntil(10_000) { compose.onAllNodesWithText("Pinned").fetchSemanticsNodes().isNotEmpty() }
-        // the message itself and the line under the channel's name
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().size >= 2 }
+        // the message itself, and 📌 in the header's icon row (one shape: no line under the name any more)
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithTag("row-item-pinned", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
     }
 
     /** The pull-down is a menu: each row pushes one of the channel's screens; the handle closes it. */
