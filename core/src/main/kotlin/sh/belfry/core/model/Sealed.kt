@@ -220,6 +220,8 @@ object SealedText {
     const val LOCKED_HERE = "Locked on this device"
     /** canvas v84: a device not yet allowed reads no sealed message, old or new. */
     const val BANNER_TITLE = "Messages are locked on this device"
+    /** The Encryption screen's first line on a device not allowed yet (the lead, 2026-11-22; draft until the board). */
+    const val CANT_READ_YET = "This device can't read it yet"
     /**
      * Sealed messages that came to this device and can't be opened here yet (Xavier's mail to himself,
      * 2026-11-22): no conversation shows them. Words until belfry-canvas draws the board.

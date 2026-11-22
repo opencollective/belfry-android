@@ -185,11 +185,21 @@ fun EncryptionScreen(conv: String) {
     val st by session.encryption.state.collectAsState()
     val seal = st.seal(conv)
     androidx.compose.runtime.LaunchedEffect(conv) { try { session.encryption.refresh() } catch (e: Exception) { } }
+    val nav = LocalNav.current
+    val waiting = st.earlierLocked || st.waitingKeys
     Page("Encryption") {
-        if (seal == null) {
-            Hint("This conversation isn't locked.")
-        } else {
-            EncryptionContent(seal, st.myDevices, world, session.now())
+        // a device not allowed yet: say so first, with the steps (then what it knows, if anything)
+        if (waiting) {
+            EarlierLockedBanner(SealedText.CANT_READ_YET) { nav.go(Routes.UNLOCK_STEPS) }
+            Spacer(Modifier.height(8.dp))
+        }
+        when {
+            seal != null -> EncryptionContent(seal, st.myDevices, world, session.now())
+            waiting -> {
+                Sentence(BelfryIcons.Shield, SealedText.SERVER)
+                if (sh.belfry.core.mail.MailThreads.isMail(conv)) Sentence(BelfryIcons.Mail, SealedText.MAIL)
+            }
+            else -> Hint("This conversation isn't locked.")
         }
     }
 }

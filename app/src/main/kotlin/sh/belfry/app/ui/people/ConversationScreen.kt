@@ -184,7 +184,9 @@ fun ConversationScreen(conv: String) {
             navigation = { BackButton { nav.back() } },
             onPull = peer?.let { p -> { nav.go(Routes.profile(p)) } },
             pullLabel = peer?.let { "Open ${world.displayName(it)}'s profile" },
-            titleMark = if (seal != null) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
+            // while this device waits to be allowed, every conversation shows the lock (the lead, 2026-11-22):
+            // it can't know which are sealed until it can read them
+            titleMark = if (seal != null || (!newMail && (sealState.earlierLocked || sealState.waitingKeys))) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
             actions = {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })
             },

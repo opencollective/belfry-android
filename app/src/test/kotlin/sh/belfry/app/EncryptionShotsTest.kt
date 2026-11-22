@@ -128,6 +128,21 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithText("3 messages are waiting for another of your devices").assertExists()
     }
 
+    /** The lead, 2026-11-22: on a device not allowed yet, every conversation has the lock; Encryption says it can't read it yet. */
+    @Test fun waitingLockEverywhere() {
+        session.encryption.demoAsNewDevice()
+        val mail = MailThreads.mailThreadOf("ana@example.org", "Visiting next week")
+        demoShot("encryption-waiting-lock") { ConversationScreen(mail) }
+        compose.onNodeWithTag("seal-lock").assertExists()
+    }
+
+    @Test fun waitingEncryptionScreen() {
+        session.encryption.demoAsNewDevice()
+        demoShot("encryption-waiting-screen") { EncryptionScreen(MailThreads.mailThreadOf("ana@example.org", "Visiting next week")) }
+        compose.onNodeWithText(sh.belfry.core.model.SealedText.CANT_READ_YET).assertExists()
+        compose.onNodeWithTag("seal-show-how").assertExists()
+    }
+
     @Test fun showHow() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device-steps") { UnlockStepsScreen() }
