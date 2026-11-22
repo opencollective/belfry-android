@@ -2305,3 +2305,27 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
   row's (the new root's device), else "a new device" (no quotes; canvas v124); Android keeps no e-mail: "your e-mail".
 - **Known limit:** a second fresh start forgets the first chain (only the previous pinned chain is
   remembered), so devices of the first chain can no longer hand their keys back.
+
+### 19.53 One shape: the to-do (2026-11-22; canvas one-shape/todo-conversation, -mid, -pulled, -done; collective-belfry docs/one-shape.md 3; the same rules as belfry-ios `TodoShape.swift`)
+
+- **Due date**: `["due", "<unix seconds>"]` on the kind 2100 (`OneShape.due`). The author sets,
+  changes or clears it with a kind 1010 naming the to-do: content = the title, tags = every tag
+  of the 2100 except `due` (t, h, q…), then `["e", <2100 id>]`, `["k", "2100"]` and the new
+  `["due", …]` (none = cleared) (`Actions.setTaskDue`). Readers take the author's newest 1010
+  (created_at, then the higher id; deleted ones and anyone else's ignored): its due wins, one
+  without a due clears it (`Task.due`). Set with Material's date and time pickers, never typed.
+  The Log says "set a to-do's due date" / "cleared a to-do's due date".
+- **Header**: two lines: the round tick + the title (struck when done); the icon row: "✓ Done
+  <day>" (when done), 👤 the assignee's name (text colour) or "Unassigned" (grey), 💬 comments,
+  📁 files, 🖼 photos (links in comments; each left out at 0). No due date and no "from…" in it.
+- **Done, quietly**: no Done button; the tick fills green with a white check mark (the mark, not
+  the colour, tells an e-ink screen), using the existing 2101 done / undone. Tapping again reopens.
+- **The conversation** (`World.todoLines`): comments (2103) and quiet lines, oldest first, by day:
+  "made this to-do (from <name>'s message)", "took it", "let go of it", "gave it to <name>",
+  "took <name> off it", "marked it done", "reopened it", "set the due date to Sat 28 Nov, 9 AM"
+  (each author edit that changed it; "cleared the due date"). Heartbeats make no line.
+- **Levels**: tiny (the header), mid (the due line, two lines of the description + More), full
+  (also "From <name>'s message ›" and the rows Claim / Assign to… / Unassign / due date / Delete).
+  Opens mid while it is open and on me or on nobody (`todoNeedsMe`), tiny otherwise. Tap the
+  title or drag the header to change level. The description is the text of the message it was
+  made from when that says more than the title (`todoDescription`). Lists show "· Due …" after who.

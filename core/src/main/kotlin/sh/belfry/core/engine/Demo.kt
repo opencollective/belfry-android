@@ -13,6 +13,7 @@ import sh.belfry.core.mail.Mime
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.Charter
 import sh.belfry.core.model.pinMessage
+import sh.belfry.core.model.setTaskDue
 import sh.belfry.core.model.Draft
 import sh.belfry.core.model.EventActions
 import sh.belfry.core.model.EventForm
@@ -312,7 +313,18 @@ object Demo {
         say(aroha, KITCHEN, now - 2 * day, "Thursday dinner: dal, rice, flatbread. **12 seats**, 7 taken.")
         say(sam, KITCHEN, now - day, "Count me in. I can do the dishes.")
         say(lena, KITCHEN, now - 90 * 60, "Put me down for two seats, please.")
-        post(aroha, now - 2 * day + 60, Actions.addTask(KITCHEN, "Buy rice and lentils"))
+        val rice = post(aroha, now - 2 * day + 60, Actions.addTask(KITCHEN, "Buy rice and lentils"))
+        // one shape, the to-do: Sam bought them and marked it done, quietly; Aroha thanked him
+        post(sam, now - day + 3 * h, Actions.taskAction(KITCHEN, rice.id, "claim"))
+        post(sam, now - 20 * h, Actions.taskAction(KITCHEN, rice.id, "done"))
+        post(aroha, now - 19 * h, Actions.commentTask(KITCHEN, rice.id, "Thanks Sam! 🙏"))
+        // a to-do made from a message, given to me, with a due date (Sat, 9 AM) and a conversation
+        val reel = say(lena, KITCHEN, now - 3 * h, "Can someone bring the extension reel from the store room to the hall? The bike stands need two plugs, so the reel, not the orange cable.")
+        val cable = post(sam, now - 3 * h + 360, Actions.addTask(KITCHEN, "Bring the extension cable", reel.id))
+        post(sam, now - 3 * h + 480, Actions.setTaskDue(cable, cable.content, (now / day + 4) * day + 9 * h))
+        post(sam, now - 3 * h + 540, Actions.assignTask(KITCHEN, cable.id, me.pubkey, sam.pubkey))
+        post(lena, now - 2 * h, Actions.commentTask(KITCHEN, cable.id, "The reel, the bike stands need two plugs."))
+        post(sam, now - 100 * 60, Actions.commentTask(KITCHEN, cable.id, "It should be on the top shelf, by the door."))
         post(aroha, now - 2 * day + 61, Actions.addTask(KITCHEN, "Borrow the big pot from the school"))
         say(kofi, WEBSITE, now - 4 * day, "The new homepage is up as a preview. Opening hours are still wrong, I know.")
         say(maya, WEBSITE, now - 4 * day + 900, "Looks good. Can the dinner sign-up be on the first page?")

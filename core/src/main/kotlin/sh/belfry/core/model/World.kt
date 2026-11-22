@@ -1106,6 +1106,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     fun tasks(groupId: String): List<Task> = tasksCache.getOrPut(groupId) { readTasks(groupId) }
 
+    /** A channel's to-do events (2100-2103), by time (TodoShape reads a to-do's conversation from them). */
+    internal fun taskEventsOf(groupId: String): List<Event> = taskEvents[listIdFor(groupId)] ?: emptyList()
+    internal fun editEvents(): List<Event> = ofKind(EDIT_KIND)
+
     /** The charter's agreements (SPEC 19.32, Charter.kt): only the belfry's admins' count. */
     val charterList: List<Agreement> by lazy { Charter.parse(taskEvents[Charter.LIST_ID] ?: emptyList(), ctx.communityAdmins) { isPending(it) } }
 
@@ -1116,7 +1120,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val listId = listIdFor(groupId)
         class T(val id: String, val title: String, val author: String, val pending: Boolean, val source: String?) {
             var assignee: String? = null; var done = false; val comments = ArrayList<TaskComment>(); val history = ArrayList<TaskStep>()
-            var lastBeat = 0L; var beat: Long? = null
+            var lastBeat = 0L; var beat: Long? = null; var due: Long? = null; var doneAt: Long? = null
             /** Per person: the last of working / idle / done they said here, and when their current stretch began. */
             val lastSaid = HashMap<String, String>(); val stretch = HashMap<String, Long>()
         }
@@ -1125,7 +1129,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         for (e in taskEvents[listId] ?: emptyList()) {
             if (e.kind == 2100) {
                 val title = e.content.jsTrim().sliceUnits(300)
-                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q")).also { it.history.add(TaskStep(e.createdAt, e.pubkey, "created")) }
+                if (title.isNotEmpty()) tasks[e.id] = T(e.id, title, e.pubkey, isPending(e.id), e.t("q")).also { it.history.add(TaskStep(e.createdAt, e.pubkey, "created")); it.due = OneShape.due(e.tags) }
             } else if (e.kind != 2102) {
                 val t = tasks[e.t("e") ?: ""] ?: continue
                 if (e.kind == 2103) t.comments.add(TaskComment(e.pubkey, e.content.sliceUnits(2000), e.createdAt))
@@ -1136,7 +1140,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                     // SPEC 19.40: someone gives it to a person (`p`), or takes it from them
                     "assign" -> e.t("p")?.takeIf { sh.belfry.core.crypto.Hex.isKey(it) }?.let { t.assignee = it }
                     "unassign" -> if (e.t("p") == t.assignee) t.assignee = null
-                    "done" -> { t.done = true; t.lastSaid[e.pubkey] = "done" }
+                    "done" -> { t.done = true; t.doneAt = e.createdAt; t.lastSaid[e.pubkey] = "done" }
                     "undone" -> t.done = false
                     "delete" -> if (e.pubkey == t.author) tasks.remove(t.id)
                     "working" -> {
@@ -1150,8 +1154,15 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             }
         }
         for ((p, b) in beats) { val t = tasks[b.first]; if (t != null && t.assignee == p) t.beat = b.second }
+        // one shape (docs/one-shape.md 3): the author's newest kind 1010 edit replaces the tags, so its
+        // due wins and an edit without one clears it
+        for ((id, x) in TodoShape.newestEdits(ofKind(EDIT_KIND), tasks.mapValues { it.value.author }, deleted)) tasks[id]?.due = OneShape.due(x.tags)
         return tasks.values.map {
-            Task(it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history, it.beat, it.beat?.let { b -> it.assignee?.let { a -> it.stretch[a] } ?: b }, it.history.firstOrNull()?.at ?: 0)
+            Task(
+                it.id, it.title, it.author, it.assignee, it.done, it.pending, it.comments, it.source, it.history, it.beat,
+                it.beat?.let { b -> it.assignee?.let { a -> it.stretch[a] } ?: b }, it.history.firstOrNull()?.at ?: 0,
+                due = it.due, doneAt = if (it.done) it.doneAt else null,
+            )
         }
     }
 

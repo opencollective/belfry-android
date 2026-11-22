@@ -319,6 +319,10 @@ data class Task(
     val since: Long? = null,
     /** When it was made. */
     val at: Long = 0,
+    /** When it is due (one shape: `["due", unix seconds]` on the 2100 or its author's newest 1010), else null. */
+    val due: Long? = null,
+    /** When it was last marked done, while it is done. */
+    val doneAt: Long? = null,
 ) {
     /**
      * Being worked on right now: the assignee's heartbeat is under 5 minutes old (agents send one
