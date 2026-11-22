@@ -2575,7 +2575,8 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
 - **Hosts.** Only the person who made it is "Host"; "Co-host" is someone made one (an admin by
   role); the belfry's admins (admins of every chat through its 39001) and the door are neither.
   A row says "Host · Confirmed", "Invited", …
-- **For a host, per person:** before check-in opens (at the start,
+- **Per person:** the ✕ is only for the meeting's maker and a belfry admin (a co-host's 9001 would
+  count for nothing); "Check in" is for every host. Before check-in opens (at the start,
   `Meetings.checkInOpen`), a ✕ that asks, then takes the person off: `9001 [["h",<chat>],["p",<pubkey>]]`
   and a new version of the event without their `p … invited` (`Meetings.uninvite`; never the
   maker). Someone whose latest 9000 / 9001 in the chat is a 9001 is no longer among the meeting's

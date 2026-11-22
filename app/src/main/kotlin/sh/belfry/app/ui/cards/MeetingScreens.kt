@@ -333,6 +333,8 @@ internal fun MeetingPeople(e: CalEvent, host: Boolean) {
     // before it starts a host can only take someone off; checking in comes with the meeting
     val started = Meetings.checkInOpen(e, now)
     var removing by remember(e.coord) { mutableStateOf<String?>(null) }
+    // only the maker or a belfry admin: readers ignore anyone else's 9001 (vectors/meetings.json), a co-host's too
+    val mayRemove = host && (world.me == e.creator || world.isCommunityAdmin)
     var giving by remember(e.coord) { mutableStateOf<String?>(null) }
     var email by remember(e.coord) { mutableStateOf("") }
     var name by remember(e.coord) { mutableStateOf("") }
@@ -366,7 +368,7 @@ internal fun MeetingPeople(e: CalEvent, host: Boolean) {
                         modifier = Modifier.testTag("meet-check-" + k.take(8)).semantics { selected = isThere },
                         onError = { error = shownError(it) },
                     )
-                } else if (host && k != e.creator) {
+                } else if (mayRemove && k != e.creator) {
                     IconAction(BelfryIcons.Close, "Remove " + world.displayName(k), { removing = k; error = null }, Modifier.testTag("meet-remove-" + k.take(8)))
                 }
             }
