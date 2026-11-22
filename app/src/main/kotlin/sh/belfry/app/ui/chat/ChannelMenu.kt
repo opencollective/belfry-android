@@ -123,7 +123,8 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         // search left the header's right side (one shape: only the bell stays there)
         MenuRow(BelfryIcons.Search, "Search", 0, "pd-search") { go(Routes.search(groupId)) }
         MenuRow(Icons.Outlined.History, "Log", 0, "pd-log") { place(ChannelPlaceKey.LOG) }
-        if (world.canAdmin(g)) MenuRow(Icons.Outlined.Settings, "Settings", 0, "pd-settings") { place(ChannelPlaceKey.SETTINGS) }
+        // every member (Navigation v2, nav2/channel-pin): Pin for me and Notify me of everything; admins also the rest
+        if (world.canAdmin(g) || !world.amGuest) MenuRow(Icons.Outlined.Settings, "Settings", 0, "pd-settings") { place(ChannelPlaceKey.SETTINGS) }
     }
 }
 

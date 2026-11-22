@@ -74,7 +74,12 @@ internal fun ConvFace(conv: String, dms: DmSnapshot, world: World, size: Dp = 40
  * belfry. Your address here is name@domain; mail to it lands here too.
  */
 @Composable
-fun MessagesScreen() {
+fun MessagesScreen(
+    /** Navigation v2: the bar's Messages place (a root: ☰ or nothing, never ‹). */
+    place: Boolean = false,
+    onMenu: (() -> Unit)? = null,
+    menuBadge: Int = 0,
+) {
     // while this is on screen, a "dm" push is not shown (the person is reading their messages)
     DisposableEffect(Unit) {
         AndroidPush.dmScreens.incrementAndGet()
@@ -92,7 +97,11 @@ fun MessagesScreen() {
     Column(Modifier.fillMaxSize().background(c.bg)) {
         TopBar(
             "Messages", subtitle = if (address != null) "Your address: $address" else null,
-            navigation = { BackButton { nav.back() } },
+            navigation = when {
+                !place -> ({ BackButton { nav.back() } })
+                onMenu != null -> ({ IconAction(BelfryIcons.Menu, "Menu", onMenu, badge = menuBadge) })
+                else -> null
+            },
             actions = { IconAction(BelfryIcons.Plus, "New message", { nav.go(Routes.NEW_CONVERSATION) }) },
         )
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 6.dp)) {

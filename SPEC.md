@@ -2306,7 +2306,40 @@ Android also did nothing when the phone changed network while online (Wi-Fi to m
 - **Known limit:** a second fresh start forgets the first chain (only the previous pinned chain is
   remembered), so devices of the first chain can no longer hand their keys back.
 
-### 19.53 One shape: headers and activity previews (2026-11-22; Xavier via the lead; collective-belfry docs/one-shape.md 2–3; canvas one-shape/anatomy, inbox-*, action-previews*)
+### 19.53 One shape: navigation (2026-11-22; Xavier via the lead; contract collective-belfry docs/one-shape.md §1; canvas nav2/*)
+
+- **Bottom bar (phones):** Today · Calendar · Messages · Groups · Town; no ＋. Messages counts the
+  conversations with new messages, Groups the new messages in my groups, Town nothing. Guests:
+  Today · Calendar · Town. Every place's root has ☰ (the menu); pushed screens only ‹.
+- **The menu (☰):** crest, name, search; Today · Messages · Mentions (red count) · Calendar; GROUPS
+  (my groups, ＋ = new group, anyone); CHANNELS (＋ = Add a channel) = `OneShape.townList`: `general`
+  always first, then the channels pinned for everyone, mine, then recent (I posted, reacted or was
+  mentioned in the last 30 days; queued events count), newest activity first. No categories and no
+  "All channels" row. Members, Charter, Archived stay as quiet rows under the channels (Android:
+  nothing else reaches the Charter). ☰'s badge = new messages in the listed channels + in my groups +
+  conversations with new messages. A wide window's column: the same, plus a Groups row.
+- **Pinned for everyone:** `"pinned": [ids]` in the admins' newest kind 30078
+  `d=belfry:channel-order` (read with `OneShape.parsePins(content, known, "pinned")`); an admin
+  writes it with `OneShape.withEveryonePins` (every other key kept). Changing the categories now keeps
+  every key it does not write too. The community relay subscription asks for that `d`.
+- **Pinned for me:** kind 30078 `d=belfry:pins` by me on the community relay, NIP-44 v2 to myself,
+  `{"v":1,"c":[ids]}`; newest wins (`core/engine/PinSync.kt`, store keys `pins`, `pins-remote-at`;
+  published through the outbox 1.5 s after a change, only after the community relay's EOSE, a newer
+  one replacing a queued one). Guests, guest mode and the demo keep it on the device.
+  `Session.pins`, `togglePin`, `setEveryonePin`.
+- **Add a channel** (pushed): one field; the channels filtered on the device, typed part bold and
+  underlined; one in my menu opens in Town, one not in it opens pushed as a preview; "Create #name"
+  last (any member; hidden when the name exists exactly).
+- **Preview:** a town channel not in my list shows a light bar above the composer; once writing,
+  reacting, a mention or a pin brings it in, the bar goes and "#x is in your menu" shows ~3 s.
+- **Channel settings** (the pull-down's Settings, now for every member): Pin for me, Pin for
+  everyone (belfry admins), Notify me of everything (push level `all` / `default`); `general`'s pin
+  rows are on and locked. Admins then see the channel's form as before.
+- **The composer's ＋:** Photos, File (a channel attachment, 25 MB at most), Audio recording,
+  Announcement (admins); then "Create in #channel": Event, Meeting, To-do, Proposal. Group and Drop
+  box link left it (GROUPS ＋; the Files screen).
+
+### 19.54 One shape: headers and activity previews (2026-11-22; Xavier via the lead; collective-belfry docs/one-shape.md 2–3; canvas one-shape/anatomy, inbox-*, action-previews*)
 
 Nothing new on the wire. Behaviour:
 - **One header** (`ui/kit/OneHeader` + `IconRow`): two lines at most, the title and one icon row.

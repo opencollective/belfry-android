@@ -60,7 +60,7 @@ private enum class GroupsFilter(val label: String) { MINE("My groups"), ACTIVE("
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun GroupsPlace() {
+fun GroupsPlace(onMenu: (() -> Unit)? = null, menuBadge: Int = 0) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -79,6 +79,7 @@ fun GroupsPlace() {
             "Groups",
             subtitle = world.ctx.communityName.ifEmpty { session.community.name },
             onTitleClick = { accounts = true },
+            navigation = if (onMenu != null) ({ IconAction(BelfryIcons.Menu, "Menu", onMenu, badge = menuBadge) }) else null,
             actions = { IconAction(BelfryIcons.Plus, "New group", { nav.go(Routes.createPod("general")) }) },
         )
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

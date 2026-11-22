@@ -188,7 +188,12 @@ private fun SettingsPlace(g: sh.belfry.core.model.Group) {
     val world = LocalWorld.current
     val nav = LocalNav.current
     var confirm by remember { mutableStateOf(false) }
-    if (!g.archived) ChannelSettingsForm(g, onClose = { nav.back() })
+    // Navigation v2 (nav2/channel-pin): In your menu, Notifications, then (admins) About
+    sh.belfry.app.ui.shell.ChannelPinSettings(g)
+    if (!g.archived && world.canAdmin(g)) {
+        Text("About", fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, color = Belfry.colors.muted, modifier = Modifier.padding(start = 4.dp, top = 20.dp, bottom = 8.dp))
+        ChannelSettingsForm(g, onClose = { nav.back() })
+    }
     if (world.mayArchive(g) && !g.archived) {
         // under Save, quiet and centred (owner's feedback 2026-11-17): a text button and its one line
         Spacer(Modifier.height(16.dp))

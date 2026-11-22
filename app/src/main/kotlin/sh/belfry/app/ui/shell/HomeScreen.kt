@@ -25,6 +25,10 @@ import androidx.compose.material.icons.outlined.AccountBalance
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.WbSunny
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DrawerValue
@@ -77,11 +81,11 @@ fun navColumnStays(): Boolean {
 }
 
 /**
- * The five places (SPEC 19.31): a bottom bar Home · Calendar · Create · Groups · Town (guests:
- * Home · Calendar · Town). Each place's root is drawn here; everything pushed (a profile, an event,
- * a thread…) covers the bar. Home and Town have ☰ and the Town drawer. A wide window keeps the
- * drawer as AppNav's left column on every screen and has no bar: Calendar and Groups are rows
- * there (as the iPad's sidebar).
+ * The five places (SPEC 19.31, Navigation v2 / nav2/channel): a bottom bar Today · Calendar ·
+ * Messages · Groups · Town (guests: Today · Calendar · Town), no ＋ in it (creating is the
+ * composer's ＋). Each place's root is drawn here with ☰ and the menu; everything pushed (a
+ * profile, an event, a thread…) covers the bar and shows only ‹. A wide window keeps the menu as
+ * AppNav's left column on every screen and has no bar: the places are rows there.
  */
 @Composable
 fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
@@ -123,7 +127,7 @@ private fun PlacesHost(shell: ShellState, drawerOpen: Boolean) {
         }
     }
     // a guest has no Groups place
-    LaunchedEffect(guest) { if (guest && shell.place == ShellState.Place.GROUPS) shell.place = ShellState.Place.HOME }
+    LaunchedEffect(guest) { if (guest && (shell.place == ShellState.Place.GROUPS || shell.place == ShellState.Place.MESSAGES)) shell.place = ShellState.Place.HOME }
 
     if (wide) {
         Box(Modifier.fillMaxSize()) { PlaceBody(shell, onMenu = null, counts = counts, wide = true) }
@@ -135,7 +139,8 @@ private fun PlacesHost(shell: ShellState, drawerOpen: Boolean) {
             place = { p -> shell.place = p; scope.launch { drawer.close() } },
             go = { route -> scope.launch { drawer.close() }; nav.go(route) },
         )
-        val hasDrawer = shell.place == ShellState.Place.HOME || shell.place == ShellState.Place.TOWN
+        // every place's root is top level: ☰ and the menu (nav2/dm-header)
+        val hasDrawer = true
         ModalNavigationDrawer(
             drawerState = drawer,
             gesturesEnabled = hasDrawer || drawer.isOpen,
@@ -165,9 +170,10 @@ private fun PlaceBody(shell: ShellState, onMenu: (() -> Unit)?, counts: PlaceCou
     val c = Belfry.colors
     val three = LocalConfiguration.current.screenWidthDp >= 1200
     when (shell.place) {
-        ShellState.Place.HOME -> HomePlace(onMenu = onMenu, menuBadge = counts.town)
-        ShellState.Place.CALENDAR -> CalendarPlace()
-        ShellState.Place.GROUPS -> GroupsPlace()
+        ShellState.Place.HOME -> HomePlace(onMenu = onMenu, menuBadge = counts.menu)
+        ShellState.Place.CALENDAR -> CalendarPlace(onMenu = onMenu, menuBadge = counts.menu)
+        ShellState.Place.MESSAGES -> sh.belfry.app.ui.people.MessagesScreen(place = true, onMenu = onMenu, menuBadge = counts.menu)
+        ShellState.Place.GROUPS -> GroupsPlace(onMenu = onMenu, menuBadge = counts.menu)
         ShellState.Place.TOWN -> {
             if (wide) {
                 val thread = shell.thread
@@ -188,7 +194,7 @@ private fun PlaceBody(shell: ShellState, onMenu: (() -> Unit)?, counts: PlaceCou
                 ChannelScreen(
                     shell.channel,
                     onMenu = onMenu,
-                    menuBadge = counts.town,
+                    menuBadge = counts.menu,
                     focusMessage = shell.focusMessage,
                     onFocusDone = { shell.focusMessage = null },
                     newestTick = shell.newestTick,
@@ -201,7 +207,11 @@ private fun PlaceBody(shell: ShellState, onMenu: (() -> Unit)?, counts: PlaceCou
 private const val K_SAW_GUEST = "ui:saw-guest"
 private const val K_WELCOMED = "ui:welcomed"
 
-/** Material's bottom navigation bar; Create is the centre item, a filled circle that opens the Create menu. */
+/**
+ * Material's bottom navigation bar (nav2/channel): Today · Calendar · Messages · Groups · Town.
+ * Messages counts the conversations with new messages, Groups the new messages in my groups; Town
+ * has none (☰ counts the channels). Guests: Today · Calendar · Town.
+ */
 @Composable
 private fun PlacesBar(shell: ShellState, guest: Boolean, counts: PlaceCounts) {
     val c = Belfry.colors
@@ -210,22 +220,11 @@ private fun PlacesBar(shell: ShellState, guest: Boolean, counts: PlaceCounts) {
         unselectedIconColor = c.muted, unselectedTextColor = c.muted,
     )
     NavigationBar(containerColor = c.bg, contentColor = c.text, tonalElevation = 0.dp, modifier = Modifier.testTag("places-bar")) {
-        PlaceItem(shell, ShellState.Place.HOME, PlaceNames.HOME, Icons.Outlined.Home, Icons.Filled.Home, counts.home(guest), colors)
+        PlaceItem(shell, ShellState.Place.HOME, PlaceNames.TODAY, Icons.Outlined.WbSunny, Icons.Filled.WbSunny, 0, colors)
         PlaceItem(shell, ShellState.Place.CALENDAR, PlaceNames.CALENDAR, Icons.Outlined.CalendarMonth, Icons.Filled.CalendarMonth, 0, colors)
         if (!guest) {
-            NavigationBarItem(
-                selected = false,
-                onClick = { shell.creating = true },
-                icon = {
-                    Surface(shape = CircleShape, color = c.accent, contentColor = c.onAccent, modifier = Modifier.size(44.dp)) {
-                        Box(contentAlignment = Alignment.Center) { Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(26.dp)) }
-                    }
-                },
-                label = { Text(PlaceNames.CREATE) },
-                colors = NavigationBarItemDefaults.colors(indicatorColor = c.bg, unselectedTextColor = c.muted),
-                modifier = Modifier.testTag("place-create"),
-            )
-            PlaceItem(shell, ShellState.Place.GROUPS, PlaceNames.GROUPS, Icons.Outlined.Groups, Icons.Filled.Groups, 0, colors)
+            PlaceItem(shell, ShellState.Place.MESSAGES, PlaceNames.MESSAGES, Icons.Outlined.ChatBubbleOutline, Icons.Filled.ChatBubble, counts.dmConvs, colors)
+            PlaceItem(shell, ShellState.Place.GROUPS, PlaceNames.GROUPS, Icons.Outlined.Groups, Icons.Filled.Groups, counts.groups, colors)
         }
         PlaceItem(shell, ShellState.Place.TOWN, PlaceNames.TOWN_PLACE, Icons.Outlined.AccountBalance, Icons.Filled.AccountBalance, 0, colors)
     }

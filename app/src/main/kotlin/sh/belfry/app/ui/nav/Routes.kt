@@ -132,6 +132,8 @@ object Routes {
     const val PROPOSAL = "proposal/{id}"
     /** [groupId] is the proposal's own group (`prop-…`). */
     fun proposal(groupId: String) = "proposal/${enc(groupId)}"
+    /** Navigation v2: the ＋ on CHANNELS (nav2/channel-new): find a channel or create one. */
+    const val ADD_CHANNEL = "add-channel"
     const val CREATE_CHANNEL = "create-channel?category={category}"
     /** A new channel; CATEGORY (a belfry admin's ＋ on a category of the drawer): it goes at its end (SPEC 19.34). */
     fun createChannel(category: String? = null) = "create-channel" + if (category != null) "?category=${enc(category)}" else ""

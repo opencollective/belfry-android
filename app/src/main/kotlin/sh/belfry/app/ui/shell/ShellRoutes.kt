@@ -17,6 +17,7 @@ import sh.belfry.app.ui.theme.Belfry
 fun NavGraphBuilder.shellRoutes(shell: ShellState) {
     composable(Routes.HOME) { HomeScreen(shell) }
     composable(Routes.MENTIONS) { MentionsScreen() }
+    composable(Routes.ADD_CHANNEL) { AddChannelScreen() }
     composable(Routes.ABOUT) { AboutScreen() }
     composable(Routes.LINK_DEVICE) { LinkDeviceScreen() }
     composable(Routes.REMOTE_APP_SCAN) { SignInToAppScreen() }

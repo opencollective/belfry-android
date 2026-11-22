@@ -23,6 +23,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.withContext
 import sh.belfry.app.ui.kit.BelfryTextField
 import sh.belfry.app.ui.kit.MoreIcons
@@ -371,6 +373,8 @@ fun ChannelScreen(
                 fontSize = 12.sp, color = c.muted, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
             )
         }
+        // Navigation v2: a channel not in my menu is a preview (nav2/channel-preview)
+        if (!readOnly && !embedded) sh.belfry.app.ui.shell.PreviewBar(groupId)
         if (!readOnly && only == null && (chat.topic != Topics.ANNOUNCE || admin)) {
             if (!isPub) Hairline()
             if (editing != null) EditingBar(onCancel = { chat.editing = null; composer.clear() })
@@ -494,31 +498,97 @@ private fun PlusSheet(groupId: String, admin: Boolean, composer: ComposerState, 
     BelfrySheet(onDismiss = onClose) { PlusSheetContent(groupId, admin, composer, onClose, nav::go, onTodo, onRecord) }
 }
 
+/**
+ * The composer's ＋ (nav2/plus): Photos, File, Audio recording (and Announcement for admins), then
+ * "Create in #channel": Event, Meeting, To-do, Proposal. A message to someone is the Messages
+ * place's ＋; a group, the ＋ on GROUPS in the menu.
+ */
 @Composable
 fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, onClose: () -> Unit, go: (String) -> Unit, onTodo: (() -> Unit)? = null, onRecord: (() -> Unit)? = null) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val session = LocalSession.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var reading by remember { mutableStateOf(false) }
+    // the sheet stays open under the system picker, so the answer comes back here
+    val pickFile = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        reading = true
+        scope.launch {
+            try {
+                val f = readChannelFile(context, uri)
+                if (f == null) composer.error = sh.belfry.core.dm.DmFiles.tooLarge(false)
+                else session.postMessage(groupId, composer.outgoing(composer.value.text).trim(), listOf(f), picked = composer.picked.toList()).also { composer.clear() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: sh.belfry.core.engine.ActionException) {
+                composer.error = e.message
+            } catch (e: Exception) {
+                composer.error = "This file could not be read."
+            } finally {
+                reading = false
+                onClose()
+            }
+        }
+    }
     ActionGroup {
-        ActionRow("Photos", onClick = { onClose(); composer.pickPhotos?.invoke() }, icon = BelfryIcons.Image)
+        ActionRow("Photos", onClick = { onClose(); composer.pickPhotos?.invoke() }, icon = BelfryIcons.Image, sub = "Pictures from this device", modifier = Modifier.testTag("plus-photos"))
+        ActionRow(
+            "File", onClick = { if (!reading) pickFile.launch(arrayOf("*/*")) }, icon = MoreIcons.File, sub = "A document or a video", modifier = Modifier.testTag("plus-file"),
+            enabled = !reading, trailing = if (reading) ({ sh.belfry.app.ui.kit.Spinner(size = 16.dp) }) else null,
+        )
         if (onRecord != null) {
             ActionRow("Audio recording", onClick = { onClose(); onRecord() }, icon = MoreIcons.Mic, sub = "Record here; kept on this device until it is posted", modifier = Modifier.testTag("plus-record"))
         }
-    }
-    Spacer(Modifier.height(12.dp))
-    ActionGroup {
         if (admin) {
             ActionRow("Announcement", onClick = { onClose(); composer.announce = true; composer.focus?.invoke() }, icon = BelfryIcons.Megaphone, sub = "Stands out; followers get it by e-mail")
         }
-        ActionRow("Event", onClick = { onClose(); go(Routes.createEvent(groupId)) }, icon = BelfryIcons.Calendar)
+    }
+    val name = world.group(groupId)?.name ?: "this channel"
+    Text(
+        "Create in " + (if (name.startsWith("#")) name else "#$name"),
+        fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted,
+        modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 6.dp).testTag("plus-create-in"),
+    )
+    ActionGroup {
+        ActionRow("Event", onClick = { onClose(); go(Routes.createEvent(groupId)) }, icon = BelfryIcons.Calendar, modifier = Modifier.testTag("plus-event"))
         // a meeting makes accounts and puts members in a chat: not for guests (as the web)
-        if (!LocalWorld.current.amGuest) {
+        if (!world.amGuest) {
             ActionRow("Meeting", onClick = { onClose(); go(Routes.createMeeting(groupId)) }, icon = BelfryIcons.Users, sub = "Members only: a topic, people, a time", modifier = Modifier.testTag("plus-meeting"))
         }
         if (onTodo != null) {
             ActionRow("To-do", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
         }
-        ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = "A text to discuss and vote on")
-        ActionRow("Group", onClick = { onClose(); go(Routes.createPod(groupId)) }, icon = BelfryIcons.Pod, sub = "A working group with its own channel")
-        ActionRow("Drop box link", onClick = { onClose(); go(Routes.drop(groupId)) }, icon = BelfryIcons.Upload, sub = "Let anyone send photos and files here")
+        ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = "A text to discuss and vote on", modifier = Modifier.testTag("plus-proposal"))
     }
+}
+
+/** A picked file for a channel: its bytes, name and type; null when it is over 25 MB (not read whole then). */
+private suspend fun readChannelFile(context: android.content.Context, uri: android.net.Uri): sh.belfry.core.engine.NewAttachment? = withContext(Dispatchers.IO) {
+    val max = sh.belfry.core.dm.DmFiles.MAX
+    val r = context.contentResolver
+    var name = "file"
+    var size = -1L
+    r.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { cur ->
+        if (cur.moveToFirst()) {
+            cur.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { i -> cur.getString(i)?.let { name = it } }
+            cur.getColumnIndex(android.provider.OpenableColumns.SIZE).takeIf { it >= 0 && !cur.isNull(it) }?.let { i -> size = cur.getLong(i) }
+        }
+    }
+    if (size > max) return@withContext null
+    val bytes = r.openInputStream(uri)?.use { input ->
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(64 * 1024)
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            out.write(buf, 0, n)
+            if (out.size() > max) return@withContext null
+        }
+        out.toByteArray()
+    } ?: throw java.io.IOException("unreadable")
+    sh.belfry.core.engine.NewAttachment(name, r.getType(uri) ?: "application/octet-stream", bytes)
 }
 
 /** A snippet without Markdown marks (bold, italics, links stay as their text). */

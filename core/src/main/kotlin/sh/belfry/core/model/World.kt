@@ -357,6 +357,11 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         ChannelLayout.parse(own?.content)
     }
 
+    /** That event's raw content (a writer keeps every key it does not change: `pinned`, docs/one-shape.md §1). */
+    val channelOrderContent: String? by lazy {
+        ofKind(30078).filter { it.t("d") == ORDER_D && it.pubkey in ctx.communityAdmins }.maxWithOrNull(BY_TIME)?.content
+    }
+
     /** Vouches (Membership.kt): per 9021 id, each author's latest `belfry/vouch` label and its time. */
     val vouchIndex: Map<String, Map<String, Pair<String, Long>>> by lazy {
         val out = HashMap<String, HashMap<String, Pair<String, Long>>>()
