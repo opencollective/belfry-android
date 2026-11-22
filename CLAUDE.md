@@ -231,6 +231,11 @@ minSdk 26, JDK 17.
   zero layout height, drawn over the feed; `ChannelTyping`, `WatchTyping`), the DM list's "typing…",
   `ui/people/PrivacyScreen.kt` (`TypingSetting`, per device).
 
+- One shape, the to-do (SPEC 19.54): `core/model/TodoShape.kt` (due labels, `Actions.setTaskDue` = the
+  author's 1010 keeping every tag, `World.todoLines` the conversation's words, `todoNeedsMe`, `todoDescription`);
+  `Task.due` / `doneAt` read in `World.readTasks`. App: `ui/info/TodoScreen.kt` (`TodoLevel` tiny / mid / full,
+  `DueSheet` with Material pickers). Screenshots `TodoShapeShotsTest`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

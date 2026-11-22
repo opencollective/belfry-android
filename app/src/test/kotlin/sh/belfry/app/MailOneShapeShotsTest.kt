@@ -48,7 +48,7 @@ class MailOneShapeShotsTest : DemoShots() {
         assertEquals(CardStatus.OPEN, t.state.status)
         demoShot("mail-pulled") { MailThreadScreen(hello, t) }
         compose.onNodeWithTag("mail-in").assertExists()
-        compose.onNodeWithTag("mail-cc").assertExists()
+        compose.onNodeWithTag("mail-cc", useUnmergedTree = true).assertExists()
     }
 
     /** email-thread-open: the whole thread, From / To / Cc folded on one line, the rows, Take it, Mark answered, Close. */
