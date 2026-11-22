@@ -314,7 +314,7 @@ private fun TodoItself(groupId: String, t: Task, level: TodoLevel, onLevel: (Tod
                 (if (from != null) "From ${if (from == world.me) "your" else world.displayName(from) + "'s"} message" else "From a message") + " ›",
                 fontSize = 13.sp, color = c.muted,
                 modifier = Modifier.padding(start = 12.dp, top = 4.dp).clip(RoundedCornerShape(6.dp))
-                    .clickable(role = Role.Link, onClickLabel = "Open the message it came from") { nav.go(Routes.thread(groupId, source)) }
+                    .clickable(role = Role.Button, onClickLabel = "Open the message it came from") { nav.go(Routes.thread(groupId, source)) }
                     .padding(horizontal = 4.dp, vertical = 6.dp).testTag("todo-source"),
             )
         }
