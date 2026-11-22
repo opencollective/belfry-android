@@ -375,7 +375,7 @@ inbox** switch: kind 30078 `[["d","belfry:inbox:<id>"],["h",id]]` content `{"on"
 setting counts only from the channel's own admins (latest wins). Until 2026-11-21 the `d` was
 `belfry:inbox` alone, so one admin's switch for a channel replaced theirs for every other (a 30078
 is keyed on kind + author + `d`; OSV's #hello lost its inbox): readers take the new `d`, or the old
-`d` whose `h` is the channel, latest wins; writers write only the new `d` (docs/mail.md @73a414f). With it on, anyone can e-mail
+`d` whose `h` is the channel, latest wins; writers write only the new `d` (docs/mail.md @73a414f). Per author + kind + `d` only the newest copy counts, and only then its `h`: a stale copy kept locally (old `d`, h=hello) after the relay replaced it (h=sponsors) leaves #hello off (OSV, 2026-11-22). Save sends the switch whenever it was touched. With it on, anyone can e-mail
 `<id>@<domain>`; otherwise members can, and their mail shows as their message.
 Announcements: admins may tag a message `["t","announcement"]` ("📣 Announcement", e-mailed to
 followers); the tag counts only from the channel's admins.

@@ -306,6 +306,13 @@ class ModelTest {
         val w3b = world(listOf(hello, sponsors, oldSponsors))
         assertFalse(w3b.isInbox(w3b.group("hello")))
         assertTrue(w3b.isInbox(w3b.group("sponsors")))
+        // iOS's root cause (2026-11-22): a stale local copy (old d, h=hello) and the relay's newer one
+        // (same author + kind + d, h=sponsors): only the newest counts, so #hello is off
+        val stale = ev(alice, t0, 30078, "{\"on\":true}", t("d", "belfry:inbox"), t("h", "hello"))
+        val replaced = ev(alice, t0 + 3, 30078, "{\"on\":true}", t("d", "belfry:inbox"), t("h", "sponsors"))
+        val w3c = world(listOf(hello, sponsors, stale, replaced))
+        assertFalse(w3c.isInbox(w3c.group("hello")))
+        assertTrue(w3c.isInbox(w3c.group("sponsors")))
         val newer = ev(alice, t0 + 1, 30078, "{\"on\":false}", *Actions.setInbox("hello", false).tags.toTypedArray())
         val w4 = world(listOf(hello, sponsors, old, newer))
         assertFalse(w4.isInbox(w4.group("hello")))

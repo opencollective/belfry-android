@@ -853,10 +853,26 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun isInbox(g: Group?): Boolean {
         if (g == null) return false
         val newD = inboxD(g.id)
-        val own = inGroupSorted(g.id).lastOrNull { it.kind == 30078 && it.t("h") == g.id && (it.t("d") == newD || it.t("d") == INBOX_D) && it.pubkey in g.admins } ?: return false
+        // per author + kind + d only the newest copy counts, then its h: a stale copy kept locally
+        // (old d, h=hello) after the relay replaced it (h=sponsors) must not keep #hello on (OSV, 2026-11-22)
+        val own = inGroupSorted(g.id).lastOrNull { it.kind == 30078 && it.t("h") == g.id && (it.t("d") == newD || it.t("d") == INBOX_D) && it.pubkey in g.admins && isNewestSetting(it) } ?: return false
         val on = parseJsonOrNull(own.content.ifEmpty { "{}" }).obj()?.get("on") ?: return false
         return truthy(on)
     }
+
+    /** The newest kind 30078 per author + d (NIP-01: newest created_at, then the lowest id). */
+    private val newestSettings: Map<Pair<String, String>, Event> by lazy {
+        val out = HashMap<Pair<String, String>, Event>()
+        for (e in ofKind(30078)) {
+            val key = e.pubkey to (e.t("d") ?: "")
+            val cur = out[key]
+            if (cur == null || e.createdAt > cur.createdAt || (e.createdAt == cur.createdAt && e.id < cur.id)) out[key] = e
+        }
+        out
+    }
+
+    /** Is this 30078 the copy that counts: no newer one by the same author with the same d. */
+    internal fun isNewestSetting(e: Event): Boolean = newestSettings[e.pubkey to (e.t("d") ?: "")]?.id == e.id
 
     // ---- a channel's page on the web, its visibility, its type of post -----------------------
     // (web model.ts webPage; Belfry webthreads.py, 2026-11-11.) The latest NIP-78 setting

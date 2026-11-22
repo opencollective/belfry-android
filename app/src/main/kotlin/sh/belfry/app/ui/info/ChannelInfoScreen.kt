@@ -325,6 +325,8 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
     var prompt by remember(g.id) { mutableStateOf(g.prompt ?: "") }
     var vouches by remember(g.id) { mutableStateOf(g.vouches) }
     var openMail by remember(g.id) { mutableStateOf(wasInbox) }
+    // touched = sent on Save even when it ends where it started (the start may have been read stale)
+    var mailTouched by remember(g.id) { mutableStateOf(false) }
     // who reads it (round 6, SPEC 19.41): members only / public (asks first) / closed
     val wasAccess = remember(g.id) { world.channelAccess(g) }
     var access by remember(g.id) { mutableStateOf(wasAccess) }
@@ -402,7 +404,7 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
     Spacer(Modifier.height(6.dp))
     ActionGroup {
         SwitchRow(
-            "E-mails from anyone", openMail, { openMail = it }, icon = BelfryIcons.Inbox, enabled = !busy.busy,
+            "E-mails from anyone", openMail, { openMail = it; mailTouched = true }, icon = BelfryIcons.Inbox, enabled = !busy.busy,
             sub = if (openMail) "Mail from outside lands here as cards; admins answer as the $kind." else "Off: only members can e-mail it",
         )
     }
@@ -430,7 +432,7 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
                     vouches = if (g.isPod && closed) vouches else if (closedChanged) 0 else null,
                 )
             }
-            if (openMail != wasInbox) session.send(Actions.setInbox(g.id, openMail))
+            if (mailTouched || openMail != wasInbox) session.send(Actions.setInbox(g.id, openMail))
             onClose()
         },
         modifier = Modifier.fillMaxWidth().testTag("settings-save"), enabled = name.isNotBlank(), busy = busy,
