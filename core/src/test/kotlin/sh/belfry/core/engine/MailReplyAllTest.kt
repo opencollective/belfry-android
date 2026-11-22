@@ -80,7 +80,7 @@ class MailReplyAllTest {
         assertTrue(rumor.content.contains("\r\nTo: <lou@example.com>\r\n"), rumor.content.take(600))
         assertTrue(rumor.content.contains("\r\nCc: <dev@example.com>, <park@example.org>\r\n"), rumor.content.take(600))
         assertTrue(rumor.content.contains("In-Reply-To: <p2@example.com>"))
-        assertTrue(rumor.content.contains("References: <p1@example.com> <p2@example.com>"))
+        assertTrue(rumor.content.contains("References: <p1@example.com> <p2@example.com>\r\n"), rumor.content.take(600))
 
         // not delivered yet: no label
         delay(300)

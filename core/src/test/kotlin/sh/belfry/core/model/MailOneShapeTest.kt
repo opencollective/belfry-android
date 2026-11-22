@@ -26,7 +26,7 @@ class MailOneShapeTest {
     )
     private val card = ev(gk, 1000, 9, listOf(
         listOf("h", g), listOf("subject", "Park cleaning"), listOf("mail-from", "Lou@Example.com"), listOf("mail-name", "Lou"),
-        listOf("message-id", "<p1@example.com>"), listOf("client", "belfry-mail"), listOf("to", "hello@example.org", "hello"),
+        listOf("message-id", "<p1@example.com>"), listOf("client", "belfry-mail"), listOf("to", "hello@belfry.example", "hello"),
         listOf("cc", "dev@example.com", "Dev Patel"), listOf("cc", "park@example.org"), listOf("cc", "DEV@example.com", "again"),
     ), "**Park cleaning**\n\nRakes?")
     private val draft1 = ev(me, 1100, 1111, Actions.mailDraft(g, card, "Hi Lou").tags, "Hi Lou")
@@ -39,13 +39,13 @@ class MailOneShapeTest {
     ), "Hi Lou, yes")
     private val deleteDraft2 = ev(me, 1400, 5, listOf(listOf("h", g), listOf("e", draft2.id)))
 
-    private fun world(events: List<Event>) = World(base + events, emptyList(), WorldContext(me = me, domain = "example.org", groupsKey = gk))
+    private fun world(events: List<Event>) = World(base + events, emptyList(), WorldContext(me = me, domain = "belfry.example", groupsKey = gk))
 
     @Test
     fun toAndCcAreRead() {
         val t = world(listOf(card)).mailThreads(g).list.single()
         val m = t.mails.single()
-        assertEquals(listOf(MailPerson("hello@example.org", "hello")), m.to)
+        assertEquals(listOf(MailPerson("hello@belfry.example", "hello")), m.to)
         assertEquals(listOf(MailPerson("dev@example.com", "Dev Patel"), MailPerson("park@example.org", "")), m.cc)
         assertEquals("park@example.org", m.cc[1].shown)
     }
@@ -54,7 +54,7 @@ class MailOneShapeTest {
     fun replyAllGoesToTheSenderAndEveryoneElseButUs() {
         val t = world(listOf(card)).mailThreads(g).list.single()
         val last = t.lastIn!!
-        val r = OneShape.replyAll(last.address, last.m.ev.tags, "example.org")
+        val r = OneShape.replyAll(last.address, last.m.ev.tags, "belfry.example")
         assertEquals(listOf("lou@example.com", "dev@example.com", "park@example.org"), r.rcptTo)
         assertEquals("lou@example.com", r.to)
         assertEquals(listOf("dev@example.com", "park@example.org"), r.cc)

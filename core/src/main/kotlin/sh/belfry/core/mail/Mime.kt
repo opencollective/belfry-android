@@ -321,14 +321,16 @@ object Mime {
         val display = if (name.isEmpty()) "" else (if (isAscii(name)) "\"$name\"" else word(name)) + " "
         h.add("From: $display<$from>")
         h.add("To: <$to>")
-        val copied = cc.map { NEWLINES.matcher(it).replaceAll("").trim() }.filter { it.contains('@') && it != to }.distinct()
+        val copied = cc.map { NEWLINES.matcher(it).replaceAll("").trim().lowercase() }.filter { it.contains('@') && !it.equals(to.trim(), ignoreCase = true) }.distinct()
         if (copied.isNotEmpty()) h.add("Cc: " + copied.joinToString(", ") { "<$it>" })
         h.add("Subject: " + word(NEWLINES.matcher(subject).replaceAll(" ")))
         h.add("Date: " + DATE.format(Instant.ofEpochSecond(now)))
         h.add("Message-ID: $messageId")
         if (!inReplyTo.isNullOrEmpty()) {
             h.add("In-Reply-To: $inReplyTo")
-            h.add("References: " + listOfNotNull(references, inReplyTo).filter { it.isNotEmpty() }.joinToString(" "))
+            // References ends with In-Reply-To once (a caller that put it last already is not doubled)
+            val refs = (references ?: "").split(' ').filter { it.isNotEmpty() && it != inReplyTo } + inReplyTo
+            h.add("References: " + refs.joinToString(" "))
         }
         h.add("MIME-Version: 1.0")
         val boundary = "b" + UUID.randomUUID().toString().replace("-", "")
