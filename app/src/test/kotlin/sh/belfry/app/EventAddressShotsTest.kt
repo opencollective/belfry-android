@@ -46,7 +46,7 @@ class EventAddressShotsTest : DemoShots() {
         }) { EventScreen(repair.coord) }
         compose.onNodeWithText("Copied").assertExists()
         compose.mainClock.advanceTimeBy(2_500)
-        compose.onNodeWithText("Copy URL").assertExists()
+        compose.onNodeWithText("Copy").assertExists()
         compose.mainClock.autoAdvance = true
     }
 }

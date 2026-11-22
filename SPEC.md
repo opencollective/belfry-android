@@ -2597,7 +2597,7 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
 - **Whole days over several days** say their days ("Thu 12 Nov → Sat 14 Nov"), never "All day"
   (`World.lastDay`: an all-day event's end date is its last day). One whole day still says "All day".
 - **Address** (full): the URL on one line that scrolls sideways when it is longer than the screen,
-  then one row: Copy URL · Share · QR.
+  then one row: Copy · Share · QR.
 - **Tickets.** With a ticket: "Show my ticket" under Going / Maybe / Can't go (as before). With
   none, on an event that has ticket types: the tickets themselves, each with its button (RSVP /
   Apply / Ask / Buy / Waitlist), in mid too; no single "Pick a ticket" button.

@@ -435,7 +435,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("event-address"),
                     )
                     Gap(10)
-                    sh.belfry.app.ui.kit.CopyShareButtons(url, e.title, copyTag = "event-copy", shareTag = "event-share", copyLabel = "Copy URL", shareLabel = "Share") {
+                    sh.belfry.app.ui.kit.CopyShareButtons(url, e.title, copyTag = "event-copy", shareTag = "event-share", copyLabel = "Copy", shareLabel = "Share") {
                         BusyButton(
                             "QR", onClick = { sheet = EventSheet.Qr }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr,
                             modifier = Modifier.weight(1f).height(sh.belfry.app.ui.kit.COPY_SHARE_HEIGHT).testTag("event-qr"),
