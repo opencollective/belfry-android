@@ -2516,3 +2516,8 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   `MailAliasTest`.
 - Pin: "Pin for me", and for the belfry's admins "Pin for everyone". The main channel: one plain
   line, "Townsquare is always first in everyone's menu." (not a disabled control).
+- (Ruled at docs/one-shape.md d85f408.) A group's Settings keep both "Who can join" (Open / Closed /
+  Private) and, after it, "Who can read its page" (Members only / Public, the web settings'
+  visibility as before 0.8: same wire, same words, Public asks first). A Private group has no
+  Public row; a group made Private while its page is public is saved as members only (its web
+  settings written with `on`/`visibility` members, as going members only always did).

@@ -100,6 +100,32 @@ class GroupsShotsTest : DemoShots() {
         compose.onNodeWithTag("settings-prompt").assertExistsCompat()
     }
 
+    /** A Closed group's Settings: Who can join and Who can read its page (Members only / Public), both. */
+    @Test fun closedGroupShowsBoth() {
+        val g = world.group(Demo.POD_CLOSED)!!
+        demoShot("groups-settings-closed-page", act = {
+            compose.onNodeWithTag("settings-page").performScrollTo()
+            compose.waitForIdle()
+        }) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) { ChannelSettingsForm(g, onClose = {}) }
+        }
+        compose.onNodeWithTag("join-closed").assertExistsCompat()
+        compose.onNodeWithTag("access-public").assertExistsCompat()
+    }
+
+    /** A Private group's Settings: its page is for members only, no Public. */
+    @Test fun privateGroupHasNoPublic() {
+        val g = world.group(Demo.POD_PRIVATE)!!
+        demoShot("groups-settings-private", act = {
+            compose.onNodeWithTag("settings-page").performScrollTo()
+            compose.waitForIdle()
+        }) {
+            Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) { ChannelSettingsForm(g, onClose = {}) }
+        }
+        compose.onNodeWithTag("access-members").assertExistsCompat()
+        compose.onNodeWithTag("access-public").assertDoesNotExist()
+    }
+
     /** channels/closed-requests + home/members: Invite is the ＋ top right, no first row. */
     @Test fun channelMembersWithThePlus() {
         demoShot("groups-channel-members-plus") { ChannelPlaceScreen(Demo.GARDEN, ChannelPlaceKey.MEMBERS) }
