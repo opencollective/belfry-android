@@ -115,7 +115,7 @@ class WebNov12Test {
         assertTrue(w().isPublicChannel(w().group(g)))
         // members only, the page stays; a one-type channel keeps its type
         events.add(ev(admin, now - 50, Actions.setWebPage(g, true, "garden", "members", "proposal")))
-        assertEquals(World.WebPage(true, "garden", "members", "proposal"), w().webPage(w().group(g)))
+        assertEquals(World.WebPage(true, "garden", "members", "proposal", setOf(PostKind.PROPOSAL)), w().webPage(w().group(g)))
         assertFalse(w().isPublicChannel(w().group(g)))
         assertTrue(Actions.setWebPage(g, false, "", "anything").content.contains("\"visibility\":\"public\""))
         // someone who is not an admin of the channel: ignored
