@@ -165,7 +165,7 @@ fun MailThreadScreen(groupId: String, t: InboxThread, onClose: (() -> Unit)? = n
                 val day = ChatFormat.day(world, x.at, now)
                 if (prevAt == null || ChatFormat.day(world, prevAt, now) != day) item(key = "<day>$i") { DayLine(day) }
                 when (x) {
-                    is Step.In -> item(key = x.m.m.id) { MailPreview(x.m, open = level == MailLevel.TINY, canMail = canMail, onReply = { compose = ComposeOpen(null) }, onFull = { full = x.m }) }
+                    is Step.In -> item(key = x.m.m.id) { MailPreview(x.m, open = level == MailLevel.TINY, canMail = canMail, chat = chat, onReply = { compose = ComposeOpen(null) }, onFull = { full = x.m }) }
                     is Step.Out -> item(key = x.m.m.id) { SentMail(world, x.m) }
                     is Step.Reply -> item(key = x.m.id) { MessageRow(groupId, x.m, true, chat) }
                     is Step.Label -> labelLine(world, x.e)?.let { line -> item(key = x.e.id) { ActivityLine(line.first, line.second, ChatFormat.time(world, x.at)) } }
@@ -486,7 +486,7 @@ private fun labelLine(world: World, e: Event): Pair<androidx.compose.ui.graphics
 
 /** An e-mail received, in the conversation: "Lou e-mailed" and, opened, its subject, two lines, the Cc and the reply-all icon. */
 @Composable
-private fun MailPreview(m: MailItem, open: Boolean, canMail: Boolean, onReply: () -> Unit, onFull: () -> Unit) {
+private fun MailPreview(m: MailItem, open: Boolean, canMail: Boolean, chat: ChatState, onReply: () -> Unit, onFull: () -> Unit) {
     val c = Belfry.colors
     val world = LocalWorld.current
     var shown by remember(m.m.id, open) { mutableStateOf(open) }
@@ -525,8 +525,8 @@ private fun MailPreview(m: MailItem, open: Boolean, canMail: Boolean, onReply: (
                 }
                 if (canMail) { Spacer(Modifier.width(8.dp)); ReplyAllIcon(onReply) }
             }
-            // its pictures and files after it (canvas v179 one-shape/email-pictures)
-            MailAttachments(m.original, Modifier.padding(start = 40.dp, end = 12.dp, bottom = 4.dp))
+            // its pictures and files after it (canvas v179 one-shape/email-pictures): the bridge's imeta tags
+            Column(Modifier.padding(start = 40.dp, end = 12.dp, bottom = 4.dp)) { sh.belfry.app.ui.chat.MessageMedia(m.m, chat) }
         }
     }
 }

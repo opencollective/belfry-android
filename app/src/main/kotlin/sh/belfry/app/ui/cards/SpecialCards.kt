@@ -208,7 +208,6 @@ private fun MemberMailPost(m: Message, s: Special.MemberMail, modifier: Modifier
         MailLabel(BelfryIcons.Mail, "via e-mail")
         Subject(s.subject)
         if (m.body.isNotEmpty()) MarkdownText(m.body)
-        MailAttachments(s.original)
         s.original?.let { o -> FullMailLink { full = o } }
     }
     full?.let { FullMailSheet(s.subject, it) { full = null } }
@@ -266,7 +265,6 @@ internal fun InboxCardView(groupId: String, m: Message, card: Special.InboxCard,
         if (!card.verified) Text("unverified sender", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = c.danger)
         Subject(card.subject)
         MarkdownText(m.body.ifEmpty { "(empty)" })
-        MailAttachments(card.original)
         if (card.original != null) FullMailLink { full = true }
         Gap(8)
         Row(

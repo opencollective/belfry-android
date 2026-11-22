@@ -190,14 +190,7 @@ fun MessageRow(
             if (extra.isNotEmpty()) {
                 Text(extra.joinToString("  ") { "#$it" }, fontSize = 13.sp, color = c.orange, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            val pictures = if (m.media.size > 1) m.media.filter { it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
-            // several pictures: the DM grid (canvas v179), then the other files; else each in its place
-            if (pictures.size >= 2) {
-                MediaGrid(m.media.filter { it.isImage && it.url in pictures }, chat, pictures)
-                for (media in m.media) if (!(media.isImage && media.url in pictures)) MediaView(media, session, chat, pictures)
-            } else {
-                for (media in m.media) MediaView(media, session, chat, pictures)
-            }
+            MessageMedia(m, chat)
             if (pending != null) for (a in pending.attachments) PendingAttachment(a, session, chat)
             val reactions = world.reactionsOf(groupId, m.id)
             // no to-do mark here any more (web 2026-11-12): the ⏳ / ☑️ reactions say it
@@ -329,7 +322,9 @@ private fun MediaView(media: Media, session: Session, chat: ChatState, pictures:
         AudioRow(media)
         return
     }
-    if (!media.isImage) {
+    // a picture that can't be loaded falls back to its file row (canvas v179)
+    var failed by remember(media.url) { mutableStateOf(false) }
+    if (!media.isImage || failed) {
         val uri = LocalUriHandler.current
         val shape = RoundedCornerShape(10.dp)
         Row(
@@ -340,7 +335,11 @@ private fun MediaView(media: Media, session: Session, chat: ChatState, pictures:
         ) {
             Icon(BelfryIcons.Upload, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(media.name ?: "File", fontSize = 14.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(media.name ?: if (failed) "Picture" else "File", fontSize = 14.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            if (failed) {
+                Spacer(Modifier.width(8.dp))
+                Text(sh.belfry.app.ui.kit.PICTURE_FAILED, fontSize = 12.sp, color = c.muted, maxLines = 1)
+            }
         }
         return
     }
@@ -353,8 +352,25 @@ private fun MediaView(media: Media, session: Session, chat: ChatState, pictures:
         if (bitmap != null) {
             Image(bitmap, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         } else if (LocalNetworkImages.current && media.url.startsWith("https://")) {
-            AsyncImage(model = media.url, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            AsyncImage(model = media.url, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), onError = { failed = true })
         }
+    }
+}
+
+/**
+ * A message's pictures and files after its text (canvas v179 n-email-pictures): several pictures as the
+ * DM grid, then the other files; one picture large; files as rows. Also under an e-mail in its thread.
+ */
+@Composable
+fun MessageMedia(m: Message, chat: ChatState) {
+    if (m.media.isEmpty()) return
+    val session = LocalSession.current
+    val pictures = if (m.media.size > 1) m.media.filter { it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
+    if (pictures.size >= 2) {
+        MediaGrid(m.media.filter { it.isImage && it.url in pictures }, chat, pictures)
+        for (media in m.media) if (!(media.isImage && media.url in pictures)) MediaView(media, session, chat, pictures)
+    } else {
+        for (media in m.media) MediaView(media, session, chat, pictures)
     }
 }
 

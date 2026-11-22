@@ -40,6 +40,9 @@ class MailOneShapeShotsTest : DemoShots() {
         compose.onNodeWithTag("one-header").assertExists()
         compose.onNodeWithText("Comment for the team").assertExists()
         assertTrue(compose.onAllNodesWithText("Cc Dev Patel, park@example.org").fetchSemanticsNodes().isNotEmpty())
+        // canvas v179: the e-mail's two pictures as the grid, its PDF as a row after them (the bridge's imeta)
+        compose.onNodeWithTag("media-grid").assertExists()
+        compose.onNodeWithText("Route.pdf").assertExists()
     }
 
     /** email-thread (mid, how an open thread opens): the e-mails on top, the conversation below. */

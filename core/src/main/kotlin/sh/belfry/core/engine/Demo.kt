@@ -446,7 +446,11 @@ object Demo {
         // reply all: who the mail was for (to / cc), who has it, the team's talk, an internal draft
         val lou = raw(groups, now - 3 * h, 9, listOf(listOf("h", HELLO), listOf("subject", "Park cleaning on Saturday"), listOf("mail-from", "lou@example.com"), listOf("mail-name", "Lou"),
             listOf("message-id", "<park-clean-1@example.com>"), listOf("belfry-auth", "pass"), listOf("to", "hello@$DOMAIN", "hello"), listOf("cc", "dev@example.com", "Dev Patel"),
-            listOf("cc", "park@example.org", ""), listOf("client", "belfry-mail")),
+            listOf("cc", "park@example.org", ""), listOf("client", "belfry-mail"),
+            // the bridge's attachments (mail.py: drops.upload's tags), canvas v179 one-shape/email-pictures
+            listOf("imeta", "url https://files.$DOMAIN/7d1c0e9a.jpg", "m image/jpeg", "dim 640x480", "alt park-north.jpg"),
+            listOf("imeta", "url https://files.$DOMAIN/b42f6a11.jpg", "m image/jpeg", "dim 640x480", "alt park-south.jpg"),
+            listOf("imeta", "url https://files.$DOMAIN/0c9e2d74.pdf", "m application/pdf", "alt Route.pdf")),
             "**Park cleaning on Saturday**\n\nHello! Could you lend us rakes and gloves for the park cleaning on Saturday? We'd be about 15.")
         post(maya, now - 3 * h + 360, Actions.assignCard(HELLO, lou.id, maya.pubkey))
         post(maya, now - 3 * h + 420, Actions.postThreadReply(HELLO, lou, "I know Lou, I'll answer. Lena, are the rakes in the shed?"))

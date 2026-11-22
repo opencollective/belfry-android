@@ -125,7 +125,7 @@ fun Task.attachmentCounts(): Pair<Int, Int> {
         val path = m.value.substringBefore('?').substringBefore('#').trimEnd('.', ',', ')', ']')
         val ext = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
         when {
-            ext in setOf("jpg", "jpeg", "png", "gif", "webp", "heic", "avif") -> photos++
+            Pictures.isPicture(null, path) -> photos++ // the one rule for pictures (canvas v180 n-email-pictures)
             ext in setOf("pdf", "doc", "docx", "odt", "xls", "xlsx", "ods", "csv", "txt", "zip", "mp3", "m4a", "mp4", "mov", "ppt", "pptx", "odp") -> files++
         }
     }
