@@ -2579,7 +2579,10 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   `Meetings.checkInOpen`), a ✕ that asks, then takes the person off: `9001 [["h",<chat>],["p",<pubkey>]]`
   and a new version of the event without their `p … invited` (`Meetings.uninvite`; never the
   maker). Someone whose latest 9000 / 9001 in the chat is a 9001 is no longer among the meeting's
-  people, whatever they answered. From then on: "Check in" → "✓ Checked in" (the 1985 of 19.23).
+  people, whatever they answered; only a 9000 / 9001 signed by the meeting's maker or a belfry
+  admin counts (anyone else's is ignored, whatever the relay let through), the latest per person
+  decides, and a later 9000 brings them back (`Meetings.removed`, **vectors/meetings.json**
+  `removal`). From then on: "Check in" → "✓ Checked in" (the 1985 of 19.23).
   There is no "Confirm" button any more.
 - **The handle** of an event's page (all events): ⌃ on its left goes up a level (full → mid →
   tiny), ⌄ on its right goes down; the drag and the tap on the bar stay.

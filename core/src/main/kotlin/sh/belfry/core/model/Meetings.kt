@@ -84,6 +84,19 @@ object Meetings {
             if (pubkey in e.invited) EventActions.edit(e, formOf(e, zone), g, groupsRelay, drop = setOf(pubkey)) else emptyList()
     }
 
+    /** CHAT: the events of the meeting's chat; MAY: who else than the maker may put people in and out (the belfry's admins). */
+    fun removed(chat: List<sh.belfry.core.nostr.Event>, maker: String, may: Set<String>): Set<String> {
+        val last = HashMap<String, Pair<Long, Int>>()
+        for (x in chat) {
+            if ((x.kind != 9000 && x.kind != 9001) || (x.pubkey != maker && x.pubkey !in may)) continue
+            val p = x.tags.firstOrNull { it.size >= 2 && it[0] == "p" }?.get(1) ?: continue
+            if (p == maker) continue
+            val had = last[p]
+            if (had == null || had.first <= x.createdAt) last[p] = x.createdAt to x.kind
+        }
+        return last.filter { it.value.second == 9001 }.keys
+    }
+
     /** Checking people in opens a quarter of an hour before the start (people arrive early); before, a host can only remove. */
     const val CHECK_IN_EARLY = 15 * 60L
     fun checkInOpen(e: CalEvent, now: Long): Boolean = now >= e.start - CHECK_IN_EARLY
@@ -122,16 +135,12 @@ enum class MeetingStatus(val label: String) {
     INVITED("Invited"), CONFIRMED("Confirmed"), MAYBE("Maybe"), DECLINED("Can't come"), CHECKED_IN("Checked in")
 }
 
-/** Who a host took off the meeting: the chat's latest 9000 / 9001 about them is a 9001. */
-fun World.meetingRemoved(e: CalEvent): Set<String> {
-    val last = HashMap<String, Int>()
-    for (x in groupEventsSorted(e.groupId)) {
-        if (x.kind != 9000 && x.kind != 9001) continue
-        val p = x.t("p") ?: continue
-        last[p] = x.kind
-    }
-    return last.filter { it.value == 9001 }.keys
-}
+/**
+ * Who was taken off the meeting (vectors/meetings.json `removal`): of the chat's 9000 / 9001 signed
+ * by its maker or a belfry admin, the latest about a person is a 9001. Anyone else's are ignored
+ * (the relay refuses them, but we don't rely on it); a later 9000 brings the person back.
+ */
+fun World.meetingRemoved(e: CalEvent): Set<String> = Meetings.removed(groupEventsSorted(e.groupId), e.creator, everywhere(e.groupId))
 
 /** A meeting's people: who made it, everyone invited, and whoever answered; not who was removed. */
 fun World.meetingPeople(e: CalEvent): List<String> {

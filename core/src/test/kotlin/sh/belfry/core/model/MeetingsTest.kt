@@ -6,6 +6,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import sh.belfry.core.engine.MemoryVault
 import sh.belfry.core.engine.Onboarding
@@ -244,6 +247,18 @@ class MeetingsTest {
             s.stop()
         } finally {
             scope.coroutineContext[Job]?.cancel()
+        }
+    }
+
+    /** vectors/meetings.json (written here; for belfry-ios and the web to read removals the same way). */
+    @Test
+    fun removalVectors() {
+        val v = sh.belfry.core.Vectors.load("meetings.json")["removal"]!!.jsonObject
+        val maker = v["maker"]!!.jsonPrimitive.content
+        val admins = v["admins"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        for (c in v["cases"]!!.jsonArray.map { it.jsonObject }) {
+            val events = c["events"]!!.jsonArray.map { Event.fromJson(it)!! }
+            assertEquals(c["removed"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(), Meetings.removed(events, maker, admins), c["name"]!!.jsonPrimitive.content)
         }
     }
 }
