@@ -1,8 +1,5 @@
 package sh.belfry.core.model
 
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import sh.belfry.core.outbox.Target
 
 // Groups that accept by vouches (collective-belfry docs/membership.md "Groups that accept by
@@ -43,10 +40,6 @@ fun World.groupRequestCount(): Int = groupRequests().sumOf { x ->
 /** A vouch (or its withdrawal) for a request to join a closed group. */
 fun Actions.vouch(groupId: String, requestId: String, applicant: String, on: Boolean = true): Draft =
     Draft(Target.GROUPS, 1985, tags = listOf(listOf("h", groupId), listOf("L", Vouches.NS), listOf("l", if (on) "vouch" else "withdrawn", Vouches.NS), listOf("e", requestId), listOf("p", applicant)))
-
-/** The admins' order of the channel list alone (older form; [channelLayout] writes categories too). */
-fun Actions.channelOrder(ids: List<String>): Draft =
-    Draft(Target.MAIN, 30078, buildJsonObject { put("order", JsonArray(ids.take(1000).map { JsonPrimitive(it) })) }.toString(), listOf(listOf("d", World.ORDER_D)))
 
 /** The groups (pods) I'm a member or admin of (the Groups place: "My groups"). */
 fun World.myPods(): List<Group> = groups.filter { it.isPod && (me in it.members || me in it.admins) }

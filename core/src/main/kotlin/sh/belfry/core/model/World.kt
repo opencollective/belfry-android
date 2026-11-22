@@ -44,7 +44,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     private val pendingById: Map<String, OutboxItem> = pendingItems.associateBy { it.localId }
 
     /** All events, queued ones shown as if published (not the pre-signed gift wraps). In arrival order. */
-    val all: List<Event> = if (pendingItems.isEmpty()) events else events + pendingItems.map { it.asEvent(ctx.me) }
+    val all: List<Event> = newestCopies(if (pendingItems.isEmpty()) events else events + pendingItems.map { it.asEvent(ctx.me) })
 
     // ---- what the snapshot before already worked out -----------------------------------------------
 
@@ -853,26 +853,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun isInbox(g: Group?): Boolean {
         if (g == null) return false
         val newD = inboxD(g.id)
-        // per author + kind + d only the newest copy counts, then its h: a stale copy kept locally
-        // (old d, h=hello) after the relay replaced it (h=sponsors) must not keep #hello on (OSV, 2026-11-22)
-        val own = inGroupSorted(g.id).lastOrNull { it.kind == 30078 && it.t("h") == g.id && (it.t("d") == newD || it.t("d") == INBOX_D) && it.pubkey in g.admins && isNewestSetting(it) } ?: return false
+        // a stale copy (old d, h=hello) the relay replaced (h=sponsors) is gone already: [all] holds the
+        // newest copy per author + kind + d only, and only then is its h read (OSV, 2026-11-22)
+        val own = inGroupSorted(g.id).lastOrNull { it.kind == 30078 && it.t("h") == g.id && (it.t("d") == newD || it.t("d") == INBOX_D) && it.pubkey in g.admins } ?: return false
         val on = parseJsonOrNull(own.content.ifEmpty { "{}" }).obj()?.get("on") ?: return false
         return truthy(on)
     }
-
-    /** The newest kind 30078 per author + d (NIP-01: newest created_at, then the lowest id). */
-    private val newestSettings: Map<Pair<String, String>, Event> by lazy {
-        val out = HashMap<Pair<String, String>, Event>()
-        for (e in ofKind(30078)) {
-            val key = e.pubkey to (e.t("d") ?: "")
-            val cur = out[key]
-            if (cur == null || e.createdAt > cur.createdAt || (e.createdAt == cur.createdAt && e.id < cur.id)) out[key] = e
-        }
-        out
-    }
-
-    /** Is this 30078 the copy that counts: no newer one by the same author with the same d. */
-    internal fun isNewestSetting(e: Event): Boolean = newestSettings[e.pubkey to (e.t("d") ?: "")]?.id == e.id
 
     // ---- a channel's page on the web, its visibility, its type of post -----------------------
     // (web model.ts webPage; Belfry webthreads.py, 2026-11-11.) The latest NIP-78 setting
@@ -1473,6 +1459,41 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 in 2100..2103 -> true
                 else -> false
             }
+        }
+
+        /**
+         * Replaceable and addressable events (kinds 0, 3, 10000-19999 per author + kind; 30000-39999
+         * per author + kind + d): only the newest copy is kept (NIP-01: newest created_at, then the
+         * lowest id), before anything reads its h or its content. The store keeps every copy it got,
+         * so a copy the relay replaced must not keep counting (Xavier's rule, 2026-11-22: settings
+         * for different channels never override each other). Calendar events, proposals and RSVPs
+         * keep their versions: those are their history (edits merged against the version they
+         * started from; a channel's log of answers), and their readers take the newest themselves.
+         */
+        internal fun newestCopies(events: List<Event>): List<Event> {
+            var newest: HashMap<String, Event>? = null
+            var lost: HashSet<String>? = null
+            for (e in events) {
+                val key = replaceKey(e) ?: continue
+                val map = newest ?: HashMap<String, Event>().also { newest = it }
+                val cur = map[key]
+                if (cur == null) { map[key] = e; continue }
+                if (cur.id == e.id) continue
+                val eWins = e.createdAt > cur.createdAt || (e.createdAt == cur.createdAt && e.id < cur.id)
+                val loser = if (eWins) cur else e
+                if (eWins) map[key] = e
+                (lost ?: HashSet<String>().also { lost = it }).add(loser.id)
+            }
+            val gone = lost ?: return events
+            return events.filter { it.id !in gone }
+        }
+
+        private val KEEP_VERSIONS = setOf(31922, 31923, 30023, 31925)
+
+        internal fun replaceKey(e: Event): String? = when {
+            e.kind == 0 || e.kind == 3 || e.kind in 10000..19999 -> "${e.kind}:${e.pubkey}"
+            e.kind in 30000..39999 && e.kind !in KEEP_VERSIONS -> "${e.kind}:${e.pubkey}:${e.t("d") ?: ""}"
+            else -> null
         }
 
         fun seenD(groupId: String): String = "seen:$groupId"
