@@ -2,6 +2,7 @@ package sh.belfry.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -30,6 +31,9 @@ class NotesShotsTest : DemoShots() {
         val empty = DmSnapshot(d.items.filter { it.conv != notes }, d.reports, d.read, d.me, d.now, d.reactions)
         CompositionLocalProvider(LocalDms provides empty, content = content)
     }
+
+    /** The note's picture is decrypted off the main thread: wait for it before the light shot. */
+    private fun picture() = compose.waitUntil(10_000) { compose.onAllNodesWithTag("dm-picture", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
 
     /** messages/notes-list: Notes first with its pin, the last note, no count. */
     @Test fun list() {
@@ -71,7 +75,7 @@ class NotesShotsTest : DemoShots() {
 
     /** one-shape/notes-thread: the lock by the name, the fixed first line, a few notes and a picture. */
     @Test fun thread() {
-        demoShot("notes-thread") { ConversationScreen(notes) }
+        demoShot("notes-thread", act = { picture() }) { ConversationScreen(notes) }
         compose.onNodeWithTag("seal-lock").assertExists()
         compose.onNodeWithTag("notes-line-sealed").assertExists()
         compose.onNodeWithText(Notes.SEALED_LINE).assertExists()
@@ -97,7 +101,7 @@ class NotesShotsTest : DemoShots() {
     /** one-shape/notes-unsealed: no lock, no claim. */
     @Test fun unsealed() {
         session.encryption.demoNotSealed()
-        demoShot("notes-unsealed") { ConversationScreen(notes) }
+        demoShot("notes-unsealed", act = { picture() }) { ConversationScreen(notes) }
         compose.onNodeWithTag("seal-lock").assertDoesNotExist()
         compose.onNodeWithTag("notes-line-unsealed").assertExists()
         compose.onNodeWithText(Notes.UNSEALED_LINE).assertExists()
