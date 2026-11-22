@@ -126,7 +126,6 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
     val close = { chat.acting = null }
     val pending = world.pending(m.id)
     val isReply = m.ev.kind == 1111
-    val thread = if (isReply) null else world.threadsOf(groupId)[m.id]
     val mine = world.reactionsOf(groupId, m.id).filter { it.mine != null }.map { it.emoji }.toSet()
     var more by remember { mutableStateOf(chat.emojiOnly) }
     var copied by remember { mutableStateOf("") }
@@ -174,23 +173,28 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
         return
     }
 
-    ActionGroup {
-        if (world.canEdit(m)) {
-            ActionRow("Edit message", onClick = { close(); onEdit(m) }, icon = BelfryIcons.Edit, modifier = Modifier.testTag("menu-edit"))
+    // one hold menu everywhere (docs/one-shape.md 3, canvas one-shape/dm-actions): reactions, Reply,
+    // Make a to-do, then Copy text, Copy link, Pin; my own / admin rows below as before
+    val reply = onOpenThread ?: onReply
+    val title = world.todoTitle(m)
+    val canTodo = title.isNotEmpty() && !world.todosBySource(groupId).containsKey(m.id)
+    if ((!isReply && reply != null) || canTodo) {
+        ActionGroup {
+            if (!isReply && reply != null) {
+                // Reply starts or opens the message's thread (kind 1111)
+                ActionRow("Reply", onClick = { close(); reply(m) }, icon = BelfryIcons.Reply, modifier = Modifier.testTag("menu-reply"))
+            }
+            if (canTodo) {
+                // too long for a to-do: the New to-do sheet opens with the text, tinted past 300 (never cut)
+                if (TodoLimit.fits(title)) {
+                    BusyRow("Make a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
+                } else {
+                    ActionRow("Make a to-do", onClick = { close(); chat.todoText = title; chat.todoFrom = m.id; chat.newTodo = true }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
+                }
+            }
         }
-        if (!isReply && onReply != null) {
-            val n = thread?.count ?: 0
-            ActionRow(if (n > 0) "Reply in the thread ($n)" else "Reply", onClick = { close(); onReply(m) }, icon = BelfryIcons.Reply)
-        }
-        if (!isReply && onOpenThread != null) {
-            val n = thread?.count ?: 0
-            ActionRow(if (n > 0) "Open the thread ($n)" else "Start a thread", onClick = { close(); onOpenThread(m) }, icon = BelfryIcons.Thread)
-        }
-        if (m.pubkey != world.me) {
-            ActionRow("Message ${world.displayName(m.pubkey)}", onClick = { close(); nav.go(Routes.conversation("n:" + m.pubkey)) }, icon = BelfryIcons.At)
-        }
+        Spacer(Modifier.height(12.dp))
     }
-    Spacer(Modifier.height(12.dp))
     ActionGroup {
         if (m.text.isNotEmpty()) {
             ActionRow(if (copied == "text") "Copied" else "Copy text", onClick = { copyText(context, m.text); copied = "text" }, icon = BelfryIcons.Copy)
@@ -201,30 +205,34 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
             onClick = { copyText(context, session.community.messageLink(groupId, m.id, world.calendar.firstOrNull { it.groupId == groupId }?.link)); copied = "link" },
             icon = BelfryIcons.Link,
         )
-        // #requests (web 2026-11-11): a member turns a request into a proposal in #proposals
-        if (m.ev.kind == 9 && !world.amGuest && world.webPage(world.group(groupId))?.posts == "request") {
-            ActionRow("Turn into a proposal", onClick = { close(); nav.go(Routes.createProposal("proposals", from = m.id, fromChannel = groupId)) }, icon = BelfryIcons.Proposal, modifier = Modifier.testTag("menu-propose"))
-        }
-        val title = world.todoTitle(m)
-        if (title.isNotEmpty() && !world.todosBySource(groupId).containsKey(m.id)) {
-            // too long for a to-do: the New to-do sheet opens with the text, tinted past 300 (never cut)
-            if (TodoLimit.fits(title)) {
-                BusyRow("Turn into a to-do", onClick = { session.send(Actions.addTask(groupId, title, m.id)); close() }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
-            } else {
-                ActionRow("Turn into a to-do", onClick = { close(); chat.todoText = title; chat.todoFrom = m.id; chat.newTodo = true }, icon = MoreIcons.Todo, modifier = Modifier.testTag("menu-todo"))
-            }
-        }
         if (m.ev.kind == 9 && world.canPin(groupId)) {
             val pinned = world.isPinned(groupId, m.id)
             BusyRow(
-                if (pinned) "Unpin from the channel" else "Pin to the channel",
+                if (pinned) "Unpin" else "Pin",
                 onClick = { session.send(Actions.pinMessage(groupId, m.id, !pinned)); close() },
                 icon = BelfryIcons.Pin, modifier = Modifier.testTag("menu-pin"),
             )
         }
-        val site = if (world.isCommunityAdmin) NSITE.find(m.text) else null
-        if (site != null) {
-            BusyRow("Make this the website", onClick = { session.publishWebsite(site.value, m.id); close() }, icon = BelfryIcons.Globe)
+    }
+    val propose = m.ev.kind == 9 && !world.amGuest && world.webPage(world.group(groupId))?.posts == "request"
+    val site = if (world.isCommunityAdmin) NSITE.find(m.text) else null
+    val editable = world.canEdit(m)
+    if (editable || m.pubkey != world.me || propose || site != null) {
+        Spacer(Modifier.height(12.dp))
+        ActionGroup {
+            if (editable) {
+                ActionRow("Edit message", onClick = { close(); onEdit(m) }, icon = BelfryIcons.Edit, modifier = Modifier.testTag("menu-edit"))
+            }
+            if (m.pubkey != world.me) {
+                ActionRow("Message ${world.displayName(m.pubkey)}", onClick = { close(); nav.go(Routes.conversation("n:" + m.pubkey)) }, icon = BelfryIcons.At)
+            }
+            // #requests (web 2026-11-11): a member turns a request into a proposal in #proposals
+            if (propose) {
+                ActionRow("Turn into a proposal", onClick = { close(); nav.go(Routes.createProposal("proposals", from = m.id, fromChannel = groupId)) }, icon = BelfryIcons.Proposal, modifier = Modifier.testTag("menu-propose"))
+            }
+            if (site != null) {
+                BusyRow("Make this the website", onClick = { session.publishWebsite(site.value, m.id); close() }, icon = BelfryIcons.Globe)
+            }
         }
     }
     if (world.canDelete(m)) {

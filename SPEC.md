@@ -2436,3 +2436,22 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   the thread sends at once.
 - App: three states (`MailLevel` TINY / MID / FULL; MID while open, TINY once answered or
   closed); the composer is the team's ("Comment for the team"), no Reply / Comment switch.
+
+### 19.58 One shape: hold menu and DM replies as threads (2026-11-22; Xavier via the lead; docs/one-shape.md 3; canvas one-shape/dm-actions, dm-thread)
+
+- **One hold menu** for every message: the reactions row, then Reply · Make a to-do, then Copy
+  text · Copy link · Pin, then (as before) Edit message, Message <name>, Turn into a proposal,
+  Make this the website, and Delete on its own. Reply starts or opens the message's thread (kind
+  1111 in a group); there is no "Start a thread" / "Open the thread" any more. Make a to-do is the
+  former "Turn into a to-do"; Pin / Unpin is the existing `belfry/pin` label.
+- **Direct messages** (not e-mail): reactions, Reply, Copy text. No Make a to-do or Pin (sealed rules
+  first), and no Copy link: a direct message has no link scheme yet.
+- **A DM reply** is a kind 14 rumor with `["e", <root rumor id>, "", "root"]` (`OneShape.dmReplyTag`),
+  sent through the usual DM path (wrapped, or sealed in a sealed conversation, like any 14). Reading:
+  `Dm.root` = `OneShape.dmRoot(tags)`; `DmReplies.split` puts a reply under its root when the root is
+  in the conversation (a reply to a reply joins the top thread), else in line. The root row shows
+  "💬 n replies" (opens the thread); the thread screen's header has two lines (the beginning of the
+  root message; 👥 people · 💬 replies), the message on top, its replies, "Reply in the thread".
+  A reply counts as unread for its conversation like any message; the read mark is the conversation's.
+  Only a message that is out (not held, not failed), not itself a reply, in a conversation this
+  device can write to, offers Reply.

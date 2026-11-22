@@ -1,5 +1,6 @@
 package sh.belfry.core.dm
 
+import sh.belfry.core.model.OneShape
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -101,6 +102,8 @@ data class Dm(
     val file: DmFileRef? = null,
     /** Pictures sent together, and their caption (a kind 14), share it. */
     val group: String? = null,
+    /** A reply (docs/one-shape.md 3): the rumor id of the message whose thread it is in. */
+    val root: String? = null,
 ) {
     val isMail: Boolean get() = kind == 1301
     val isFile: Boolean get() = kind == DmFiles.KIND
@@ -137,6 +140,7 @@ data class Dm(
         if (sharedBy != null) put("sharedBy", JsonPrimitive(sharedBy))
         if (file != null) put("file", file.toJson())
         if (group != null) put("group", JsonPrimitive(group))
+        if (root != null) put("root", JsonPrimitive(root))
     }
 
     companion object {
@@ -169,6 +173,7 @@ data class Dm(
                 sharedBy = o.s("sharedBy"),
                 file = o["file"].obj()?.let(DmFileRef::fromJson),
                 group = o.s("group"),
+                root = o.s("root"),
             )
         }
     }
@@ -311,6 +316,15 @@ class DmSnapshot(
 
     /** A conversation's messages, oldest first. */
     fun thread(conv: String): List<Dm> = byConv[conv] ?: emptyList()
+
+    private val splitByConv = java.util.concurrent.ConcurrentHashMap<String, DmReplies.Split>()
+    private fun split(conv: String): DmReplies.Split = splitByConv.getOrPut(conv) { DmReplies.split(thread(conv)) }
+
+    /** What the conversation shows in line (docs/one-shape.md 3): every message but the replies whose root is here. */
+    fun inline(conv: String): List<Dm> = split(conv).inline
+
+    /** The replies in the thread of message ROOT (a rumor id) of CONV, oldest first. */
+    fun replies(conv: String, root: String): List<Dm> = split(conv).replies[root] ?: emptyList()
 
     fun report(emailId: String?): Report? = emailId?.let { reports[it] }
 
@@ -459,7 +473,7 @@ object DmReader {
         val rid = rumor.id.ifEmpty { rumor.computedId() }
         val conv = convOf(rumor, me, bridge)
         val mine = rumor.pubkey == me
-        if (rumor.kind == 14) return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, 14, rumor.content, group = rumor.tag("group"))
+        if (rumor.kind == 14) return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, 14, rumor.content, group = rumor.tag("group"), root = OneShape.dmRoot(rumor.tags)?.takeIf { it != rid })
         if (rumor.kind == DmFiles.KIND) {
             val f = DmFileRef.of(rumor) ?: return null
             return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, DmFiles.KIND, "", file = f, group = rumor.tag("group"))
@@ -1001,13 +1015,14 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
      * new e-mail, conv "m:<address>"). Returns the conversation the message is in (a new e-mail
      * becomes its subject's thread). Throws [DmException] with a message to show.
      */
-    suspend fun send(conv: String, text: String, subject: String? = null, group: String? = null, at: Long? = null): String {
+    suspend fun send(conv: String, text: String, subject: String? = null, group: String? = null, at: Long? = null, root: String? = null): String {
         val me = host.me
         if (!MailThreads.isMail(conv)) {
             val to = MailThreads.peers(conv)
             if (to.any { !Hex.isKey(it) }) throw DmException("This is not a valid Nostr key.")
-            val rumor = GiftWrap.rumor(14, me, to.filter { it != me }.map { listOf("p", it) } + listOfNotNull(group?.let { listOf("group", it) }), text, at ?: nextAt())
-            set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true, group = group))
+            // a reply (docs/one-shape.md 3): ["e", root, "", "root"]; wrapped and sealed like any other 14
+            val rumor = GiftWrap.rumor(14, me, to.filter { it != me }.map { listOf("p", it) } + listOfNotNull(group?.let { listOf("group", it) }, root?.let { OneShape.dmReplyTag(it) }), text, at ?: nextAt())
+            set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true, group = group, root = root))
             publish()
             try {
                 if (!deliver(rumor, to, conv = conv)) {

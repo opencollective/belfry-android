@@ -494,16 +494,21 @@ object Demo {
 
         // ---- direct messages and e-mail (gift wraps to me) ---------------------------------------
         val wraps = ArrayList<Event>()
-        suspend fun dm(from: LocalSigner, to: List<LocalSigner>, at: Long, text: String, reactions: List<Pair<LocalSigner, String>> = emptyList()) {
-            val rumor = GiftWrap.rumor(14, from.pubkey, to.filter { it !== from }.map { listOf("p", it.pubkey) }, text, at)
+        suspend fun dm(from: LocalSigner, to: List<LocalSigner>, at: Long, text: String, reactions: List<Pair<LocalSigner, String>> = emptyList(), root: String? = null): String {
+            // root: a reply in that message's thread (docs/one-shape.md 3)
+            val rumor = GiftWrap.rumor(14, from.pubkey, to.filter { it !== from }.map { listOf("p", it.pubkey) } + listOfNotNull(root?.let { sh.belfry.core.model.OneShape.dmReplyTag(it) }), text, at)
             wraps.add(GiftWrap.wrap(rumor, me.pubkey, from))
             // reactions to it (canvas home/conversation): a kind 7 rumor, e = the message's rumor id, k = 14
             for ((who, emoji) in reactions) {
                 val r = GiftWrap.rumor(7, who.pubkey, listOf(listOf("e", rumor.id, "", from.pubkey), listOf("p", from.pubkey), listOf("k", "14")), emoji, at + 120)
                 wraps.add(GiftWrap.wrap(r, me.pubkey, who))
             }
+            return rumor.id
         }
-        dm(maya, listOf(me), now - 26 * h, "Can you open the workshop on Saturday? I'm away until noon.")
+        val saturday = dm(maya, listOf(me), now - 26 * h, "Can you open the workshop on Saturday? I'm away until noon.")
+        // two replies in its thread (canvas one-shape/dm-thread): "2 replies" under it, not in line
+        dm(me, listOf(maya), now - 26 * h + 600, "Does the bike repair group come at 10 again?", root = saturday)
+        dm(maya, listOf(me), now - 26 * h + 1200, "Yes, from 10. They bring their own stands.", root = saturday)
         dm(me, listOf(maya), now - 25 * h, "Sure. Where is the key these days?", listOf(maya to "🙏"))
         dm(maya, listOf(me), now - 25 * h + 300, "In the **blue box** behind the seed shelf.", listOf(me to "👍"))
         dm(maya, listOf(me), now - 35 * 60, "The new gate code is 4417. Please don't post it in a channel 🙏")

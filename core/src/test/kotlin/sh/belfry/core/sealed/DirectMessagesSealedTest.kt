@@ -119,6 +119,24 @@ class DirectMessagesSealedTest {
         assertTrue(b.first.sealedSince.containsKey(conv(alice.pubkey)))
     }
 
+    /** A reply (docs/one-shape.md 3) is sealed like any 14: two wraps, no signer; Bob sees it under its root. */
+    @Test fun sealedReplyGoesUnderItsRoot() = runBlocking<Unit> {
+        val (a, b) = ready()
+        a.second.send(conv(bob.pubkey), "Could you bring the extension cable?")
+        val root = a.second.snapshot.value.thread(conv(bob.pubkey)).single().rid
+        a.second.send(conv(bob.pubkey), "The reel, please.", root = root)
+        val wraps = outbox(a.second)
+        assertEquals(4, wraps.size, "two wraps a message, as before")
+        assertTrue(wraps.all { it.signed!!.tag("lb") != null })
+        assertEquals(0, a.third.calls)
+        for (w in wraps.filter { it.signed!!.tag("p") == bob.pubkey }) b.second.offer(listOf(w.signed!!))
+        b.second.process()
+        val snap = b.second.snapshot.value
+        assertEquals(listOf("Could you bring the extension cable?"), snap.inline(conv(alice.pubkey)).map { it.text })
+        assertEquals(listOf("The reel, please."), snap.replies(conv(alice.pubkey), root).map { it.text })
+        assertEquals(0, b.third.calls)
+    }
+
     /** No engine yet: a sealed wrap is kept, never handed to the signer. */
     @Test fun sealedWrapKeptWithoutEngine() = runBlocking<Unit> {
         val (a, _) = ready()
