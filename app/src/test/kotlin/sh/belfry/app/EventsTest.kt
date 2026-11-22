@@ -24,6 +24,7 @@ import sh.belfry.core.model.meetingSuggestions
 import sh.belfry.core.model.attendance
 import sh.belfry.core.model.Named
 import sh.belfry.core.model.Meetings
+import sh.belfry.core.model.eventByLink
 import sh.belfry.core.model.meetingPeople
 import sh.belfry.core.model.MeetingForm
 import sh.belfry.app.ui.cards.EventHandoff
