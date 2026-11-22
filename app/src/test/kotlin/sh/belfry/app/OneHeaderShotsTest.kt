@@ -49,7 +49,7 @@ class OneHeaderShotsTest : DemoShots() {
     @Test fun channelFolded() {
         demoShot("oneshape-channel") { ChannelScreen(Demo.GARDEN, onMenu = {}) }
         compose.onNodeWithTag("channel-bell").assertExists()
-        compose.onNodeWithTag("row-item-people").assertExists()
+        compose.onNodeWithTag("row-item-people", useUnmergedTree = true).assertExists()
         assertTrue("no search at the top right", compose.onAllNodesWithTag("one-header").fetchSemanticsNodes().size == 1)
     }
 
@@ -74,7 +74,7 @@ class OneHeaderShotsTest : DemoShots() {
     /** #hello takes e-mails: led in blue by ✉ N open (and 👤 on you once one is mine). */
     @Test fun inboxChannel() {
         demoShot("oneshape-inbox") { ChannelScreen(Demo.HELLO, onMenu = {}) }
-        compose.onNodeWithTag("row-item-lead").assertExists()
+        compose.onNodeWithTag("row-item-lead", useUnmergedTree = true).assertExists()
     }
 
     /** Its pull-down: an "E-mails" row on top of the usual rows. */
@@ -107,7 +107,7 @@ class OneHeaderShotsTest : DemoShots() {
         val w = world
         val root = w.threadsOf(Demo.GENERAL).entries.maxBy { it.value.count }.key
         demoShot("oneshape-thread") { ThreadScreen(Demo.GENERAL, root) }
-        compose.onNodeWithTag("row-item-comments").assertExists()
+        compose.onNodeWithTag("row-item-comments", useUnmergedTree = true).assertExists()
     }
 
     /** At font scale 2 on a narrow phone the row drops items (owner, files, to-dos…) and never clips. */
@@ -115,7 +115,7 @@ class OneHeaderShotsTest : DemoShots() {
         demoShot("oneshape-header-font2") {
             val d = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(d.density, 2f)) {
-                Column(Modifier.width(340.dp)) {
+                Column(Modifier.width(280.dp)) {
                     OneHeader("hello", channelRowItems(world, Demo.HELLO, session.now()) + RowItem("owner", BelfryIcons.User, "1 on you", "1 on you", lead = true),
                         navigation = { IconAction(BelfryIcons.Menu, "The town", {}) }, actions = { IconAction(BelfryIcons.Bell, "Bell", {}) })
                     OneHeader("garden", channelRowItems(world, Demo.GARDEN, session.now()), navigation = { BackButton {} }, actions = { IconAction(BelfryIcons.Bell, "Bell", {}) })
@@ -123,7 +123,7 @@ class OneHeaderShotsTest : DemoShots() {
             }
         }
         // the lead and the people count stay in both rows; the owner left first
-        assertEquals(2, compose.onAllNodesWithTag("row-item-people").fetchSemanticsNodes().size)
+        assertEquals(2, compose.onAllNodesWithTag("row-item-people", useUnmergedTree = true).fetchSemanticsNodes().size)
     }
 
     // ---- (d) activity previews ------------------------------------------------------------------

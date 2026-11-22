@@ -86,7 +86,8 @@ fun IconRow(items: List<RowItem>, modifier: Modifier = Modifier, color: Color = 
         }
         val height = kept.maxOfOrNull { placeables[it].height } ?: 0
         val width = (kept.sumOf { placeables[it].width } + gap * (kept.size - 1).coerceAtLeast(0)).coerceAtMost(budget)
-        layout(width, height) {
+        // as wide as asked when asked to fill (items start at the left edge, never centred)
+        layout(width.coerceAtLeast(constraints.minWidth), height) {
             var x = 0
             for (i in kept) {
                 val p = placeables[i]

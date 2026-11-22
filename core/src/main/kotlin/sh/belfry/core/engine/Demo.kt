@@ -385,6 +385,11 @@ object Demo {
         raw(groups, now - 26 * h, 9, listOf(listOf("h", HELLO), listOf("subject", "Re: Visit with a school class"), listOf("mail-to", "noor@school.example"), listOf("sent-by", maya.pubkey), listOf("e", c1.id, "", "reply"), listOf("client", "belfry-mail-out")),
             "Dear Noor, with pleasure. Tuesday or Thursday mornings work best. How about 12 May at 9:30?")
         say(lena, HELLO, now - 25 * h, "I can show them the compost. Kids love the worms.")
+        // one on me and one on Maya (one shape: the header leads with ✉ N open · 👤 1 on you)
+        val bikes = card(now - 20 * h, "sven@example.com", "Sven Berg", "Do you take old bikes?", "We are moving and have three children's bikes that still ride well. Would the workshop take them?", "<bikes-3@example.com>", true)
+        post(me, now - 19 * h, Actions.assignCard(HELLO, bikes.id, me.pubkey))
+        val party = card(now - 5 * h, "noor.p@example.org", "Noor Haddad", "Room for a birthday?", "Could we rent the hall on a Saturday afternoon in December for a child's birthday, about 15 people?", "<party-12@example.org>", true)
+        post(maya, now - 4 * h, Actions.assignCard(HELLO, party.id, maya.pubkey))
         card(now - 2 * h, "delivery@gardenshop.example", "The Garden Shop", "Your order is on its way", "Your order of 6 bags of potting soil will be delivered on Friday between 8 and 12. Someone needs to be there to sign.", "<order-7781@gardenshop.example>", false)
 
         // the charter (SPEC 19.32): three agreements by me (a steward), two ticked by me, one changed since
