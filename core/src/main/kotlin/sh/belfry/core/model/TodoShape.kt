@@ -117,6 +117,17 @@ fun World.todoLines(groupId: String, taskId: String, now: Long): List<TodoLine> 
 /** Open and on me or on nobody: the to-do opens mid (the lead's ruling 5); else tiny. */
 fun World.todoNeedsMe(t: Task): Boolean = !t.done && (t.assignee == null || t.assignee == me)
 
+/**
+ * The pictures linked in a to-do comment (canvas v180 one-shape/todo-conversation: the picture under
+ * it, not a file line) and the comment's text without them. Links by [Pictures]' rule (an extension).
+ */
+fun todoCommentPictures(text: String): Pair<String, List<Media>> {
+    val urls = Regex("https://\\S+").findAll(text).map { it.value.trimEnd('.', ',', ')', ']') }.filter { Pictures.isPicture(null, it) }.distinct().toList()
+    var rest = text
+    for (u in urls) rest = rest.replace(u, "")
+    return rest.trim() to urls.map { Media(it, "") }
+}
+
 /** Photos and files linked in a to-do's comments (its header's 🖼 and 📁 counts): links ending in an image extension, or another file extension. */
 fun Task.attachmentCounts(): Pair<Int, Int> {
     var photos = 0; var files = 0

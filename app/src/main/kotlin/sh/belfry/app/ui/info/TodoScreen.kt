@@ -414,7 +414,15 @@ private fun TodoComment(l: TodoLine) {
                 Spacer(Modifier.width(6.dp))
                 Text(ChatFormat.time(world, l.at), fontSize = 12.sp, color = c.faint)
             }
-            LinkText(l.comment ?: "", fontSize = 15.sp, lineHeight = 20.sp)
+            // a picture link shows as the picture (canvas v180); a comment that is only pictures says so
+            val (text, pictures) = sh.belfry.core.model.todoCommentPictures(l.comment ?: "")
+            if (text.isNotEmpty()) LinkText(text, fontSize = 15.sp, lineHeight = 20.sp)
+            else if (pictures.isNotEmpty()) Text(if (pictures.size == 1) "added a picture" else "added ${pictures.size} pictures", fontSize = 14.sp, color = c.muted)
+            if (pictures.isNotEmpty()) {
+                val chat = sh.belfry.app.ui.chat.rememberChatState("todo-comment:" + l.id)
+                sh.belfry.app.ui.chat.MediaList(pictures, chat)
+                chat.viewer?.let { v -> sh.belfry.app.ui.chat.ImageViewer(v) { chat.viewer = null } }
+            }
         }
     }
 }

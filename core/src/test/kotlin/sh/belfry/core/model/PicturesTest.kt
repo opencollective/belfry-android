@@ -1,6 +1,7 @@
 package sh.belfry.core.model
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -27,5 +28,16 @@ class PicturesTest {
         assertTrue(Media("https://files.example/9f", "", name = "garden.jpg").isImage)
         assertFalse(Media("https://files.example/9f.pdf", "").isImage)
         assertTrue(Media("https://files.example/9f", "image/png").isImage)
+    }
+
+    /** canvas v180 one-shape/todo-conversation: a picture link in a to-do comment is the picture. */
+    @Test fun todoCommentPictures() {
+        val (text, pics) = todoCommentPictures("The shelf, before: https://files.example/a1.jpg. And the plan https://files.example/p.pdf")
+        assertEquals("The shelf, before: . And the plan https://files.example/p.pdf", text)
+        assertEquals(listOf("https://files.example/a1.jpg"), pics.map { it.url })
+        val (only, two) = todoCommentPictures("https://files.example/a1.jpg https://files.example/b2.HEIC")
+        assertEquals("", only)
+        assertEquals(2, two.size)
+        assertTrue(two.all { it.isImage })
     }
 }

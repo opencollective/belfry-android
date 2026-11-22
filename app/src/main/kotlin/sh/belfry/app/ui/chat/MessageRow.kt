@@ -362,15 +362,19 @@ private fun MediaView(media: Media, session: Session, chat: ChatState, pictures:
  * DM grid, then the other files; one picture large; files as rows. Also under an e-mail in its thread.
  */
 @Composable
-fun MessageMedia(m: Message, chat: ChatState) {
-    if (m.media.isEmpty()) return
+fun MessageMedia(m: Message, chat: ChatState) = MediaList(m.media, chat)
+
+/** [MessageMedia] for media that isn't a message's (a to-do comment's picture links). */
+@Composable
+fun MediaList(media: List<Media>, chat: ChatState) {
+    if (media.isEmpty()) return
     val session = LocalSession.current
-    val pictures = if (m.media.size > 1) m.media.filter { it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
+    val pictures = if (media.size > 1) media.filter { it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
     if (pictures.size >= 2) {
-        MediaGrid(m.media.filter { it.isImage && it.url in pictures }, chat, pictures)
-        for (media in m.media) if (!(media.isImage && media.url in pictures)) MediaView(media, session, chat, pictures)
+        MediaGrid(media.filter { it.isImage && it.url in pictures }, chat, pictures)
+        for (x in media) if (!(x.isImage && x.url in pictures)) MediaView(x, session, chat, pictures)
     } else {
-        for (media in m.media) MediaView(media, session, chat, pictures)
+        for (x in media) MediaView(x, session, chat, pictures)
     }
 }
 
