@@ -1,6 +1,17 @@
 package sh.belfry.app.ui.cards
 
 import android.app.Activity
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Directions
+import androidx.compose.material.icons.outlined.Videocam
+import sh.belfry.core.model.channelCounts
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -455,5 +466,204 @@ fun TicketLinkCard(e: CalEvent, code: String, onClose: () -> Unit = {}) {
                 } catch (x: ActionException) { error = x.message }
             }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth())
         }
+    }
+}
+
+// ---- one shape: the event screen's three states (SPEC 19.53; canvas one-shape/event-*) ----------------
+
+/** The answer's green ("✓ Going"): also semi-bold and with a tick, never colour alone (e-ink). */
+@Composable
+internal fun goingColor(): androidx.compose.ui.graphics.Color =
+    if (Belfry.colors.isDark) androidx.compose.ui.graphics.Color(0xFF7FD69C) else androidx.compose.ui.graphics.Color(0xFF1E6B3A)
+
+/** The tiny header's icon row: my answer leads, then the date (blue), people, open to-dos, files, photos. */
+@Composable
+internal fun eventRowItems(e: CalEvent, st: MyState, going: Int): List<sh.belfry.app.ui.kit.RowItem> {
+    val world = LocalWorld.current
+    val now = LocalSession.current.now()
+    val counts = world.channelCounts(e.groupId, now)
+    val day = ChatFormat.day(world, e.start, now)
+    val time = if (e.allDay) "" else ChatFormat.time(world, e.start)
+    val out = ArrayList<sh.belfry.app.ui.kit.RowItem>()
+    if (st.label != null && st != MyState.NONE) {
+        val ok = st == MyState.TICKET || st == MyState.HOST
+        out.add(sh.belfry.app.ui.kit.RowItem("answer", if (ok) BelfryIcons.Check else null, st.label ?: "", st.line ?: st.label ?: "",
+            tint = if (ok) goingColor() else Belfry.colors.text))
+    }
+    out.add(sh.belfry.app.ui.kit.RowItem("lead", BelfryIcons.Calendar, if (time.isEmpty()) day else "$day · $time", if (time.isEmpty()) day else "$day at $time", lead = true))
+    out.add(sh.belfry.app.ui.kit.RowItem("people", BelfryIcons.Users, going.toString(), "$going going"))
+    val open = counts.todos - counts.todosDone
+    if (open > 0) out.add(sh.belfry.app.ui.kit.RowItem("todos", BelfryIcons.Check, open.toString(), "$open open to-do" + if (open == 1) "" else "s"))
+    if (counts.files > 0) out.add(sh.belfry.app.ui.kit.RowItem("files", androidx.compose.material.icons.Icons.Outlined.Folder, counts.files.toString(), "${counts.files} file" + if (counts.files == 1) "" else "s"))
+    if (counts.photos > 0) out.add(sh.belfry.app.ui.kit.RowItem("photos", BelfryIcons.Image, counts.photos.toString(), "${counts.photos} photo" + if (counts.photos == 1) "" else "s"))
+    return out
+}
+
+/** Tiny (and full): ‹, the title over the icon row (a tap opens mid), •••. Two lines at most. */
+@Composable
+internal fun EventTinyHeader(e: CalEvent, items: List<sh.belfry.app.ui.kit.RowItem>, onBack: () -> Unit, onMore: () -> Unit, onTap: () -> Unit) {
+    val c = Belfry.colors
+    Row(
+        Modifier.fillMaxWidth().background(c.bg).windowInsetsPadding(WindowInsets.statusBars).heightIn(min = 56.dp).padding(horizontal = 4.dp).testTag("event-tiny-header"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BackButton(onBack)
+        Column(
+            Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClickLabel = "Show more about the event", onClick = onTap).padding(horizontal = 4.dp, vertical = 4.dp),
+        ) {
+            Text(e.title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            sh.belfry.app.ui.kit.IconRow(items)
+        }
+        IconAction(BelfryIcons.More, "More", onMore, Modifier.testTag("event-more"))
+    }
+}
+
+/** Mid with a cover: the picture across the full width at 16:9 (never cropped sideways), ‹ and ••• floating on it. */
+@Composable
+internal fun EventCoverTop(cover: String, onBack: () -> Unit, onMore: () -> Unit) {
+    Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clipToBounds().background(Belfry.colors.surface2).testTag("event-cover")) {
+        EventCover(cover, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.FillWidth)
+        Row(
+            Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FloatingRound(BelfryIcons.Back, "Back", onBack, Modifier.testTag("event-back"))
+            Spacer(Modifier.weight(1f))
+            FloatingRound(BelfryIcons.More, "More", onMore, Modifier.testTag("event-more"))
+        }
+    }
+}
+
+/** A round translucent button over a picture (48 dp to touch, a 40 dp dark disc, a white line icon). */
+@Composable
+private fun FloatingRound(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(48.dp).clip(CircleShape).clickable(role = Role.Button, onClickLabel = label, onClick = onClick).semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(22.dp))
+        }
+    }
+}
+
+/** Opens a place in the phone's maps app (geo:), else OpenStreetMap in the browser. */
+internal fun openInMaps(context: android.content.Context, place: String) {
+    val geo = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("geo:0,0?q=" + android.net.Uri.encode(place)))
+    try { context.startActivity(geo) } catch (x: Exception) {
+        sh.belfry.app.ui.signin.openInBrowser(context, "https://www.openstreetmap.org/search?query=" + android.net.Uri.encode(place))
+    }
+}
+
+/**
+ * Where: 🏠 the place (a link to maps; [directions] adds a Directions button, full), and for an online
+ * event 📹 "Online · Jitsi" (a link to the call) with Join on the same line, on from 10 minutes before
+ * the start until the end.
+ */
+@Composable
+internal fun EventWhere(e: CalEvent, directions: Boolean = false) {
+    val c = Belfry.colors
+    val context = LocalContext.current
+    val now = LocalSession.current.now()
+    val place = e.location?.trim().orEmpty()
+    if (place.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().testTag("event-place")) {
+        Icon(BelfryIcons.MapPin, contentDescription = "Where", tint = c.text, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            place, fontSize = 16.sp, color = c.text, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+            modifier = Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "Open in maps") { openInMaps(context, place) }.padding(vertical = 4.dp),
+        )
+        if (directions) {
+            Spacer(Modifier.width(8.dp))
+            BusyButton("Directions", onClick = { openInMaps(context, place) }, kind = ButtonKind.Ghost, small = true, icon = androidx.compose.material.icons.Icons.Outlined.Directions, modifier = Modifier.testTag("event-directions"))
+        }
+    }
+    for (link in e.links.filter { sh.belfry.app.ui.kit.isSafeLink(it) }.take(2)) {
+        val open = sh.belfry.core.model.EventShape.joinOpen(e, now)
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().testTag("event-online")) {
+            Icon(androidx.compose.material.icons.Icons.Outlined.Videocam, contentDescription = "Online", tint = c.text, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Online · " + sh.belfry.core.model.Actions.meetingLabel(link), fontSize = 16.sp, color = c.text,
+                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline, maxLines = 2,
+                modifier = Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "Open the call") { sh.belfry.app.ui.signin.openInBrowser(context, link) }.padding(vertical = 4.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            // not yet (or over): off, with a clock instead of the camera (e-ink: the icon says it, not a grey)
+            BusyButton(
+                "Join", onClick = { sh.belfry.app.ui.signin.openInBrowser(context, link) }, small = true, enabled = open,
+                icon = if (open) androidx.compose.material.icons.Icons.Outlined.Videocam else BelfryIcons.Clock,
+                modifier = Modifier.testTag(if (open) "event-join" else "event-join-off"),
+            )
+        }
+    }
+}
+
+/** "Hosted by Lina Moreau and Ben Okafor". */
+@Composable
+internal fun EventHostedBy(e: CalEvent, hosts: List<String>, api: sh.belfry.core.model.ApiEvent?) {
+    val world = LocalWorld.current
+    val names = (api?.hostedBy?.map { it.second.ifEmpty { world.displayName(it.first) } }?.ifEmpty { null } ?: hosts.ifEmpty { e.hosts.toList() }.map { if (it == world.me) "you" else world.displayName(it) })
+    if (names.isEmpty()) return
+    Text("Hosted by " + sh.belfry.core.model.EventShape.names(names), fontSize = 15.sp, color = Belfry.colors.muted, modifier = Modifier.testTag("event-hosted-by"))
+}
+
+/** Full: "2 open to-dos · 1 file · 3 photos", each a link to its list in the event's chat. */
+@Composable
+internal fun EventContentsLine(e: CalEvent) {
+    val world = LocalWorld.current
+    val nav = LocalNav.current
+    val c = Belfry.colors
+    val counts = world.channelCounts(e.groupId, LocalSession.current.now())
+    val open = counts.todos - counts.todosDone
+    val parts = listOfNotNull(
+        if (open > 0) Triple(BelfryIcons.Check, "$open open to-do" + (if (open == 1) "" else "s"), Routes.channelPlace(e.groupId, sh.belfry.app.ui.nav.ChannelPlaceKey.TODOS)) else null,
+        if (counts.files > 0) Triple(androidx.compose.material.icons.Icons.Outlined.Folder, "${counts.files} file" + (if (counts.files == 1) "" else "s"), Routes.files(e.groupId)) else null,
+        if (counts.photos > 0) Triple(BelfryIcons.Image, "${counts.photos} photo" + (if (counts.photos == 1) "" else "s"), Routes.channelPlace(e.groupId, sh.belfry.app.ui.nav.ChannelPlaceKey.PHOTOS)) else null,
+    )
+    if (parts.isEmpty()) return
+    Column(Modifier.fillMaxWidth().testTag("event-contents")) {
+        for ((icon, label, route) in parts) Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { nav.go(route) }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label, fontSize = 15.sp, color = c.text, modifier = Modifier.weight(1f))
+            Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/** An answer in the event's chat: "✓ You're going" (green, bold) or "Lina Moreau is going", and its time. */
+@Composable
+fun AnswerLine(item: sh.belfry.core.model.FeedItem.Answer) {
+    val world = LocalWorld.current
+    val nav = LocalNav.current
+    val c = Belfry.colors
+    val mine = item.pubkey == world.me
+    val going = item.status == sh.belfry.core.model.Rsvp.ACCEPTED
+    val tint = if (going) goingColor() else c.muted
+    Row(
+        Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.profile(item.pubkey)) }.padding(horizontal = 16.dp, vertical = 6.dp).testTag("answer-line"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(if (going) BelfryIcons.Check else BelfryIcons.Calendar, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            sh.belfry.core.model.EventShape.answerLine(if (mine) null else world.displayName(item.pubkey), item.status),
+            fontSize = 14.sp, color = if (going) tint else c.text, fontWeight = if (mine || going) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.weight(1f),
+        )
+        Text(ChatFormat.time(world, item.at), fontSize = 12.sp, color = c.faint)
+    }
+}
+
+/** Who comes, pushed over the event (from "15 going · 3 maybe ›"): Hosts · Going · Maybe. Back returns. */
+@Composable
+internal fun EventPeopleScreen(e: CalEvent, onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    Column(Modifier.fillMaxSize().background(Belfry.colors.bg)) {
+        TopBar("People", subtitle = e.title, navigation = { BackButton(onBack) })
+        Box(Modifier.weight(1f).fillMaxWidth()) { EventPeoplePane(e) }
     }
 }

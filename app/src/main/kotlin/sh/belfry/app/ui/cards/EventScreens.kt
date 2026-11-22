@@ -119,6 +119,10 @@ import sh.belfry.core.model.meetingPeople
 import sh.belfry.core.model.myState
 import sh.belfry.core.model.stateLabel
 import sh.belfry.core.model.stillGoing
+import sh.belfry.core.model.eventNeedsMe
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import sh.belfry.core.model.tickets
 
 internal fun shownError(e: Throwable): String = (e as? ActionException)?.message ?: "That did not work. Try again."
@@ -208,15 +212,15 @@ private fun EventRow(e: CalEvent) {
 
 /** An event's cover: a picture on the file server (when pictures load), or kept on the device (the demo). */
 @Composable
-internal fun EventCover(url: String, modifier: Modifier = Modifier) {
+internal fun EventCover(url: String, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Crop) {
     val session = LocalSession.current
     val network = LocalNetworkImages.current
     if (url.startsWith(Session.LOCAL_BLOB)) {
         var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
         LaunchedEffect(url) { bitmap = withContext(Dispatchers.Default) { session.localBlob(url)?.let { Photos.decodeBytes(it) } } }
-        bitmap?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier) } ?: Box(modifier.background(Belfry.colors.surface2))
+        bitmap?.let { Image(it, contentDescription = null, contentScale = contentScale, modifier = modifier.testTag("cover-loaded")) } ?: Box(modifier.background(Belfry.colors.surface2))
     } else if (url.startsWith("https://") && network) {
-        AsyncImage(model = url, contentDescription = null, contentScale = ContentScale.Crop, modifier = modifier)
+        AsyncImage(model = url, contentDescription = null, contentScale = contentScale, modifier = modifier)
     } else {
         Box(modifier.background(Belfry.colors.surface2))
     }
@@ -282,119 +286,131 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
     }
     val url = world.eventUrl(e)
 
-    // SPEC 19.29: one screen per event; the header at three levels (opens at half), Chat · Photos · People under it
-    // a Belfry event opens at half over its chat; a meeting or an older calendar event opens whole
-    // (their people and answers are the page itself)
-    var level by rememberSaveable(e.coord) { mutableStateOf(if (e.isNew && !e.meeting) EventLevel.HALF else EventLevel.FULL) }
+    // One shape (SPEC 19.53; canvas one-shape/event-default, -tiny, -full): three states over the event's chat.
+    // Mid (HALF) while it needs me (not answered, still going?, people asking); tiny (UP) once answered.
+    // A meeting or an older calendar event opens whole (their people and answers are the page itself).
+    var level by rememberSaveable(e.coord) {
+        mutableStateOf(if (e.isNew && !e.meeting) (if (world.eventNeedsMe(e, now, api)) EventLevel.HALF else EventLevel.UP) else EventLevel.FULL)
+    }
     val full = level == EventLevel.FULL
     val viewer = rememberViewer(e)
     val mayCheck = viewer?.mayCheckIn ?: world.mayCheckIn(e)
     var ticketOpen by remember(e.coord) { mutableStateOf(false) }
-    var tab by rememberSaveable(e.coord) { mutableIntStateOf(0) }
+    var people by rememberSaveable(e.coord) { mutableStateOf(false) }
     var cardOpen by remember(ticket) { mutableStateOf(true) }
     val (hostList, goingList, maybeList) = world.eventPeopleList(e)
+    val hostsShown = api?.hostedBy?.map { it.first }?.ifEmpty { null } ?: hostList.ifEmpty { e.hosts.toList() }
+    val items = eventRowItems(e, st, if (e.meeting) world.meetingPeople(e).size else going)
+    val onMore = { sheet = EventSheet.Menu }
+    val onBack = { nav.back() }
+    // scrolling the feed folds mid to tiny (one-shape/event-tiny)
+    val fold = remember(e.coord) {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+                if (level == EventLevel.HALF && kotlin.math.abs(available.y) > 6f) level = EventLevel.UP
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+    if (people) return EventPeopleScreen(e) { people = false }
+
+    @Composable
+    fun Faces() {
+        if (!e.meeting && (goingList.isNotEmpty() || maybeList.isNotEmpty())) Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button, onClickLabel = "See who is coming") { people = true }
+                .padding(vertical = 4.dp).testTag("event-faces"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AvatarStack((hostList + goingList).distinct().map { world.face(it) }, size = 28.dp, max = 5)
+            GapW(8)
+            Text("${goingList.size} going" + if (maybeList.isNotEmpty()) " · ${maybeList.size} maybe" else "", fontSize = 15.sp, color = c.text, modifier = Modifier.weight(1f))
+            Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
+        }
+    }
+
+    @Composable
+    fun Answer() {
+        // what needs me beyond the answer (cancelled, still going?, people asking)
+        if (e.status == EventStatus.CANCELLED || world.stillGoing(e) || asking > 0)
+            EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
+        // Going / Maybe / Can't go always there while it is open (my answer marked), else my answer in words
+        if (open) RsvpRow(e, p, tks, st, guest, busy, onPick = pick, onTake = take)
+        else (if (st == MyState.APPLIED && world.waitingForPayment(e, p)) "Waiting for the host to confirm your payment" else st.line)?.let { line ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("event-mine")) {
+                Icon(BelfryIcons.Check, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+                GapW(8)
+                Text(line, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+            }
+        }
+        // my ticket and, on the event's days, checking people in (SPEC 19.29): one wide button each
+        val code = viewer?.ticketUrl
+        if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-ticket"))
+        if (mayCheck && world.onEventDays(e, now)) {
+            BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-checkin"))
+        }
+    }
+
+    @Composable
+    fun When() {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("event-when")) {
+            Icon(BelfryIcons.Calendar, contentDescription = "When", tint = c.text, modifier = Modifier.size(18.dp))
+            GapW(8)
+            Text(ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + endDay(world, e, now), fontSize = 16.sp, color = c.text)
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(c.bg).testTag("event-screen-${level.name.lowercase()}")) {
-        // the board: the title in the bar only when the header is folded (its subtitle says my state)
-        TopBar(
-            if (level == EventLevel.UP) e.title else "",
-            subtitle = if (level != EventLevel.UP) null else if (e.meeting) "Meeting · members only" else ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + (st.line?.let { " · $it" } ?: ""),
-            navigation = { BackButton { nav.back() } },
-            actions = { IconAction(BelfryIcons.More, "More", { sheet = EventSheet.Menu }, Modifier.testTag("event-more")) },
-        )
-        if (level != EventLevel.UP) Column(
-            (if (full) Modifier.weight(1f) else Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.5f).dp))
-                .fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+        if (level == EventLevel.HALF) {
+            // mid (one-shape/event-default): the cover with ‹ ••• on it (or the usual header), then the key details, full width
+            Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.68f).dp).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                val cover = e.cover
+                if (cover != null) EventCoverTop(cover, onBack, onMore)
+                else TopBar("", navigation = { BackButton(onBack) }, actions = { IconAction(BelfryIcons.More, "More", onMore, Modifier.testTag("event-more")) })
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).testTag("event-details"), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (ticket != null && mayCheck && cardOpen) TicketLinkCard(e, ticket, onClose = { cardOpen = false })
+                    Text(e.title, fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, color = c.text, modifier = Modifier.testTag("event-title"))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        When()
+                        EventWhere(e)
+                        if (e.links.isEmpty() && api?.online == true) Muted("Online: the link shows once you have a place.")
+                    }
+                    EventHostedBy(e, hostsShown, api)
+                    Faces()
+                    if (e.description.isNotEmpty()) {
+                        Text(
+                            sh.belfry.core.markdown.Markdown.plain(e.description), fontSize = 15.sp, lineHeight = 21.sp, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Show everything") { level = EventLevel.FULL },
+                        )
+                        Text(
+                            "More", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button) { level = EventLevel.FULL }.padding(vertical = 4.dp).testTag("event-more-details"),
+                        )
+                    }
+                    Answer()
+                }
+            }
+        } else {
+            // tiny and full: two header lines, the title then the icon row (my answer leads); a tap opens mid
+            EventTinyHeader(e, items, onBack, onMore, onTap = { level = EventLevel.HALF })
+        }
+        if (full) Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            // a ticket link opened by someone who may check people in: who it is, then Check in (events/ticket-card)
+            // full (one-shape/event-full): where (with Directions), hosts, the whole description, who comes, to-dos and files, the answer
             if (ticket != null && mayCheck && cardOpen) TicketLinkCard(e, ticket, onClose = { cardOpen = false })
-            // the cover across the top, taller at full (events/event-half, event-full)
-            e.cover?.let { cv -> EventCover(cv, Modifier.fillMaxWidth().aspectRatio(if (full) 16f / 9f else 2.4f).clip(RoundedCornerShape(14.dp))) }
-            Text(e.title, fontSize = 26.sp, lineHeight = 31.sp, fontWeight = FontWeight.Bold, color = c.text, modifier = Modifier.testTag("event-title"))
-            Column(Modifier.testTag("event-details"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(BelfryIcons.Calendar, contentDescription = "When", tint = c.text, modifier = Modifier.size(18.dp))
-                    GapW(8)
-                    Text(ChatFormat.day(world, e.start, now) + " · " + CardFormat.whenText(world, e) + endDay(world, e, now), fontSize = 16.sp, color = c.text)
-                }
-                if (!e.location.isNullOrEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(BelfryIcons.MapPin, contentDescription = "Where", tint = c.text, modifier = Modifier.size(18.dp))
-                    GapW(8)
-                    Text(e.location ?: "", fontSize = 16.sp, color = c.text)
-                }
-                for (link in e.links.filter { isSafeLink(it) }) {
-                    BusyButton("Join on " + Actions.meetingLabel(link), onClick = { openInBrowser(context, link) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Globe, small = true)
-                }
+            Column(Modifier.testTag("event-details"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                When()
+                EventWhere(e, directions = true)
                 if (e.links.isEmpty() && api?.online == true) Muted("Online: the link shows once you have a place.")
             }
-            // what needs me (asking, still going?, RSVP), only when there is something to do
-            val needsMe = e.status == EventStatus.CANCELLED || world.stillGoing(e) || asking > 0 || (open && st == MyState.NONE)
-            if (needsMe) EventLine(e, p, st, asking, if (e.meeting) world.meetingPeople(e).size else going, open, busy, onTake = take, onReview = { sheet = EventSheet.Guests })
-            // else my answer, in words (You're going, Maybe, Applied…)
-            else (if (st == MyState.APPLIED && world.waitingForPayment(e, p)) "Waiting for the host to confirm your payment" else st.line)?.let { line ->
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("event-mine")) {
-                    Icon(BelfryIcons.Check, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
-                    GapW(8)
-                    Text(line, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                }
-            }
-            // my ticket and, on the event's days, checking people in (SPEC 19.29): one wide button each
-            val code = viewer?.ticketUrl
-            if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-ticket"))
-            if (mayCheck && world.onEventDays(e, now)) {
-                BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-checkin"))
-            }
-            // who comes: faces and counts, a tap opens People
-            if (!e.meeting && (goingList.isNotEmpty() || maybeList.isNotEmpty())) {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button) { tab = 2; if (level == EventLevel.FULL) level = EventLevel.HALF }
-                        .padding(vertical = 4.dp).testTag("event-faces"),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AvatarStack((hostList + goingList).distinct().take(3).map { world.face(it) }, size = 26.dp)
-                    GapW(8)
-                    Text("${goingList.size} going" + if (maybeList.isNotEmpty()) " · ${maybeList.size} maybe" else "", fontSize = 15.sp, color = c.muted, modifier = Modifier.weight(1f))
-                    Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.faint, modifier = Modifier.size(18.dp))
-                }
-            }
-            if (full) {
+            EventHostedBy(e, hostsShown, api)
+            if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
+            Faces()
+            EventContentsLine(e)
+            Answer()
             // a meeting: who is invited, what they answered, who was there (hosts check people in)
             if (e.meeting && !e.remote) MeetingPeople(e, host)
-
-            if (open) {
-                Column {
-                    SectionTitle("Your RSVP")
-                    RsvpRow(e, p, tks, st, guest, busy, onPick = pick, onTake = take)
-                }
-            }
-
-            if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
-            Column(Modifier.testTag("event-hosts")) {
-                SectionTitle("Hosted by")
-                // the belfry's `hosted_by` when it gives one (no service keys), else who the relay says hosts
-                for (h in api?.hostedBy?.map { it.first }?.ifEmpty { null } ?: hostList.ifEmpty { e.hosts }) {
-                    val name = (api?.hostedBy.orEmpty() + api?.hosts.orEmpty()).firstOrNull { it.first == h }?.second?.ifEmpty { null } ?: world.displayName(h)
-                    Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.profile(h, e.groupId)) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(world.face(h), size = 32.dp)
-                        GapW(10)
-                        Column(Modifier.weight(1f)) {
-                            Text(name, fontSize = 16.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(world.eventRole(e, h).label, fontSize = 13.sp, color = c.muted)
-                        }
-                    }
-                }
-            }
-            if (!e.meeting && goingList.isNotEmpty()) Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { SectionTitle("Going · ${goingList.size}") }
-                    if (goingList.size > 3) TextButton(onClick = { tab = 2; level = EventLevel.HALF }) { Text("See all", color = c.text, fontWeight = FontWeight.SemiBold) }
-                }
-                for (pk in goingList.take(3)) Row(Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.go(Routes.profile(pk, e.groupId)) }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(world.face(pk), size = 32.dp)
-                    GapW(10)
-                    Text(world.displayName(pk), fontSize = 16.sp, color = c.text)
-                }
-            }
 
             if (!plain) {
                 Column {
@@ -428,7 +444,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
 
             ActionGroup {
                 when {
-                    g != null && inside -> ActionRow("Open the event's chat", onClick = { nav.openChannel(e.groupId) }, modifier = Modifier.testTag("event-chat"), icon = BelfryIcons.Thread, sub = "Members, files, todos", chevron = true)
+                    g != null && inside -> ActionRow("Open the event's chat", onClick = { level = EventLevel.HALF }, modifier = Modifier.testTag("event-chat"), icon = BelfryIcons.Thread, sub = "Members, files, todos", chevron = true)
                     g == null && !e.isNew && !e.remote -> BusyRow(
                         "Open a chat for it",
                         onClick = { session.send(Actions.openEventChat(e)); nav.openChannel(e.groupId) },
@@ -448,9 +464,8 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             if (!e.isNew && e.author == world.me) {
                 ActionGroup { ActionRow("Delete event", onClick = { sheet = EventSheet.Delete }, modifier = Modifier.testTag("event-delete"), icon = BelfryIcons.Trash, danger = true) }
             }
-            }
         }
-        // the handle: a tap moves a level (half → full → up → half), a drag up / down too
+        // the handle: a tap moves a level (mid → full → tiny → mid), a drag up / down too
         Box(
             Modifier.fillMaxWidth().height(24.dp)
                 .pointerInput(Unit) {
@@ -464,8 +479,9 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
             contentAlignment = Alignment.Center,
         ) { Box(Modifier.width(40.dp).height(4.dp).clip(RoundedCornerShape(2.dp)).background(c.line)) }
         Hairline()
+        // the conversation continues below (mid and tiny)
         if (!full) {
-            if (inside && g != null) EventTabs(e, Modifier.weight(1f), tab) { tab = it }
+            if (inside && g != null) Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(fold)) { sh.belfry.app.ui.chat.ChannelScreen(e.groupId, embedded = true) }
             else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp)) {
                 if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
                 else Muted("Get a place to see the event's chat, photos and people.")
@@ -629,6 +645,7 @@ internal fun RsvpControl(mine: Rsvp?, busy: BusyState, onAnswer: suspend (Rsvp) 
                     .background(if (on) c.accent else c.bg)
                     .border(1.dp, if (on) c.accent else c.line, shape)
                     .alpha(if (busy.busy && tapped != s) 0.5f else 1f)
+                    .semantics { selected = on }
                     .clickable(enabled = !busy.busy, role = Role.Button) {
                         // the answer I gave already: nothing to send again
                         if (mine != s) {
@@ -643,7 +660,11 @@ internal fun RsvpControl(mine: Rsvp?, busy: BusyState, onAnswer: suspend (Rsvp) 
                 if (busy.busy && tapped == s) {
                     Spinner(color = if (on) c.onAccent else c.muted)
                 } else {
-                    Text(s.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = if (on) c.onAccent else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // my answer: filled, a tick and bold (e-ink: never the fill alone)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (on) { Icon(BelfryIcons.Check, contentDescription = null, tint = c.onAccent, modifier = Modifier.size(16.dp)); GapW(4) }
+                        Text(s.label, fontSize = 14.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, color = if (on) c.onAccent else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }

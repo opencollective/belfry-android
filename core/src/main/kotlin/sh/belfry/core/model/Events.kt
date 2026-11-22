@@ -455,6 +455,48 @@ fun World.yourEvents(now: Long): List<CalEvent> {
 /** The event whose chat this group is. */
 fun World.eventOfGroup(groupId: String): CalEvent? = calendar.firstOrNull { it.groupId == groupId }
 
+// ---- one shape: the event screen (SPEC 19.53) ------------------------------------------------------
+
+object EventShape {
+    /** Join opens this long before the start. */
+    const val JOIN_EARLY = 10 * 60L
+    /** An event with no end: Join stays open this long after the start. */
+    const val NO_END = 2 * 3600L
+
+    /** May I join the call now? From 10 minutes before the start until the end (start + 2 h without one). */
+    fun joinOpen(e: CalEvent, now: Long): Boolean =
+        e.status != EventStatus.CANCELLED && now >= e.start - JOIN_EARLY && now <= (e.end ?: (e.start + NO_END))
+
+    /** The feed line of an answer: [name] null = mine ("You’re going"), else "Lina Moreau is going". */
+    fun answerLine(name: String?, status: Rsvp): String = if (name == null) when (status) {
+        Rsvp.ACCEPTED -> "You’re going"
+        Rsvp.TENTATIVE -> "You might go"
+        Rsvp.DECLINED -> "You can’t go"
+    } else name + when (status) {
+        Rsvp.ACCEPTED -> " is going"
+        Rsvp.TENTATIVE -> " might go"
+        Rsvp.DECLINED -> " can’t go"
+    }
+
+    /** "A", "A and B", "A, B and C". */
+    fun names(list: List<String>): String = when (list.size) {
+        0 -> ""
+        1 -> list[0]
+        else -> list.dropLast(1).joinToString(", ") + " and " + list.last()
+    }
+}
+
+/**
+ * Does this event need me (the lead's ruling, 22 Nov): not answered while it is open, "still
+ * going?" after a change, or (a host) people asking to come. Then it opens mid; else tiny.
+ */
+fun World.eventNeedsMe(e: CalEvent, now: Long, api: ApiEvent? = null): Boolean {
+    if (e.status == EventStatus.CANCELLED) return false
+    if (stillGoing(e)) return true
+    if (isHost(e) && eventPeople(e).applications.isNotEmpty()) return true
+    return isOpen(e, now) && myState(e, eventPeople(e), api) == MyState.NONE
+}
+
 /** The `a` tags of the events a text links to (those this device knows). */
 fun World.eventTagsFor(text: String, mainRelay: String, known: (String) -> String? = { null }): List<Tag> =
     EventLinks.linksIn(text, ctx.domain).mapNotNull { l -> eventByLink(l)?.coord ?: known(l) }.distinct().map { listOf("a", it, mainRelay) }

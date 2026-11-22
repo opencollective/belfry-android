@@ -34,6 +34,8 @@ data class RowItem(
     val text: String,
     val spoken: String,
     val lead: Boolean = false,
+    /** Its own colour, also in semi-bold (an event's "✓ Going": green); null = the row's colour or the lead's. */
+    val tint: Color? = null,
 )
 
 /** The lead item's colour: blue on both themes, also set in semi-bold (e-ink: weight carries it, not hue). */
@@ -53,7 +55,7 @@ fun IconRow(items: List<RowItem>, modifier: Modifier = Modifier, color: Color = 
         modifier = modifier.testTag("icon-row"),
         content = {
             for (it in items) {
-                val tint = if (it.lead) lead else color
+                val tint = it.tint ?: if (it.lead) lead else color
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.testTag("row-item-${it.key}").clearAndSetSemantics { contentDescription = it.spoken },
@@ -64,7 +66,7 @@ fun IconRow(items: List<RowItem>, modifier: Modifier = Modifier, color: Color = 
                     }
                     if (it.text.isNotEmpty()) Text(
                         it.text, color = tint, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Clip,
-                        fontWeight = if (it.lead) FontWeight.SemiBold else FontWeight.Normal,
+                        fontWeight = if (it.lead || it.tint != null) FontWeight.SemiBold else FontWeight.Normal,
                     )
                 }
             }

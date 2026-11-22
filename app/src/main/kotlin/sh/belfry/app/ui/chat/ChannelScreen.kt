@@ -496,6 +496,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                 }
             }
             is FeedItem.MailThread -> MailThreadRow(item.t) { openThread(item.t.id) }
+            is FeedItem.Answer -> sh.belfry.app.ui.cards.AnswerLine(item)
             is FeedItem.Activity -> {
                 val key = item.key
                 val open = chat.openThreads.containsKey(key)
