@@ -113,6 +113,17 @@ class Round6Test {
         assertTrue(listOf("prompt", Actions.DEFAULT_PROMPT) in close.tags)
     }
 
+    /** OSV's iPhone bug (2026-11-22): the inbox switch publishes d = belfry:inbox:<channel> + h, and a refusal marks the header. */
+    @Test fun aRefusedInboxSwitchIsAFailedSetting() {
+        val d = Actions.setInbox("garden", true)
+        assertEquals(listOf(listOf("d", "belfry:inbox:garden"), listOf("h", "garden")), d.tags)
+        val item = OutboxItem(localId = "x", target = Target.GROUPS, kind = d.kind, content = d.content, tags = d.tags,
+            createdAt = 10, status = OutboxStatus.FAILED, error = "restricted: no")
+        val ctx = WorldContext(me = me, domain = "belfry.example", communityName = "Belfry", zone = ZoneId.of("UTC"))
+        assertEquals(1, World(emptyList(), listOf(item), ctx, null).failedSettings("garden").size)
+        assertTrue(World(emptyList(), listOf(item), ctx, null).failedSettings("kitchen").isEmpty())
+    }
+
     @Test fun aRefusedVisibilityIsAFailedSetting() {
         val item = OutboxItem(localId = "x", target = Target.GROUPS, kind = 30078, content = "{}", tags = listOf(listOf("d", World.WEB_D + "garden"), listOf("h", "garden")),
             createdAt = 10, status = OutboxStatus.FAILED, error = "restricted: no")
