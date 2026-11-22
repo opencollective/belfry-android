@@ -16,6 +16,8 @@ object OneShape {
     const val PINS_D = "belfry:pins"
     const val MAIL_DRAFT = "mail-draft"
     const val MAX_RECIPIENTS = 20
+    /** The main channel: first in every Town list. */
+    const val MAIN = "general"
 
     /** Pins first (everyone's, then mine), then the recent channels. */
     data class TownList(val pinned: List<String>, val recent: List<String>) {
@@ -29,6 +31,8 @@ object OneShape {
      */
     fun townList(me: String, now: Long, known: Set<String>, pinsAll: List<String>, pinsMine: List<String>, events: List<Event>): TownList {
         val pinned = LinkedHashSet<String>()
+        // the main channel is always first, pinned or not, and can't be unpinned (docs/one-shape.md 1)
+        if (MAIN in known) pinned.add(MAIN)
         for (id in pinsAll + pinsMine) if (id in known) pinned.add(id)
         val since = now - RECENT_DAYS * 86_400
         val involved = HashSet<String>()
