@@ -58,7 +58,8 @@ object ChannelLog {
                 }
             }
             1111 -> LogItem(e, "↩️", "replied in a thread", short(e.content, 200), LogGo.Thread(t("E") ?: e.id))
-            1010 -> LogItem(e, "✏️", "edited a message", short(e.content, 200), toMessage)
+            1010 -> if (t("k") == "2100") LogItem(e, "📅", if (OneShape.due(e.tags) != null) "set a to-do's due date" else "cleared a to-do's due date", short(e.content, 200), LogGo.Todos)
+                else LogItem(e, "✏️", "edited a message", short(e.content, 200), toMessage)
             7 -> LogItem(e, if (e.content.isNotEmpty() && e.content.length <= 4 && e.content != "+") e.content else "👍", "reacted", go = toMessage)
             5, 9005 -> LogItem(e, "🗑", if (t("k") == "7") "took back a reaction" else "deleted something")
             2100 -> LogItem(e, "☑️", "made a to-do", short(t("title")?.ifEmpty { null } ?: e.content, 200), LogGo.Todos)
