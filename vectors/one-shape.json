@@ -2,7 +2,7 @@
  "about": "One shape and Navigation v2 (collective-belfry docs/one-shape.md, canvas v171-172). Written by belfry-android; belfry-ios copies it byte for byte. Pubkeys are plain names here; ids are plain strings and compare as strings.",
  "generated_by": "belfry-android, by hand",
  "recent": {
-  "about": "The Town list. The main channel `general` comes first whenever it is known, pinned or not (it can't be unpinned). Then pins: everyone's (channel-order \"pinned\", in its order), then mine (belfry:pins), deduplicated, ids not in `known` skipped. Then recent: channels in `known`, not pinned, where within the last 30 days (created_at > now - 30*86400) I posted (kind 9 or 1111 by me), reacted (kind 7 by me) or was mentioned (a kind 9 or 1111 by someone else with [\"p\", me]); opening (seen) never counts. Recent are ordered by the channel's newest kind 9 / 1111 / 7 by anyone (any age), newest first, ties by channel id ascending. The channel of an event is its first h tag.",
+  "about": "The Town list. The main channel `general` comes first whenever it is known, pinned or not (it can't be unpinned). Then pins: everyone's (channel-order \"pinned\", in its order), then mine (belfry:pins), deduplicated, ids not in `known` skipped. Then recent: channels in `known`, not pinned, where within the last 30 days (created_at > now - 30*86400) I posted (kind 9 or 1111 by me) or created the channel (kind 9007 by me), reacted (kind 7 by me) or was mentioned (a kind 9 or 1111 by someone else with [\"p\", me]); opening (seen) never counts. Recent are ordered by the channel's newest kind 9 / 1111 / 7 / 9007 by anyone (any age), newest first, ties by channel id ascending. The channel of an event is its first h tag.",
   "cases": [
    {
     "name": "pins then recent",
@@ -361,6 +361,71 @@
       "garden"
      ]
     }
+   },
+   {
+    "name": "a channel I just created is in the list",
+    "me": "me",
+    "now": 1795000000,
+    "known": [
+     "general",
+     "bike",
+     "old"
+    ],
+    "pinsAll": [],
+    "pinsMine": [],
+    "events": [
+     {
+      "id": "c1",
+      "pubkey": "me",
+      "kind": 9007,
+      "created_at": 1794999940,
+      "tags": [
+       [
+        "h",
+        "bike"
+       ]
+      ],
+      "content": ""
+     },
+     {
+      "id": "c2",
+      "pubkey": "me",
+      "kind": 9007,
+      "created_at": 1792321600,
+      "tags": [
+       [
+        "h",
+        "old"
+       ]
+      ],
+      "content": ""
+     },
+     {
+      "id": "c3",
+      "pubkey": "sam",
+      "kind": 9007,
+      "created_at": 1794913600,
+      "tags": [
+       [
+        "h",
+        "general"
+       ]
+      ],
+      "content": ""
+     }
+    ],
+    "expect": {
+     "pinned": [
+      "general"
+     ],
+     "recent": [
+      "bike"
+     ],
+     "list": [
+      "general",
+      "bike"
+     ]
+    }
    }
   ]
  },
@@ -441,13 +506,14 @@
   ]
  },
  "headerRow": {
-  "about": "The header's icon row never clips. Items keep their order; the total is the sum of widths plus gap between kept items. While it is over the budget, drop the first present item in this order: owner, files, todos, photos, comments, pinned. lead and people never drop (if they alone overflow, they stay).",
+  "about": "The header's icon row never clips. Items keep their order; the total is the sum of widths plus gap between kept items. While it is over the budget, drop the first present item in this order: owner, files, todos, photos, comments, events (upcoming events), pinned. lead and people never drop (if they alone overflow, they stay).",
   "dropOrder": [
    "owner",
    "files",
    "todos",
    "photos",
    "comments",
+   "events",
    "pinned"
   ],
   "cases": [
@@ -542,6 +608,37 @@
     "expect": [
      "lead",
      "people"
+    ]
+   },
+   {
+    "name": "events before pinned",
+    "gap": 8,
+    "budget": 120,
+    "items": [
+     {
+      "key": "people",
+      "width": 40
+     },
+     {
+      "key": "pinned",
+      "width": 36
+     },
+     {
+      "key": "todos",
+      "width": 36
+     },
+     {
+      "key": "events",
+      "width": 36
+     },
+     {
+      "key": "files",
+      "width": 36
+     }
+    ],
+    "expect": [
+     "people",
+     "pinned"
     ]
    }
   ]
