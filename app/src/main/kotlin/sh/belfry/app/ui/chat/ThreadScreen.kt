@@ -151,13 +151,12 @@ fun ThreadScreen(
                     session.editMessage(groupId, editing, text, picked)
                     chat.editing = null
                 } else {
-                    session.replyInThread(groupId, root.ev, text, files, picked, extra = composer.previewTags(world.ctx.domain, session.community.blossom))
+                    session.replyInThread(groupId, root.ev, text, files, picked)
                 }
             },
             modifier = Modifier.navigationBarsPadding(),
             draftKey = ComposerDraft.thread(rootId),
             draftPaused = { chat.editing != null },
-            linkPreview = editing == null,
             photos = editing == null,
             groupId = groupId,
             onInvite = { pk -> inviteSaid(session.inviteMember(groupId, pk)) },

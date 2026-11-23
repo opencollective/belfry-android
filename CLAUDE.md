@@ -313,15 +313,6 @@ minSdk 26, JDK 17.
   (`GET /groups/<id>/card`, `POST /cards/<id>/retire`; 404 / 403 = no section). Demo: `Demo.POD_CARD`,
   `Demo.TOPIC_CARD`. Tests `CardAuthorsTest`, `GroupCardTest`, `TownCardsTest`.
 
-- Previews of outside pages (SPEC 19.80; docs/link-previews.md; canvas channels/og-*): the pure rules are
-  `core/preview/LinkPreviews.kt` (`LinkPreviews.outsideLink` which link, `imageFrom` the picture's origin, `endpoint`,
-  `PreviewCache`, `PreviewLoader` = one request per link, 3 at once, backoff), `Session.linkPreviews` (`engine/LinkPreviews.kt`;
-  the demo's `DemoPreviews`), `ui/chat/LinkPreviewCard.kt` (`MessageLinkPreview` in `MessageRow`, `ComposerLinkPreview` in
-  `Composer(linkPreview = true)`, `LinkPreviewImages`). The app asks only `https://belfry.<domain>`, never the page's site.
-  **Never in a private conversation**: the DM screens must not call any of it (`PreviewPlace.PRIVATE`; `LinkPreviewShotsTest.
-  noneInAPrivateConversation` fails if they do). A new composer that turns `linkPreview` on must send `ComposerState.previewTags`.
-  Vectors `link-previews.json` (written here; the web has none yet).
-
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

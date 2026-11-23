@@ -11,14 +11,6 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
-## Previews of outside pages (Android, 2026-11-24; SPEC 19.80; web chat 9b96ed3)
-
-| Board | Status | Notes |
-|---|---|---|
-| channels/og-message, og-no-image, og-no-preview, og-several, og-loading, og-dark, og-thread, og-laptop | done, never run live | The card under a channel message or a thread reply; asked of the belfry only (`GET /link-preview`), the picture only from `https://belfry.<domain>`; kept a day / an hour; `LinkPreviewShotsTest`. Never asked of a real belfry. |
-| channels/og-composer | done, never run live | The preview above the field with ✕ → `["preview","none"]`; channels and threads. |
-| channels/og-dm | not built, on purpose | No preview and no request in any private conversation on Android (the lead's rule; the web shows them where the conversation is not sealed). |
-
 ## No link, closed requests (Android, 2026-11-18)
 
 | Board | Status | Notes |

@@ -59,8 +59,7 @@ fun InlineThread(groupId: String, root: Message, chat: ChatState, focus: Boolean
             if (session.guest.collectAsState().value?.reading != true) Composer(
                 composer,
                 placeholder = if (shown.isNotEmpty() || hidden > 0) "Reply in the thread" else "Reply (starts a thread)",
-                onSend = { text, files, picked, _ -> session.replyInThread(groupId, root.ev, text, files, picked, extra = composer.previewTags(world.ctx.domain, session.community.blossom)) },
-                linkPreview = true,
+                onSend = { text, files, picked, _ -> session.replyInThread(groupId, root.ev, text, files, picked) },
                 compact = true,
                 autoFocus = focus,
                 groupId = groupId,

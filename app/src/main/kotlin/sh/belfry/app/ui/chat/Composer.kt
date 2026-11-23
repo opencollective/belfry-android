@@ -88,8 +88,6 @@ class ComposerState {
     var announce by mutableStateOf(false)
     var loadingPhotos by mutableStateOf(0)
     var error by mutableStateOf<String?>(null)
-    /** The outside link whose preview was closed with ✕ (SPEC 19.80): sent with `["preview","none"]` while the text still holds it. */
-    var noPreviewFor by mutableStateOf("")
     /** Opens the system photo picker (set by the composer on screen). */
     var pickPhotos: (() -> Unit)? = null
     /** Asks the field for focus (set by the composer on screen). */
@@ -102,7 +100,6 @@ class ComposerState {
         photos.clear()
         announce = false
         error = null
-        noPreviewFor = ""
     }
 
     fun set(text: String, picks: List<Pair<String, String>> = emptyList(), channels: List<Pair<String, String>> = emptyList()) {
@@ -112,17 +109,7 @@ class ComposerState {
         pickedChannels.clear()
         pickedChannels.addAll(channels)
         error = null
-        noPreviewFor = ""
     }
-
-    /**
-     * The tags a message sent now carries for its preview (SPEC 19.80): `["preview","none"]` when ✕
-     * was tapped on the preview of the link the text still holds, else none. Read it in `onSend`
-     * (the box is cleared after). [files]: the community's file server (never previewed).
-     */
-    fun previewTags(domain: String, files: String = ""): List<List<String>> =
-        if (noPreviewFor.isNotEmpty() && sh.belfry.core.preview.LinkPreviews.outsideLink(value.text, emptyList(), domain, files) == noPreviewFor) listOf(sh.belfry.core.preview.LinkPreviews.NO_PREVIEW)
-        else emptyList()
 
     /** The text as sent: picked "#Name"s as their channel references (mentions are the session's job). */
     fun outgoing(text: String): String = ChannelRefs.substitute(text, pickedChannels.filter { text.contains(it.first) })
@@ -165,11 +152,6 @@ fun Composer(
     onTint: androidx.compose.ui.graphics.Color? = null,
     /** Where typing here is told to others (docs/typing.md): keystrokes only, never a restored draft or an edit. Null: never. */
     typingPlace: sh.belfry.core.typing.TypingPlace? = null,
-    /**
-     * Show the preview of the text's first outside link above the field, with ✕ (SPEC 19.80). Only where the
-     * message is a channel's or a thread's and its sender passes [ComposerState.previewTags]; never in a private conversation.
-     */
-    linkPreview: Boolean = false,
 ) {
     val c = Belfry.colors
     val typingSession = LocalSession.current
@@ -275,7 +257,6 @@ fun Composer(
                 if (state.loadingPhotos > 0) Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) { Spinner() }
             }
         }
-        if (linkPreview) ComposerLinkPreview(state, compact)
         state.error?.let { Text(it, fontSize = 13.sp, color = c.danger, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) }
         Row(Modifier.fillMaxWidth().padding(start = if (compact) 0.dp else 4.dp, end = if (compact) 0.dp else 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
             if (onPlus != null) {
