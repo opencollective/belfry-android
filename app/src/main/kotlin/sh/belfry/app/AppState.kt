@@ -207,6 +207,20 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         return true
     }
 
+    /** A card's claim finished while another account was open: that account is on this phone too (SPEC 19.73). */
+    data class AlsoSignedIn(val accountId: String, val who: String, val domain: String, val group: String)
+    private val _alsoSignedIn = MutableStateFlow<AlsoSignedIn?>(null)
+    val alsoSignedIn: StateFlow<AlsoSignedIn?> = _alsoSignedIn
+    fun stayHere() { _alsoSignedIn.value = null }
+    /** "Switch": the claimed account opens on the group it started, with its welcome. */
+    suspend fun switchToClaimed() {
+        val a = _alsoSignedIn.value ?: return
+        _alsoSignedIn.value = null
+        _cardWelcome.value = CardWelcomed(a.domain, a.group, CardWelcome.STARTED)
+        _openAfter.value = a.domain to a.group
+        if (!switchTo(a.accountId)) { _cardWelcome.value = null; _openAfter.value = null }
+    }
+
     private fun cardIn(s: Session, group: String) {
         _card.value = null
         _cardWelcome.value = CardWelcomed(s.community.domain, group, CardWelcome.STARTED)
@@ -388,7 +402,19 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
             // a card that was being dealt with when the app stopped: its screen again
             if (_card.value == null) _card.value = withContext(Dispatchers.Default) { try { onboarding.pendingCard } catch (e: Exception) { null } }
             // a card's claim whose code was right when the app stopped (kept an hour): its session opens now
-            try { withContext(Dispatchers.Default) { onboarding.resumeCardClaim() }?.let { (claimed, group) -> cardIn(claimed, group) } } catch (e: Exception) { }
+            // Another account is open: it stays open. The new one joins the list and a sheet offers to switch (never silently).
+            try {
+                val got = withContext(Dispatchers.Default) { onboarding.resumeCardClaim(keepCurrent = s?.accountId) }
+                if (got != null) {
+                    val (claimed, group) = got
+                    if (s == null || claimed.accountId == s.accountId) cardIn(claimed, group) else {
+                        try { claimed.stop() } catch (e: Exception) { }
+                        val rec = withContext(Dispatchers.Default) { accountsNow()[claimed.accountId] }
+                        _alsoSignedIn.value = AlsoSignedIn(claimed.accountId, rec?.address?.ifEmpty { null } ?: rec?.name?.ifEmpty { null } ?: "another account", claimed.community.domain, group)
+                        refreshAccounts()
+                    }
+                }
+            } catch (e: Exception) { }
         }
     }
 

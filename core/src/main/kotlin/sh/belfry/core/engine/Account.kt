@@ -582,11 +582,15 @@ class Onboarding(
      * A claim whose code was right when the app stopped (or whose signer did not answer): its
      * session, opened now. Null when there is none; one older than an hour is forgotten (the
      * e-mail log-in opens that account). Throws [OnboardingException] `signer` when the signer
-     * still does not answer (kept for the next try).
+     * still does not answer (kept for the next try). [keepCurrent]: the account that is open and
+     * stays the current one: the claimed account is only added to the list (never a silent switch).
      */
-    suspend fun resumeCardClaim(): Pair<Session, String>? = withContext(Dispatchers.Default) {
+    suspend fun resumeCardClaim(keepCurrent: String? = null): Pair<Session, String>? = withContext(Dispatchers.Default) {
         val kept = cardClaim() ?: return@withContext null
-        finishCardClaim(kept)
+        val got = finishCardClaim(kept)
+        // another account is open (the lead's rule, 2026-11-24): the new one joins the list, the open one stays the current one
+        if (keepCurrent != null && got.first.accountId != keepCurrent) changeAccounts { it.select(keepCurrent) }
+        got
     }
 
     private fun cardClaim(): KeptCardClaim? {

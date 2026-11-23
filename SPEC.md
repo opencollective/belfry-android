@@ -3023,6 +3023,8 @@ address and a 6-digit code.
 - **Not built**: "or tap Confirm in the e-mail" and the board cards/confirm-done (the web shipped
   the code only; the server has no such link).
 
+**Resumed while another account is open (the lead's rule, 2026-11-24).** A kept answer that is opened at the app's start never switches accounts by itself: when an account is open, the claimed account is added to the list (`resumeCardClaim(keepCurrent)`: the open one stays the current one) and a sheet says "You're also signed in as ‹address or name›" with **Switch** (opens the claimed account on its new group, with the welcome) and **Stay here**. With no account open it opens as before.
+
 ### 19.74 Printed cards: a claimed card is a guest link, and the guest keeps its kind (2026-11-23; docs/cards.md §3; canvas cards/join-*, follow-channel*; web chat fa579cd)
 
 - A claimed card's `invite` (19.72) is used as `InviteLink(<the card's domain>, invite)` through the

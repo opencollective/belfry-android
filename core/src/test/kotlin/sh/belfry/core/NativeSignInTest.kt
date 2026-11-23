@@ -531,6 +531,17 @@ class NativeSignInTest {
         assertEquals(LocalSigner(secret).pubkey, LocalSigner(SavedSession.fromJsonString(vault.get(Onboarding.V_SESSION)!!)!!.clientSecret).pubkey)
         assertNull(vault.get(Onboarding.V_CARD_CLAIM))
 
+        // another account is open when it resumes: the claimed one joins the list, the open one stays the current one
+        val open = again.demo()
+        sessions.add(open)
+        assertEquals(open.accountId, again.accounts.current)
+        vault.set(Onboarding.V_APPLICANT + ":example.org", secret) // the key the claim was asked with
+        vault.set(Onboarding.V_CARD_CLAIM, kept)
+        val (other, _) = again.resumeCardClaim(keepCurrent = open.accountId)!!
+        sessions.add(other)
+        assertEquals(open.accountId, again.accounts.current, "never a silent switch")
+        assertTrue(again.accounts.accounts.any { it.id == other.accountId })
+
         // one kept for more than an hour is forgotten
         vault.set(Onboarding.V_CARD_CLAIM, kept)
         now += Onboarding.CARD_CLAIM_SECONDS + 1

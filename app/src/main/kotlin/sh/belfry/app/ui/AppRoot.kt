@@ -185,6 +185,7 @@ private fun SignedIn(state: AppState, session: Session) {
                 JoinOffer(state)
                 sh.belfry.app.ui.printed.CardHost(state) // a printed card's address (SPEC 19.72)
                 ChooseAccount(state)
+                AlsoSignedIn(state)
                 EventLinkOpener(state)
                 PushOpener(state)
             }
@@ -203,6 +204,19 @@ private fun OpenAfterSignIn(state: AppState) {
     LaunchedEffect(open) {
         state.forgetOpenAfter()
         nav.openChannel(open.second)
+    }
+}
+
+/** A card's claim finished at start while another account was open: said, with Switch; the open account stays (SPEC 19.73). */
+@Composable
+private fun AlsoSignedIn(state: AppState) {
+    val a = state.alsoSignedIn.collectAsState().value ?: return
+    BelfrySheet(onDismiss = { state.stayHere() }, title = "You're also signed in as ${a.who}") {
+        Text("Your printed card on ${a.domain} was confirmed. That account is on this phone now; this one stays open.", fontSize = 15.sp, color = Belfry.colors.muted)
+        Spacer(Modifier.height(16.dp))
+        BusyButton("Switch", onClick = { state.switchToClaimed() }, modifier = Modifier.fillMaxWidth().testTag("also-switch"))
+        Spacer(Modifier.height(8.dp))
+        BusyButton("Stay here", onClick = { state.stayHere() }, modifier = Modifier.fillMaxWidth().testTag("also-stay"), kind = ButtonKind.Ghost)
     }
 }
 
