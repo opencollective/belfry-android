@@ -22,6 +22,7 @@ import sh.belfry.core.net.BelfryApi
 import sh.belfry.core.net.Community
 import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.LocalSigner
+import sh.belfry.core.nostr.isValid
 import sh.belfry.core.nostr.parseJsonOrNull
 import sh.belfry.core.preview.PreviewLoader.Known
 import java.util.concurrent.atomic.AtomicInteger
