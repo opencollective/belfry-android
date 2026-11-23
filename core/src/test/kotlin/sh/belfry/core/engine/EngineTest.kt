@@ -684,7 +684,8 @@ class EngineTest {
         assertTrue(w.recentlyActive(Demo.GENERAL, now).size >= 8)
         assertEquals(1, w.dropLinks(Demo.GENERAL, now).size)
         // Reading circle, Finance, and the Private Surprise party I'm in (no announcement: it lives under general); never Board prep
-        assertEquals(3, w.pods(Demo.GENERAL).size)
+        // + Sourdough starters, started from a printed card (SPEC 19.75)
+        assertEquals(4, w.pods(Demo.GENERAL).size)
         assertEquals(null, w.group(Demo.POD_SECRET))
         assertTrue(w.group(Demo.POD_PRIVATE)?.isPrivate == true)
         assertTrue(w.group(Demo.POD_PRIVATE)?.applications.isNullOrEmpty())

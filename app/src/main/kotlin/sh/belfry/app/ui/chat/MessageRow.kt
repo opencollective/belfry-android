@@ -139,8 +139,8 @@ fun MessageRow(
     ) {
         Box(Modifier.width(avatar)) {
             if (first) {
-                val face = if (m.hasProfile()) world.face(m.pubkey).copy(name = author) else Face(m.pubkey, author)
-                Avatar(face, size = avatar, modifier = Modifier.clip(RoundedCornerShape(50)).clickable(enabled = m.hasProfile()) { nav.go(Routes.profile(m.pubkey)) })
+                val face = if (m.hasProfile()) world.face(m.author).copy(name = author) else Face(m.pubkey, author)
+                Avatar(face, size = avatar, modifier = Modifier.clip(RoundedCornerShape(50)).clickable(enabled = m.hasProfile()) { nav.go(Routes.profile(m.author)) })
             }
         }
         Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
@@ -149,7 +149,7 @@ fun MessageRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         author, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.hasProfile(), role = Role.Button) { nav.go(Routes.profile(m.pubkey)) },
+                        modifier = Modifier.weight(1f, fill = false).clickable(enabled = m.hasProfile(), role = Role.Button) { nav.go(Routes.profile(m.author)) },
                     )
                     if (tag != null) {
                         Spacer(Modifier.width(6.dp))
@@ -177,7 +177,7 @@ fun MessageRow(
                     Text("Pinned", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.orange)
                 }
             }
-            m.created?.let { Text("Created $it", fontSize = 14.sp, color = c.muted) }
+            m.cardLine?.let { Text(it, fontSize = 14.sp, color = c.muted) }
             if (m.special == Special.None) {
                 if (m.text.isNotEmpty()) MarkdownWithBox(m.text, world.ctx.domain, onTopic = { chat.topic = it }, eventCards = m.eventRefs.isNotEmpty())
             } else {

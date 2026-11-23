@@ -1916,6 +1916,8 @@ class Session(
     val members: MembersService by lazy { MembersService(this) }
     /** Channels' e-mail addresses through the belfry (SPEC 19.60). */
     val mailAlias: MailAliasService by lazy { MailAliasService(this) }
+    /** The printed card a group was started from, for its stewards (SPEC 19.76). */
+    val groupCards: GroupCardService by lazy { GroupCardService(this) }
 
     /** Sign in to another app with this account through the belfry (engine/RemoteApps.kt, SPEC 19.47). */
     val remoteApps: RemoteAppsService by lazy { RemoteAppsService(this) }

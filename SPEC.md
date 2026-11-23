@@ -2863,3 +2863,96 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   the two ways in. The demo answers `members_only` to a guest for `Demo.MEMBERS_EVENT` only.
 - Signed in elsewhere with no account in the link's belfry: still the sheet "Another community's
   event" (not asked whether it is for members).
+
+### 19.75 Printed cards: who created it (2026-11-23; collective-belfry docs/cards.md §2.2 "Who created it", §4; web chat 802be45 `authorOf`)
+
+A printed card's group or topic is made by the belfry for the person who claimed the card: the
+relay only takes those events from the groups key. Each says whose it is in `["by", <pubkey>]`: the
+`9007`, the `9002`, the "⬡ New group" post in `general` and the first line in the group (kind 9,
+`["p", <key>]`, `["card", "1"]`), as on the `9000`s the belfry writes for someone.
+
+- **The one rule** (`core/model/CardAuthors.kt`, `World.realAuthor(event)`): an event's real author
+  is its first `by` that is a key (64 lower-case hex) **only when the event's author is exactly the
+  groups key** (belfry.json `groups_key`, else `_groups@<domain>`). A `by` on anybody else's event
+  says nothing: that event is its signer's. No groups key known: nothing is trusted. Several `by`:
+  the first well-formed one (the web's `find`).
+- **Older groups** (claimed before the server wrote `by`): the first `p` that is a key on the
+  group's oldest kind 9 tagged `["card", "1"]` signed by the groups key names the claimer, for the
+  events of the claim only: the group's `9007` and `9002`, the kind 9 with `["pod", <group>]`, and
+  the card line itself. (Stricter than the web, which gives the claimer every event the groups key
+  signs in that group, an e-mail card too.)
+- **Where it counts.** `Group.creator` (so the group's "Steward" and an event's host), the name,
+  face and profile over a message (`Message.author`; `Message.pubkey` stays the signer: only it
+  can edit or delete), the "⬡ New group" card in the main channel, the first line in the group, the
+  activity log (`World.logWho(group, event)`; a group's `9007` reads "created the group").
+  Blocks of messages group by `author`.
+- **Android's own**: `Group.relayAdmins` (who may moderate on the relay itself) keeps the key that
+  signed the `9007`, never the claimer: the claimer is an admin by role (the claim's `9000` with
+  `["p", <key>, "admin"]`) and goes through the belfry (`/group-meta`, `/group-roles`). A kind 9 the
+  groups key wrote for someone (`by`) and the card line put nobody in the group's member list (the
+  web counts the groups key as a member there until the relay's 39002 arrives).
+- **The first line** is drawn as an activity line in the app's words, never the event's text and
+  never the card's id: "‹Name› started this group from a printed card" (`… this topic …` for a
+  channel; "You started …"; "This group was started from a printed card" when no key is named). It
+  has no menu and opens the person's profile.
+- **A guest as steward** (docs/cards.md §4): a guest who started a group from a card is put in
+  with the admin role and is its steward, of that group only. Nothing in the app hides a group's
+  steward controls from a guest: Settings, Archive, roles and requests go by `World.canAdmin(group)`
+  (checked by `CardAuthorsTest.aGuestWhoStartedItIsItsSteward`; no change was needed). What stays
+  off for every guest: inviting (the belfry answers `403 guest`: the card is their link).
+- A kind 9 carrying a `card` or `by` tag is never an "everyday" event (19.22): the snapshot is
+  rebuilt, because it names a group's creator.
+
+### 19.76 Printed cards: the town square's cards and the steward's section (2026-11-23; docs/cards.md §2.2, §2.5, §2.6; web chat f10e6b2, 2ba62ff, bcfde49; canvas "Belfry · Group cards": cards/townsquare-new-topic (approved), cards/steward (draft))
+
+**In the main channel.**
+
+- A group: the belfry posts what the chat posts, kind 9 `⬡ New group: <title>[ · <about>]` with
+  `[["h","general"],["pod",<id>],["by",<key>]]`. It is the group's card as for any group (19.61), under
+  "Created a group", by the `by` person (19.75).
+- A topic (a channel whose id is its hashtag; its `name` is the hashtag and its `about` is
+  `<topic> · <description>`): kind 9 `# New topic: #<id> · <topic>[ · <description>]`, a line break,
+  the chat's link, with `[["h","general"],["t","new-topic"],["channel",<id>],["by",<key>]]`.
+  `Special.TopicCard(<id>)` for any kind 9 with `["t","new-topic"]` and a `channel` tag (the card only
+  links a channel; who it is by follows 19.75). Drawn as: the header by the `by` person, the grey
+  line "started a topic from a printed card", then a card: "NEW TOPIC" with a hash mark · `#<hashtag>` ·
+  the topic · its description (links tappable) · "Started by ‹name› · N following" · the button
+  **Open**. The topic and description are the channel's `about` split at the first " · "; while the
+  channel is not known on this device, the post's own first line without its head. N = the
+  channel's member count; left out while the channel is unknown. A deleted channel: "This topic has
+  been deleted", no Open. The card and Open both show the channel (`nav.openChannel`). No
+  `#new-topic` chip under it. The post's own text is never drawn.
+
+**The card, for its stewards** (a group's or channel's Settings, under Name and Description, where
+the web has it): shown to whoever `World.canAdmin(group)` (its stewards, a guest who started it
+included, and the belfry's admins).
+
+- `GET <api>/groups/<group>/card`, NIP-98 → `{id, kind, started_by: {name, pubkey}, joined_by_scan}`.
+  Asked when Settings open; nothing is stored. `404` (no card in use: none, retired, reset), `403`,
+  `405`, `409 unsupported`, no answer: **no section at all**. An `id` that is not six of
+  `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (lower case read as upper): no section.
+- The section "The card": a row "Card ‹id›" with "Started by ‹name› · N people joined by scanning
+  it" ("1 person"; the name is the profile's when the key is known here, else the answer's `name`;
+  "you" for me); "Show the card's QR · To print it again" (a sheet with the QR of
+  `https://<the chat's host>/g/<id>` and the system's share / copy; no Print button: Android's
+  share sheet prints); "Retire this card" in red with "Its QR then says the group is closed to new
+  people"; under it "Only the group's stewards and the belfry's admins see this." (`topic` in place
+  of `group` for a topic card).
+- **Retire** asks first, in a sheet: "Retire this card?", "Its QR will say the group is closed to
+  new people. People already in it carry on here.", **Keep it** / **Retire** (red, locks and shows
+  progress). `POST <api>/cards/<id>/retire` with body `{}`, NIP-98. Not queued in the outbox: it
+  answers at once and the sheet shows a refusal in the app's words per code (`not_allowed`,
+  `not_found`, `unauthorized`, `unsupported`, `too_many`, no connection; anything else "The card could
+  not be retired. Try again."), never the server's `message`. In guest mode (reading only) it opens
+  the Join sheet as every write. Done: the section reads "Card ‹id› is retired: its QR says the
+  group is closed to new people. People already in it carry on here. The belfry's admins can reset
+  it."; the next time Settings open there is no section (404).
+- Not built: the board's date in "Started by Lou on 12 Nov" (the answer has none; the web leaves it
+  out too) and "Tap to edit" in place (Name and Description are the form's fields, saved with Save).
+
+**The demo** (`Demo.POD_CARD` "Sourdough starters" started by Sam, I'm in it; `Demo.TOPIC_CARD`
+`bike-repair` started by Lena): every event signed by the demo's groups key with the tags above;
+the relay's 39001 lists the groups key. `Session.groupCards` answers `K7Q2MX` / `T9PC4H` to whoever
+may administer the group, and nothing once retired (in memory). Tests: `CardAuthorsTest`,
+`GroupCardTest` (core), `TownCardsTest` (app; screenshots `cards-townsquare`, `cards-group-first-line`,
+`cards-topic-first-line`, `cards-steward`, `cards-steward-topic`, `cards-steward-retire`, `cards-log`).

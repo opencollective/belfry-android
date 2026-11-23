@@ -355,6 +355,8 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
         about, { about = it }, label = "Description", hint = "Markdown works, links become clickable",
         singleLine = false, minLines = 3, enabled = !busy.busy,
     )
+    // started from a printed card: "The card", for its stewards (SPEC 19.76; canvas cards/steward)
+    sh.belfry.app.ui.cards.StewardCardSection(g)
     if (g.isPod) {
         Spacer(Modifier.height(14.dp))
         Hint("Who can join")

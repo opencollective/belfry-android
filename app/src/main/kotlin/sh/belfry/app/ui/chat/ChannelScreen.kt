@@ -462,6 +462,8 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                 // an event's chat: a host's "invited" line is a system line, not a message (SPEC 19.65)
                 val invited = world.calEventFor(groupId)?.let { sh.belfry.core.model.EventInvites.invitedBy(world, it, m.ev) }
                 if (invited != null) { sh.belfry.app.ui.cards.InvitedLine(m.pubkey, invited, m.at); return@Column }
+                // a printed card's first line, signed by the groups key: an activity line in our words (SPEC 19.75)
+                world.cardLine(groupId, m)?.let { (who, line) -> sh.belfry.app.ui.cards.CardStartedLine(who, line, m.at); return@Column }
                 val open = chat.openThreads.containsKey(m.id)
                 MessageRow(
                     groupId, m, row.first || ownBlock, chat,

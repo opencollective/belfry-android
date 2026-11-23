@@ -292,6 +292,16 @@ minSdk 26, JDK 17.
   `InviteToCommunitySheet`, opened by the ＋ of `MembersScreen` (a sheet, no route). `InviteScreen` /
   `Routes.invite(id)` is only for a channel (people who are here first). Tests `InviteSheetTest`.
 
+- Printed cards in the town (SPEC 19.75 / 19.76; collective-belfry docs/cards.md §2.2, §2.5, §2.6, §4; canvas
+  "Belfry · Group cards": cards/townsquare-new-topic, cards/steward): **who wrote an event is `World.realAuthor(e)`**
+  (`core/model/CardAuthors.kt`: the groups key's `["by", key]`, else a card line's claimer; `by` on anyone else's event
+  is ignored). Use it (or `Message.author`, `Group.creator`, `World.logWho(group, event)`) wherever a name or face
+  stands for who made something; `Message.pubkey` stays the signer (edit, delete), `Group.relayAdmins` the 9007's
+  signer. `Special.TopicCard` + `ui/cards/TownCards.kt` (`TopicCard`, `CardStartedLine` drawn by `FeedRowView`,
+  `StewardCardSection` in `ChannelSettingsForm`); `core/net/GroupCard.kt` + `Session.groupCards`
+  (`GET /groups/<id>/card`, `POST /cards/<id>/retire`; 404 / 403 = no section). Demo: `Demo.POD_CARD`,
+  `Demo.TOPIC_CARD`. Tests `CardAuthorsTest`, `GroupCardTest`, `TownCardsTest`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

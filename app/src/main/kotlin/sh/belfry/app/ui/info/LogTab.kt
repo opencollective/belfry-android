@@ -146,7 +146,7 @@ fun LogTab(g: Group, modifier: Modifier = Modifier, onTab: (Int) -> Unit = {}, d
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     buildAnnotatedString {
-                                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(world.logWho(g.id, line.ev.pubkey)) }
+                                        withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(world.logWho(g.id, line.ev)) }
                                         append(" " + line.text)
                                     },
                                     fontSize = 14.sp, lineHeight = 20.sp, color = c.text,

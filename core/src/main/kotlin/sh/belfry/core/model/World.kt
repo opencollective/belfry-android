@@ -100,6 +100,9 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         out
     }
     private val byKind: Map<Int, List<Event>> by lazy { all.groupBy { it.kind } }
+
+    /** Group id → who claimed the printed card it was started from (SPEC 19.75: the card line's `p`). */
+    private val cardClaimers: Map<String, String> by lazy { CardAuthors.claimers(ofKind(9), ctx.groupsKey) }
     private val sortedByH: ConcurrentHashMap<String, List<Event>> = seeded(prev) { it.sortedByH }
 
     /** Who wrote each event, by id (deletions and edits count only from the author). */
@@ -179,7 +182,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
 
     /** The name over a message: "Drop box" for an upload through a drop link by a key without a profile. */
     fun nameOver(m: Message): String =
-        if (m.viaDropBox && profiles[m.pubkey]?.name.isNullOrEmpty()) "Drop box" else displayName(m.pubkey)
+        if (m.viaDropBox && profiles[m.pubkey]?.name.isNullOrEmpty()) "Drop box" else displayName(m.author)
 
     fun aboutOf(pubkey: String): String = profiles[pubkey]?.about ?: ""
 
@@ -209,6 +212,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val applications = ArrayList<Application>()
         var pending = false
         var creator: String? = null
+        /** Who signed its first 9007: the key the relay lets moderate (the groups key for a printed card's group). */
+        var maker: String? = null
         var listedAdmins: Set<String>? = null
         val metaAt = HashMap<String, Long>()
     }
@@ -247,7 +252,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 created[id] = maxOf(created[id] ?: 0, e.createdAt)
                 g.createdAt = minOf(g.createdAt, e.createdAt)
                 if (isPending(e.id)) g.pending = true
-                if (g.creator == null) g.creator = e.pubkey
+                // a printed card's group: its creator is who claimed the card, not the groups key (SPEC 19.75)
+                if (g.creator == null) { g.creator = realAuthor(e); g.maker = e.pubkey }
             }
             // archived: the latest 9002 that says anything about it (never #general)
             if (e.kind == 9002 && id != "general") {
@@ -296,7 +302,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             }
             if (e.kind == 9) {
                 g.lastActivity = maxOf(g.lastActivity, e.createdAt)
-                g.members.add(e.pubkey)
+                // what the groups key wrote for someone (a printed card: SPEC 19.75) puts nobody in here
+                if (CardAuthors.by(e, ctx.groupsKey) == null && !CardAuthors.isCardLine(e, ctx.groupsKey)) g.members.add(e.pubkey)
             }
             if (e.kind == 9021) {
                 // an event's application or waitlist place is not a join
@@ -310,8 +317,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         for (g in map.values) {
             val a = LinkedHashSet<String>()
             g.listedAdmins?.let(a::addAll)
-            g.creator?.let(a::add)
+            g.maker?.let(a::add)
             g.relayAdmins = LinkedHashSet(a)
+            // … and the person a printed card's group was made for (an admin by role too: the claim's 9000)
+            g.creator?.let(a::add)
             g.admins = a
         }
         for ((k, on) in byRole) if (on) map[k.first]?.admins?.add(k.second)
@@ -395,6 +404,24 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     }
     fun group(id: String): Group? = groupById[id]
 
+    /**
+     * Who really wrote E (SPEC 19.75): the person the groups key signed it for (`by`, or a printed
+     * card's claimer), else its own author. The one place the app decides who created a group or
+     * wrote such a post.
+     */
+    fun realAuthor(e: Event): String = if (e.pubkey != ctx.groupsKey) e.pubkey else CardAuthors.authorOf(e, ctx.groupsKey, cardClaimers)
+
+    /** Who started GROUP from a printed card, when its first line says so here; null for any other group. */
+    fun cardStarter(groupId: String): String? = cardClaimers[groupId]
+
+    /** The words of a card's first line when M is one ([CardAuthors.isCardLine]): (who, the line); else null. */
+    fun cardLine(groupId: String, m: Message): Pair<String?, String>? {
+        if (!CardAuthors.isCardLine(m.ev, ctx.groupsKey)) return null
+        val who = CardAuthors.cardLineWho(m.ev) ?: CardAuthors.by(m.ev, ctx.groupsKey)
+        val name = who?.let { if (it == me) "You" else realName(it).ifEmpty { displayName(it) } }
+        return who to CardAuthors.startedLine(name, typeOfId(groupId) == ChannelType.POD)
+    }
+
     /** Sub-groups announced in this channel or pod. */
     fun pods(parent: String): List<Group> = groups.filter { it.isPod && it.parent == parent }
     fun proposalsIn(parent: String): List<Proposal> = proposals.filter { group(it.groupId)?.parent == parent }
@@ -465,7 +492,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         }
         return Message(
             ev = e, text = shown, media = media, topics = topics.toList(), edited = x?.createdAt,
-            special = specialOf(e, legacy), viaDropBox = e.hasTag("client", "belfry-drop"), eventRefs = refs.take(3),
+            special = specialOf(e, legacy), author = realAuthor(e), viaDropBox = e.hasTag("client", "belfry-drop"), eventRefs = refs.take(3),
         )
     }
 
@@ -483,6 +510,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 return Special.SentAsChannel(e.t("mail-to") ?: "", e.t("subject") ?: "", e.t("sent-by") ?: "")
         }
         if (legacyEvent) eventCoordOf(e)?.let { return Special.EventCard(it) }
+        CardAuthors.newTopicOf(e)?.let { return Special.TopicCard(it) }
         podOf(e)?.let { return Special.PodCard(it) }
         proposalOf(e)?.let { return Special.ProposalCard(it) }
         return mail ?: Special.None
@@ -617,7 +645,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (item is FeedItem.Msg) {
                 val p = (before as? FeedItem.Msg)?.m?.takeIf { x -> x.id !in openThreads }
                 val announce = isAnnouncement(item.m, g)
-                val first = newDay || p == null || p.pubkey != item.m.pubkey || item.m.at - p.at > 300 ||
+                val first = newDay || p == null || p.author != item.m.author || item.m.at - p.at > 300 ||
                     announce || item.m.special != Special.None
                 out.add(FeedRow(item, newDay, first, announce))
             } else {
@@ -641,7 +669,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     /** Topics a message carries that its text doesn't show (sent inside an open topic), except the open one. */
     fun extraTopics(m: Message, openTopic: String? = null): List<String> {
         val inText = Topics.hashtags(m.text).toSet()
-        return m.topics.filter { it !in inText && it != openTopic && it != Topics.ANNOUNCE }
+        // no #new-topic chip under a topic's card (SPEC 19.76)
+        return m.topics.filter { it !in inText && it != openTopic && it != Topics.ANNOUNCE && !(it == CardAuthors.NEW_TOPIC && m.special is Special.TopicCard) }
     }
 
     // ---- reactions (NIP-25) --------------------------------------------------------------------
@@ -1264,7 +1293,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     private fun readCalendar(): List<CalEvent> {
         val gs = groups.associateBy { it.id }
         val creators = HashMap<String, String>() // group id → its creator (first 9007)
-        for (e in ofKind(9007).sortedWith(BY_TIME)) { val h = e.t("h") ?: continue; if (h !in creators) creators[h] = e.pubkey }
+        for (e in ofKind(9007).sortedWith(BY_TIME)) { val h = e.t("h") ?: continue; if (h !in creators) creators[h] = realAuthor(e) }
         val byKey = LinkedHashMap<String, MutableList<Event>>()
         for (e in all) {
             if (e.kind != 31922 && e.kind != 31923) continue
@@ -1575,7 +1604,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             if (e.kind == 1059 || e.kind == 4) return true
             if (h.isNullOrEmpty() || typeOfId(h) != ChannelType.CHANNEL) return false
             return when (e.kind) {
-                9 -> e.tags.none { it.isNotEmpty() && (it[0] == "pod" || it[0] == "proposal" || it[0] == "a") } && !e.content.contains("/events/")
+                9 -> e.tags.none { it.isNotEmpty() && (it[0] == "pod" || it[0] == "proposal" || it[0] == "a" || it[0] == "card" || it[0] == "by") } && !e.content.contains("/events/")
                 7, 1111 -> true
                 30078 -> e.t("d")?.startsWith("seen:") == true
                 in 2100..2103 -> true

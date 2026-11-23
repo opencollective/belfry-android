@@ -70,6 +70,14 @@ object Demo {
     /** SPEC 19.59: a Private group I'm in (no announcement), and one I'm not in (never shown). */
     const val POD_PRIVATE = "pod-surprise-party-7c3d"
     const val POD_SECRET = "pod-board-prep-2e8f"
+    /**
+     * Printed cards (SPEC 19.75 / 19.76; docs/cards.md §2.2): a group Sam started from a card (I'm in it)
+     * and a topic Lena started from one, both written by the groups key exactly as the belfry does.
+     */
+    const val POD_CARD = "pod-sourdough-starters-k7q2"
+    const val TOPIC_CARD = "bike-repair"
+    const val CARD_GROUP = "K7Q2MX"
+    const val CARD_TOPIC = "T9PC4H"
     const val EVENT_GROUP = "ws-e1a2b3c4"
     /** Belfry events (ev-<d>): an open one Maya hosts, and one by application that I host. */
     const val SWAP_D = "2026-swap01"
@@ -239,6 +247,31 @@ object Demo {
             raw(voter, d1 + 11000, 1018, listOf(listOf("h", propGroup), listOf("e", poll.id), listOf("response", choice)))
         say(tomas, propGroup, d1 + 11500, "Yes from me. I can build the cabinet from the old shelves.")
         say(sam, propGroup, d1 + 11800, "400 EUR feels like a lot before we know who will use it. Could we start with 200?")
+
+        // ---- printed cards: what the belfry writes at a claim, as the groups key (docs/cards.md §2.2) ----
+        run {
+            fun claim(group: String, who: LocalSigner, whoName: String, at: Long, topic: Boolean, title: String, about: String, joined: List<LocalSigner>) {
+                val by = listOf("by", who.pubkey)
+                val access = if (topic) emptyList() else listOf(listOf("open"), listOf("public"))
+                val name = if (topic) group else title
+                val desc = if (!topic) about else if (about.isNotEmpty()) "$title · $about" else title
+                raw(groups, at, 9007, listOf(listOf("h", group)) + access + listOf(by))
+                raw(groups, at + 1, 9002, listOf(listOf("h", group), listOf("name", name), listOf("about", desc)) + access + listOf(by))
+                raw(groups, at + 2, 9000, listOf(listOf("h", group), listOf("p", who.pubkey, "admin"), listOf("role", "admin"), by, listOf("name", whoName)))
+                if (topic) raw(groups, at + 3, 9, listOf(listOf("h", GENERAL), listOf("t", "new-topic"), listOf("channel", group), by),
+                    "# New topic: #$group · $title${if (about.isNotEmpty()) " · $about" else ""}\nhttps://chat.$DOMAIN/#/c/$group")
+                else raw(groups, at + 3, 9, listOf(listOf("h", GENERAL), listOf("pod", group), by), "⬡ New group: $title${if (about.isNotEmpty()) " · $about" else ""}")
+                raw(groups, at + 4, 9, listOf(listOf("h", group), listOf("p", who.pubkey), listOf("card", "1"), by), "$whoName started this ${if (topic) "topic" else "group"} from a printed card")
+                // the relay's own lists: its 39001 names the key that made the group (the groups key), never the claimer
+                lists(group, at + 5, listOf(listOf("name", name), listOf("about", desc)) + access, listOf(groups), listOf(who) + joined)
+            }
+            val cardDay = now - 4 * day
+            claim(POD_CARD, sam, "Sam Carter", cardDay, false, "Sourdough starters", "Swap starters, share flour, bake together on Saturday mornings.", listOf(aroha, me, ines))
+            say(sam, POD_CARD, cardDay + 600, "I have a rye starter from 2019 to share. Bring a jar on Saturday.")
+            say(aroha, POD_CARD, cardDay + 2 * h, "Yes please! I can bring flour from the pantry.")
+            claim(TOPIC_CARD, lena, "Lena Fischer", cardDay + 3 * h, true, "Bike repair", "Flat tyres, squeaky brakes: ask here, or say when you can help.", listOf(kofi, tomas))
+            say(kofi, TOPIC_CARD, cardDay + 4 * h, "My gears skip under load. Is that the cable or the cassette?")
+        }
 
         // ---- #general: today ---------------------------------------------------------------------
         val t = now - 6 * h

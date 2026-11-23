@@ -75,7 +75,7 @@ data class Group(
     val rawName: String = "",
     /** The admins the relay itself lets moderate: its latest 39001 and the creator (not admins by role). */
     val relayAdmins: Set<String> = emptySet(),
-    /** The author of its first 9007 (an event's host). */
+    /** Who made it: the author of its first 9007 (an event's host), or the person a printed card's group was made for (SPEC 19.75). */
     val creator: String? = null,
     /** Its name arrived (39000 / 9002 / a place name); false = [name] is only the kind's word (SPEC 19.39). */
     val named: Boolean = true,
@@ -104,6 +104,8 @@ sealed interface Special {
     data class EventCard(val coord: String) : Special
     data class PodCard(val podId: String) : Special
     data class ProposalCard(val groupId: String) : Special
+    /** The town square's post about a topic started from a printed card (SPEC 19.76): the topic's card. */
+    data class TopicCard(val channelId: String) : Special
     /** A member's e-mail to `<channel>@domain`, posted as their message: "via e-mail". */
     data class MemberMail(val subject: String, val original: MailOriginal?) : Special
     /** Shared inbox: an e-mail from anyone, posted by the groups key as a card. */
@@ -126,6 +128,11 @@ data class Message(
     val viaDropBox: Boolean = false,
     /** The events it shows as cards under its text (its `a` tags and its event URLs, at most three). */
     val eventRefs: List<EventRef> = emptyList(),
+    /**
+     * Who wrote it (SPEC 19.75, [World.realAuthor]): the person the groups key signed it for, else
+     * [pubkey]. The name, the face and the profile it opens; [pubkey] stays who signed (edit, delete).
+     */
+    val author: String = ev.pubkey,
 ) {
     val id get() = ev.id
     val pubkey get() = ev.pubkey
@@ -149,7 +156,9 @@ data class Message(
         is Special.ProposalCard -> "a proposal"
         else -> null
     }
-    val isCard get() = created != null
+    /** The grey line above a card: "Created a group" …, or for a topic's card "started a topic from a printed card". */
+    val cardLine: String? get() = if (special is Special.TopicCard) "started a topic from a printed card" else created?.let { "Created $it" }
+    val isCard get() = cardLine != null
 }
 
 data class Reaction(val emoji: String, val who: Set<String>, /** My reaction event (to undo it). */ val mine: Event? = null)

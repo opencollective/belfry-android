@@ -40,7 +40,7 @@ object ChannelLog {
     }
 
     /** The line for one event; null for what the log leaves out. TITLES: to-do id → title; NAME: a person's name. */
-    fun item(e: Event, titles: Map<String, String>, name: (String) -> String): LogItem? {
+    fun item(e: Event, titles: Map<String, String>, pod: Boolean = false, name: (String) -> String): LogItem? {
         fun t(k: String) = e.t(k)
         val toMessage = t("e")?.let { LogGo.Message(it) }
         return when (e.kind) {
@@ -76,7 +76,7 @@ object ChannelLog {
             9021 -> LogItem(e, "🙋", "asked to join", short(e.content, 200))
             9022 -> LogItem(e, "🚪", "left")
             9002 -> LogItem(e, "⚙️", "changed the channel", listOfNotNull(t("name"), t("about")).filter { it.isNotEmpty() }.joinToString(" · ") { short(it, 120) })
-            9007 -> LogItem(e, "✨", "created the channel")
+            9007 -> LogItem(e, "✨", if (pod) "created the group" else "created the channel")
             1985 -> {
                 val l = e.tags.firstOrNull { it.isNotEmpty() && it[0] == "l" }?.getOrNull(1) ?: ""
                 if (t("L") == "#t") LogItem(e, "#", "changed the pinned topics")
@@ -104,11 +104,15 @@ fun World.channelLog(groupId: String, limit: Int = 1000): List<LogItem> {
     val titles = tasks(groupId).associate { it.id to it.title }
     // a Private group takes no requests: its 9021s are never shown (SPEC 19.59)
     val noRequests = group(groupId)?.isPrivate == true
+    val pod = World.typeOfId(groupId) == ChannelType.POD
     return groupEventsSorted(groupId).asReversed().asSequence()
         .filter { !(noRequests && it.kind == 9021) }
-        .mapNotNull { ChannelLog.item(it, titles) { pk -> displayName(pk) } }
+        .mapNotNull { ChannelLog.item(it, titles, pod) { pk -> displayName(pk) } }
         .take(limit).toList()
 }
+
+/** Who a log line is by ([realAuthor]: a printed card's claimer, not the groups key that signed for them). */
+fun World.logWho(groupId: String, e: Event): String = logWho(groupId, realAuthor(e))
 
 /** Who a log line is by: the relay signs joins and channel changes itself, so its key reads as the community. */
 fun World.logWho(groupId: String, pubkey: String): String =
