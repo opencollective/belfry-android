@@ -183,6 +183,7 @@ fun MessageRow(
             } else {
                 SpecialCard(groupId, m)
             }
+            MessageLinkPreview(m) // the first outside link's preview (SPEC 19.80); channels and threads only
             EventCards(m)
             MessageButtons(groupId, m)
             if (!first && m.edited != null) Text("edited", fontSize = 12.sp, color = c.faint)
