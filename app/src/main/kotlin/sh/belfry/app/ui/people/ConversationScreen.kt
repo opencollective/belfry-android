@@ -186,7 +186,7 @@ fun ConversationScreen(conv: String) {
             pullLabel = peer?.let { "Open ${world.displayName(it)}'s profile" },
             // while this device waits to be allowed, every conversation shows the lock (the lead, 2026-11-22):
             // it can't know which are sealed until it can read them
-            titleMark = if (seal != null || (!newMail && (sealState.earlierLocked || sealState.waitingKeys))) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
+            titleMark = if (seal != null || (!newMail && sealState.earlierLocked)) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
             actions = {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })
             },
@@ -194,6 +194,8 @@ fun ConversationScreen(conv: String) {
         // Notes to myself (docs/one-shape.md, SPEC 19.66): the screen starts with one fixed line; the lock and the
         // "nobody else" sentence only when sealed
         if (toSelf) NotesLine(sealed = seal != null) { nav.go(Routes.encryption(conv)) }
+        // this device added itself (messages/encryption-self-added-thread, -notes): where the older messages will come
+        if ((seal != null || toSelf) && sealState.earlierArriving && !lockedHere) EarlierLine(sealState)
         if (rows.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 EmptyState(
@@ -272,11 +274,7 @@ fun ConversationScreen(conv: String) {
         // device that added itself; a locked wrap does not say which conversation it is for, so the line shows in
         // every sealed conversation while any waits. The composer stays.
         if (seal != null && sealState.waitingFor.isNotEmpty() && !lockedHere && maxOf(dms.lockedCount, sealState.demoWaiting) > 0) WaitingForLine(sealState)
-        if (seal != null && sealState.waitingKeys && !lockedHere) {
-            // allowed, the key not here yet (canvas v96): clears by itself when it arrives
-            // "Asked 9:40 PM · waiting for one of your devices" / "Open ‹device›. Nothing to approve here." (Messages v5)
-            WaitingKeysLines(sealState, Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-waiting-keys"))
-        } else if (lockedHere) {
+        if (lockedHere) {
             Text(
                 sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),

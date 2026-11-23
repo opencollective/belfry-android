@@ -573,6 +573,39 @@ def build(d):
     assert by_allow['after']['expected']['head'] == EL['id'] and not unendorsed(chain(aEL, [r1, r2, J, EL]).rosters)
     assert accept_confirm(by_allow['confirmation'], pub(L), chain(aEL, [r1, r2, J, EL]), [pub(T)]) == 'yes'
 
+    # ---- what a device that adds itself sends (the writing side; appended 2026-11-23 after endorsement_by_allow)
+    def own_case(name, note, before_anchor, before, now, lb, counted, expect_at):
+        c = chain(before_anchor, before)
+        devs = [name_of[x] for x in c.devices] + [T]
+        ready = any(r.ready for r in c.rosters) or all(x in [pub(y) for y in devs] for x in counted)
+        r = roster(T, c.head.n + 1, {'id': c.head.id}, lb, devs, max(now, c.head.at), ready=ready)
+        assert r['created_at'] == expect_at
+        a = anchor(r1, r, max(now, before_anchor['created_at'] + 1))
+        after = chain(a, before + [r])
+        assert after.head.id == r['id'] and unendorsed(after.rosters).keys() == {pub(T)}
+        return {'name': name, 'note': note, 'device': pub(T), 'now': now, 'before': {'anchor': before_anchor, 'rosters': before},
+                'new_letterbox': pub(lb), 'counted_sessions': counted, 'roster': r, 'anchor': a, 'expected': summary(after)}
+    ready3 = roster(P, 3, r2, 'alice_lb1', [P, L], T0 + 150, ready=True)
+    aR3 = anchor(r1, ready3, T0 + 151)
+    own_cases = [
+        own_case('the roster a device signs for itself', "Now = T0 + 200. Roster n+1: prev = the head, the head's devices in their order then this device, the new letterbox; no ready (every counted session must be a device of it: alice_new has a session and is not, and the chain was not ready). The anchor: root, head = that roster, created_at = max(now, the standing anchor's + 1).", a2, [r1, r2], T0 + 200, 'alice_lb2', [pub(P), pub(L), pub(T), pub(N)], T0 + 200),
+        own_case('ready by the usual rule', 'Every counted session (phone, laptop, tablet) is a device of the new roster: it carries ready.', a2, [r1, r2], T0 + 200, 'alice_lb2', [pub(P), pub(L), pub(T)], T0 + 200),
+        own_case('a chain that was ready stays ready', "The head carries ready already: the join carries it too, whatever the sessions.", aR3, [r1, r2, ready3], T0 + 200, 'alice_lb2', [pub(P), pub(L), pub(T), pub(N)], T0 + 200),
+        own_case('a clock behind: dated at its prev, never before', "This device's clock says T0 + 50; the head is dated T0 + 100. The join is dated T0 + 100 (max(now, prev's created_at)); the anchor max(now, the standing anchor's + 1).", a2, [r1, r2], T0 + 50, 'alice_lb2', [pub(P), pub(L), pub(T), pub(N)], T0 + 100),
+    ]
+    assert own_cases[0]['roster'] == J
+    assert [any(t == ['ready'] for t in c['roster']['tags']) for c in own_cases] == [False, True, True, False]
+    keys_rumor = rumor(pub(T), T0 + 201, 8561, [['p', A]], compact({'v': 1, 'account': A, 'keys': [{'lb': pub('alice_lb2'), 'secret': sec('alice_lb2')}]}))
+    request = sign_event(sec(T), T0 + 200, 8562, [['p', A]], '')
+    own_join = {
+        'note': "What a device that adds itself sends, in order (§5.7 steps 1 to 7; added with Android's writing side, appended after endorsement_by_allow: nothing before this key changed). 'cases': the roster and the anchor it publishes, given my chain ('before'), its clock ('now'), its new letterbox and the client keys of the counted sessions (§6): Roster n+1 signed by the device, created_at = max(now, the head's created_at), ready when the chain was ready or every counted session is a device of the new roster; then the anchor. 'handover_rumor': the 8561 it then sends to EACH other device of that roster (a silent wrap to that device's key, as in 'handover'): its keys are the new letterbox alone, never anything else. 'request': its 8562 after that, dated at or after its own roster (here the same second), which the older devices answer under 'requests' and 'older_keys'. A device does this only when belfry.json says \"sealed\": {\"self_join\": true} (read at that moment), its chain is from a complete authenticated answer, a fresh session list holds it as a live chat session, the head has fewer than 20 devices, the chain never had it, no fresh start elsewhere left it out and it saw no switch on its own chain; otherwise it asks (§5.2). A join that lost the anchor is discarded with its letterbox; after 3 losses in a run it asks.",
+        'cases': own_cases,
+        'handover_rumor': keys_rumor,
+        'handover_to': [pub(P), pub(L)],
+        'request': request,
+    }
+    assert answer_without_prompt(chain(aJ, [r1, r2, J]), pinJ, pub(T), live_all, request['created_at']) is True
+
     return {
         'note': "sealed.md §5.7 \"A device that signed in adds itself\", with its \"Readings fixed before the first build\" and \"Tightened after Android's review\" (belfry-sh 1440e79). Added by belfry-android (tools/sealed_join_vectors.py, which writes this file's other sections back byte for byte, and computes every 'expected' with its own port of the reference) on 2026-11-23; to be taken into services/onboarding/tools/sealed_vectors.py. A JOIN is a roster signed by a device that is not in its prev: valid only when n = prev's + 1, its devices are exactly prev's in their order plus the signer last, its lb is a letterbox the chain never had, its signer is in no earlier roster of the path, its created_at is not before its prev's, AND it lies on the anchored path (root → the anchor's head); a client also keeps one it pinned as anchored. It is never taken in the provisional tail. A normal roster signed by a device that added itself is invalid (on the path and in the tail) while no roster after its join carries [\"endorse\", <that device>] signed by a device that was in the roster BEFORE that join; only that tag endorses (a roster's endorse tags come last, after `ready`), and a joiner that left the head waits for nothing. After a switch, an endorsed joiner is trusted when the endorsing device is trusted on that device. Sections: 'chains' (shape of the top-level 'chains'; 'added' where given = device → the roster that added it; 'unendorsed' = the devices of the head still limited, in the head's order), 'follow' (shape of 'follow'), 'requests' (shape of 'trust': after the steps each of 'asks' is answer_without_prompt(chain, pin, device, live_chat_devices, request_created_at, added_at, last_handover_at); 'self_added' says the roster that last added the device is signed by it, which is what makes >= apply), 'older_keys' (the decision to hand a joiner the earlier letterboxes without a prompt, from plain facts: 'keys' or 'card'), 'handover' (shape of 'keys_handover', the chain given whole; 'kept_for_later' = not taken now but kept and tried again), 'confirm' (shape of 'confirm', each case with its own chain and the devices whose added-notice is unanswered on the judging device) and 'endorsement'. 'keys' holds the test keys this section adds (made from their names like every other).",
         'keys': own,
@@ -584,6 +617,7 @@ def build(d):
         'confirm': confirms,
         'endorsement': endorsement,
         'endorsement_by_allow': by_allow,
+        'own_join': own_join,
     }
 
 if __name__ == '__main__':
@@ -596,4 +630,5 @@ if __name__ == '__main__':
         print('up to date' if had == section else 'DIFFERENT'); sys.exit(0 if had == section else 1)
     assert json.dumps(d if had is None else {**d, 'join': had}, indent=1, ensure_ascii=False) + '\n' == raw, 'the file is not in the generator\'s format, or join is not its last section'
     d['join'] = section
-    open(path, 'w', encoding='utf-8').write(json.dumps(d, indent=1, ensure_ascii=False) + '\n')
+    out = json.dumps(d, indent=1, ensure_ascii=False) + '\n'   # made whole before the file is opened
+    open(path, 'w', encoding='utf-8').write(out)

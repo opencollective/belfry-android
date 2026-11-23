@@ -178,6 +178,38 @@ class SealedVectorsTest {
         val said = Sealing.acceptConfirm(rumorOf(en["confirmation"] as JsonObject), tapped.pubkey, after, setOf(joiner))
         assertTrue(said is Sealing.Confirm.Accept, "$key: its 8563")
         }
+
+        // what a device that adds itself sends (the writing side)
+        val own = j["own_join"] as JsonObject
+        val tablet = LocalSigner(secret("alice_tablet"))
+        val alice = LocalSigner(secret("alice"))
+        val cases = (own["cases"] as JsonArray).map { it as JsonObject }
+        assertEquals(4, cases.size)
+        for (c in cases) {
+            val name = c.s("name")!!
+            val bf = c["before"] as JsonObject
+            val standing = ev(bf["anchor"] as JsonObject)
+            val before = chainOf(bf["anchor"] as JsonObject, evs(bf["rosters"]))!!
+            val now = c["now"]!!.jsonPrimitive.long
+            assertEquals(c.s("device"), tablet.pubkey)
+            val devices = before.devices + tablet.pubkey
+            val ready = before.ready || Sealing.readyFor(devices, strs(c["counted_sessions"]))
+            val r = tablet.signNow(Roster.template(before.account, before.head.n + 1, before.head.id, c.s("new_letterbox")!!, devices, ready, maxOf(now, before.head.createdAt)))
+            assertEquals((c["roster"] as JsonObject).s("id"), r.id, "$name: the roster")
+            val a = alice.signNow(Anchor.template(before.root.id, r.id, maxOf(now, standing.createdAt + 1)))
+            assertEquals((c["anchor"] as JsonObject).s("id"), a.id, "$name: the anchor")
+            val after = Chain.of(before.account, listOf(a), evs(bf["rosters"]) + r)!!
+            assertEquals(c["expected"], summary(after), name)
+            assertEquals(listOf(tablet.pubkey), after.unendorsed, name)
+            assertTrue(after.selfAdded(tablet.pubkey), name)
+        }
+        val lb2 = (keys["alice_lb2"] as JsonObject)
+        val wantKeys = own["handover_rumor"] as JsonObject
+        val rum = Sealing.keysRumors(tablet.pubkey, alice.pubkey, KeyChain(mapOf(lb2.s("pubkey")!! to lb2.s("secret")!!)), wantKeys["created_at"]!!.jsonPrimitive.long).single()
+        assertEquals(wantKeys.s("id"), rum.id, "the 8561: the new letterbox alone")
+        assertEquals(2, strs(own["handover_to"]).size)
+        val wantReq = ev(own["request"] as JsonObject)
+        assertEquals(wantReq.id, tablet.signNow(Sealing.request(alice.pubkey, tablet.pubkey, null, wantReq.createdAt)).id, "its 8562")
     }
 
     @Test fun wraps() {

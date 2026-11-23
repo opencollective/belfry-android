@@ -158,15 +158,22 @@ class EncryptionService internal constructor(private val s: Session) {
             val rows = try { s.sessions() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { emptyList() }
             behindFor.map { d -> rows.firstOrNull { it.clientPubkey == d }?.let { r -> sh.belfry.core.model.Unlockers.sessionName(r.applicationName, r.device) } ?: sh.belfry.core.model.SealedText.UNKNOWN_DEVICE }.distinct()
         }
+        // this device added itself (sealed.md §5.7): the earlier messages arrive when one of my other devices is next
+        // open; those devices by their session names (the ones that still have a session)
+        val earlier = e.earlierArriving
+        val earlierFrom = if (!earlier) emptyList() else {
+            val rows = try { s.sessions() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { emptyList() }
+            others.mapNotNull { d -> rows.firstOrNull { it.clientPubkey == d && it.chat }?.let { r -> sh.belfry.core.model.Unlockers.sessionName(r.applicationName, r.device) } }.distinct()
+        }
         _state.value = SealState(
             added = added,
             freshElsewhere = fe,
             myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
             locked = if (waiting) sealed.keys else emptySet(),
-            asks = asks, linked = linked, waitingKeys = noKey,
+            asks = asks, linked = linked,
+            earlierArriving = earlier, earlierFrom = earlierFrom, joinedAt = if (earlier) e.joinedAt else 0L,
             waitingFor = waitingFor, removedJoinerAt = e.removedJoiner?.at ?: 0L,
             unlockers = unlockers, askedAt = if (waitingHere) e.lastAskedAt else 0L,
-            addedAt = if (noKey) mine?.addedAt(e.device.pubkey) ?: 0L else 0L,
         )
     }
 
@@ -364,12 +371,14 @@ class EncryptionService internal constructor(private val s: Session) {
         _state.value = _state.value.copy(removedJoinerAt = s.now() - 60)
     }
 
-    /** Demo and tests: this device is allowed but its key hasn't arrived (canvas v96). */
-    fun demoWaitingKeys() {
+    /**
+     * Demo and tests: THIS device just signed in and added itself (sealed.md §5.7; canvas Messages v10
+     * messages/encryption-self-added-list, -thread, -notes): everything works; one quiet line says where the earlier
+     * messages will come from.
+     */
+    fun demoSelfAdded(from: List<String> = listOf("Chat · Safari on Mac", "Belfry on Pixel 8")) {
         if (!demo) return
-        val now = s.now()
-        _state.value = _state.value.copy(waitingKeys = true, earlierLocked = false, locked = emptySet(),
-            unlockers = listOf("Chat · Firefox on Linux"), askedAt = now - 300, addedAt = now - 60)
+        _state.value = _state.value.copy(earlierArriving = true, earlierFrom = from, joinedAt = s.now(), earlierLocked = false, locked = emptySet())
     }
 
     /** Demo and tests: a device of mine was just added without a prompt (canvas v183). */

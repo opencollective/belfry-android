@@ -2806,3 +2806,45 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   ‹owner›'s agent, joined ‹belfry name›" ("your agent" when it is mine, "an agent" with no known
   owner; owner from belfry.json `agents`). The name is the profile's, else the `name` tag; the belfry
   name is `communityName`, else "the belfry". The whole line opens the person's profile.
+
+### 19.72 Sealed: a device that signed in adds itself, the WRITING side (2026-11-23; Xavier via the lead; contract collective-belfry docs/sealed.md §5.7; canvas Messages v10 note n-e2e-self-added, boards messages/encryption-self-added-list, -self-added-thread, -self-added-notes)
+
+Behind belfry.json `"sealed": {"self_join": true}` (`Community.sealedSelfJoin`; only the JSON `true`). The engine
+never uses a stored copy: `SealedPorts.selfJoin()` fetches belfry.json at the moment a device decides (`null` = not
+reachable = not in this pass). With the flag off or unread, everything is as before (§5.2: the device asks).
+
+- **When** (`SealedEngine.joinHere`, from `start` and, while waiting, `tryJoin` at each poll and after
+  authentication). All of: not a guest; my chain from a complete authenticated answer of this connection; this
+  device not in its head; the chain never had this device; no fresh start elsewhere left it out (a previous pinned
+  chain that had it, or the `freshElsewhere` notice); no switch seen on my own chain; fewer than 20 devices; the
+  flag true, read now; a fresh `/api/me/sessions` holds this device as a live chat session; fewer than 3 joins
+  lost in this run. Anything else: it asks (`joinTrace` says why).
+- **The sequence**: (1) one new letterbox, its secret on disk first (`join-pending` note = prev:lb; reused only on
+  the same prev); (2) roster n+1 signed by this device: the head's devices in their order, then this one,
+  `created_at = max(now, the head's)`, `ready` when the chain was ready or every counted session is in it; (3) the
+  account's anchor (not signed = nothing is sent); (4) roster, then anchor, then the chain read back: done only
+  when the roster is on the anchored path; (5) my device name under the new letterbox; (6) the new secret ALONE,
+  one silent 8561 to each other device of that roster, once per device (`joinkey:<lb>:<device>` notes; done again
+  at each start and upkeep until all went: `finishJoin`); (7) my 8562, dated at or after my roster. Then the wraps
+  are read again.
+- **Failures**: roster refused or anchor not published: nothing counts, the same letterbox goes again at the next
+  pass. Another roster was anchored: this join is discarded and its letterbox forgotten for good; when that roster
+  already holds this device it is in the head a letterbox behind and asks for the keys; else it joins again on
+  the new head with a new letterbox; after 3 losses in a run it asks.
+- **Until endorsed** this device signs nothing that changes my devices: `remove`, `allow` (a new device) throw
+  `NotEndorsed` (`SealedText.NOT_ENDORSED`), `canRemove` is false, no `ready` roster, no gone-session removal, no
+  auto-allow, no endorsement of others. It still answers a head device's 8562 with what it holds (the new secret).
+- **On this device** nothing is locked (`inHeadNow`): it reads and writes everything from its join on, the first
+  note included. `SealedEngine.earlierArriving` (it added itself and lacks an earlier letterbox of the chain) →
+  `SealState.earlierArriving / earlierFrom / joinedAt`: `EarlierLine` on top of Messages, at the top of a sealed
+  conversation and of Notes: "Earlier messages arrive when one of your other devices is next open: ‹session
+  names›"; a sealed conversation whose last message here is older than the join reads "Earlier messages arrive
+  soon" in the list. The line goes when a hand-over brings every earlier letterbox.
+- Removed with this: the "Added … · Your messages open here in a moment" banner and the replaced-composer waiting
+  lines (`SealState.waitingKeys`, `addedAt`, `AddedHereBanner`, `WaitingKeysLines`): since 19.68's unification no
+  device in the head is in that state.
+- Vectors `sealed.json` → `join.own_join` (the roster and anchor for four situations, the 8561's rumor, the 8562).
+  Tests: `SealedEngineTest` (flagOffIsTodaysBehaviour, aDeviceAddsItself, whenADeviceAsksInstead,
+  aJoinThatDidNotGoIsTriedAgain, aRestartBetweenTheStepsFinishesTheHandover, twoDevicesJoinAtOnce,
+  aJoinRacingAnAllow, aJoinRacingARemoval), `SealedWiringTest.selfJoinFlag`, `EncryptionShotsTest.selfAdded*`.
+  Demo: `EncryptionService.demoSelfAdded()`.

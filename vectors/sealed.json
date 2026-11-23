@@ -33470,6 +33470,781 @@
     ],
     "content": ""
    }
+  },
+  "own_join": {
+   "note": "What a device that adds itself sends, in order (§5.7 steps 1 to 7; added with Android's writing side, appended after endorsement_by_allow: nothing before this key changed). 'cases': the roster and the anchor it publishes, given my chain ('before'), its clock ('now'), its new letterbox and the client keys of the counted sessions (§6): Roster n+1 signed by the device, created_at = max(now, the head's created_at), ready when the chain was ready or every counted session is a device of the new roster; then the anchor. 'handover_rumor': the 8561 it then sends to EACH other device of that roster (a silent wrap to that device's key, as in 'handover'): its keys are the new letterbox alone, never anything else. 'request': its 8562 after that, dated at or after its own roster (here the same second), which the older devices answer under 'requests' and 'older_keys'. A device does this only when belfry.json says \"sealed\": {\"self_join\": true} (read at that moment), its chain is from a complete authenticated answer, a fresh session list holds it as a live chat session, the head has fewer than 20 devices, the chain never had it, no fresh start elsewhere left it out and it saw no switch on its own chain; otherwise it asks (§5.2). A join that lost the anchor is discarded with its letterbox; after 3 losses in a run it asks.",
+   "cases": [
+    {
+     "name": "the roster a device signs for itself",
+     "note": "Now = T0 + 200. Roster n+1: prev = the head, the head's devices in their order then this device, the new letterbox; no ready (every counted session must be a device of it: alice_new has a session and is not, and the chain was not ready). The anchor: root, head = that roster, created_at = max(now, the standing anchor's + 1).",
+     "device": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+     "now": 1795000200,
+     "before": {
+      "anchor": {
+       "kind": 30078,
+       "created_at": 1795000101,
+       "tags": [
+        [
+         "d",
+         "belfry:sealed"
+        ],
+        [
+         "root",
+         "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+        ],
+        [
+         "head",
+         "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+        ]
+       ],
+       "content": "",
+       "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+       "id": "16a4e8db6df6ef500b6935df58b23720f375ff75456caebaffb96dacd0acfb82",
+       "sig": "7c58515d76d8363a1429603e758dcf8572dd045c1a4255a1b6590956a87c0a990c29c7ea2445789a27bac88d548601e265d661ddfc61957970e1d8f2235ae58f"
+      },
+      "rosters": [
+       {
+        "kind": 8560,
+        "created_at": 1795000000,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "1"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+        "sig": "a77fa5b6d052bd215f372551ee81e6565461daa42b9eaa64e774b2e9377024c38b95281ff9893a74ca8eceef7e8276bbc7ab37cad8c0a815937380a7cfdbb639"
+       },
+       {
+        "kind": 8560,
+        "created_at": 1795000100,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "2"
+         ],
+         [
+          "prev",
+          "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ],
+         [
+          "device",
+          "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+        "sig": "62ef58531ab864e6453a5d4ad00613cd89ec75e54555e12719b664cc1a2b46d75a51812f7ef3b506b47dea62fb20ae9c99139497efb457e03be9017be429bbcc"
+       }
+      ]
+     },
+     "new_letterbox": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+     "counted_sessions": [
+      "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "65e59ba8f3607375cfd227eba8a57fe8a5af5529800f63de7cf2578c27388a73"
+     ],
+     "roster": {
+      "kind": 8560,
+      "created_at": 1795000200,
+      "tags": [
+       [
+        "p",
+        "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+       ],
+       [
+        "n",
+        "3"
+       ],
+       [
+        "prev",
+        "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+       ],
+       [
+        "lb",
+        "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39"
+       ],
+       [
+        "device",
+        "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+       ],
+       [
+        "device",
+        "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+       ],
+       [
+        "device",
+        "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+       ]
+      ],
+      "content": "",
+      "pubkey": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "id": "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b",
+      "sig": "59924e3523c1e87eb551eda7ac5219290a65efd3c00ba6bc337dacb62727e583b8f00e8cbdf92040256fbfc151bebaa096fc544cf4d5e8b4714ba08616bae494"
+     },
+     "anchor": {
+      "kind": 30078,
+      "created_at": 1795000200,
+      "tags": [
+       [
+        "d",
+        "belfry:sealed"
+       ],
+       [
+        "root",
+        "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+       ],
+       [
+        "head",
+        "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b"
+       ]
+      ],
+      "content": "",
+      "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+      "id": "e93f9beec7e3cc793f1255f820664e652ce24078fb836b84b894aa0487617f27",
+      "sig": "b61abe624faefc212f58e7c960275f8ab9411fc207f35153a96e702a60ed044a8d97dd6c33e480e26e331c869389bbf1013ba27f3a5b13b282561e9bfa4eac32"
+     },
+     "expected": {
+      "valid_ids": [
+       "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+       "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+       "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b"
+      ],
+      "head": "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b",
+      "devices": [
+       "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+       "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+       "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+      ],
+      "lb": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+      "ready": false
+     }
+    },
+    {
+     "name": "ready by the usual rule",
+     "note": "Every counted session (phone, laptop, tablet) is a device of the new roster: it carries ready.",
+     "device": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+     "now": 1795000200,
+     "before": {
+      "anchor": {
+       "kind": 30078,
+       "created_at": 1795000101,
+       "tags": [
+        [
+         "d",
+         "belfry:sealed"
+        ],
+        [
+         "root",
+         "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+        ],
+        [
+         "head",
+         "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+        ]
+       ],
+       "content": "",
+       "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+       "id": "16a4e8db6df6ef500b6935df58b23720f375ff75456caebaffb96dacd0acfb82",
+       "sig": "7c58515d76d8363a1429603e758dcf8572dd045c1a4255a1b6590956a87c0a990c29c7ea2445789a27bac88d548601e265d661ddfc61957970e1d8f2235ae58f"
+      },
+      "rosters": [
+       {
+        "kind": 8560,
+        "created_at": 1795000000,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "1"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+        "sig": "a77fa5b6d052bd215f372551ee81e6565461daa42b9eaa64e774b2e9377024c38b95281ff9893a74ca8eceef7e8276bbc7ab37cad8c0a815937380a7cfdbb639"
+       },
+       {
+        "kind": 8560,
+        "created_at": 1795000100,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "2"
+         ],
+         [
+          "prev",
+          "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ],
+         [
+          "device",
+          "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+        "sig": "62ef58531ab864e6453a5d4ad00613cd89ec75e54555e12719b664cc1a2b46d75a51812f7ef3b506b47dea62fb20ae9c99139497efb457e03be9017be429bbcc"
+       }
+      ]
+     },
+     "new_letterbox": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+     "counted_sessions": [
+      "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+     ],
+     "roster": {
+      "kind": 8560,
+      "created_at": 1795000200,
+      "tags": [
+       [
+        "p",
+        "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+       ],
+       [
+        "n",
+        "3"
+       ],
+       [
+        "prev",
+        "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+       ],
+       [
+        "lb",
+        "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39"
+       ],
+       [
+        "device",
+        "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+       ],
+       [
+        "device",
+        "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+       ],
+       [
+        "device",
+        "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+       ],
+       [
+        "ready"
+       ]
+      ],
+      "content": "",
+      "pubkey": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "id": "7815c82c4e4c4dbb90343568e6c31ca52fc5a2b0c8439772d66dd4df9cbc2e4d",
+      "sig": "98208d089670f38082e2c0957eb74efbac5676ffcdfce3a2e09957d5af271840db7b59879417408e9c0f98472f67fe5ddff3e5dbbd79fa57951c8542b4023987"
+     },
+     "anchor": {
+      "kind": 30078,
+      "created_at": 1795000200,
+      "tags": [
+       [
+        "d",
+        "belfry:sealed"
+       ],
+       [
+        "root",
+        "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+       ],
+       [
+        "head",
+        "7815c82c4e4c4dbb90343568e6c31ca52fc5a2b0c8439772d66dd4df9cbc2e4d"
+       ]
+      ],
+      "content": "",
+      "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+      "id": "9ddb71d5768435725219b358209fa9a7792c57af1abb0135f09351ad14286702",
+      "sig": "ae17d3d523adbe9f56b6b481e13f12602926f64ff4a67a02f93d51462fa1c70dbcca9dbaab2df96f0aa18bfd203eaadc43b8b2ad4b585a631249081714d60af4"
+     },
+     "expected": {
+      "valid_ids": [
+       "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+       "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+       "7815c82c4e4c4dbb90343568e6c31ca52fc5a2b0c8439772d66dd4df9cbc2e4d"
+      ],
+      "head": "7815c82c4e4c4dbb90343568e6c31ca52fc5a2b0c8439772d66dd4df9cbc2e4d",
+      "devices": [
+       "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+       "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+       "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+      ],
+      "lb": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+      "ready": true
+     }
+    },
+    {
+     "name": "a chain that was ready stays ready",
+     "note": "The head carries ready already: the join carries it too, whatever the sessions.",
+     "device": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+     "now": 1795000200,
+     "before": {
+      "anchor": {
+       "kind": 30078,
+       "created_at": 1795000151,
+       "tags": [
+        [
+         "d",
+         "belfry:sealed"
+        ],
+        [
+         "root",
+         "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+        ],
+        [
+         "head",
+         "ce80e437e86951c641b465e9e96c76267266aef3824507abd2fb88cd44fb5f8c"
+        ]
+       ],
+       "content": "",
+       "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+       "id": "3a43c5abccfc50be1cf59b4c5d2a548ba89911e79e652c870e6163f139eaacc3",
+       "sig": "8f87273c84cb769eb2f047da210315a4fab71550c1116aefff2c752b19402370db2c7645217453c876e203d986f8e611fbb11a834d95f98a43302ad49b7719b4"
+      },
+      "rosters": [
+       {
+        "kind": 8560,
+        "created_at": 1795000000,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "1"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+        "sig": "a77fa5b6d052bd215f372551ee81e6565461daa42b9eaa64e774b2e9377024c38b95281ff9893a74ca8eceef7e8276bbc7ab37cad8c0a815937380a7cfdbb639"
+       },
+       {
+        "kind": 8560,
+        "created_at": 1795000100,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "2"
+         ],
+         [
+          "prev",
+          "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ],
+         [
+          "device",
+          "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+        "sig": "62ef58531ab864e6453a5d4ad00613cd89ec75e54555e12719b664cc1a2b46d75a51812f7ef3b506b47dea62fb20ae9c99139497efb457e03be9017be429bbcc"
+       },
+       {
+        "kind": 8560,
+        "created_at": 1795000150,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "3"
+         ],
+         [
+          "prev",
+          "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ],
+         [
+          "device",
+          "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+         ],
+         [
+          "ready"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "ce80e437e86951c641b465e9e96c76267266aef3824507abd2fb88cd44fb5f8c",
+        "sig": "d3e87c1804dd64e2545a7a9247da3705d1e29cfc1199fddd3a4b251bdfd69194f96cb55e8d92d2748f26a1fbbed09fd54ceb6c23770431d7ebad9bb3f0e54cac"
+       }
+      ]
+     },
+     "new_letterbox": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+     "counted_sessions": [
+      "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "65e59ba8f3607375cfd227eba8a57fe8a5af5529800f63de7cf2578c27388a73"
+     ],
+     "roster": {
+      "kind": 8560,
+      "created_at": 1795000200,
+      "tags": [
+       [
+        "p",
+        "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+       ],
+       [
+        "n",
+        "4"
+       ],
+       [
+        "prev",
+        "ce80e437e86951c641b465e9e96c76267266aef3824507abd2fb88cd44fb5f8c"
+       ],
+       [
+        "lb",
+        "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39"
+       ],
+       [
+        "device",
+        "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+       ],
+       [
+        "device",
+        "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+       ],
+       [
+        "device",
+        "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+       ],
+       [
+        "ready"
+       ]
+      ],
+      "content": "",
+      "pubkey": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "id": "8fc95fdeef08ed0032c74f2320ef25143f12a056340ef3bb1eacff4ddf37ce83",
+      "sig": "977bc1bf8bf241c3e0bcdea21547b36955351f01715343d93a9378c74195feb5c61d170322c6365ec28c4f770c8fa963152b64d5c64627ce34de9adb06297b7a"
+     },
+     "anchor": {
+      "kind": 30078,
+      "created_at": 1795000200,
+      "tags": [
+       [
+        "d",
+        "belfry:sealed"
+       ],
+       [
+        "root",
+        "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+       ],
+       [
+        "head",
+        "8fc95fdeef08ed0032c74f2320ef25143f12a056340ef3bb1eacff4ddf37ce83"
+       ]
+      ],
+      "content": "",
+      "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+      "id": "d0b2871a479b69bba26d810629c5fb22d36dd2bad8f810379f0102fa96f565ba",
+      "sig": "0b221d27e800f97e0401793cc310cea661be21aa9c9330f16c8f67b13a9933a4823c006cf88472502c62882fa0d6966000162528327dddccf9991b39e78de485"
+     },
+     "expected": {
+      "valid_ids": [
+       "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+       "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+       "ce80e437e86951c641b465e9e96c76267266aef3824507abd2fb88cd44fb5f8c",
+       "8fc95fdeef08ed0032c74f2320ef25143f12a056340ef3bb1eacff4ddf37ce83"
+      ],
+      "head": "8fc95fdeef08ed0032c74f2320ef25143f12a056340ef3bb1eacff4ddf37ce83",
+      "devices": [
+       "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+       "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+       "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+      ],
+      "lb": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+      "ready": true
+     }
+    },
+    {
+     "name": "a clock behind: dated at its prev, never before",
+     "note": "This device's clock says T0 + 50; the head is dated T0 + 100. The join is dated T0 + 100 (max(now, prev's created_at)); the anchor max(now, the standing anchor's + 1).",
+     "device": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+     "now": 1795000050,
+     "before": {
+      "anchor": {
+       "kind": 30078,
+       "created_at": 1795000101,
+       "tags": [
+        [
+         "d",
+         "belfry:sealed"
+        ],
+        [
+         "root",
+         "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+        ],
+        [
+         "head",
+         "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+        ]
+       ],
+       "content": "",
+       "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+       "id": "16a4e8db6df6ef500b6935df58b23720f375ff75456caebaffb96dacd0acfb82",
+       "sig": "7c58515d76d8363a1429603e758dcf8572dd045c1a4255a1b6590956a87c0a990c29c7ea2445789a27bac88d548601e265d661ddfc61957970e1d8f2235ae58f"
+      },
+      "rosters": [
+       {
+        "kind": 8560,
+        "created_at": 1795000000,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "1"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+        "sig": "a77fa5b6d052bd215f372551ee81e6565461daa42b9eaa64e774b2e9377024c38b95281ff9893a74ca8eceef7e8276bbc7ab37cad8c0a815937380a7cfdbb639"
+       },
+       {
+        "kind": 8560,
+        "created_at": 1795000100,
+        "tags": [
+         [
+          "p",
+          "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+         ],
+         [
+          "n",
+          "2"
+         ],
+         [
+          "prev",
+          "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+         ],
+         [
+          "lb",
+          "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+         ],
+         [
+          "device",
+          "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+         ],
+         [
+          "device",
+          "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+         ]
+        ],
+        "content": "",
+        "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+        "id": "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+        "sig": "62ef58531ab864e6453a5d4ad00613cd89ec75e54555e12719b664cc1a2b46d75a51812f7ef3b506b47dea62fb20ae9c99139497efb457e03be9017be429bbcc"
+       }
+      ]
+     },
+     "new_letterbox": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+     "counted_sessions": [
+      "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "65e59ba8f3607375cfd227eba8a57fe8a5af5529800f63de7cf2578c27388a73"
+     ],
+     "roster": {
+      "kind": 8560,
+      "created_at": 1795000100,
+      "tags": [
+       [
+        "p",
+        "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+       ],
+       [
+        "n",
+        "3"
+       ],
+       [
+        "prev",
+        "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+       ],
+       [
+        "lb",
+        "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39"
+       ],
+       [
+        "device",
+        "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+       ],
+       [
+        "device",
+        "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+       ],
+       [
+        "device",
+        "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+       ]
+      ],
+      "content": "",
+      "pubkey": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "id": "554c32489d54e538f303378cc227a8d34dba15d370ed01341aeab21f8cd0bef8",
+      "sig": "598f5c33fc5c739f275a8496326d78661ca37904cc9d6e1a79d58acd2eb65c4be36b49c03813b0883fe3aefa1a679de94fd41b149128f3df31aaa16ebee6d35d"
+     },
+     "anchor": {
+      "kind": 30078,
+      "created_at": 1795000102,
+      "tags": [
+       [
+        "d",
+        "belfry:sealed"
+       ],
+       [
+        "root",
+        "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+       ],
+       [
+        "head",
+        "554c32489d54e538f303378cc227a8d34dba15d370ed01341aeab21f8cd0bef8"
+       ]
+      ],
+      "content": "",
+      "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+      "id": "46f55803cd5840a88c61a981b46ec8adc69c1df19e13ef4eef1ce7ea62c5afcf",
+      "sig": "e22ef01faebacc2f25e773599de8714c897052440f19c2c103421445d6d7e7aded06a69e3971bc0f61b7ac64c23386b7f7fbe03ca8fc0bf7973420523d4f95fd"
+     },
+     "expected": {
+      "valid_ids": [
+       "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+       "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+       "554c32489d54e538f303378cc227a8d34dba15d370ed01341aeab21f8cd0bef8"
+      ],
+      "head": "554c32489d54e538f303378cc227a8d34dba15d370ed01341aeab21f8cd0bef8",
+      "devices": [
+       "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+       "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+       "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+      ],
+      "lb": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+      "ready": false
+     }
+    }
+   ],
+   "handover_rumor": {
+    "id": "e1456a17e00f8b58fb7a3db87be82e14911665da5940f520f93feb42341b941c",
+    "pubkey": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+    "created_at": 1795000201,
+    "kind": 8561,
+    "tags": [
+     [
+      "p",
+      "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+     ]
+    ],
+    "content": "{\"v\":1,\"account\":\"6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2\",\"keys\":[{\"lb\":\"4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39\",\"secret\":\"81d4e1c270212117d34e4b717adfce48d463e9594a97130b858848d361112d41\"}]}"
+   },
+   "handover_to": [
+    "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+    "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+   ],
+   "request": {
+    "kind": 8562,
+    "created_at": 1795000200,
+    "tags": [
+     [
+      "p",
+      "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+     ]
+    ],
+    "content": "",
+    "pubkey": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+    "id": "d8c569b2d3a104d9315d30c68618af216474d621c032b658335388f22d6aa747",
+    "sig": "30e0b1862372627c197f5e0cda8cdc76560df1244a3d895c9fe5e90142b9e61c64eb1d874c2bf32014f04d9175d77b68e54c2ae81d2c39c36069d7e40840cd98"
+   }
   }
  }
 }

@@ -162,16 +162,6 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithTag("seal-asked").assertExists()
     }
 
-    /** messages/encryption-locked-added: added, the key on its way: "Added … · Your messages open here in a moment." */
-    @Test fun lockedAdded() {
-        session.encryption.demoWaitingKeys()
-        demoShot("encryption-locked-added") { MessagesScreen() }
-        compose.onNodeWithTag("seal-added-here").assertExists()
-        compose.onNodeWithText("Added ", substring = true).assertExists()
-        compose.onNodeWithText("Your messages open here in a moment.").assertExists()
-        compose.onNodeWithTag("seal-banner").assertDoesNotExist()
-    }
-
     /**
      * Xavier's mail to himself (2026-11-22; canvas v177 draft messages/encryption-waiting-list): a device
      * not allowed yet that received sealed messages it can't open says how many wait, even when no
@@ -229,7 +219,6 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithText("Belfry on iPhone was added just now").assertExists()
         compose.onNodeWithText("1 message is waiting for Belfry on iPhone").assertExists()
         compose.onNodeWithTag("seal-banner").assertDoesNotExist()
-        compose.onNodeWithTag("seal-added-here").assertDoesNotExist()
     }
 
     /** The same inside a sealed conversation: "Waiting for Belfry on iPhone" above the composer, which stays. */
@@ -238,7 +227,6 @@ class EncryptionShotsTest : DemoShots() {
         demoShot("encryption-waiting-device") { ConversationScreen(maya) }
         compose.onNodeWithText("Waiting for Belfry on iPhone").assertExists()
         compose.onNodeWithTag("seal-write-later").assertDoesNotExist()
-        compose.onNodeWithTag("seal-waiting-keys").assertDoesNotExist()
     }
 
     /** sealed.md §5.7: a device that added itself with no session was removed by this device; said once, until OK. */
@@ -408,15 +396,31 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithTag("seal-remove-d-laptop").assertDoesNotExist()
     }
 
-    /** canvas v96 messages/encryption-waiting: allowed, no key yet: messages as usual, the composer waits. */
-    @Test fun waitingKeys() {
-        session.encryption.demoWaitingKeys()
-        demoShot("encryption-waiting") { ConversationScreen(maya) }
-        compose.onNodeWithTag("seal-waiting-keys").assertExists()
-        compose.onNodeWithText("Open Chat · Firefox on Linux. Nothing to approve here.").assertExists()
-        compose.onNodeWithText("waiting for one of your devices", substring = true).assertExists()
+    /** canvas Messages v10 messages/encryption-self-added-list (sealed.md §5.7): this device added itself; Messages works, one quiet line. */
+    @Test fun selfAddedList() {
+        session.encryption.demoSelfAdded()
+        demoShot("encryption-self-added-list") { MessagesScreen() }
+        compose.onNodeWithText("Earlier messages arrive when one of your other devices is next open: Chat · Safari on Mac, Belfry on Pixel 8").assertExists()
+        assertTrue(compose.onAllNodesWithTag("seal-earlier-soon").fetchSemanticsNodes().isNotEmpty(), "a sealed conversation whose last message is older")
+        compose.onNodeWithTag("seal-banner").assertDoesNotExist()
+        compose.onNodeWithTag("seal-locked-row").assertDoesNotExist()
+    }
+
+    /** messages/encryption-self-added-thread: a sealed conversation on the new device: the line on top, the composer there. */
+    @Test fun selfAddedThread() {
+        session.encryption.demoSelfAdded()
+        demoShot("encryption-self-added-thread") { ConversationScreen(maya) }
+        compose.onNodeWithTag("seal-earlier").assertExists()
+        compose.onNodeWithTag("seal-write-later").assertDoesNotExist()
         compose.onNodeWithTag("seal-locked-block").assertDoesNotExist()
-        assertTrue(compose.onAllNodesWithTag("dm-bubble").fetchSemanticsNodes().isNotEmpty())
+    }
+
+    /** messages/encryption-self-added-notes: Notes to myself on the new device: the first note works at once. */
+    @Test fun selfAddedNotes() {
+        session.encryption.demoSelfAdded()
+        demoShot("encryption-self-added-notes") { ConversationScreen(sh.belfry.core.model.Notes.conv(session.me)) }
+        compose.onNodeWithTag("seal-earlier").assertExists()
+        compose.onNodeWithTag("seal-write-later").assertDoesNotExist()
     }
 
     /** canvas v96 messages/encryption-allow-waiting: "Not allowed yet: waiting for your other device". */

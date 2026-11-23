@@ -280,7 +280,9 @@ class Session(
         else sh.belfry.core.sealed.SealedEngine(
             SessionSealedPorts({ mainRelay }, { t -> signer.sign(t) }, { api().sessions(signer) }, { b -> api().revokeSession(signer, b) }, ks,
                 // pins and sealed conversations beside the conversation data (wiped with the account), one value
-                { store.get(K_SEALED_STATE) } to { v -> if (!stopped) store.set(K_SEALED_STATE, v) }), // never after sign-out's wipe
+                { store.get(K_SEALED_STATE) } to { v -> if (!stopped) store.set(K_SEALED_STATE, v) }, // never after sign-out's wipe
+                // sealed.md §5.7: the flag read fresh from belfry.json each time a device decides (never the stored copy)
+                { Discovery.fetch(community.domain, http).sealedSelfJoin }),
             device, me, clock = clock, guest = false,
         ).also { e ->
             // a note to myself written while I have no chain: the first-device path, now (SPEC 19.66)
@@ -393,6 +395,8 @@ class Session(
         }
         // a waiting device (or one in the head without the key) asks again once per connection (N2, N4);
         // start() just asked when it was the one to decide WAITING
+        // outside my head on a belfry where a signed-in device adds itself (sealed.md §5.7): it does, else it asks
+        if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING) e.tryJoin({ sealedMyName() }, deviceKind)
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING || e.inHeadWithoutKey) e.askAgain(linkSecret, force = true)
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) {
             writeNameOnce(e)
@@ -863,7 +867,7 @@ class Session(
                         val e = sealed
                         when (e?.mine) {
                             sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN -> sealedStart()
-                            sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h (§5.2); AUTH asks once per connection
+                            sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { if (!e.tryJoin({ sealedMyName() }, deviceKind)) e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h (§5.2); AUTH asks once per connection
                             sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> {
                                 resubscribeIfSealedGrew()
                                 // in the head but a rotation's hand-over missed: ask too (N4); my chain read first

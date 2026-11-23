@@ -57,4 +57,19 @@ class SealedWiringTest {
         ports.revoke("bb".repeat(32))
         assertNull(sh.belfry.core.engine.SessionSealedPorts({ null }, { t -> sh.belfry.core.nostr.LocalSigner.random().signNow(t) }, { error("offline") }, { }, SealedKeyStore(MemoryVault(), "k", "aa".repeat(32))).sessions(), "no answer is not \"no sessions\"")
     }
+
+    /** belfry.json `"sealed": {"self_join": true}` (sealed.md §5.7): only the JSON `true` turns it on; a port that fails says "not read". */
+    @Test fun selfJoinFlag() = kotlinx.coroutines.runBlocking<Unit> {
+        fun flag(doc: String) = sh.belfry.core.net.Community.parse("belfry.example", doc).sealedSelfJoin
+        assertTrue(flag("""{"sealed":{"self_join":true}}"""))
+        for (off in listOf("""{}""", """{"sealed":{}}""", """{"sealed":{"self_join":false}}""", """{"sealed":{"self_join":"true"}}""", """{"sealed":{"self_join":1}}""", """{"sealed":true}""", """{"sealed":[{"self_join":true}]}""", """{"self_join":true}""", "not json"))
+            assertTrue(!flag(off), off)
+        val on = sh.belfry.core.net.Community.parse("belfry.example", """{"sealed":{"self_join":true}}""")
+        assertTrue(sh.belfry.core.net.Community.fromJsonString(on.toJsonString())!!.sealedSelfJoin, "kept in the stored copy (the engine never reads it from there)")
+        fun ports(now: suspend () -> Boolean?) = sh.belfry.core.engine.SessionSealedPorts({ null }, { t -> sh.belfry.core.nostr.LocalSigner.random().signNow(t) }, { emptyList() }, { },
+            SealedKeyStore(MemoryVault(), "k", "aa".repeat(32)), selfJoinNow = now)
+        assertEquals(true, ports { true }.selfJoin())
+        assertEquals(false, ports { false }.selfJoin())
+        assertNull(ports { throw java.io.IOException("offline") }.selfJoin(), "unreachable is not off: not in this pass")
+    }
 }

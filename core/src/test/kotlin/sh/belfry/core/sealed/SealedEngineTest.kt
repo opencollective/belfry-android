@@ -76,6 +76,10 @@ class SealedEngineTest {
     companion object { var now = 1_795_000_000L }
 
     private val relay = FakeRelay()
+    /** belfry.json `sealed.self_join` as read now (null: the belfry did not answer). Off unless a test turns it on. */
+    private var selfJoinFlag: Boolean? = false
+    /** Called after the relay took an event (tests slip another device's events in between two publishes). */
+    private var onPublished: ((Event) -> Unit)? = null
     private var signerDown = false
     private val server = Server()
 
@@ -83,7 +87,8 @@ class SealedEngineTest {
         var saved: Map<String, String> = emptyMap()
         val revoked = ArrayList<String>()
         override suspend fun query(q: Query): SealedEngine.Answer { kotlinx.coroutines.yield(); return relay.query(q) } // a suspension point: real interleaving
-        override suspend fun publish(e: Event): Boolean { if (relay.refuse(e)) return false; relay.add(e); return true }
+        override suspend fun publish(e: Event): Boolean { if (relay.refuse(e)) return false; relay.add(e); onPublished?.invoke(e); return true }
+        override suspend fun selfJoin(): Boolean? = selfJoinFlag
         override suspend fun signAsAccount(t: EventTemplate): Event = if (signerDown) throw IllegalStateException("signer") else account.signNow(t)
         override suspend fun sessions(): List<SessionRow>? = if (server.odd) null else server.sessions[account.pubkey]?.toList() ?: emptyList()
         override suspend fun revoke(clientPubkey: String) { if (server.failRevoke) throw IllegalStateException("revoke"); revoked.add(clientPubkey); server.sessions[account.pubkey]?.removeAll { it.clientPubkey == clientPubkey } }
@@ -1336,6 +1341,274 @@ class SealedEngineTest {
         val n = phone.addedNotices()
         assertEquals(listOf(tab.pubkey), n.map { it.device })
         assertEquals(now, n[0].at)
+    }
+
+    // ---- sealed.md §5.7, the writing side: this device adds itself (SPEC 19.72) ------------------------------
+
+    private fun rostersOfAlice() = Chain.of(alice.pubkey, relay.events.filter { it.kind == 30078 }, relay.events.filter { it.kind == Roster.KIND })!!
+    private fun rostersBy(d: LocalSigner) = relay.events.count { it.kind == Roster.KIND && it.pubkey == d.pubkey }
+
+    /** The flag off (or absent): exactly today's behaviour: the device waits and asks; no roster of its own. */
+    @Test fun flagOffIsTodaysBehaviour() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 10
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Galaxy Tab")
+        val before = relay.events.size
+        val e = engine(alice, tab); e.start("Galaxy Tab", "tablet")
+        assertEquals(SealedEngine.Mine.WAITING, e.mine)
+        assertEquals(0, rostersBy(tab))
+        assertEquals(before + 1, relay.events.size, "one event: its request")
+        assertEquals(Sealing.REQUEST, relay.events.last().kind)
+        assertFalse(e.tryJoin({ "Galaxy Tab" }, "tablet"))
+        assertEquals(0, rostersBy(tab))
+        assertFalse(phone.behind)
+    }
+
+    /** The flag on: steps 1 to 7, in order; nothing is locked; the older devices follow, get the secret, and answer its request. */
+    @Test fun aDeviceAddsItself() = runBlocking<Unit> {
+        val (phone, laptop, _) = world()
+        now += 90_000
+        selfJoinFlag = true
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Galaxy Tab")
+        val old = rostersOfAlice()
+        val mark = relay.events.size
+        val e = engine(alice, tab); e.start("Galaxy Tab", "tablet")
+        assertEquals("joined", e.joinTrace)
+        assertEquals(SealedEngine.Mine.IN_HEAD, e.mine)
+        val chain = rostersOfAlice()
+        val join = chain.head
+        assertEquals(tab.pubkey, join.signer); assertEquals(old.head.id, join.prev); assertEquals(old.head.n + 1, join.n)
+        assertEquals(old.devices + tab.pubkey, join.devices, "the head's devices in their order, then this one")
+        assertFalse(join.lb in old.letterboxes, "a new letterbox")
+        assertTrue(join.createdAt >= old.head.createdAt)
+        assertEquals(join.id, chain.anchored, "the account anchored it")
+        assertEquals(listOf(tab.pubkey), chain.unendorsed)
+        assertNotNull(e.keys.secretFor(join.lb))
+        assertTrue(e.inHeadNow()); assertFalse(e.behind)
+        assertTrue(e.earlierArriving, "the earlier letterboxes are not here yet")
+        assertEquals(join.createdAt, e.joinedAt)
+        // the order on the relay: roster, anchor, (its name), one silent 8561 per other device, then its 8562
+        val sent = relay.events.drop(mark).filter { it.kind == Roster.KIND || it.kind == 1059 || it.kind == Sealing.REQUEST || (it.kind == 30078 && it.tag("d") == Anchor.D) }
+        assertEquals(listOf(Roster.KIND, 30078, 1059, 1059, Sealing.REQUEST), sent.map { it.kind })
+        assertEquals(setOf(alicePhone.pubkey, aliceLaptop.pubkey), sent.filter { it.kind == 1059 }.map { it.tag("p") }.toSet())
+        assertTrue(sent.filter { it.kind == 1059 }.all { GiftWrap.isSilent(it) })
+        val req = sent.last()
+        assertTrue(req.createdAt >= join.createdAt, "its request is dated at or after its own roster")
+        // it writes at once: a note to myself is sealed to the new letterbox
+        val notes = sh.belfry.core.model.Notes.conv(alice.pubkey)
+        assertEquals(join.lb, assertIs<SealedEngine.Plan.Seal>(e.plan(notes, emptyList())).heads[alice.pubkey])
+        // nothing it signs changes my devices until an older device confirms it
+        assertFalse(e.canRemove(alicePhone.pubkey))
+        kotlin.test.assertFailsWith<SealedEngine.NotEndorsed> { e.remove(alicePhone.pubkey) }
+        assertTrue(alicePhone.pubkey in rostersOfAlice().devices)
+        // the phone: follows, takes the new secret (only that one came), answers the request with the older keys
+        phone.addedNotices()
+        phone.refresh(alice.pubkey)
+        val h = assertNotNull(Sealing.openKeys(relay.to(alicePhone.pubkey).last(), alicePhone))
+        assertEquals(setOf(join.lb), h.keys.keys, "the new secret alone")
+        relay.to(alicePhone.pubkey).forEach { phone.onDeviceWrap(it) }
+        assertFalse(phone.behind)
+        assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(req))
+        relay.to(tab.pubkey).forEach { e.onDeviceWrap(it) }
+        assertFalse(e.earlierArriving, "the line goes when the earlier letterboxes arrive")
+        assertNotNull(e.keys.secretFor(old.root.lb))
+        // the laptop too, by the wrap sent to it
+        laptop.refresh(alice.pubkey)
+        relay.to(aliceLaptop.pubkey).forEach { laptop.onDeviceWrap(it) }
+        assertFalse(laptop.behind)
+        // a later pass sends nothing again
+        val n = relay.events.size
+        e.upkeep()
+        assertEquals(0, relay.events.drop(n).count { it.kind == 1059 || it.kind == Roster.KIND })
+        // "It was me" on the phone: from then on a device like the others
+        phone.addedWasMe(tab.pubkey)
+        e.refresh(alice.pubkey)
+        assertTrue(e.canRemove(aliceLaptop.pubkey))
+    }
+
+    /** Every condition: any one missing and the device asks as before. */
+    @Test fun whenADeviceAsksInstead() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 10
+        fun fresh(name: String): Pair<LocalSigner, SealedEngine> { val d = LocalSigner.random(); server.live(alice.pubkey, d.pubkey, name); return d to engine(alice, d) }
+        // belfry.json not reachable: not in this pass
+        selfJoinFlag = null
+        val (a, ea) = fresh("A"); ea.start("A", "phone")
+        assertEquals(SealedEngine.Mine.WAITING, ea.mine); assertEquals("belfry.json not read", ea.joinTrace); assertEquals(0, rostersBy(a))
+        assertTrue(relay.events.any { it.kind == Sealing.REQUEST && it.pubkey == a.pubkey }, "it asks")
+        // ... and at a later pass, the flag read again and on: it joins
+        selfJoinFlag = true
+        assertTrue(ea.tryJoin({ "A" }, "phone"))
+        assertEquals(SealedEngine.Mine.IN_HEAD, ea.mine)
+        // no live chat session of this device
+        val ghost = LocalSigner.random(); val eg = engine(alice, ghost); eg.start("Ghost", "phone")
+        assertEquals("no live chat session of this device", eg.joinTrace); assertEquals(0, rostersBy(ghost))
+        // a guest never
+        val (g, guest) = LocalSigner.random().let { d -> server.live(alice.pubkey, d.pubkey, "G"); d to engine(alice, d, guest = true) }
+        guest.start("G", "phone"); assertEquals(0, rostersBy(g))
+        // the chain had this device and dropped it: it asks, never adds itself again
+        phone.refresh(alice.pubkey); relay.to(alicePhone.pubkey).forEach { phone.onDeviceWrap(it) }
+        phone.addedWasMe(a.pubkey)
+        phone.remove(a.pubkey)
+        server.live(alice.pubkey, a.pubkey, "A") // its session outlived the removal
+        val back = engine(alice, a)
+        back.start("A", "phone")
+        assertEquals("the chain had this device: it asks", back.joinTrace)
+        assertEquals(SealedEngine.Mine.WAITING, back.mine)
+        assertEquals(1, rostersBy(a), "only its first join")
+        // no complete answer: nothing
+        val (c, ec) = fresh("C")
+        relay.closing = true
+        ec.start("C", "phone")
+        relay.closing = false
+        assertEquals(0, rostersBy(c))
+    }
+
+    /** Roster refused, or the anchor not signed: nothing counts; the same letterbox goes again at the next pass. */
+    @Test fun aJoinThatDidNotGoIsTriedAgain() = runBlocking<Unit> {
+        world()
+        now += 10
+        selfJoinFlag = true
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Galaxy Tab")
+        val e = engine(alice, tab)
+        signerDown = true
+        e.start("Galaxy Tab", "tablet")
+        signerDown = false
+        assertEquals("the anchor was not signed", e.joinTrace)
+        assertEquals(SealedEngine.Mine.WAITING, e.mine); assertEquals(0, rostersBy(tab))
+        assertTrue(relay.events.any { it.kind == Sealing.REQUEST && it.pubkey == tab.pubkey }, "meanwhile it asks")
+        val held = portsOf[tab.pubkey]!!.saved.keys.toSet()
+        assertEquals(1, held.size, "its one pending letterbox, on disk")
+        relay.refusing.add(Roster.KIND)
+        assertFalse(e.tryJoin({ "Galaxy Tab" }, "tablet"))
+        relay.refusing.clear()
+        assertEquals(held, portsOf[tab.pubkey]!!.saved.keys.toSet(), "no second letterbox")
+        now += 5
+        assertTrue(e.tryJoin({ "Galaxy Tab" }, "tablet"))
+        assertEquals(held.single(), rostersOfAlice().head.lb, "the same letterbox, now anchored")
+        assertEquals(tab.pubkey, rostersOfAlice().head.signer)
+    }
+
+    /** The app closed between the anchor and the hand-overs: the next start finishes them. */
+    @Test fun aRestartBetweenTheStepsFinishesTheHandover() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 10
+        selfJoinFlag = true
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Galaxy Tab")
+        relay.refusing.add(1059); relay.refusing.add(Sealing.REQUEST) // the roster and its anchor go; nothing after them does
+        engine(alice, tab).start("Galaxy Tab", "tablet")
+        relay.refusing.clear()
+        val join = rostersOfAlice().head
+        assertEquals(tab.pubkey, join.signer)
+        val before = relay.to(alicePhone.pubkey).size
+        phone.refresh(alice.pubkey)
+        assertTrue(phone.behind, "the older device still writes and can remove it meanwhile"); assertTrue(phone.canRemove(tab.pubkey))
+        now += 60
+        val again = engine(alice, tab); again.start("Galaxy Tab", "tablet")
+        assertEquals(SealedEngine.Mine.IN_HEAD, again.mine)
+        assertEquals(before + 1, relay.to(alicePhone.pubkey).size, "the hand-over, at start")
+        relay.to(alicePhone.pubkey).forEach { phone.onDeviceWrap(it) }
+        assertFalse(phone.behind)
+        // and whenever a device of the head asks, it is given the secret again
+        relay.events.removeAll { it.kind == 1059 && it.tag("p") == aliceLaptop.pubkey }
+        now += 10
+        val ask = aliceLaptop.signNow(Sealing.request(alice.pubkey, aliceLaptop.pubkey, null, now))
+        assertEquals(SealedEngine.OnRequest.Allowed, again.onRequest(ask))
+        assertEquals(setOf(join.lb), assertNotNull(Sealing.openKeys(relay.to(aliceLaptop.pubkey).last(), aliceLaptop)).keys.keys)
+    }
+
+    /** Two devices add themselves at once: the anchor names one; the other reads again and joins after it, with a new letterbox. */
+    @Test fun twoDevicesJoinAtOnce() = runBlocking<Unit> {
+        world()
+        now += 10
+        selfJoinFlag = true
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Galaxy Tab")
+        val other = LocalSigner.random(); server.live(alice.pubkey, other.pubkey, "Belfry on iPhone")
+        val head = rostersOfAlice()
+        var done = false
+        onPublished = { ev ->
+            if (!done && ev.kind == Roster.KIND && ev.pubkey == tab.pubkey) {
+                done = true // the other device's join on the same prev lands between the tablet's roster and its anchor, and its anchor is the newer
+                val r = other.signNow(Roster.template(alice.pubkey, head.head.n + 1, head.head.id, KeyChain.newLetterbox().first, head.devices + other.pubkey, false, now))
+                relay.add(r); relay.add(alice.signNow(Anchor.template(head.root.id, r.id, now + 50)))
+            }
+        }
+        val e = engine(alice, tab); e.start("Galaxy Tab", "tablet")
+        onPublished = null
+        assertEquals("joined", e.joinTrace)
+        val chain = rostersOfAlice()
+        assertEquals(head.devices + other.pubkey + tab.pubkey, chain.devices, "after the winner")
+        assertEquals(tab.pubkey, chain.head.signer)
+        val mine = relay.events.filter { it.kind == Roster.KIND && it.pubkey == tab.pubkey }.mapNotNull { Roster.parse(it) }
+        assertEquals(2, mine.size)
+        assertTrue(mine[0].lb != mine[1].lb, "the lost join's letterbox is never reused")
+        assertNull(e.keys.secretFor(mine.first { it.id != chain.head.id }.lb), "and forgotten")
+        assertEquals(chain.head.id, chain.anchored)
+    }
+
+    /** A join racing an Allow: the winning roster already holds this device: the join is discarded, it asks for the keys. */
+    @Test fun aJoinRacingAnAllow() = runBlocking<Unit> {
+        world()
+        now += 10
+        selfJoinFlag = true
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Galaxy Tab")
+        val head = rostersOfAlice()
+        var done = false
+        onPublished = { ev ->
+            if (!done && ev.kind == Roster.KIND && ev.pubkey == tab.pubkey) {
+                done = true // the phone let it in the usual way at the same moment
+                val r = alicePhone.signNow(Roster.template(alice.pubkey, head.head.n + 1, head.head.id, head.head.lb, head.devices + tab.pubkey, true, now))
+                relay.add(r); relay.add(alice.signNow(Anchor.template(head.root.id, r.id, now + 50)))
+            }
+        }
+        val e = engine(alice, tab); e.start("Galaxy Tab", "tablet")
+        onPublished = null
+        assertEquals("added by another device meanwhile", e.joinTrace)
+        val chain = rostersOfAlice()
+        assertEquals(alicePhone.pubkey, chain.head.signer); assertTrue(tab.pubkey in chain.devices)
+        assertTrue(chain.unendorsed.isEmpty(), "it did not add itself")
+        assertEquals(SealedEngine.Mine.IN_HEAD, e.mine); assertTrue(e.behind)
+        assertTrue(portsOf[tab.pubkey]!!.saved.isEmpty(), "the lost join's letterbox is forgotten")
+        assertTrue(relay.events.any { it.kind == Sealing.REQUEST && it.pubkey == tab.pubkey }, "it asks for the keys")
+        assertFalse(e.earlierArriving)
+    }
+
+    /** A join racing a removal: the anchor names the removal; the device joins again after it. Three losses in a run: it asks. */
+    @Test fun aJoinRacingARemoval() = runBlocking<Unit> {
+        world()
+        now += 10
+        selfJoinFlag = true
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Galaxy Tab")
+        var head = rostersOfAlice()
+        var races = 1
+        onPublished = { ev ->
+            if (races > 0 && ev.kind == Roster.KIND && ev.pubkey == tab.pubkey) {
+                races-- // the phone removes the laptop (a new letterbox) at the same moment
+                val r = alicePhone.signNow(Roster.template(alice.pubkey, head.head.n + 1, head.head.id, KeyChain.newLetterbox().first, listOf(alicePhone.pubkey), true, now))
+                relay.add(r); relay.add(alice.signNow(Anchor.template(head.root.id, r.id, now + 50)))
+            }
+        }
+        val e = engine(alice, tab); e.start("Galaxy Tab", "tablet")
+        assertEquals("joined", e.joinTrace)
+        assertEquals(listOf(alicePhone.pubkey, tab.pubkey), rostersOfAlice().devices)
+        // three losses in one run: it stops and asks
+        val late = LocalSigner.random(); server.live(alice.pubkey, late.pubkey, "Late")
+        var k = 0
+        onPublished = { ev ->
+            if (ev.kind == Roster.KIND && ev.pubkey == late.pubkey) {
+                k++; head = rostersOfAlice() // each time, the phone publishes a ready roster first, anchored later than anything of the latecomer
+                val r = alicePhone.signNow(Roster.template(alice.pubkey, head.head.n + 1, head.head.id, head.head.lb, head.devices, true, now + k))
+                relay.add(r); relay.add(alice.signNow(Anchor.template(head.root.id, r.id, now + 100 * (k + 1))))
+            }
+        }
+        val el = engine(alice, late); el.start("Late", "phone")
+        onPublished = null
+        assertEquals(3, k)
+        assertEquals("lost 3 times: asks", el.joinTrace)
+        assertEquals(SealedEngine.Mine.WAITING, el.mine)
+        assertFalse(late.pubkey in rostersOfAlice().devices)
+        assertTrue(relay.events.any { it.kind == Sealing.REQUEST && it.pubkey == late.pubkey })
+        assertTrue(portsOf[late.pubkey]!!.saved.isEmpty(), "no letterbox kept")
     }
 
     /** Review of start-fresh: a device already in the head (its keys on the way) never starts fresh. */

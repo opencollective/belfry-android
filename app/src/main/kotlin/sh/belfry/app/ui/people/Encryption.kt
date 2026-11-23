@@ -186,7 +186,7 @@ fun EncryptionScreen(conv: String) {
     val seal = st.seal(conv)
     androidx.compose.runtime.LaunchedEffect(conv) { try { session.encryption.refresh() } catch (e: Exception) { } }
     val nav = LocalNav.current
-    val waiting = st.earlierLocked || st.waitingKeys
+    val waiting = st.earlierLocked
     Page("Encryption") {
         AddedDeviceCards()
         // a device not added yet: say so first, who can open it and where things stand (canvas Messages v5
@@ -194,9 +194,8 @@ fun EncryptionScreen(conv: String) {
         if (st.earlierLocked) {
             EarlierLockedBanner(SealedText.CANT_READ_YET, st) { nav.go(Routes.UNLOCK_STEPS) }
             Spacer(Modifier.height(8.dp))
-        } else if (st.waitingKeys) {
-            AddedHereBanner(st)
-            Spacer(Modifier.height(8.dp))
+        } else if (st.earlierArriving) {
+            EarlierLine(st)
         }
         when {
             seal != null -> EncryptionContent(seal, st.myDevices, world, session.now())
@@ -354,23 +353,18 @@ internal fun EarlierLockedBanner(title: String = SealedText.BANNER_TITLE, state:
     }
 }
 
-/** messages/encryption-locked-added: this device was added, its key is on the way. Goes by itself. */
+/**
+ * canvas Messages v10 messages/encryption-self-added-list, -thread, -notes (sealed.md §5.7): this device added
+ * itself. One quiet line (gray, a clock, no button): "Earlier messages arrive when one of your other devices is
+ * next open: ‹session names›". It goes when the older messages arrive.
+ */
 @Composable
-internal fun AddedHereBanner(st: sh.belfry.core.model.SealState) {
+internal fun EarlierLine(st: sh.belfry.core.model.SealState, modifier: Modifier = Modifier) {
     val c = Belfry.colors
-    val session = LocalSession.current
-    val world = LocalWorld.current
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp))
-            .background(c.surface).padding(horizontal = 14.dp, vertical = 12.dp).testTag("seal-added-here"),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp).padding(top = 1.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(SealedText.addedHereTitle(st.addedAt, session.now(), world.ctx.zone, rememberH24()), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-            Text(SealedText.ADDED_HERE_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
-        }
+    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).testTag("seal-earlier"), verticalAlignment = Alignment.Top) {
+        Icon(BelfryIcons.Clock, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp).padding(top = 1.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(SealedText.earlierArrive(st.earlierFrom), fontSize = 14.sp, lineHeight = 19.sp, color = c.muted, modifier = Modifier.weight(1f))
     }
 }
 
@@ -389,18 +383,6 @@ internal fun WaitingForLine(st: sh.belfry.core.model.SealState, n: Int? = null, 
             Text(if (n != null) SealedText.waitingForMessages(n, st.waitingFor) else SealedText.waitingFor(st.waitingFor), fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             if (n != null) Text(SealedText.WAITING_FOR_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.muted)
         }
-    }
-}
-
-/** messages/encryption-waiting: in place of the composer while this device, added, waits for its key. */
-@Composable
-internal fun WaitingKeysLines(st: sh.belfry.core.model.SealState, modifier: Modifier = Modifier) {
-    val c = Belfry.colors
-    val session = LocalSession.current
-    val world = LocalWorld.current
-    Column(modifier) {
-        Text(SealedText.askedLine(st.askedAt, session.now(), world.ctx.zone, rememberH24()), fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-        NamedText(SealedText.openParts(st.unlockers, short = true), Modifier.padding(top = 2.dp), color = c.muted)
     }
 }
 

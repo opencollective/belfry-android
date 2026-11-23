@@ -133,7 +133,10 @@ internal class SessionSealedPorts(
     private val revokeSession: suspend (String) -> Unit,
     private val keys: SealedKeyStore,
     private val state: Pair<() -> String?, (String) -> Unit> = { null } to { _ -> },
+    /** belfry.json `sealed.self_join`, fetched now (null: the belfry did not answer). */
+    private val selfJoinNow: suspend () -> Boolean? = { false },
 ) : SealedPorts {
+    override suspend fun selfJoin(): Boolean? = try { selfJoinNow() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
     override fun loadState(): String? = state.first()
     override fun saveState(json: String) = state.second(json)
     override suspend fun query(q: Query): SealedEngine.Answer {

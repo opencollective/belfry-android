@@ -96,8 +96,6 @@ data class SealState(
     val asks: List<AccessAsk> = emptyList(),
     /** A device just linked by scanning my code (Link a phone or tablet). */
     val linked: String? = null,
-    /** This device is in my head without its secret (a lost hand-over, f28220c): waiting for another of my devices. */
-    val waitingKeys: Boolean = false,
     /** My sealed conversations were started fresh on another device, leaving this one out (the lead, 0.7.7). */
     val freshElsewhere: FreshElsewhere? = null,
     /** Devices added without a prompt here, not answered yet (canvas v183 messages/encryption-device-added). */
@@ -110,8 +108,15 @@ data class SealState(
     val unlockers: List<String> = emptyList(),
     /** When this device last asked to be added (Unix seconds; 0 = not yet). */
     val askedAt: Long = 0,
-    /** In my head, the key not here yet: when this device was added (Unix seconds; 0 = not so, or unknown). */
-    val addedAt: Long = 0,
+    /**
+     * This device added itself (sealed.md §5.7; canvas Messages v10 messages/encryption-self-added-*): everything
+     * works, and the messages from before it joined arrive when one of my other devices is next open. EARLIER_FROM:
+     * those devices' session names (may be empty: not known). JOINED_AT: when it added itself; a sealed
+     * conversation whose last message here is older reads "Earlier messages arrive soon".
+     */
+    val earlierArriving: Boolean = false,
+    val earlierFrom: List<String> = emptyList(),
+    val joinedAt: Long = 0,
     /**
      * In my head, a letterbox behind (sealed.md §5.7; canvas messages/encryption-waiting-device): a device that
      * added itself holds the key of the newer messages. Its session name(s); empty = not so. Everything else works.
@@ -130,7 +135,7 @@ data class SealState(
      * makes my sealed messages unreadable until Start fresh. False with no roster yet (no letterbox),
      * when this device is still waiting to be allowed, and for guests (no devices at all).
      */
-    val onlyDevice: Boolean get() = !earlierLocked && !waitingKeys && myDevices.size == 1 && myDevices[0].thisDevice
+    val onlyDevice: Boolean get() = !earlierLocked && myDevices.size == 1 && myDevices[0].thisDevice
 }
 
 /**
@@ -270,11 +275,6 @@ object SealedText {
     fun askedLine(askedAt: Long, now: Long, zone: ZoneId, h24: Boolean): String =
         if (askedAt <= 0) NOT_ASKED else "Asked " + stamp(askedAt, now, zone, h24) + " · waiting for one of your devices"
 
-    /** messages/encryption-locked-added: "Added 9:42 PM" / "Your messages open here in a moment." */
-    fun addedHereTitle(addedAt: Long, now: Long, zone: ZoneId, h24: Boolean): String =
-        if (addedAt <= 0) "Added" else "Added " + stamp(addedAt, now, zone, h24)
-    const val ADDED_HERE_TEXT = "Your messages open here in a moment."
-
     /** The link on the banners and the locked block, and the title of the screen it opens (was "Show how"). */
     const val NO_OTHER_LINK = "No other device?"
 
@@ -380,11 +380,16 @@ object SealedText {
     }
     const val REMOVED_JOINER_TEXT = "It can't read anything new. If this wasn't you, change your e-mail's password."
     const val REMOVED_JOINER_OK = "OK"
+    /** canvas Messages v10 messages/encryption-self-added-* (sealed.md §5.7): this device added itself; nothing is locked. Wording for Xavier. */
+    const val EARLIER_ARRIVE = "Earlier messages arrive when one of your other devices is next open"
+    fun earlierArrive(names: List<String>): String = if (names.isEmpty()) "$EARLIER_ARRIVE." else EARLIER_ARRIVE + ": " + names.joinToString(", ")
+    const val EARLIER_SOON = "Earlier messages arrive soon"
+    /** This device added itself and no older device confirmed it yet: it can't add or remove devices. Wording for Xavier. */
+    const val NOT_ENDORSED = "Confirm this device on another of your devices first (“It was me”). Until then it can't add or remove devices."
     const val LOCKED_BLOCK = "Locked on this device"
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours adds this one."
     const val WRITE_LATER = "You can write here once this device is added."
-    const val WAITING_KEYS = "Waiting for another of your devices…"
     const val ALLOW_WAITING = "Not allowed yet: waiting for your other device"
     const val NOT_SEALED = "Not sealed"
     const val TOO_MANY = "You already have 20 devices. Remove one in Devices, then try again."

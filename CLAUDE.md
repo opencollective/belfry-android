@@ -282,6 +282,11 @@ minSdk 26, JDK 17.
   Never date a join by its roster (`joinSeen`), never hand a joiner older keys outside `Follow.olderKeysWithoutPrompt`.
   Vectors `sealed.json` → `join` (`tools/sealed_join_vectors.py`; generators' order in `tools/README.md`). The WRITING
   side (a device adding itself) is not built.
+- Sealed, a device adds itself, WRITING side (SPEC 19.72; sealed.md §5.7): only where belfry.json says
+  `"sealed": {"self_join": true}`, read fresh each time (`SealedPorts.selfJoin`, never the stored `Community`).
+  `SealedEngine.joinHere` holds every condition and the seven steps; `finishJoin` re-sends the new secret until every
+  device got it; a device that added itself signs nothing that changes my devices until endorsed (`NotEndorsed`).
+  `SealState.earlierArriving` → `EarlierLine`. A new roster-changing action must check `chain.unendorsed` for this device.
 
 ## UI rules (the owner's, not negotiable)
 

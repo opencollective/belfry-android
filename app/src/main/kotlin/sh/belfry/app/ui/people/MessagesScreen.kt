@@ -132,14 +132,13 @@ fun MessagesScreen(
                 val title = if (dms.lockedCount > 0) sh.belfry.core.model.SealedText.waitingMessages(dms.lockedCount) else sh.belfry.core.model.SealedText.BANNER_TITLE
                 // waiting to be added: the device that holds the key, by name, and when this one asked (Messages v5)
                 item(key = "seal-banner") { EarlierLockedBanner(title, seal.takeIf { it.earlierLocked }) { nav.go(Routes.UNLOCK_STEPS) } }
-            } else if (seal.waitingKeys) {
-                // added, the key on its way (messages/encryption-locked-added): goes by itself
-                item(key = "seal-added-here") { AddedHereBanner(seal) }
             }
+            // this device added itself (messages/encryption-self-added-list): everything works, one quiet line on top
+            if (seal.earlierArriving && !seal.earlierLocked) item(key = "seal-earlier") { EarlierLine(seal) }
             items(rows, key = { it.conv }) { r ->
                 val t = r.thread
                 if (r.notes) NotesRow(r, dms, world, now, sealed = seal.seal(r.conv) != null, locked = r.conv in seal.locked) { nav.go(Routes.conversation(r.conv)) }
-                else if (t != null) ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) }
+                else if (t != null) ThreadRow(t, dms, world, now, locked = t.conv in seal.locked, soon = seal.earlierArriving && seal.seal(t.conv) != null && t.last.at < seal.joinedAt) { nav.go(Routes.conversation(t.conv)) }
             }
             if (rows.none { !it.notes }) {
                 item(key = "empty") {
@@ -203,7 +202,7 @@ private fun NotesRow(row: sh.belfry.core.dm.MessagesRow, dms: DmSnapshot, world:
 }
 
 @Composable
-private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, locked: Boolean = false, onClick: () -> Unit) {
+private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, locked: Boolean = false, soon: Boolean = false, onClick: () -> Unit) {
     val c = Belfry.colors
     val mail = dms.isMail(t.conv)
     // every row: a face, the name in bold, one line: the subject for an e-mail thread, else the last message
@@ -227,6 +226,9 @@ private fun ThreadRow(t: DmThread, dms: DmSnapshot, world: World, now: Long, loc
                     Spacer(Modifier.width(5.dp))
                     Text(sh.belfry.core.model.SealedText.LOCKED_HERE, fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+            } else if (soon) {
+                // this device added itself and the conversation's last message is from before (messages/encryption-self-added-list)
+                Text(sh.belfry.core.model.SealedText.EARLIER_SOON, fontSize = 14.sp, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("seal-earlier-soon"))
             } else if (typingHere) {
                 // canvas v110 messages/typing-list: a one-to-one DM says "typing…" in place of its preview
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("dm-row-typing")) {

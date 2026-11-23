@@ -67,6 +67,12 @@ data class Community(
     val sessionApi: String? = null,
     /** The belfry's groups key (belfry.json `groups_key.pubkey`): signs answers to `belfry:` buttons, e-mail cards, guest joins. */
     val groupsKey: String? = null,
+    /**
+     * belfry.json `"sealed": {"self_join": true}` (sealed.md §5.7): a signed-in device adds itself to my devices.
+     * Only the JSON value `true` counts; absent or anything else is off. The engine never uses a stored copy of it:
+     * it is read fresh at the moment a device decides (SPEC 19.72).
+     */
+    val sealedSelfJoin: Boolean = false,
 ) {
     /** The four branding values as the belfry's `/branding` takes them ("" = none). */
     val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty(), brandColors)
@@ -111,6 +117,7 @@ data class Community(
         if (agents.isNotEmpty()) put("agents", buildJsonObject { agents.forEach { (a, o) -> put(a, JsonPrimitive(o)) } })
         if (sessionApi != null) put("sessionApi", JsonPrimitive(sessionApi))
         if (groupsKey != null) put("groupsKey", JsonPrimitive(groupsKey))
+        if (sealedSelfJoin) put("sealedSelfJoin", JsonPrimitive(true))
         // kept so the colours and the logo are there before the belfry answers (and offline)
         val b = branding
         if (b != Branding()) put("branding", b.toJson(withColors = true))
@@ -178,8 +185,13 @@ data class Community(
             doc["nostr"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(belfryPubkey = it) }
             c = c.copy(agents = agentsOf(doc["agents"].obj()))
             doc["groups_key"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(groupsKey = it) }
+            c = c.copy(sealedSelfJoin = selfJoinOf(doc))
             return c
         }
+
+        /** belfry.json `sealed.self_join`: on only for the JSON boolean `true` (a string, a number, a missing or odd `sealed` is off). */
+        fun selfJoinOf(doc: JsonObject?): Boolean =
+            ((doc?.get("sealed") as? JsonObject)?.get("self_join") as? kotlinx.serialization.json.JsonPrimitive)?.let { !it.isString && it.content == "true" } == true
 
         fun parse(domain: String, document: String): Community = parse(domain, parseJsonOrNull(document) as? JsonObject)
 
@@ -209,6 +221,7 @@ data class Community(
                 agents = agentsOf(o["agents"].obj()),
                 sessionApi = o.s("sessionApi"),
                 groupsKey = o.s("groupsKey")?.takeIf(Hex::isKey),
+                sealedSelfJoin = (o["sealedSelfJoin"] as? kotlinx.serialization.json.JsonPrimitive)?.let { !it.isString && it.content == "true" } == true,
             ).withBranding(Branding.clean(o["branding"].obj()))
         }
 

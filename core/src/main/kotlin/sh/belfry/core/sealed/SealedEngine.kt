@@ -383,7 +383,7 @@ class SealedEngine(
         if (!joinersUnchecked || mine != Mine.IN_HEAD) return
         val chain = chainOf(account) ?: return
         val joiners = chain.unendorsed.filter { it != device.pubkey }
-        if (joiners.isEmpty()) { joinersUnchecked = false; return }
+        if (joiners.isEmpty() || device.pubkey in chain.unendorsed) { joinersUnchecked = false; return }
         val rows = ports.sessions() ?: return
         if (rows.none { it.clientPubkey == device.pubkey }) return
         val liveChat = rows.filter { it.chat }.mapNotNull { it.clientPubkey }.toSet()
@@ -396,6 +396,136 @@ class SealedEngine(
             } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { joinersUnchecked = true }
         }
     }
+
+    // ---- this device adds itself (sealed.md §5.7, the writing side; SPEC 19.72) ------------------
+
+    /** Why the last pass did or did not add this device itself (tests, the trace). */
+    @Volatile var joinTrace: String = ""
+        private set
+    private fun noJoin(why: String): Boolean { joinTrace = why; trace("join: no ($why)"); return false }
+
+    /** Joins lost to another roster in this run. */
+    private var joinsLost = 0
+
+    /** The letterbox of a join not anchored yet: (prev roster id, lb). Its secret is in the key chain. Reused only on the same prev. */
+    private fun pendingJoin(): Pair<String, String>? = ports.loadNote(NOTE_JOIN_PENDING)?.split(':')?.takeIf { it.size == 2 && hexOk(it[0]) && hexOk(it[1]) }?.let { it[0] to it[1] }
+
+    /** A join that will never be anchored: its letterbox is forgotten for good, never reused. */
+    private fun dropPendingJoin() {
+        pendingJoin()?.let { (_, lb) -> if (chainOf(account)?.letterboxes?.contains(lb) != true) { keys.forget(lb); saveKeys() } }
+        ports.saveNote(NOTE_JOIN_PENDING, "")
+    }
+
+    /**
+     * Outside my head, at the poll and after authentication: this device adds itself when it may (true = it is in
+     * my head now, or handled); else the caller asks as before.
+     */
+    suspend fun tryJoin(myName: suspend () -> String, kind: String): Boolean = locked {
+        if (mine != Mine.WAITING) return@locked false
+        refreshHere(account)
+        if (lastReadComplete[account] != true || known[account]?.completeAt == null) return@locked noJoin("no complete answer")
+        joinHere(myName, kind)
+    }
+
+    /**
+     * §5.7 "When" and steps 1–7 (lock held). Every condition must hold, each read in this pass; any doubt = not now
+     * (the caller asks, §5.2). True: this device is in my head (by its own join, or by a roster another device
+     * published meanwhile).
+     */
+    private suspend fun joinHere(myName: suspend () -> String, kind: String): Boolean {
+        if (guest) return noJoin("a guest")
+        var cur = chainOf(account) ?: return noJoin("no chain")
+        if (device.pubkey in cur.devices) return noJoin("already in the head")
+        if (joinsLost >= JOIN_TRIES) return noJoin("lost $JOIN_TRIES times: asks")
+        if (cur.everHad(device.pubkey)) return noJoin("the chain had this device: it asks")
+        if (previousChain?.everHad(device.pubkey) == true || freshElsewhere != null) return noJoin("left out by a fresh start elsewhere: it asks")
+        if (pins[account]?.trusted != null) return noJoin("a switch was seen on my chain: it asks")
+        if (cur.devices.size >= Roster.MAX_DEVICES) return noJoin("20 devices: it asks")
+        // the flag, read now; then my own session, read now
+        when (ports.selfJoin()) { true -> {}; false -> return noJoin("the belfry does not say self_join"); null -> return noJoin("belfry.json not read") }
+        val rows = ports.sessions() ?: return noJoin("the session list was not read")
+        if (rows.none { it.clientPubkey == device.pubkey && it.chat }) return noJoin("no live chat session of this device")
+        while (true) {
+            if (device.pubkey in cur.devices || cur.everHad(device.pubkey) || cur.devices.size >= Roster.MAX_DEVICES) break
+            // 1. one letterbox per prev, on disk before anything goes
+            val held = pendingJoin()?.takeIf { it.first == cur.head.id && keys.secretFor(it.second) != null }
+            if (held == null) dropPendingJoin()
+            val lbPub = held?.second ?: KeyChain.newLetterbox().let { (pub, secret) -> keys.add(pub, secret); pub }
+            if (!saveKeys()) { keys.forget(lbPub); return noJoin("the key could not be kept") }
+            ports.saveNote(NOTE_JOIN_PENDING, "${cur.head.id}:$lbPub")
+            // 2. roster n+1 signed by this device: the head's devices in their order, then this one; never dated before its prev
+            val devices = cur.devices + device.pubkey
+            val ready = cur.ready || Sealing.readyFor(devices, Sealing.countedSessions(rows.map { Triple(it.clientPubkey, it.chat, it.lastSeen) }, clock()))
+            val r = device.signNow(Roster.template(account, cur.head.n + 1, cur.head.id, lbPub, devices, ready, maxOf(clock(), cur.head.createdAt)))
+            // 3. the account's anchor (the signer: it is what proves the session); not signed = nothing sent
+            val anchor = try { ports.signAsAccount(Anchor.template(cur.root.id, r.id, anchorTime())) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { return noJoin("the anchor was not signed") }
+            // 4. both published, then read back
+            val landed = land(r, anchor)
+            val back = chainOf(account) ?: return noJoin("the chain could not be read back")
+            if (landed && back.rosters.any { it.id == r.id }) {
+                ports.saveNote(NOTE_JOIN_PENDING, "")
+                mine = Mine.IN_HEAD
+                lastHead[account] = lbPub
+                joinTrace = "joined"; trace("join: done")
+                saveState()
+                // 5. my name under the new letterbox; 6. the new secret to every other device; 7. my request for the older keys
+                try { keys.secretFor(lbPub)?.let { s -> ports.publish(ports.signAsAccount(DeviceNames.template(device.pubkey, DeviceNames.Entry(myName(), kind, clock()), lbPub, s, clock()))) } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { trace("join: name not written") }
+                finishJoin()
+                askOlderKeys(r.createdAt)
+                onKeys?.invoke()
+                return true
+            }
+            if (back.head.id == cur.head.id) return noJoin("not published: tried again later") // refused, or the anchor did not go: the same letterbox next time
+            // another roster was anchored: this join is discarded and its letterbox never reused
+            dropPendingJoin()
+            joinsLost++
+            if (device.pubkey in back.devices) {
+                // the winning roster already holds this device (another device let it in at the same moment): it asks for the keys
+                mine = Mine.IN_HEAD
+                joinTrace = "added by another device meanwhile"; trace("join: lost, in the head by another roster")
+                askAtStart(null)
+                return true
+            }
+            if (joinsLost >= JOIN_TRIES) return noJoin("lost $JOIN_TRIES times: asks")
+            cur = back
+        }
+        return noJoin("not possible on the new head: it asks")
+    }
+
+    /** Step 7: this device's 8562, dated at or after its own join roster (§5.7 reading (3)). */
+    private suspend fun askOlderKeys(joinAt: Long) {
+        if (ports.publish(device.signNow(Sealing.request(account, device.pubkey, null, maxOf(clock(), joinAt))))) {
+            asked(); askedThisConnection = true; askedForHead = known[account]?.chain?.head?.lb; owedAsk = false
+            trace("join: asked for the older keys")
+        }
+    }
+
+    /**
+     * Step 6, and again at each start and upkeep until done: the letterbox this device brought goes to every other
+     * device of my head, one silent 8561 each with that secret alone, once per device (a device that asks again is
+     * answered by [onRequest]). Lock held by the caller.
+     */
+    private suspend fun finishJoin() {
+        val chain = chainOf(account) ?: return
+        val by = chain.addedBy(device.pubkey)?.takeIf { it.signer == device.pubkey } ?: return
+        val secret = keys.secretFor(by.lb) ?: return
+        val only = KeyChain(mapOf(by.lb to secret))
+        for (d in chain.devices) {
+            if (d == device.pubkey || d !in by.devices || ports.loadNote("joinkey:${by.lb}:$d") != null) continue
+            val sent = try { Sealing.keysFor(device, account, d, only, clock()).all { ports.publish(it) } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { false }
+            if (sent) ports.saveNote("joinkey:${by.lb}:$d", clock().toString()) else trace("join: a hand-over is owed")
+        }
+    }
+
+    /**
+     * §5.7 step 6 on this device: it added itself and does not hold every earlier letterbox of my chain yet. The
+     * quiet line "Earlier messages arrive when one of your other devices is next open" shows while this is true;
+     * nothing is locked.
+     */
+    val earlierArriving: Boolean get() = mine == Mine.IN_HEAD && chainOf(account)?.let { c -> c.selfAdded(device.pubkey) && c.letterboxes.any { keys.secretFor(it) == null } } == true
+
+    /** When this device added itself (its join roster's time), else 0. */
+    val joinedAt: Long get() = chainOf(account)?.let { c -> c.addedBy(device.pubkey)?.takeIf { it.signer == device.pubkey }?.createdAt } ?: 0L
 
     // ---- my own chain -------------------------------------------------------------------------
 
@@ -437,10 +567,12 @@ class SealedEngine(
             chain != null && device.pubkey in chain.devices -> {
                 mine = Mine.IN_HEAD
                 anchorOwnTail(chain)
+                finishJoin() // a join of mine whose hand-overs did not all go (the app closed in between)
             }
             chain != null -> {
+                // outside my head: where the belfry says so, a signed-in device adds itself (§5.7); else it asks (§5.2)
                 mine = Mine.WAITING
-                askAtStart(link)
+                if (!(complete && joinHere({ myName }, kind))) askAtStart(link)
             }
             complete && Anchor.root(a.events, account) == null && !guest && !firstRefused -> {
                 // one pending key, reused on every try (no orphan keys; c233eec)
@@ -626,6 +758,7 @@ class SealedEngine(
         locked { refresh(account)?.let { anchorOwnTail(it) } }
         try { kotlinx.coroutines.withContext(confined) { sendOwedConfirms() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
         try { locked { sendOwedEndorsements() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+        try { locked { finishJoin() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
         try { joinersUnchecked = true; checkJoiners() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
         checkSessions()
         checkReady()
@@ -731,6 +864,8 @@ class SealedEngine(
             ports.saveNote("handover:$dev", clock().toString())
             return OnRequest.Allowed
         }
+        // this device added itself and is not endorsed: no roster it signs counts, so it adds nobody (§5.7)
+        if (head != null && device.pubkey in head.unendorsed) return OnRequest.Ignore
         val now = clock()
         val live = linkSecrets.filterValues { now - it <= 15 * 60 }.keys
         if (Sealing.linkMatches(req, live)) { allow(dev); return OnRequest.Allowed }
@@ -833,6 +968,7 @@ class SealedEngine(
         if (todo.isEmpty() || mine != Mine.IN_HEAD) return
         val chain = refresh(account) ?: return
         if (lastReadComplete[account] != true) return
+        if (device.pubkey in chain.unendorsed) return // this device added itself and is not endorsed: its roster would count for nothing; still owed
         val can = todo.filter { it in chain.unendorsed && device.pubkey in chain.endorsers(it) }
         if (can.isEmpty()) { owedEndorse(emptyList()); return }
         if (publishNext(chain, chain.devices, chain.head.lb, chain.ready, endorse = can)) { owedEndorse(emptyList()); trace("endorse: published") } else owedEndorse(can)
@@ -920,12 +1056,18 @@ class SealedEngine(
         private const val NOTE_OWED = "confirm-owed"
         private const val NOTE_OWED_ENDORSE = "endorse-owed"
         private const val NOTE_REMOVED_JOINER = "removed-joiner"
+        private const val NOTE_JOIN_PENDING = "join-pending"
+        /** Joins tried and lost to another roster in one run before this device asks instead (§5.7). */
+        const val JOIN_TRIES = 3
         /** Hand-overs kept because their giver is not in my chain yet (§5.7 "Arrivals out of order"). */
         const val MAX_EARLY_KEYS = 50
 
         /** Devices added to CHAIN by rosters dated in the 24 h before NOW (the root not counted), from roster times only. */
         fun recentlyAdded(chain: Chain, now: Long): Int = chain.changesAfter(null).count { it.added && it.at > now - 86_400L }
     }
+
+    /** This device added itself and no older device confirmed it yet: nothing it signs changes my devices (§5.7). */
+    class NotEndorsed : IllegalStateException(sh.belfry.core.model.SealedText.NOT_ENDORSED)
 
     class TooMany : IllegalStateException("A roster holds at most 20 devices: remove one first.")
 
@@ -938,6 +1080,7 @@ class SealedEngine(
         if (prompted) ports.saveNote("prompted:$newDevice", clock().toString())
         val chain = refresh(account) ?: throw IllegalStateException("no chain")
         if (mine != Mine.IN_HEAD) throw IllegalStateException("This device can't allow others yet.")
+        if (device.pubkey in chain.unendorsed && newDevice !in anchoredDevices(chain)) throw NotEndorsed()
         if (newDevice in anchoredDevices(chain)) {
             // in the head but not trusted here (after a switch): Allow by hand gives the keys and trusts it
             val sessions = ports.sessions() ?: throw IllegalStateException("The list of sessions could not be read. Try again.")
@@ -997,6 +1140,7 @@ class SealedEngine(
         if (mine != Mine.IN_HEAD) throw IllegalStateException("This device can't remove devices yet.") // the review's 12
         val chain = refresh(account) ?: return@locked
         if (dev !in chain.devices) return@locked
+        if (device.pubkey in chain.unendorsed) throw NotEndorsed() // before any revoke: its roster would count for nothing
         // a user's removal revokes the session FIRST and changes nothing when that fails (294c94f)
         if (revoke) ports.revoke(dev)
         // the session list must be well formed and hold my own session: else no rotation (a letterbox handed to nobody)
@@ -1038,7 +1182,7 @@ class SealedEngine(
         if (sessions.none { it.clientPubkey == device.pubkey }) return
         val liveKeys = sessions.mapNotNull { it.clientPubkey }.toSet()
         val gone = chainOf(account)?.devices?.filter { it != device.pubkey && it !in liveKeys }.orEmpty()
-        if (gone.isEmpty()) return
+        if (gone.isEmpty() || device.pubkey in chainOf(account)?.unendorsed.orEmpty()) return
         if (removalJitter > 0) delay(Random.int(removalJitter * 1000).toLong())
         for (d in gone) {
             val head = refresh(account) ?: return
@@ -1054,7 +1198,7 @@ class SealedEngine(
         val sessions = ports.sessions() ?: return
         locked {
             val chain = refresh(account) ?: return@locked
-            if (chain.ready || device.pubkey !in chain.devices) return@locked
+            if (chain.ready || device.pubkey !in chain.devices || device.pubkey in chain.unendorsed) return@locked
             val counted = Sealing.countedSessions(sessions.map { Triple(it.clientPubkey, it.chat, it.lastSeen) }, clock())
             if (Sealing.readyFor(chain.devices, counted)) publishNext(chain, chain.devices, chain.head.lb, true)
         }
@@ -1375,7 +1519,7 @@ class SealedEngine(
         ports.query(Query(kinds = listOf(Sealing.REQUEST), p = listOf(account))).events.sortedByDescending { it.createdAt }
 
     /** Is DEVICE removable from this device's list (not this one, and this device is in the head)? */
-    fun canRemove(dev: String): Boolean = mine == Mine.IN_HEAD && dev != device.pubkey && chainOf(account)?.devices?.contains(dev) == true
+    fun canRemove(dev: String): Boolean = mine == Mine.IN_HEAD && dev != device.pubkey && chainOf(account)?.let { dev in it.devices && device.pubkey !in it.unendorsed } == true
 
     // last: every field above exists before the saved state is read (Kotlin runs initialisers in order)
     init { loadState() }
@@ -1412,6 +1556,11 @@ interface SealedPorts {
     /** The engine's pins and sealed conversations, one value, kept beside the conversation data. */
     fun loadState(): String? = null
     fun saveState(json: String) {}
+    /**
+     * belfry.json `"sealed": {"self_join": true}` read NOW (sealed.md §5.7): true = a signed-in device adds itself;
+     * false = it asks as before; null = the belfry did not answer (don't join in this pass).
+     */
+    suspend fun selfJoin(): Boolean? = false
     /** Small records kept across restarts (my last hand-over to each device, f28220c). */
     fun loadNote(name: String): String? = null
     fun saveNote(name: String, value: String) {}
