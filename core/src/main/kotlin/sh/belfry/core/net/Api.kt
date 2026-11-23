@@ -69,6 +69,8 @@ data class InviteInfo(
     val days: Int,
     /** A member link (roles.py): using it makes the person a member with this role; null = a guest link. */
     val memberLink: MemberLink? = null,
+    /** A printed card's guest link (docs/cards.md §3): `group` or `topic`; null on every other invite. */
+    val card: String? = null,
 ) {
     val isOpen: Boolean get() = state == "open"
 
@@ -109,7 +111,12 @@ data class JoinedNew(
     val reading: Boolean = false,
     /** A member link: saving the e-mail (name, e-mail, code) makes them a member. */
     val member: MemberLink? = null,
+    /** The link was a printed card's (docs/cards.md §3): `group` or `topic`. */
+    val card: String? = null,
 )
+
+/** `"card": "group" | "topic"` of an invite's info or a join answer; anything else is no card. */
+fun cardOf(b: JsonObject?): String? = b?.s("card")?.takeIf { it == "group" || it == "topic" }
 
 /**
  * What `POST /guest/save/verify` did: the account is saved; [joined]: they were in guest mode
@@ -128,7 +135,7 @@ data class GuestSignIn(val bunkerUrl: String, val pubkey: String, val nip05: Str
  * An existing account used a guest link. [member]: a member link made this guest a member;
  * [emailNeeded]: a member link used by a guest without an e-mail (saving it makes them a member).
  */
-data class JoinedAccount(val channel: String, val already: Boolean, val guest: Boolean, val member: Boolean = false, val emailNeeded: Boolean = false)
+data class JoinedAccount(val channel: String, val already: Boolean, val guest: Boolean, val member: Boolean = false, val emailNeeded: Boolean = false, /** A printed card's link: `group` or `topic`. */ val card: String? = null)
 
 data class Place(
     val id: String? = null,
@@ -392,6 +399,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             state = b.s("state") ?: "used",
             days = b["days"].int() ?: 30,
             memberLink = MemberLink.of(b),
+            card = cardOf(b),
         )
     }
 
@@ -421,7 +429,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         // guest mode unless the belfry says it named them (an older belfry answers without `reading`
         // only to a name, so a request without one is in guest mode)
         val reading = b["reading"].bool() ?: (name == null)
-        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey), b["email_needed"].bool() ?: false, reading, MemberLink.of(b))
+        return JoinedNew(bunker, b.s("channel") ?: "general", b.s("pubkey")?.takeIf(Hex::isKey), b["email_needed"].bool() ?: false, reading, MemberLink.of(b), cardOf(b))
     }
 
     /** Someone signed in uses a guest link: their account gets the channel (no second account). */
@@ -432,7 +440,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         if (!a.ok || b == null || channel == null) {
             fail(a, JOIN_ERRORS + ("name_needed" to "This account can’t use invites."), "The invite could not be used just now.")
         }
-        return JoinedAccount(channel, b["already"].bool() ?: false, b["guest"].bool() ?: false, b["member"].bool() == true, b["email_needed"].bool() == true)
+        return JoinedAccount(channel, b["already"].bool() ?: false, b["guest"].bool() ?: false, b["member"].bool() == true, b["email_needed"].bool() == true, cardOf(b))
     }
 
     /**

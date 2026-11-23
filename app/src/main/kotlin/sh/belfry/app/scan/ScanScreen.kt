@@ -93,6 +93,8 @@ fun ScanScreen(
     onClose: () -> Unit,
     /** "Link your phone": the web chat's login QR (canvas onboarding/scan-login). */
     onLogin: ((sh.belfry.core.net.LoginLink) -> Unit)? = null,
+    /** A printed card's QR code (SPEC 19.72): its screen opens as when the phone's camera opened the address. */
+    onCard: ((sh.belfry.core.model.CardLink) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var ui by remember {
@@ -132,7 +134,8 @@ fun ScanScreen(
                 if (!found) {
                     val link = InviteScan.read(text)
                     val login = if (link == null && onLogin != null) sh.belfry.core.net.LoginLink.parse(text.trim()) else null
-                    if (link != null) { found = true; onInvite(link) } else if (login != null) { found = true; onLogin!!(login) } else badAt = System.nanoTime()
+                    val card = if (link == null && login == null && onCard != null) InviteScan.card(text) else null
+                    if (link != null) { found = true; onInvite(link) } else if (login != null) { found = true; onLogin!!(login) } else if (card != null) { found = true; onCard!!(card) } else badAt = System.nanoTime()
                 }
             },
             onFailed = { ui = ScanUi.FAILED },

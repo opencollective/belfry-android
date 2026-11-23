@@ -148,7 +148,13 @@ private fun SignedIn(state: AppState, session: Session) {
     var refusalSetAside by remember(session) { mutableStateOf(false) }
     // a member link just used: the name and username, once (canvas onboarding/member-link-name)
     var nameDue by remember(session) { mutableStateOf(session.nameDue()) }
-    CompositionLocalProvider(LocalSignOut provides signOut, LocalAccounts provides accounts, sh.belfry.app.ui.people.LocalGuestSignedIn provides { s, a -> state.guestSignedIn(s, a) }) {
+    val cardWelcomed by state.cardWelcome.collectAsState()
+    val cardWelcome = remember(cardWelcomed) { sh.belfry.app.ui.printed.CardWelcomeState(cardWelcomed) { state.clearCardWelcome() } }
+    CompositionLocalProvider(
+        LocalSignOut provides signOut, LocalAccounts provides accounts,
+        sh.belfry.app.ui.people.LocalGuestSignedIn provides { s, a -> state.guestSignedIn(s, a) },
+        sh.belfry.app.ui.printed.LocalCardWelcome provides cardWelcome,
+    ) {
         SessionScope(session, nav) {
             val guestNow by session.guest.collectAsState()
             if (opening != null) {
@@ -177,6 +183,7 @@ private fun SignedIn(state: AppState, session: Session) {
                 sh.belfry.app.ui.people.FreshElsewhereHost()
                 OpenAfterSignIn(state)
                 JoinOffer(state)
+                sh.belfry.app.ui.printed.CardHost(state) // a printed card's address (SPEC 19.72)
                 ChooseAccount(state)
                 EventLinkOpener(state)
                 PushOpener(state)

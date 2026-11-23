@@ -16,4 +16,10 @@ object InviteScan {
         if (text == null || text.length > MAX) return null
         return InviteLink.parse(text)
     }
+
+    /** A printed card's QR code (`https://chat.<domain>/g/<id>`, SPEC 19.72): its domain and id, nothing else. */
+    fun card(text: String?): sh.belfry.core.model.CardLink? {
+        if (text == null || text.length > MAX) return null
+        return sh.belfry.core.model.CardLink.parse(text)
+    }
 }

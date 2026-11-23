@@ -19,6 +19,12 @@ import sh.belfry.core.engine.OnboardingException
 import sh.belfry.core.engine.PendingCode
 import sh.belfry.core.engine.Session
 import sh.belfry.core.engine.Vault
+import sh.belfry.core.model.CardForm
+import sh.belfry.core.model.CardInfo
+import sh.belfry.core.model.CardKind
+import sh.belfry.core.model.CardLink
+import sh.belfry.core.model.CardWelcome
+import sh.belfry.core.model.HashtagState
 import sh.belfry.core.net.Community
 import sh.belfry.core.net.EventLink
 import sh.belfry.core.net.InviteLink
@@ -51,6 +57,9 @@ data class Opening(
     /** The account the link made, once its session exists (only that session ends the loading screen). */
     val account: String? = null,
 )
+
+/** A group just started or joined from a printed card, in the belfry at [domain]: its first open welcomes. */
+data class CardWelcomed(val domain: String, val group: String, val welcome: CardWelcome)
 
 /** What the sign-in screen starts with after "Sign in instead" (guest mode, an address with an account). */
 data class SignInPrefill(val address: String, val hint: String?)
@@ -140,6 +149,88 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         eventAfter = event?.let { EventLink(s.community.domain, it) }
         _adding.value = Adding.WayIn(s.community, apply)
     }
+
+    // ---- printed cards (SPEC 19.72–19.74) -------------------------------------------------------------
+
+    private val _card = MutableStateFlow<CardLink?>(null)
+    /**
+     * A printed card's address was opened or scanned: its screen shows (signed out: in place of the
+     * first screen; signed in: over the app) until it is dealt with.
+     */
+    val card: StateFlow<CardLink?> = _card
+
+    private val _cardWelcome = MutableStateFlow<CardWelcomed?>(null)
+    /** The group just started or joined from a card: its first open says welcome (in memory: once). */
+    val cardWelcome: StateFlow<CardWelcomed?> = _cardWelcome
+    fun clearCardWelcome() { _cardWelcome.value = null }
+
+    /** A card's address: used in an account of that belfry when there is one (the open one first), else with no account. */
+    fun onCardLink(link: CardLink) {
+        try { onboarding.pendingCard = link } catch (e: Exception) { }
+        // scanned from "Add an account": that screen goes, the card's shows
+        if (_adding.value is Adding.SignIn) _adding.value = null
+        val s = _session.value
+        val other = if (s == null || s.community.domain == link.domain) null else accountsNow().onDomain(link.domain).firstOrNull()
+        if (other == null) { _card.value = link; return }
+        scope.launch { switchTo(other.id); _card.value = link }
+    }
+
+    /** The card is dealt with (or closed): nothing of it is kept but what was typed. */
+    fun forgetCard() {
+        _card.value = null
+        try { onboarding.pendingCard = null } catch (e: Exception) { }
+    }
+
+    private val cardCommunities = java.util.concurrent.ConcurrentHashMap<String, Community>()
+    suspend fun cardCommunity(domain: String): Community =
+        cardCommunities[domain] ?: onboarding.cardCommunity(domain).also { cardCommunities[domain] = it }
+
+    suspend fun cardInfo(link: CardLink): CardInfo = onboarding.cardInfo(cardCommunity(link.domain), link.id)
+    suspend fun cardHashtag(link: CardLink, name: String): HashtagState = onboarding.cardHashtag(cardCommunity(link.domain), name)
+    suspend fun cardForm(link: CardLink): CardForm? = withContext(Dispatchers.Default) { try { onboarding.cardForm(link) } catch (e: Exception) { null } }
+    suspend fun keepCardForm(link: CardLink, f: CardForm) = withContext(Dispatchers.Default) { try { onboarding.keepCardForm(link, f) } catch (e: Exception) { } }
+    suspend fun dropCardForm() = withContext(Dispatchers.Default) { try { onboarding.dropCardForm() } catch (e: Exception) { } }
+
+    /** A visitor, step 1: the code goes to EMAIL. Throws [sh.belfry.core.model.CardFailed]. */
+    suspend fun cardStart(link: CardLink, email: String) = onboarding.cardClaimStart(cardCommunity(link.domain), link.id, email)
+
+    /** Step 2: the right code makes the group and signs this phone in; the group opens with its welcome. */
+    suspend fun cardVerify(link: CardLink, kind: CardKind, f: CardForm, code: String) {
+        val (s, group) = onboarding.cardClaimVerify(cardCommunity(link.domain), link.id, kind, f, code)
+        cardIn(s, group)
+    }
+
+    /** The code was right and the signer did not answer: once more, without a new code. False: nothing waits any more. */
+    suspend fun cardRetry(): Boolean {
+        val (s, group) = onboarding.resumeCardClaim() ?: return false
+        cardIn(s, group)
+        return true
+    }
+
+    private fun cardIn(s: Session, group: String) {
+        _card.value = null
+        _cardWelcome.value = CardWelcomed(s.community.domain, group, CardWelcome.STARTED)
+        _openAfter.value = s.community.domain to group
+        enter(s, fresh = true)
+    }
+
+    /** Signed in: this account just started GROUP from a card. */
+    fun cardStarted(domain: String, group: String) {
+        forgetCard()
+        _cardWelcome.value = CardWelcomed(domain, group, CardWelcome.STARTED)
+    }
+
+    /** A claimed card is a guest link: its invite takes the usual way in (SPEC 19.74). */
+    fun cardJoin(link: CardLink, group: String, invite: String) {
+        forgetCard()
+        if (!InviteLink.isToken(invite)) return
+        _cardWelcome.value = CardWelcomed(link.domain, group, CardWelcome.JOINED)
+        onInviteLink(InviteLink(link.domain, invite))
+    }
+
+    /** What the "taken" screen shows of the group someone started (the card's guest link says). Null: no answer. */
+    suspend fun cardPreview(link: CardLink, invite: String): sh.belfry.core.net.InviteInfo? =
+        try { kotlinx.coroutines.withTimeoutOrNull(8_000) { onboarding.inviteInfo(InviteLink(link.domain, invite)).info } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
 
     /** A notification was tapped: what it opens, once signed in (kept until then). */
     private val _pushOpen = MutableStateFlow<PushOpen?>(null)
@@ -294,6 +385,10 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
                 _pendingCode.value = code
                 _phase.value = if (invite != null) Phase.Joining(invite) else Phase.SignedOut
             }
+            // a card that was being dealt with when the app stopped: its screen again
+            if (_card.value == null) _card.value = withContext(Dispatchers.Default) { try { onboarding.pendingCard } catch (e: Exception) { null } }
+            // a card's claim whose code was right when the app stopped (kept an hour): its session opens now
+            try { withContext(Dispatchers.Default) { onboarding.resumeCardClaim() }?.let { (claimed, group) -> cardIn(claimed, group) } } catch (e: Exception) { }
         }
     }
 

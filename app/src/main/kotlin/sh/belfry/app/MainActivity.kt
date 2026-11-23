@@ -35,7 +35,7 @@ class MainActivity : ComponentActivity() {
      * Two kinds of links open the app. Only fixed, named values are read from them and none of
      * their text is ever shown: the sign-in answer (`code`, `state`, `error`) and a guest link
      * (its domain and token, checked by [InviteLink.parse]), an event's address (its domain and
-     * link, checked by [EventLink.parse]).
+     * link, checked by [EventLink.parse]), a printed card's address (its domain and id, [sh.belfry.core.model.CardLink.parse]).
      */
     private fun handle(intent: Intent?) {
         AndroidPush.openOf(intent)?.let { state.onPushOpen(it, AndroidPush.accountOf(intent)); return }
@@ -49,6 +49,8 @@ class MainActivity : ComponentActivity() {
             InviteLink.parse(url)?.let { state.onInviteLink(it) }
                 ?: sh.belfry.core.net.LoginLink.parse(url)?.let { state.onLoginLink(it) }
                 ?: EventLink.parse(url)?.let { state.onEventLink(it) }
+                // a printed card (SPEC 19.72): only its domain and its 6-character id are read
+                ?: sh.belfry.core.model.CardLink.parse(url)?.let { state.onCardLink(it) }
         }
     }
 }

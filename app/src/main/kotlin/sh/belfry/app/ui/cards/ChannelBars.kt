@@ -35,6 +35,8 @@ fun ChannelBars(groupId: String) {
     val g = world.group(groupId)
     Column {
         UndoSendHost(groupId)
+        // the first open after a printed card (SPEC 19.72): its welcome, once
+        sh.belfry.app.ui.printed.CardWelcomeBar(groupId)
         // a group I'm not in; a closed channel I'm not in and don't run (round 6, SPEC 19.41)
         if (g != null && world.needsJoinBar(g)) JoinBar(g)
         if (g != null && g.isEvent) EventChatBar(groupId)

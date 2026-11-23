@@ -19,6 +19,7 @@ import sh.belfry.core.engine.MemoryVault
 import sh.belfry.core.engine.Onboarding
 import sh.belfry.core.engine.OnboardingException
 import sh.belfry.core.engine.SavedSession
+import sh.belfry.core.engine.cards
 import sh.belfry.core.engine.Session
 import sh.belfry.core.net.Community
 import sh.belfry.core.net.MemberAddress
@@ -399,5 +400,195 @@ class NativeSignInTest {
         server.enqueue(json(200, """{"state":"code_sent"}"""))
         NativeSignIn(moved, http) { 1_800_000_000 }.request(MemberAddress.parse("maya@example.org")!!, LocalSigner.random().secretHex)
         assertEquals("/elsewhere/session", server.takeRequest().path)
+    }
+
+    // ---- printed cards: a visitor's claim (SPEC 19.73; docs/cards.md §2.3) ---------------------------
+
+    private val cardForm = sh.belfry.core.model.CardForm(title = "Sourdough starters", about = "Swap starters.", name = "Lou", email = "lou@example.org")
+    private fun applicantKey(vault: MemoryVault): String? = vault.get(Onboarding.V_APPLICANT + ":example.org")
+    private fun claimed(bunker: String, pubkey: String) = json(200, buildJsonObject {
+        put("signed_in", JsonPrimitive(true)); put("bunker_url", JsonPrimitive(bunker)); put("pubkey", JsonPrimitive(pubkey)); put("group", JsonPrimitive("pod-sourdough-ab12"))
+    }.toString())
+
+    @Test
+    fun aCardsClaimSignsThisPhoneInWithTheKeyThatAsked() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = Onboarding(vault, MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { community() }
+        val c = community()
+
+        server.enqueue(json(200, """{"kind":"group","state":"unclaimed"}"""))
+        assertEquals(sh.belfry.core.model.CardInfo.Unclaimed(sh.belfry.core.model.CardKind.GROUP), on.cardInfo(c, "K7Q2MX"))
+        val asked = server.takeRequest()
+        assertEquals("/api/v1/cards/K7Q2MX", asked.path)
+        assertNull(asked.getHeader("Authorization"), "what a card is needs no key")
+        assertNull(applicantKey(vault), "no key is made before a code is asked")
+
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", " lou@example.org ")
+        val r1 = server.takeRequest()
+        assertEquals("/api/v1/cards/K7Q2MX/claim-start", r1.path)
+        val b1 = r1.body.readUtf8()
+        assertEquals("""{"email":"lou@example.org"}""", b1)
+        val key = auth(r1, b1).pubkey
+        assertEquals(key, LocalSigner(applicantKey(vault)!!).pubkey, "the applicant key of this belfry signs, kept in the vault")
+
+        // a wrong code: the key stays, nothing is kept of the answer
+        server.enqueue(json(400, """{"error":"wrong_code","tries_left":4,"message":"no"}"""))
+        val wrong = assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimVerify(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm, "111111") }
+        assertEquals(sh.belfry.core.model.CardError.WRONG_CODE, wrong.code)
+        assertEquals(4, wrong.triesLeft)
+        assertEquals(key, signedBy(server.takeRequest()))
+        assertEquals(key, LocalSigner(applicantKey(vault)!!).pubkey)
+        assertFalse(on.cardClaimWaiting)
+
+        // the right code: the session is on the account the belfry named, its client key the key that signed
+        val account = LocalSigner.random()
+        server.enqueue(claimed(signer(account), account.pubkey))
+        val (session, group) = on.cardClaimVerify(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm, "123456")
+        sessions.add(session)
+        val r2 = server.takeRequest()
+        assertEquals("/api/v1/cards/K7Q2MX/claim-verify", r2.path)
+        val b2 = r2.body.readUtf8()
+        assertEquals("""{"email":"lou@example.org","code":"123456","name":"Lou","client":"belfry-android","title":"Sourdough starters","about":"Swap starters."}""", b2)
+        assertEquals(key, auth(r2, b2).pubkey)
+        assertEquals("pod-sourdough-ab12", group)
+        assertEquals(account.pubkey, session.me)
+        val saved = SavedSession.fromJsonString(vault.get(Onboarding.V_SESSION)!!)!!
+        assertEquals(key, LocalSigner(saved.clientSecret).pubkey)
+        assertNull(saved.guest, "opened as the e-mail log-in opens an account: no guest record")
+        // nothing of the flow is left: the applicant key is the session's now
+        assertNull(applicantKey(vault))
+        assertNull(vault.get(Onboarding.V_CARD_CLAIM))
+        assertFalse(on.cardClaimWaiting)
+        assertNull(on.pendingCard)
+    }
+
+    @Test
+    fun aCardsClaimWhoseKeyIsTakenAsksTheNextCodeWithANewKey() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = Onboarding(vault, MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { community() }
+        val c = community()
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", "lou@example.org")
+        val first = signedBy(server.takeRequest())
+        server.enqueue(json(409, """{"error":"key_taken"}"""))
+        assertEquals(sh.belfry.core.model.CardError.KEY_TAKEN, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimVerify(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm, "123456") }.code)
+        server.takeRequest()
+        assertNull(applicantKey(vault))
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", "lou@example.org")
+        assertTrue(signedBy(server.takeRequest()) != first)
+
+        // claimed after the code (a race), expired, a busy belfry: the key stays, nobody is signed in
+        val key = LocalSigner(applicantKey(vault)!!).pubkey
+        for (answer in listOf(409 to """{"error":"claimed","group":"pod-x-1","invite":"AbCdEfGhIjKlMnOpQrStUvWx_-12"}""", 410 to """{"error":"expired"}""", 503 to """{"error":"signer"}""", 409 to """{"error":"hashtag_taken"}""")) {
+            server.enqueue(json(answer.first, answer.second))
+            assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimVerify(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm, "123456") }
+            server.takeRequest()
+            assertEquals(key, LocalSigner(applicantKey(vault)!!).pubkey)
+            assertFalse(on.hasSession)
+            assertFalse(on.cardClaimWaiting)
+        }
+        // a 200 that is not a session is not a sign-in
+        val pk = "cd".repeat(32)
+        for (body in listOf("""{"signed_in":true,"bunker_url":"https://evil.example","pubkey":"$pk","group":"pod-x-1"}""", """{"signed_in":true,"bunker_url":"bunker://$pk?relay=wss%3A%2F%2Fr.example.org","group":"pod-x-1"}""", """{"bunker_url":"bunker://$pk?relay=wss%3A%2F%2Fr.example.org","pubkey":"$pk","group":"pod-x-1"}""", """{"signed_in":true,"bunker_url":"bunker://$pk?relay=wss%3A%2F%2Fr.example.org","pubkey":"$pk","group":"a b"}""", "<html>")) {
+            server.enqueue(json(200, body))
+            assertEquals(sh.belfry.core.model.CardError.FAILED, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimVerify(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm, "123456") }.code)
+            server.takeRequest()
+            assertFalse(on.cardClaimWaiting)
+        }
+    }
+
+    @Test
+    fun aCardsClaimWhoseSignerIsAnotherKeyOpensNothing() = runBlocking<Unit> {
+        var now = 1_800_000_000L
+        val vault = MemoryVault()
+        val on = Onboarding(vault, MemoryStore(), http, scope, { now }, ZoneOffset.UTC) { community() }
+        val c = community()
+        // the belfry names one key, its signer answers with another: no session, nothing kept
+        server.enqueue(claimed(signer(LocalSigner.random()), LocalSigner.random().pubkey))
+        assertEquals("mismatch", assertFailsWith<OnboardingException> { on.cardClaimVerify(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm, "123456") }.code)
+        assertFalse(on.hasSession)
+        assertFalse(on.cardClaimWaiting)
+        assertNull(on.resumeCardClaim())
+
+        // the app stopped after the right code, before its session was open: it opens on the next start, with no new code
+        val account = LocalSigner.random()
+        val secret = on.applicantSecret("example.org")
+        val kept = buildJsonObject {
+            put("community", c.toJson()); put("id", JsonPrimitive("K7Q2MX")); put("bunkerUrl", JsonPrimitive(signer(account))); put("pubkey", JsonPrimitive(account.pubkey))
+            put("group", JsonPrimitive("pod-sourdough-ab12")); put("at", JsonPrimitive(now))
+        }.toString()
+        vault.set(Onboarding.V_CARD_CLAIM, kept)
+        val before = server.requestCount
+        val again = Onboarding(vault, MemoryStore(), http, scope, { now }, ZoneOffset.UTC) { community() }
+        assertTrue(again.cardClaimWaiting)
+        val (session, group) = again.resumeCardClaim()!!
+        sessions.add(session)
+        assertEquals(before, server.requestCount, "no call to the belfry: the code was spent")
+        assertEquals(account.pubkey, session.me)
+        assertEquals("pod-sourdough-ab12", group)
+        assertEquals(LocalSigner(secret).pubkey, LocalSigner(SavedSession.fromJsonString(vault.get(Onboarding.V_SESSION)!!)!!.clientSecret).pubkey)
+        assertNull(vault.get(Onboarding.V_CARD_CLAIM))
+
+        // one kept for more than an hour is forgotten
+        vault.set(Onboarding.V_CARD_CLAIM, kept)
+        now += Onboarding.CARD_CLAIM_SECONDS + 1
+        assertFalse(again.cardClaimWaiting)
+        assertNull(again.resumeCardClaim())
+        assertNull(vault.get(Onboarding.V_CARD_CLAIM))
+    }
+
+    @Test
+    fun whatWasTypedForACardIsKeptForThatCardOnly() {
+        val vault = MemoryVault()
+        val on = Onboarding(vault, MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { community() }
+        val link = sh.belfry.core.model.CardLink("example.org", "K7Q2MX")
+        assertNull(on.cardForm(link))
+        on.keepCardForm(link, cardForm)
+        assertEquals(cardForm, Onboarding(vault, MemoryStore(), http, scope) { community() }.cardForm(link))
+        assertNull(on.cardForm(sh.belfry.core.model.CardLink("example.org", "T9PC4H")))
+        assertNull(on.cardForm(sh.belfry.core.model.CardLink("other.example", "K7Q2MX")))
+        on.dropCardForm()
+        assertNull(on.cardForm(link))
+        on.pendingCard = link
+        assertEquals(link, Onboarding(vault, MemoryStore(), http, scope) { community() }.pendingCard)
+        on.pendingCard = sh.belfry.core.model.CardLink("example.org", "")
+        assertEquals(sh.belfry.core.model.CardLink("example.org", ""), on.pendingCard)
+        on.pendingCard = null
+        assertNull(on.pendingCard)
+    }
+
+    @Test
+    fun theDemosCardNeedsNoBelfry() = runBlocking<Unit> {
+        val on = Onboarding(MemoryVault(), MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { throw IOException("no network in the demo") }
+        val c = on.cardCommunity(sh.belfry.core.engine.Demo.DOMAIN)
+        assertEquals(sh.belfry.core.engine.Demo.NAME, c.name)
+        assertEquals(sh.belfry.core.model.CardInfo.Unclaimed(sh.belfry.core.model.CardKind.TOPIC), on.cardInfo(c, "T9PC4H"))
+        assertEquals(sh.belfry.core.model.HashtagState.TAKEN, on.cardHashtag(c, "general"))
+        on.cardClaimStart(c, "T9PC4H", "dev@example.org")
+        val f = sh.belfry.core.model.CardForm(title = "Tool library", about = "Borrow drills.", hashtag = "tool-library", name = "Dev Patel", email = "dev@example.org")
+        assertEquals(2, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimVerify(c, "T9PC4H", sh.belfry.core.model.CardKind.TOPIC, f, "000000") }.triesLeft)
+        val (session, group) = on.cardClaimVerify(c, "T9PC4H", sh.belfry.core.model.CardKind.TOPIC, f, "123456")
+        sessions.add(session)
+        assertEquals("tool-library", group)
+        assertTrue(session.localOnly)
+        session.flush(); session.settle()
+        val g = session.world.value.group("tool-library")!!
+        assertEquals("Tool library · Borrow drills.", g.about)
+        assertFalse(g.isPod)
+        // that card is claimed in this demo from then on; a claimed card can't be started
+        assertEquals("tool-library", (session.cards.info("T9PC4H") as sh.belfry.core.model.CardInfo.Claimed).group)
+        assertEquals(sh.belfry.core.model.CardError.CLAIMED, assertFailsWith<sh.belfry.core.model.CardFailed> { session.cards.claim("T9PC4H", sh.belfry.core.model.CardKind.TOPIC, f) }.code)
+        assertEquals(sh.belfry.core.model.CardError.CLAIMED, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimStart(c, "CXAWMS", "dev@example.org") }.code)
+        // a group card, signed in to the demo
+        val pod = session.cards.claim("K7Q2MX", sh.belfry.core.model.CardKind.GROUP, sh.belfry.core.model.CardForm(title = "Sourdough starters", about = "Swap starters."))
+        session.flush(); session.settle()
+        assertTrue(pod.startsWith("pod-sourdough-starters"))
+        assertTrue(session.world.value.group(pod)!!.isPod)
+        assertEquals(sh.belfry.core.model.HashtagState.TAKEN, session.cards.hashtag("tool-library"))
+        // guest mode writes nothing
+        session.demoGuestMode("general")
+        assertEquals(sh.belfry.core.model.CardError.GUEST_NOT_SAVED, assertFailsWith<sh.belfry.core.model.CardFailed> { session.cards.claim("K7Q2MX", sh.belfry.core.model.CardKind.GROUP, f) }.code)
     }
 }

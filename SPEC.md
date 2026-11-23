@@ -2864,6 +2864,181 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
 - Signed in elsewhere with no account in the link's belfry: still the sheet "Another community's
   event" (not asked whether it is for members).
 
+### 19.72 Printed cards: the address, what a card is, a signed-in claim (2026-11-23; Xavier via the lead; contract collective-belfry docs/cards.md §1, §2.1, §2.2, §2.4; canvas "Belfry · Group cards": cards/claim-signed-in, claim-channel, claim-done, states-*; the web's `core/cards.ts` / `ui/Card.tsx` at chat f10e6b2)
+
+A pre-printed A6 card with a QR code. The first person to scan it starts a group (upright card) or
+a topic (card on its side: a channel whose id is a hashtag) and looks after it; everyone who scans
+it afterwards joins through the card's guest link (19.74).
+
+- **The address**: `https://chat.<domain>/g/<id>` (`CardLink`; the web's `#/g/<id>` too). `<id>`: 6
+  characters of `ABCDEFGHJKMNPQRSTUVWXYZ23456789`; lower case is accepted and read as upper case, one
+  trailing slash is dropped. Anything else after `/g/` is still a card's address, with no id: the
+  screen says "This card isn't known here" and the belfry is not asked (the web's `unknown`). Only
+  the domain and the id are read; nothing of the address is ever shown, and the id is shown nowhere.
+- **Where it is read**: the App Link (`/g/` in the manifest, beside `/join/`, `/login/`, `/events/`;
+  App Links are verified per host, so the hosts' `assetlinks.json` needs nothing new), the
+  invitation scanner (`InviteScan.card`, after an invitation and a "Link your phone" code), the
+  "Your invitation" field (a pasted address), and a link tapped in a chat (`Links.InApp.Card`).
+- **Which account**: signed out → the card's screen in place of the first screen, as a visitor
+  (19.73). Signed in to that belfry → over the app, as that account. Signed in elsewhere: an account
+  of that belfry on this phone is switched to (the first one, as for an event's address); none →
+  over the app as a visitor. The card is kept (`pending-card` in the vault: domain and id) until it
+  is dealt with or closed, so a closed app shows it again.
+- **What a card is**: `GET <api>/cards/<id>`, no authentication. `{"kind": "group" | "topic",
+  "state": …}` (`Cards.infoOf`; a field that is not what it should be makes the answer "unknown"):
+
+  | Answer | Screen |
+  |---|---|
+  | `unclaimed` | "Start this group" / "Start this topic" (below) |
+  | `claimed` + `group`, `title`, `invite` | "Opening the card…", then the card's guest link at once (19.74) |
+  | `retired` + `title` | "‹title, or This group› is closed to new people" · "The card was retired. People already in the group carry on there." |
+  | `archived` + `title` | "‹title› has ended" · "The group was archived." |
+  | 404, a malformed answer | "This card isn't known here" · "Check that you scanned a card of ‹domain›." |
+  | no connection | "No connection" · "Belfry needs the internet to open the card. What you typed stays here." · Try again |
+  | 429 | "Too many tries for now" · "Try again in a few minutes. What you typed stays here." · Try again |
+  | 409 `unsupported` | "This belfry doesn't take printed cards" |
+
+  Every dead end has "Visit ‹belfry's name›" (its public page, in the browser) and Close; the
+  system's back closes the card. (The web shows "No connection" for a 429 too; here it has its own
+  words.)
+- **The form** (signed in: "Signed in as ‹name›" with the face; no name, no e-mail): Title ("Topic"
+  on a topic card; required, 80; placeholder "What you wrote on the card"), for a topic the Hashtag
+  (below), Description (optional, 500). The button "Start the group" / "Start the topic" is a
+  BusyButton: one tap, one request, locked until the belfry answered. It can be tapped when the
+  title is not blank, and for a topic only when the hashtag was checked free (`Cards.ready`).
+- **A topic's summary by e-mail** (canvas cards/claim-channel v45; the lead, 2026-11-23: the server
+  takes it). On a topic card's form only, last before the button: "Summary by e-mail" · Weekly |
+  Monthly (Material's segmented buttons; Weekly chosen first; the choice carries a check mark and a
+  heavier label, not a colour alone) · "What was said, once a week. Change it any time." ("once a
+  month" for Monthly). Sent as `"summary": "weekly" | "monthly"` in the body of the claim and of
+  claim-verify (19.73) on a topic card, **never on a group card**; kept with what was typed.
+- **A topic's hashtag** (canvas cards/claim-channel, approved: topic first, then the hashtag, then
+  the description). Suggested from the topic as it is typed until the person changes the hashtag by
+  hand: `Cards.hashtagSlug` = trimmed, leading `#` dropped, lower case, every run of characters
+  outside `a–z 0–9 -` → `-`, dashes at both ends dropped, 30 at most. Checked live 350 ms after the
+  last change: `GET <api>/cards/hashtag/<slug>` → `free` / `taken` / anything else = invalid; a slug
+  under 2 characters is invalid without asking. **5xx, 429 and no connection are "couldn't check",
+  never free**: "Couldn't check just now" with Try again, and the card can't be started. A
+  suggestion that is taken: `<slug>-2` … `<slug>-9` are asked in turn (`Cards.nextFree`; the slug cut
+  so that the whole stays 30) and the first free one replaces it; none free, or an answer that is
+  neither: "Taken: try another one". The lines: "Checking…", "✓ Available · suggested from the
+  topic, you can change it", "✓ Available" (changed by hand), "Taken: try another one", "Letters,
+  digits and dashes, 2 to 30".
+- **The claim**: `POST <api>/cards/<id>/claim`, NIP-98 by the account's signer, body `{"title",
+  "about"}` + `"hashtag"` and `"summary"` on a topic card (`Cards.claimBody`: the title without control or direction
+  characters, 80; the about trimmed, 500; the hashtag's slug). `200 {"group"}`. It is one call that
+  needs its answer, so it is not queued in the outbox; a guest in guest mode sends nothing and reads
+  the words of `guest_not_saved`. After it the groups relay is asked again (the new group and its
+  history), the group opens, and its welcome shows (below).
+- **Refusals**, by `error` code, in the app's words (the web's `cardErrorText`; the server's
+  `message` is never read): `no_pass` "Only members of this belfry can start a group while signed
+  in. Sign out to start it as a guest with your e-mail." · `agent` "An AI agent can't start it. Use
+  a person's account." · `guest_not_saved` "Save your account with your e-mail first, then scan the
+  card again." · `unverified` "Confirm your e-mail address first, then scan the card again." ·
+  `hashtag_taken` "This hashtag is taken. Try another one." (and the hashtag's line says Taken) ·
+  `invalid` + `field`: `hashtag` "Use letters, digits and dashes, 2 to 30 characters.", `email`
+  "That doesn't look like an e-mail address.", `name` "Please give your name.", else "Please give
+  the group's name, up to 80 characters." · 429 "Too many tries for now. Try again in a few
+  minutes." · 503 `relay` / `signer` "The belfry is busy. Try again in a minute." · no connection
+  "No connection. Try again." · anything else (401 too) "That did not work. Try again." The form
+  stays as typed after each of these. `409 retired` → the retired screen. `409 claimed` + `group`,
+  `invite` → **"Someone just started this group"** · "Your text wasn't used; you can join theirs." ·
+  the group's name, description and "Steward: ‹name›" when the card's guest link can be read (`GET
+  /channel-invites/<invite>`: `channel_name`, `about`, `inviter`) · Join ("Open the topic" for a
+  topic) = the card's guest link (19.74).
+- **What was typed** is kept on the device for that card (`card-form` in the vault, with the card's
+  domain and id; written 400 ms after the last change) and comes back when the card is opened again.
+  It is dropped once the card is started, and, as the web does, on `409 claimed`, on `retired`, and
+  when the card turns out retired, archived, claimed or unknown.
+- **After a claim** (canvas cards/claim-done; the web opens the channel header's mid state, which
+  this app does not have): the group opens as usual, with a welcome under its top bar until it is
+  closed with its ✕ or the app is restarted: "**Welcome to ‹name›!** You started it. Say hi and share
+  something to get it going: a photo, a tip, a question." (a topic: "Welcome to # ‹hashtag›! You
+  started it. Share something to get it going: a link, a photo, a question."). After joining from a
+  card: "… Say hi and share something: a photo, a tip, a question." / "… No introductions needed:
+  share what you know."
+- **The demo** (the web's cards, id for id; `DemoCards`): `K7Q2MX` a free group card, `T9PC4H` a free
+  topic card, `CXAWMS` claimed (`TPCHAT`: a claimed topic card), `RETRDX` retired, `ARCH9V` archived,
+  anything else unknown; `general`, `events`, `market`, `requests` and every channel's id are taken
+  hashtags. A claim makes the group as "New group" does, a topic as the server does (a channel
+  whose id and name are the hashtag, its description `<topic> · <description>`), and the first
+  line "‹name› started this group from a printed card" tagged `["card","1"]`. An address on
+  `chat.belfry.example` is the demo's, with or without a session.
+- **Not built here** (hooks only): the steward's card section in a group (`GET /groups/<group>/card`,
+  `POST /cards/<id>/retire`), the Townsquare's "⬡ New group" / "# New topic" cards, the `["by",
+  pubkey]` authorship rule, and the groups key's `["card","1"]` line as a system line
+  (`Cards.isCardLine`, `Cards.cardLine` are its rule and words; the feed still shows the event's text).
+
+### 19.73 Printed cards: a visitor's claim, and the session it hands out (2026-11-23; docs/cards.md §2.3; canvas cards/claim-visitor, confirm-code; the web's `claimStart` / `claimVerify`)
+
+Someone with no account in the card's belfry on this phone starts the group with a name, an e-mail
+address and a 6-digit code.
+
+- **The form**: as in 19.72, plus "Your name" (100) and "E-mail", and under them "We'll send a 6-digit
+  code to confirm it. Already have an account on ‹belfry's name›? Use its e-mail address." Start can
+  be tapped when the name is not blank and the address looks like one (`^\S+@\S+\.\S+$`).
+- **The key**: both requests are NIP-98 signed by this phone's **applicant key** for that belfry:
+  the key the e-mail log-in and the application use (`Onboarding.applicantSecret(domain)`: made the
+  first time it is needed, 32 random bytes, kept in the Keystore-encrypted vault as
+  `applicant:<domain>`). Nothing is made before the first code is asked. It becomes the session's
+  NIP-46 client key.
+- `POST <api>/cards/<id>/claim-start` `{"email"}` → `202` → the code screen: "Check your e-mail" ·
+  "We sent a 6-digit code to ‹address›. It can take a minute." · six boxes (the sixth digit sends,
+  once; the boxes are locked meanwhile, "Starting ‹title›…") · "Not there? Look in your spam folder."
+  · "Send a new code (in N s)" (30 s; then "A new code is on its way to your e-mail.") · "Use another
+  address" (the form again, as typed; so does the back arrow). `404`, `409 claimed`, `409 retired`,
+  `422 invalid` (`email`), `429` as in 19.72.
+- `POST <api>/cards/<id>/claim-verify` `{"email", "code", "name", "client": "belfry-android",
+  "title", "about", "hashtag"?, "summary"?}` (`Cards.verifyBody`; `hashtag` and `summary` on a topic card only, 19.72) → `200 {"signed_in": true, "bunker_url",
+  "pubkey", "npub", "nip05"?, "group"}`. The answer is a session only when `signed_in` is true,
+  `bunker_url` is `bunker://<64 hex>…` (2000 at most) and parses, `pubkey` is a key and `group` an id;
+  anything else: "That did not work. Try again." and nothing is kept.
+- **Opening the session**: `bunker_url`, `pubkey`, the group, the card and the time are kept in the
+  vault (`card-claim`) before the signer is asked, as the native sign-in keeps its answer (19.20):
+  the code is spent. Then exactly the path of the e-mail log-in (`Onboarding.open`): connect to the
+  signer with the applicant key, ask its public key, which must be the `pubkey` the belfry named
+  (else "mismatch": nothing is saved, the kept answer goes), save the session (bunker URL + client
+  key, in the vault) as a new account with a clean store, and no guest record (as a log-in onto a
+  guest's account: what they are is read from the relay). Then `card-claim`, the applicant key, the
+  pending card and the kept form go, the group opens and says welcome (19.72).
+- **The signer does not answer** (or the app is killed there): nothing more is asked of the belfry.
+  The screen says "‹title› is started" · "Your code was right. ‹the signer's fixed words›" · Try
+  again; on the next start of the app a kept answer is tried once and its account opens. It is kept
+  one hour; after that the e-mail log-in opens the account.
+- **Refusals of the code**: `400 wrong_code` + `tries_left` "That code is not right. N tries left."
+  ("1 try left.", "Send a new one." at 0; without the number "Check the e-mail and try again.") ·
+  `410 expired` "That code has expired. Send a new one." · `409 hashtag_taken` → the form, as in
+  19.72 (the code is not spent) · `409 claimed`: the "Someone just started this group" screen, before
+  or after the code (nobody is signed in, no account was made) · `409 retired` → the retired screen ·
+  `409 own_key` "This address has an account that signs in with its own key. Sign in with it, then
+  scan the card again." · `409 agent` · `409 key_taken` "That did not work. Send a new code and try
+  again.": **the applicant key is deleted**, so the next code is asked with a new one (also on a
+  `key_taken` from claim-start) · `422 invalid` + `field` · `503 signer` / `relay` "The belfry is
+  busy. Send a new code in a minute and try again." (the code is spent; the form's words are "Try
+  again in a minute."). `wrong_code`, `expired`, `key_taken` and 503 empty the boxes; no other
+  failure touches the key or signs anyone in.
+- **Nothing is logged**: no key, code, address or answer is written anywhere but the vault.
+- **The demo** (`chat.belfry.example`): nothing is mailed; the code is `123456` (any other: "2 tries
+  left"); the right one opens the demo as that person and makes the group there.
+- **Not built**: "or tap Confirm in the e-mail" and the board cards/confirm-done (the web shipped
+  the code only; the server has no such link).
+
+### 19.74 Printed cards: a claimed card is a guest link, and the guest keeps its kind (2026-11-23; docs/cards.md §3; canvas cards/join-*, follow-channel*; web chat fa579cd)
+
+- A claimed card's `invite` (19.72) is used as `InviteLink(<the card's domain>, invite)` through the
+  guest-link path that exists: signed out → guest mode at once (19.26; `GET /channel-invites/<token>`,
+  `POST /channel-invites/<token>/join`); signed in → "Join with your account?" (no second account);
+  already in the group → the group opens, nothing is asked of the belfry. The card is forgotten at
+  that moment; the welcome (19.72) shows on the group's first open.
+- `GET /channel-invites/<token>` and the answer of `POST /channel-invites/<token>/join` carry
+  `"card": "group" | "topic"` for a card's link (absent on every other invite; any other value is
+  read as absent: `cardOf`). It is kept: `InviteInfo.card`, `JoinedNew.card`, `JoinedAccount.card`,
+  and on the guest record `GuestInfo.card`, saved with the session (`"card"` in the saved guest).
+  Nothing reads it yet: it is for the rule that lets a guest in guest mode post in a topic they
+  reached by a card (the web's `guestTopic`), built elsewhere.
+- Not built here: the boards' "Follow this topic" bar and form, "Sending as a guest · Log in" under
+  the composer, followers wording.
+
 ### 19.75 Printed cards: who created it (2026-11-23; collective-belfry docs/cards.md §2.2 "Who created it", §4; web chat 802be45 `authorOf`)
 
 A printed card's group or topic is made by the belfry for the person who claimed the card: the

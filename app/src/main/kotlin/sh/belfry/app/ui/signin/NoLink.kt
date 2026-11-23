@@ -90,12 +90,15 @@ fun SignedOutFlow(state: AppState) {
         val c = try { state.membersOnlyEvent(link) } finally { asking = false }
         if (c != null && (step == NoLinkStep.Find || step is NoLinkStep.Pending)) step = NoLinkStep.MembersOnly(c)
     }
+    // a printed card's address (SPEC 19.72, 19.73): its screen, with no account
+    val card by state.card.collectAsState()
+    card?.let { sh.belfry.app.ui.printed.VisitorCard(state, it); return }
     var scanning by rememberSaveable { mutableStateOf(false) }
     // "Sign in instead" from guest mode, a code on its way, a sign-in finishing: the sign-in screen as before
     val prefilled = remember { state.hasPrefill() }
     if (pending != null || finishing || prefilled) { SignInScreen(state); return }
     if (scanning) {
-        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false }, onLogin = { scanning = false; state.onLoginLink(it) })
+        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false }, onLogin = { scanning = false; state.onLoginLink(it) }, onCard = { scanning = false; state.onCardLink(it) })
         return
     }
     if (asking && step == NoLinkStep.Find) { OpeningEvent(); return }
@@ -112,7 +115,7 @@ fun SignedOutFlow(state: AppState) {
             BackHandler { step = NoLinkStep.Find }
             var inviting by remember { mutableStateOf(false) }
             WelcomeContent(s.c, onBack = { step = NoLinkStep.Find }, onLogIn = { step = NoLinkStep.LogIn(s.c) }, onApply = { step = NoLinkStep.Apply(s.c) }, onInviteCode = { inviting = true })
-            if (inviting) InviteCodeSheet(s.c, onLink = { inviting = false; state.onInviteLink(it) }, onScan = { inviting = false; scanning = true }, onDismiss = { inviting = false })
+            if (inviting) InviteCodeSheet(s.c, onLink = { inviting = false; state.onInviteLink(it) }, onScan = { inviting = false; scanning = true }, onDismiss = { inviting = false }, onCard = { inviting = false; state.onCardLink(it) })
         }
         // the web's way in (membership.md 2026-11-19): e-mail → code → the chat, pending, or apply with the proof
         is NoLinkStep.LogIn, is NoLinkStep.Pending -> {
@@ -232,7 +235,7 @@ fun WelcomeContent(c: Community, onBack: () -> Unit, onLogIn: () -> Unit, onAppl
 
 /** "I have an invite code": the invitation's link or its code, or scan it. Only what [InviteLink] takes goes on. */
 @Composable
-private fun InviteCodeSheet(c: Community, onLink: (InviteLink) -> Unit, onScan: () -> Unit, onDismiss: () -> Unit) {
+private fun InviteCodeSheet(c: Community, onLink: (InviteLink) -> Unit, onScan: () -> Unit, onDismiss: () -> Unit, onCard: (sh.belfry.core.model.CardLink) -> Unit = {}) {
     var text by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     BelfrySheet(onDismiss = onDismiss, title = "Your invitation") {
@@ -245,7 +248,9 @@ private fun InviteCodeSheet(c: Community, onLink: (InviteLink) -> Unit, onScan: 
         BusyButton("Open the invitation", onClick = {
             val t = text.trim()
             val link = InviteLink.parse(t) ?: if (InviteLink.isToken(t)) InviteLink(c.domain, t) else null
-            if (link == null) error = "That isn’t an invitation. Check the link or the code." else onLink(link)
+            // a printed card's address pasted here goes where its QR code goes (SPEC 19.72)
+            val card = if (link == null) sh.belfry.core.model.CardLink.parse(t) else null
+            if (card != null) onCard(card) else if (link == null) error = "That isn’t an invitation. Check the link or the code." else onLink(link)
         }, modifier = Modifier.fillMaxWidth(), enabled = text.isNotBlank())
         Spacer(Modifier.height(12.dp))
         ActionGroup { ActionRow("Scan its QR code", onClick = onScan, icon = BelfryIcons.Qr) }

@@ -55,7 +55,7 @@ minSdk 26, JDK 17.
 - `BelfryApp` (one `Onboarding` + `AppState`, lifecycle and connectivity wiring), `AppState`
   (phase: loading / signed out / joining a guest link / signed in; fixed-message errors),
   `MainActivity` (the `sh.belfry.app://connect` callback and `https://chat.<domain>/join/<token>`
-  links; reads only `code` / `state` / `error` and the link's domain + token).
+  links; reads only `code` / `state` / `error` and the link's domain + token; also `/login/`, `/events/`, a card's `/g/<id>`).
 - `ui/AppRoot.kt`: which phase shows; signed in → `SessionScope` + `AppNav` (+ the "join with
   your account" sheet, + the no-access screen when the relay refuses).
 - `ui/nav/`: `Routes.kt` (EVERY route: pattern constants + builder functions), `Locals.kt`
@@ -291,6 +291,17 @@ minSdk 26, JDK 17.
 - The invite sheet from Members (SPEC 19.70; canvas inviting/sheet-from-members): `ui/info/InviteSheet.kt`
   `InviteToCommunitySheet`, opened by the ＋ of `MembersScreen` (a sheet, no route). `InviteScreen` /
   `Routes.invite(id)` is only for a channel (people who are here first). Tests `InviteSheetTest`.
+- Printed cards (SPEC 19.72–19.74; collective-belfry docs/cards.md; canvas "Belfry · Group cards"): `https://chat.<domain>/g/<id>`
+  = `core/model/Cards.kt` (`CardLink`, every rule and word, a port of the web's `core/cards.ts`: change both together),
+  `core/net/CardsApi.kt`, `core/engine/Cards.kt` (`Session.cards` for a signed-in claim, `DemoCards`). A visitor's claim is in
+  `Onboarding` (`cardClaimStart` / `cardClaimVerify` / `resumeCardClaim`): signed by the applicant key, the answer kept in the
+  vault (`card-claim`) until its session is open, opened by `open()` like the e-mail log-in; never a second key or a second
+  way to open a session. App: `AppState.card` / `onCardLink`, `ui/printed/` (`CardScreen` talks to a `CardDoor`, so the same
+  screens serve a visitor and an account; `VisitorCard` in `SignedOutFlow`, `CardHost` in `AppRoot`; `CardWelcomeBar` in
+  `ChannelBars`). A claimed card is its guest link (`AppState.cardJoin` → `onInviteLink`); `GuestInfo.card` keeps
+  `group` / `topic` for the rule that lets a reading guest post in a topic (not built). Tests `CardsTest`,
+  `NativeSignInTest` (the claim's key and session), `PrintedCardsTest` (screens `printed-card-*`, the flow's rules),
+  `PrintedCardsStateTest`. Not built: the steward's card section, the Townsquare's cards, the `["card","1"]` system line.
 
 - Printed cards in the town (SPEC 19.75 / 19.76; collective-belfry docs/cards.md §2.2, §2.5, §2.6, §4; canvas
   "Belfry · Group cards": cards/townsquare-new-topic, cards/steward): **who wrote an event is `World.realAuthor(e)`**

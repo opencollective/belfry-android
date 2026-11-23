@@ -59,6 +59,7 @@ fun openLink(href: String, domain: String, nav: Nav, uri: UriHandler, context: C
             ?: inside(href.substringBefore("#") + "#/events/" + inApp.link)
         is Links.InApp.Event -> inside(inApp.url)
         is Links.InApp.Join -> inside(inApp.url)
+        is Links.InApp.Card -> inside(inApp.url)
         null -> try { uri.openUri(href) } catch (e: Exception) { }
     }
 }

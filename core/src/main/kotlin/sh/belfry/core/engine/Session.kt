@@ -190,6 +190,12 @@ data class GuestInfo(
     val member: sh.belfry.core.net.MemberLink? = null,
     /** The member link's token, kept so that "Log in instead" can use it with an account. */
     val invite: String? = null,
+    /**
+     * They came in through a printed card's guest link (docs/cards.md §3; SPEC 19.74): `group` or
+     * `topic`, as the join answer said. Kept for the rule that lets a reading guest post in a topic
+     * they reached by a card (not built here).
+     */
+    val card: String? = null,
 ) {
     /** A member link opened and not joined yet: the app shows the invitation, never the channel behind it. */
     val memberInvite: Boolean get() = member != null && reading
@@ -2056,9 +2062,15 @@ class Session(
         if (localOnly) return JoinedAccount("general", true, false)
         val joined = call { it.joinWithAccount(signer, token) }
         if (joined.member) { becameMember(joined.channel); return joined }
-        if (joined.guest && _guest.value == null) setGuest(GuestInfo(joined.channel, false))
+        if (joined.guest && _guest.value == null) setGuest(GuestInfo(joined.channel, false, card = joined.card))
         relay(Target.GROUPS)?.let { it.subscribe(SUB, filters(Target.GROUPS)) } // the new channel's history
         return joined
+    }
+
+    /** The belfry just made a group for me (a printed card's claim, SPEC 19.72): the groups relay is asked again, for it and its history. */
+    internal suspend fun groupsAgain() {
+        if (localOnly) return
+        try { relay(Target.GROUPS)?.let { it.subscribe(SUB, filters(Target.GROUPS)) } } catch (e: Exception) { }
     }
 
     /**

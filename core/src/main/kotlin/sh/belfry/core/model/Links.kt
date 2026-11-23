@@ -53,6 +53,8 @@ object Links {
         data class Event(val url: String) : InApp
         /** A guest link: handled like an opened invitation. */
         data class Join(val url: String) : InApp
+        /** A printed card's address (`/g/<id>`, SPEC 19.72). */
+        data class Card(val url: String) : InApp
     }
 
     private val CHANNEL = Regex("^/(?:chat/)?#/c/([^/?#]{1,120})(?:/m/([0-9a-f]{64}))?/?$")
@@ -79,6 +81,7 @@ object Links {
         if (u.startsWith("https://chat.$domain/")) {
             sh.belfry.core.net.InviteLink.parse(u)?.let { if (it.domain == domain) return InApp.Join(u) }
             sh.belfry.core.net.EventLink.parse(u)?.let { if (it.domain == domain) return InApp.Event(u) }
+            CardLink.parse(u)?.let { if (it.domain == domain) return InApp.Card(u) }
         }
         return null
     }
