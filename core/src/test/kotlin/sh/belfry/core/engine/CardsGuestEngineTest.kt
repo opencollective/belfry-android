@@ -86,18 +86,17 @@ class CardsGuestEngineTest {
         assertTrue(s.reading)
         assertTrue(s.guestTopic(Demo.GARDEN))
         assertFalse(s.guestTopic(Demo.GENERAL))
-        val before = s.store.outbox().size
+        // everything of mine, sent or waiting (the demo's outbox sends by itself: never count the outbox alone)
+        suspend fun mine(): Int { s.flush(); s.settle(); return s.world.value.all.count { it.pubkey == s.me } }
+        val before = mine()
 
-        // the composer's message: queued like any other (the outbox), kind 9 with [[h, T]] and the client tag only
-        val id = s.postGuestMessage(Demo.GARDEN, "  Spare cordless drill, ask me at no. 7 ")
-        val item = s.store.outbox().first { it.localId == id }
-        assertEquals(Target.GROUPS, item.target)
-        assertEquals(9, item.kind)
-        assertEquals("Spare cordless drill, ask me at no. 7", item.content)
-        assertEquals(listOf(listOf("h", Demo.GARDEN), sh.belfry.core.model.Actions.CLIENT_TAG), item.tags)
+        // the composer's message: through the outbox like any other, kind 9 with [[h, T]] and the client tag only
+        s.postGuestMessage(Demo.GARDEN, "  Spare cordless drill, ask me at no. 7 ")
         assertFalse(s.joinAsked.value, "the Join sheet does not open for it")
-        s.flush(); s.settle()
-        assertTrue(s.world.value.messages(Demo.GARDEN).any { it.pubkey == s.me && it.text == "Spare cordless drill, ask me at no. 7" })
+        assertEquals(before + 1, mine())
+        val sent = s.world.value.messages(Demo.GARDEN).last { it.pubkey == s.me && it.text == "Spare cordless drill, ask me at no. 7" }
+        assertEquals(9, sent.ev.kind)
+        assertEquals(listOf(listOf("h", Demo.GARDEN), sh.belfry.core.model.Actions.CLIENT_TAG), sent.ev.tags)
         assertTrue(s.reading, "still a reading guest: nothing was asked of them")
 
         // its photos go with it; a file that is not a picture does not
@@ -108,12 +107,12 @@ class CardsGuestEngineTest {
 
         // everything else is refused as before and opens the Join sheet
         suspend fun refused(what: String, block: suspend () -> Unit) {
-            val n = s.store.outbox().size
+            val n = mine()
             val e = assertFailsWith<ActionException>(what) { block() }
             assertEquals(GuestMode.REFUSED, e.code, what)
             assertEquals(GuestMode.REFUSED_TEXT, e.message, what)
             assertTrue(s.joinAsked.value, what)
-            assertEquals(n, s.store.outbox().size, what)
+            assertEquals(n, mine(), what)
             s.closeJoin()
         }
         refused("another channel") { s.postGuestMessage(Demo.GENERAL, "hello") }
@@ -123,7 +122,6 @@ class CardsGuestEngineTest {
         refused("a reaction") { s.toggleReaction(Demo.GARDEN, m.id, m.pubkey, "👍") }
         refused("a reply in a thread") { s.replyInThread(Demo.GARDEN, m.ev, "me too") }
         refused("two events at once") { s.send(listOf(sh.belfry.core.model.GuestTopic.post(Demo.GARDEN, "a"), sh.belfry.core.model.GuestTopic.post(Demo.GARDEN, "b"))) }
-        assertTrue(s.store.outbox().size >= before)
     }
 
     @Test
