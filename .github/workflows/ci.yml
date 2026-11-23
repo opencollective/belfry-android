@@ -53,24 +53,43 @@ jobs:
       # answers 429 to GitHub's runners now and then, failing every test. Keep it between runs,
       # and when it is missing fetch it here, patiently.
       - name: Robolectric's Android runtime (kept between runs)
-        uses: actions/cache@v4
+        id: robo
+        uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository/org/robolectric
           key: robolectric-android-all-14-10818077-i7
-      - name: Fetch it when it is not there
+      - name: Fetch it when it is not there (Central, then its mirrors)
+        id: robofetch
         run: |
           v=14-robolectric-10818077-i7
           dir="$HOME/.m2/repository/org/robolectric/android-all-instrumented/$v"
           mkdir -p "$dir"
+          ok=yes
           for ext in pom pom.sha512 jar jar.sha512; do
             f="$dir/android-all-instrumented-$v.$ext"
-            if [ ! -s "$f" ]; then
-              curl -fsSL --retry 8 --retry-delay 20 --retry-all-errors -o "$f.part" \
-                "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/$v/android-all-instrumented-$v.$ext" \
-                && mv "$f.part" "$f" || echo "could not fetch $ext now: the tests will try themselves"
-            fi
+            [ -s "$f" ] && continue
+            for base in https://repo1.maven.org/maven2 https://maven-central.storage-download.googleapis.com/maven2 https://repo.maven.apache.org/maven2; do
+              if curl -fsSL --retry 2 --retry-delay 5 --retry-all-errors -o "$f.part" "$base/org/robolectric/android-all-instrumented/$v/android-all-instrumented-$v.$ext"; then
+                mv "$f.part" "$f"; echo "$ext from $base"; break
+              fi
+            done
+            [ -s "$f" ] || { ok=no; echo "could not fetch $ext now: the tests will try themselves"; }
           done
+          # the jar is what it says it is
+          if [ "$ok" = yes ]; then
+            want=$(cut -d' ' -f1 "$dir/android-all-instrumented-$v.jar.sha512")
+            got=$(sha512sum "$dir/android-all-instrumented-$v.jar" | cut -d' ' -f1)
+            [ "$want" = "$got" ] || { echo "sha512 differs: dropping the jar"; rm -f "$dir"/android-all-instrumented-$v.jar*; ok=no; }
+          fi
+          echo "complete=$ok" >> "$GITHUB_OUTPUT"
           ls -la "$dir"
+      # saved at once (not at the job's end), so a run whose tests fail still leaves it for the next
+      - name: Keep it
+        if: steps.robo.outputs.cache-hit != 'true' && steps.robofetch.outputs.complete == 'yes'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-android-all-14-10818077-i7
       - name: Firebase config (push), when the GOOGLE_SERVICES_JSON secret is set
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
