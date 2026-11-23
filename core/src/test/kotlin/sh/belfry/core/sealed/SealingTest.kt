@@ -51,7 +51,8 @@ class SealingTest {
         assertTrue(c.accepts(laptop.pubkey, t0 + 999))
         assertFalse(c.accepts(tablet.pubkey, t0))
         val changes = c.changesAfter(r1.id)
-        assertEquals(listOf(RosterChange(laptop.pubkey, true, t0 + 10), RosterChange(phone.pubkey, false, t0 + 20)), changes)
+        assertEquals(listOf(RosterChange(laptop.pubkey, true, t0 + 10), RosterChange(phone.pubkey, false, t0 + 20)), changes.map { RosterChange(it.device, it.added, it.at) })
+        assertTrue(changes.all { it.roster.isNotEmpty() && !it.self }, "each change names its roster; nobody added itself")
     }
 
     @Test fun noAnchorNoChain() {
