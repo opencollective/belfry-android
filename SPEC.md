@@ -2754,14 +2754,18 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   anchored path, tried again at each upkeep). Only a device that was in the roster before the join can.
 - **Trust after a switch**: a joiner is not trusted by its join; it is when a device trusted here endorses it
   (`Follow.trustStep`), or when the person allows it on this device.
-- **In the head, a letterbox behind** (`SealedEngine.behind`, `waitingFor`; `Chain.behind`): this device is in the
-  head, lacks the head letterbox's secret, holds the one before, and everything since was brought by devices that
-  added themselves. It stays `IN_HEAD`: Remove, the added notice, 8563, session checks, answering requests and
-  writing all work (it seals to the head letterbox by its public key); it asks (8562) for the secret; only reading
-  the newer messages waits. `SealState.waitingFor` holds the session name(s): "N messages are waiting for ‹session
+- **In the head, a letterbox behind** (`SealedEngine.behind`, `waitingFor`; unified 2026-11-23, sealed.md §5.7 "From
+  Android's first build of reading"): ANY device in my head that lacks the head letterbox's secret, after a join,
+  a removal's rotation or a lost hand-over alike. It stays `IN_HEAD`: the composer, Remove, the added notice, 8563,
+  session checks, answering requests and writing all work (it seals to the head letterbox by its public key); it
+  asks (8562) for the secret; only reading the newer messages waits. `Mine.WAITING` and the replaced composer are
+  for a device OUTSIDE the head only (`SealState.waitingKeys` is no longer set by the engine). `waitingFor` = the
+  device that brought the head's letterbox (the joiner, or the device that changed the lock) when still in the head,
+  else my other devices; `SealState.waitingFor` holds the session name(s): "N messages are waiting for ‹session
   name›" on top of Messages, "Waiting for ‹session name›" above the composer of sealed conversations while any wrap
-  waits (a locked wrap does not say which conversation it is for, so the line is not per message as on the board).
-  A missing secret that came from a removal is still the old waiting state.
+  waits (a locked wrap does not say which conversation it is for, so the line cannot be per message).
+- **Allow on the card** for a joiner is the same decision as "It was me": besides the keys and the trust, the 8563
+  and the endorsement roster (`SealedEngine.allow`, owed like the others). Vectors `join.endorsement_by_allow`.
 - **First sight**: notices and the 3-a-day count date a join from when THIS device first saw it
   (`joinSeen` in the engine's state), never from the roster's own date. A device that follows a join for the first
   time reads its wraps again from 0, also those an older build settled as "not for me" (`SealedEngine.onJoin` →
@@ -2769,7 +2773,8 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   at each poll and upkeep) reads `/api/me/sessions` fresh and removes at once a joiner that is not a live chat
   session; `SealState.removedJoinerAt` says so until OK.
 - **Hand-overs**: a joiner's 8561 is taken (the giver is a device of the chain); one that arrives before its roster
-  is kept (at most 50) and tried again when my chain moves. Nobody hands a device its key chain because that device
+  is kept (at most 50, in the engine's state: the session hands a device's wrap over only once, when it first reaches
+  the store, so a kept one must survive a restart) and tried again when my chain moves. Nobody hands a device its key chain because that device
   sent an 8561 (the hand-back is §5.4's only).
 - **A joiner's 8562**: dated at or after its own join roster counts (`>=`; any other device's must be strictly
   newer). While the joiner is not endorsed and nobody answered for it here, the earlier letterboxes go without a

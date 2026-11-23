@@ -160,28 +160,8 @@ class Chain(val account: String, val rosters: List<Roster>, /** The end of the a
         return a.keys.filter { it !in b && it in rosters[i].devices }
     }
 
-    /**
-     * §5.7 "in the head, a letterbox behind": DEVICE is in the head, HOLDS no secret for the head's letterbox, but
-     * holds the one in use before, and every letterbox since was brought by a device that added itself. The
-     * devices that brought them (they hold what is missing), newest first; null when that is not the state
-     * (not in the head, nothing missing, or a letterbox it lacks came from a removal: the old waiting state).
-     */
-    fun behind(device: String, holds: (String) -> Boolean): List<String>? {
-        if (device !in head.devices || holds(head.lb)) return null
-        val by = ArrayList<String>()
-        var i = rosters.size - 1
-        while (i > 0) {
-            val r = rosters[i]
-            if (holds(r.lb)) break
-            if (r.lb != rosters[i - 1].lb) {
-                if (!isJoin(i) || r.signer == device) return null
-                by.add(r.signer)
-            }
-            i--
-        }
-        if (!holds(rosters[i].lb) || device !in rosters[i].devices) return null
-        return by.distinct()
-    }
+    /** The device that brought letterbox LB into the chain (the signer of the first roster with it): it holds its secret. */
+    fun broughtBy(lb: String): String? = rosters.firstOrNull { it.lb == lb }?.signer
 
     /** Device changes after roster SINCE (by id; null = from the root), oldest first. */
     fun changesAfter(since: String?): List<RosterChange> {

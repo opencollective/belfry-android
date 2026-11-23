@@ -617,11 +617,16 @@ class SealedEngineTest {
         relay.events.removeAll { it.kind == 1059 && it.tag("p") == aliceLaptop.pubkey } // the hand-over is lost
         now += 10 // its request comes after the roster that added it and after the lost hand-over
         val laptop = engine(alice, aliceLaptop); laptop.start("Firefox on Linux", "computer")
-        assertEquals(SealedEngine.Mine.WAITING, laptop.mine)
+        // in the head without the head's secret = a letterbox behind (sealed.md §5.7, unified): never the waiting state
+        assertEquals(SealedEngine.Mine.IN_HEAD, laptop.mine)
+        assertTrue(laptop.behind); assertTrue(laptop.inHeadWithoutKey); assertTrue(laptop.inHeadNow())
+        assertEquals(listOf(alicePhone.pubkey), laptop.waitingFor)
         val req = relay.events.last { it.kind == Sealing.REQUEST }
+        assertEquals(aliceLaptop.pubkey, req.pubkey, "and it asks for the secret")
         assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(req), "no prompt for a device already in the head")
         relay.to(aliceLaptop.pubkey).forEach { laptop.onDeviceWrap(it) }
         assertEquals(SealedEngine.Mine.IN_HEAD, laptop.mine)
+        assertFalse(laptop.behind)
     }
 
     /** c233eec §5.6: when the session list can't be read, a rotation does nothing. */
@@ -1186,6 +1191,48 @@ class SealedEngineTest {
         assertFalse(phone.behind)
     }
 
+    /** The session hands a device's wrap over once (when it first reaches the store): a kept hand-over must survive a restart. */
+    @Test fun aKeptHandoverSurvivesARestart() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 10
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        val pair = KeyChain.newLetterbox()
+        Sealing.keysFor(tab, alice.pubkey, alicePhone.pubkey, KeyChain(mapOf(pair)), now).forEach { assertFalse(phone.onDeviceWrap(it)) }
+        val again = engine(alice, alicePhone) // the same device after a restart
+        assertEquals(1, again.pendingKeysCount)
+        joinsItself(tab, pair)
+        again.start("Pixel 8", "phone")
+        again.refresh(alice.pubkey)
+        assertEquals(0, again.pendingKeysCount)
+        assertNotNull(again.keys.secretFor(pair.first))
+        assertEquals(0, engine(alice, alicePhone).pendingKeysCount, "and no longer kept")
+    }
+
+    /** Unified (2026-11-23): a device that missed a ROTATION's hand-over is a letterbox behind too: it writes, removes, answers. */
+    @Test fun behindAfterARotation() = runBlocking<Unit> {
+        val (phone, laptop, _) = world()
+        now += 10
+        val third = LocalSigner.random(); server.live(alice.pubkey, third.pubkey, "Tablet")
+        phone.allow(third.pubkey)
+        val mark = relay.to(aliceLaptop.pubkey).map { it.id }.toSet()
+        phone.remove(third.pubkey)
+        relay.events.removeAll { it.kind == 1059 && it.tag("p") == aliceLaptop.pubkey && it.id !in mark } // the rotation's hand-over is lost
+        val chain = assertNotNull(laptop.refresh(alice.pubkey))
+        assertNull(laptop.keys.secretFor(chain.head.lb))
+        assertEquals(SealedEngine.Mine.IN_HEAD, laptop.mine)
+        assertTrue(laptop.behind); assertEquals(listOf(alicePhone.pubkey), laptop.waitingFor, "the device that changed the lock holds it")
+        assertTrue(laptop.canRemove(alicePhone.pubkey))
+        val plan = assertIs<SealedEngine.Plan.Seal>(laptop.plan(conv(alice.pubkey, bob.pubkey), listOf(bob.pubkey)), "the composer stays: it seals by the public key")
+        assertEquals(chain.head.lb, plan.heads[alice.pubkey])
+        // it asks, the phone answers, and it is no longer behind
+        now += 100
+        laptop.askAgain(null, force = true)
+        val req = relay.events.last { it.kind == Sealing.REQUEST && it.pubkey == aliceLaptop.pubkey }
+        assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(req))
+        relay.to(aliceLaptop.pubkey).forEach { laptop.onDeviceWrap(it) }
+        assertFalse(laptop.behind)
+    }
+
     /** §5.7 "Older keys": a joiner's 8562 is answered without a prompt only under step 2's conditions; otherwise the card. */
     @Test fun aJoinersOlderKeys() = runBlocking<Unit> {
         val (phone, _, _) = world()
@@ -1215,9 +1262,17 @@ class SealedEngineTest {
         val ask = assertIs<SealedEngine.OnRequest.Ask>(phone.onRequest(req), "three other devices were let in within 24 h")
         assertEquals(tab.pubkey, ask.device)
         assertEquals(before, relay.to(tab.pubkey).size, "nothing handed over")
-        // Allow on the card: the keys, by the person's word
+        // Allow on the card: the keys, by the person's word; and, the same decision as "It was me", the 8563 and
+        // the endorsement roster
+        val sealedBefore = sealedToAlice().size
         phone.allow(tab.pubkey)
         assertTrue(relay.to(tab.pubkey).size > before)
+        assertEquals(sealedBefore + 1, sealedToAlice().size, "the 8563")
+        val chain = assertNotNull(phone.refresh(alice.pubkey))
+        assertEquals(alicePhone.pubkey, chain.head.signer)
+        assertEquals(listOf(tab.pubkey), chain.head.endorses)
+        assertTrue(chain.unendorsed.isEmpty())
+        assertTrue(phone.addedNotices().none { it.device == tab.pubkey })
     }
 
     /** §5.7 "The joiner on first sight": a device that added itself and is no live chat session is removed at once. */

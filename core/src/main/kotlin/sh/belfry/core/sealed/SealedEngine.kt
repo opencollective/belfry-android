@@ -197,6 +197,9 @@ class SealedEngine(
             freshElsewhere?.let { f -> put("freshElsewhere", buildJsonObject { put("device", JsonPrimitive(f.device)); put("at", JsonPrimitive(f.at)) }) }
             put("firstSeen", buildJsonObject { firstSeenStored.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
             put("joinSeen", buildJsonObject { joinSeen.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
+            // hand-overs kept for later (their giver not in my chain yet): the session hands a wrap over only once,
+            // when it first reaches the store, so they must survive a restart here
+            put("earlyKeys", JsonArray(pendingKeys.values.map { it.toJson() }))
             // my previously pinned chain after a fresh start (its devices may still hand over keys)
             previousChain?.let { pc -> put("previous", buildJsonObject {
                 put("account", JsonPrimitive(pc.account))
@@ -227,6 +230,7 @@ class SealedEngine(
         }
         (o["firstSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { firstSeenStored[k] = it } }
         (o["joinSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { joinSeen[k] = it } }
+        (o["earlyKeys"] as? JsonArray)?.forEach { el -> (el as? JsonObject)?.let { Event.fromJson(it) }?.let { pendingKeys[it.id] = it } }
         (o["previous"] as? JsonObject)?.let { pv ->
             val anchor = (pv["anchor"] as? JsonObject)?.let { Event.fromJson(it) }
             val path = (pv["path"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { e -> Event.fromJson(e) } }.orEmpty()
@@ -319,12 +323,25 @@ class SealedEngine(
         chain.changesAfter(null).count { it.added && it.device != except && addedTime(it) > now - 86_400L }
 
     /**
-     * §5.7 "in the head, a letterbox behind": the devices that added themselves and hold the secret this device
-     * lacks (empty: not in that state). Such a device keeps everything (Remove, the notice, 8563, session checks,
-     * answering, writing); only reading the newer messages waits.
+     * §5.7 "in the head, a letterbox behind" (unified 2026-11-23): this device is IN my head and lacks the head
+     * letterbox's secret, after a join or after a removal's rotation or a lost hand-over alike. It keeps everything
+     * (the composer, Remove, the notice, 8563, session checks, answering, writing: it seals to the head letterbox by
+     * its public key); only reading the newer messages waits. The replaced-composer waiting state is for a device
+     * OUTSIDE the head only.
      */
-    val waitingFor: List<String> get() = chainOf(account)?.behind(device.pubkey) { keys.secretFor(it) != null }.orEmpty()
-    val behind: Boolean get() = waitingFor.isNotEmpty()
+    val behind: Boolean get() = chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) == null } == true
+
+    /**
+     * While [behind]: the device(s) that hold the secret this one lacks. The one that brought the head's letterbox
+     * (a device that added itself, or the one that removed another) when it is still in the head; else every other
+     * device of the head.
+     */
+    val waitingFor: List<String> get() {
+        val c = chainOf(account) ?: return emptyList()
+        if (!behind) return emptyList()
+        val by = c.broughtBy(c.head.lb)?.takeIf { it != device.pubkey && it in c.devices }
+        return if (by != null) listOf(by) else c.devices.filter { it != device.pubkey }
+    }
 
     /** DEV added itself, is not endorsed, and the person has not answered for it on this device: nothing by itself for it. */
     private fun limitedJoiner(chain: Chain, dev: String): Boolean =
@@ -412,9 +429,9 @@ class SealedEngine(
         when {
             // in the head but without its letterbox's secret (a lost hand-over): ask too (c233eec, §5.5)
             chain != null && device.pubkey in chain.devices && keys.secretFor(chain.head.lb) == null -> {
-                // §5.7: missing only what a device that added itself brought = in the head, a letterbox behind: it keeps
-                // everything and asks for the secret; any other missing key is the old waiting state
-                if (behind) { mine = Mine.IN_HEAD; anchorOwnTail(chain) } else mine = Mine.WAITING
+                // in the head, a letterbox behind (§5.7, unified): it keeps everything and asks for the secret
+                mine = Mine.IN_HEAD
+                anchorOwnTail(chain)
                 askAtStart(link)
             }
             chain != null && device.pubkey in chain.devices -> {
@@ -517,7 +534,7 @@ class SealedEngine(
         if (mine == Mine.UNKNOWN) { trace("unknown"); return }
         val c = refreshHere(account) ?: run { trace("no chain (complete=${lastReadComplete[account]})"); return }
         if (device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; trace("in head"); return }
-        mine = if (behind) Mine.IN_HEAD else Mine.WAITING // a letterbox behind (§5.7): still in the head, and it asks
+        mine = if (device.pubkey in c.devices) Mine.IN_HEAD else Mine.WAITING // a letterbox behind (§5.7): still in the head, and it asks
         // at most once a minute, and once per connection (N2); else every 24 h
         // force (AUTH, a new state): once per connection and once a minute; any call: once a day (§5.2)
         val since = clock() - lastAsk
@@ -692,7 +709,7 @@ class SealedEngine(
             // a giver gives what it holds (§5.7): a letterbox behind, it still answers a device that added itself (it
             // holds the older letterboxes that device asks for); anyone else wants the head's secret, which it lacks
             val joiner = head.selfAdded(dev)
-            if (keys.secretFor(head.head.lb) == null && !(joiner && behind)) return OnRequest.Ignore
+            if (keys.secretFor(head.head.lb) == null && !(joiner && keys.size > 0)) return OnRequest.Ignore
             val lastGiven = ports.loadNote("handover:$dev")?.toLongOrNull()
             val added = addedLast(head, dev)
             // the cheap tests first, as if the session were live (fourth review 5): only a request that could pass
@@ -928,6 +945,17 @@ class SealedEngine(
             Sealing.keysFor(device, account, newDevice, keys, clock()).forEach { ports.publish(it) }
             ports.saveNote("handover:$newDevice", clock().toString())
             pins[account]?.let { pins[account] = Follow.allowLocally(it, newDevice) }; saveState()
+            // Allow on the card for a device that added itself is the person's own tap on an older device, the same
+            // decision as "It was me" (§5.7): the 8563 and the endorsement roster, owed until done
+            if (prompted && newDevice in chain.unendorsed) {
+                try {
+                    ports.saveNote("added-ok:$newDevice", clock().toString())
+                    chain.addedBy(newDevice)?.let { owed((owed() + (newDevice to it.id)).distinct()) }
+                    owedEndorse(owedEndorse() + newDevice)
+                    sendOwedConfirms()
+                    sendOwedEndorsements()
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { trace("allow: endorsement owed") }
+            }
             return@locked
         }
         if (chain.devices.size >= Roster.MAX_DEVICES) throw TooMany()
@@ -1038,7 +1066,7 @@ class SealedEngine(
     suspend fun onDeviceWrap(wrap: Event): Boolean = kotlinx.coroutines.withContext(confined) {
         val h = Sealing.openKeys(wrap, device) ?: return@withContext false
         val mineChain = chainOf(account)
-        if (mineChain == null) { pendingKeys[wrap.id] = wrap; return@withContext false }
+        if (mineChain == null) { pendingKeys[wrap.id] = wrap; saveState(); return@withContext false }
         // from a device of my current chain, or (after a fresh start) of the previously pinned one
         if (!Sealing.acceptHandover(h, account, listOfNotNull(mineChain, previousChain))) {
             // §5.7 "Arrivals out of order": a hand-over from a device that added itself may come before its roster. Kept
@@ -1046,6 +1074,7 @@ class SealedEngine(
             if (h.account != account || pendingKeys.containsKey(wrap.id)) return@withContext false
             if (pendingKeys.size >= MAX_EARLY_KEYS) pendingKeys.keys.firstOrNull()?.let { pendingKeys.remove(it) }
             pendingKeys[wrap.id] = wrap
+            saveState()
             refreshHere(account)
             return@withContext !pendingKeys.containsKey(wrap.id)
         }
@@ -1053,7 +1082,7 @@ class SealedEngine(
         val wasOut = !inHeadNow()
         val added = keys.merge(h.keys)
         if (added > 0) { saveKeys(); onKeys?.invoke() }
-        pendingKeys.remove(wrap.id)
+        if (pendingKeys.remove(wrap.id) != null) saveState()
         val c = refreshHere(account)
         if (c != null && device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) {
             mine = Mine.IN_HEAD
@@ -1318,7 +1347,7 @@ class SealedEngine(
 
     /** This device is in my head but has no secret for it (a lost hand-over): "Waiting for another of your devices". */
     /** In my head with its letterbox's secret, from my chain as last read (and [mine] says so). */
-    fun inHeadNow(): Boolean = mine == Mine.IN_HEAD && chainOf(account)?.let { device.pubkey in it.devices && (keys.secretFor(it.head.lb) != null || behind) } == true
+    fun inHeadNow(): Boolean = mine == Mine.IN_HEAD && chainOf(account)?.devices?.contains(device.pubkey) == true
 
     val inHeadWithoutKey: Boolean get() = chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) == null } == true
 

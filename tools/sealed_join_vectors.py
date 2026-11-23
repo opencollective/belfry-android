@@ -559,6 +559,20 @@ def build(d):
     assert [t for t in E['tags'] if t[0] in ('lb', 'device')] == [t for t in J['tags'] if t[0] in ('lb', 'device')] and E['tags'][-1] == ['endorse', pub(T)]
     endorsement['endorses'] = [pub(T)]
 
+    # ---- Allow on the card endorses too (added 2026-11-23, after the section was first shared: appended last)
+    EL = roster(L, 4, J, 'alice_lb2', [P, L, T], T0 + 300, endorse=[T])
+    aEL = anchor(r1, EL, T0 + 301)
+    by_allow = {
+        'note': "Allow on the card endorses too (§5.7 \"From Android's first build of reading\"): when a joiner's older keys need the card and the person taps Allow on an older device, that device hands the keys and publishes the endorsement roster exactly as \"It was me\" does (same devices, same lb, one endorse tag, its anchor). Here the laptop is tapped. Android also sends the 8563 ('confirmation') so the notice goes on the other devices: the same decision, said once. Appended after the section's first publication; nothing before this key changed.",
+        'tapped_device': pub(L), 'joiner': pub(T), 'endorses': [pub(T)],
+        'before': {'anchor': aJ, 'rosters': [r1, r2, J], 'expected': summary(chain(aJ, [r1, r2, J]))},
+        'roster': EL, 'anchor': aEL,
+        'after': {'expected': summary(chain(aEL, [r1, r2, J, EL]))},
+        'confirmation': rumor(pub(L), T0 + 300, 8563, [['p', A], ['device', pub(T)], ['e', J['id']]], ''),
+    }
+    assert by_allow['after']['expected']['head'] == EL['id'] and not unendorsed(chain(aEL, [r1, r2, J, EL]).rosters)
+    assert accept_confirm(by_allow['confirmation'], pub(L), chain(aEL, [r1, r2, J, EL]), [pub(T)]) == 'yes'
+
     return {
         'note': "sealed.md §5.7 \"A device that signed in adds itself\", with its \"Readings fixed before the first build\" and \"Tightened after Android's review\" (belfry-sh 1440e79). Added by belfry-android (tools/sealed_join_vectors.py, which writes this file's other sections back byte for byte, and computes every 'expected' with its own port of the reference) on 2026-11-23; to be taken into services/onboarding/tools/sealed_vectors.py. A JOIN is a roster signed by a device that is not in its prev: valid only when n = prev's + 1, its devices are exactly prev's in their order plus the signer last, its lb is a letterbox the chain never had, its signer is in no earlier roster of the path, its created_at is not before its prev's, AND it lies on the anchored path (root → the anchor's head); a client also keeps one it pinned as anchored. It is never taken in the provisional tail. A normal roster signed by a device that added itself is invalid (on the path and in the tail) while no roster after its join carries [\"endorse\", <that device>] signed by a device that was in the roster BEFORE that join; only that tag endorses (a roster's endorse tags come last, after `ready`), and a joiner that left the head waits for nothing. After a switch, an endorsed joiner is trusted when the endorsing device is trusted on that device. Sections: 'chains' (shape of the top-level 'chains'; 'added' where given = device → the roster that added it; 'unendorsed' = the devices of the head still limited, in the head's order), 'follow' (shape of 'follow'), 'requests' (shape of 'trust': after the steps each of 'asks' is answer_without_prompt(chain, pin, device, live_chat_devices, request_created_at, added_at, last_handover_at); 'self_added' says the roster that last added the device is signed by it, which is what makes >= apply), 'older_keys' (the decision to hand a joiner the earlier letterboxes without a prompt, from plain facts: 'keys' or 'card'), 'handover' (shape of 'keys_handover', the chain given whole; 'kept_for_later' = not taken now but kept and tried again), 'confirm' (shape of 'confirm', each case with its own chain and the devices whose added-notice is unanswered on the judging device) and 'endorsement'. 'keys' holds the test keys this section adds (made from their names like every other).",
         'keys': own,
@@ -569,6 +583,7 @@ def build(d):
         'handover': handovers,
         'confirm': confirms,
         'endorsement': endorsement,
+        'endorsement_by_allow': by_allow,
     }
 
 if __name__ == '__main__':

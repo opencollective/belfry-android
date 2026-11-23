@@ -33220,6 +33220,256 @@
    "endorses": [
     "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
    ]
+  },
+  "endorsement_by_allow": {
+   "note": "Allow on the card endorses too (§5.7 \"From Android's first build of reading\"): when a joiner's older keys need the card and the person taps Allow on an older device, that device hands the keys and publishes the endorsement roster exactly as \"It was me\" does (same devices, same lb, one endorse tag, its anchor). Here the laptop is tapped. Android also sends the 8563 ('confirmation') so the notice goes on the other devices: the same decision, said once. Appended after the section's first publication; nothing before this key changed.",
+   "tapped_device": "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+   "joiner": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+   "endorses": [
+    "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+   ],
+   "before": {
+    "anchor": {
+     "kind": 30078,
+     "created_at": 1795000201,
+     "tags": [
+      [
+       "d",
+       "belfry:sealed"
+      ],
+      [
+       "root",
+       "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+      ],
+      [
+       "head",
+       "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b"
+      ]
+     ],
+     "content": "",
+     "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+     "id": "15011996f23436b0d118d5dbe6c5e28c80e5f4b87dc723bd7c081bfd492c9827",
+     "sig": "de1c33ae7e9b1aee843079b0a80dcbdd6ccb5406d022c8f3e8893325b41b962712a68c91d0117a1938a19a5bd9ea3ec53694e7d4ca9d38dc4035d2f6b4798e43"
+    },
+    "rosters": [
+     {
+      "kind": 8560,
+      "created_at": 1795000000,
+      "tags": [
+       [
+        "p",
+        "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+       ],
+       [
+        "n",
+        "1"
+       ],
+       [
+        "lb",
+        "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+       ],
+       [
+        "device",
+        "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+       ]
+      ],
+      "content": "",
+      "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "id": "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+      "sig": "a77fa5b6d052bd215f372551ee81e6565461daa42b9eaa64e774b2e9377024c38b95281ff9893a74ca8eceef7e8276bbc7ab37cad8c0a815937380a7cfdbb639"
+     },
+     {
+      "kind": 8560,
+      "created_at": 1795000100,
+      "tags": [
+       [
+        "p",
+        "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+       ],
+       [
+        "n",
+        "2"
+       ],
+       [
+        "prev",
+        "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+       ],
+       [
+        "lb",
+        "3906db386388c8b8581d732bcc8dc80a90b222dd41007a96bca4d657447a91c0"
+       ],
+       [
+        "device",
+        "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+       ],
+       [
+        "device",
+        "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+       ]
+      ],
+      "content": "",
+      "pubkey": "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "id": "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+      "sig": "62ef58531ab864e6453a5d4ad00613cd89ec75e54555e12719b664cc1a2b46d75a51812f7ef3b506b47dea62fb20ae9c99139497efb457e03be9017be429bbcc"
+     },
+     {
+      "kind": 8560,
+      "created_at": 1795000200,
+      "tags": [
+       [
+        "p",
+        "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+       ],
+       [
+        "n",
+        "3"
+       ],
+       [
+        "prev",
+        "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c"
+       ],
+       [
+        "lb",
+        "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39"
+       ],
+       [
+        "device",
+        "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+       ],
+       [
+        "device",
+        "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+       ],
+       [
+        "device",
+        "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+       ]
+      ],
+      "content": "",
+      "pubkey": "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960",
+      "id": "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b",
+      "sig": "59924e3523c1e87eb551eda7ac5219290a65efd3c00ba6bc337dacb62727e583b8f00e8cbdf92040256fbfc151bebaa096fc544cf4d5e8b4714ba08616bae494"
+     }
+    ],
+    "expected": {
+     "valid_ids": [
+      "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+      "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+      "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b"
+     ],
+     "head": "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b",
+     "devices": [
+      "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+     ],
+     "lb": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+     "ready": false
+    }
+   },
+   "roster": {
+    "kind": 8560,
+    "created_at": 1795000300,
+    "tags": [
+     [
+      "p",
+      "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+     ],
+     [
+      "n",
+      "4"
+     ],
+     [
+      "prev",
+      "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b"
+     ],
+     [
+      "lb",
+      "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39"
+     ],
+     [
+      "device",
+      "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af"
+     ],
+     [
+      "device",
+      "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731"
+     ],
+     [
+      "device",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+     ],
+     [
+      "endorse",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+     ]
+    ],
+    "content": "",
+    "pubkey": "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+    "id": "e5fbf670ad1dd87bf42f767f1aa0b7310bb6d7b5565cda234fba0f02433e3b5b",
+    "sig": "e66e3f245aac260c5377e23b81ec68c63577494e3626bac5c487142d5c4dd1a904ffb97fb2b1296360e657460f982a8c5556a8dd43f3945eab387e4d68ee326f"
+   },
+   "anchor": {
+    "kind": 30078,
+    "created_at": 1795000301,
+    "tags": [
+     [
+      "d",
+      "belfry:sealed"
+     ],
+     [
+      "root",
+      "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae"
+     ],
+     [
+      "head",
+      "e5fbf670ad1dd87bf42f767f1aa0b7310bb6d7b5565cda234fba0f02433e3b5b"
+     ]
+    ],
+    "content": "",
+    "pubkey": "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2",
+    "id": "35390ef062a2b51c91476bb70c588529ccce6f27d002bbc22338f12f4683767a",
+    "sig": "f9918f422ca4e6bbdfdf9b026bfcc02706dad728b41401cec5668859626e970ee50b9d2ca55d953d22e361283ade3f70e737247463bb714c29adb9f10b209aff"
+   },
+   "after": {
+    "expected": {
+     "valid_ids": [
+      "4c61aee798cfeab2985d9e7fd0751fc3a6b93936bfdd4fe14ad65e516b10d8ae",
+      "11581c31392b646f4d3d9b2166feb7723a71cc9a88bbcf125dd40ad7d4e6181c",
+      "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b",
+      "e5fbf670ad1dd87bf42f767f1aa0b7310bb6d7b5565cda234fba0f02433e3b5b"
+     ],
+     "head": "e5fbf670ad1dd87bf42f767f1aa0b7310bb6d7b5565cda234fba0f02433e3b5b",
+     "devices": [
+      "cd6d11967be8970f75fe4728a958931c670ba7220a069e9c41c09531ed8154af",
+      "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+     ],
+     "lb": "4eaafd980a2bcda4950bc634b94b7346d2c34a242e84584aee9f041434d39c39",
+     "ready": false
+    }
+   },
+   "confirmation": {
+    "id": "54c2d0a89039b07d70e0dd1475e2fac8d897794f3f7cd7436bc33d3749456928",
+    "pubkey": "2d2eae433b0420edf89347b2d0c8e0b9a0522202256e4d90da3e84355377c731",
+    "created_at": 1795000300,
+    "kind": 8563,
+    "tags": [
+     [
+      "p",
+      "6c7c210cb2e6586af32d45151f056117ce2842c00a0f567d639555ce259c29c2"
+     ],
+     [
+      "device",
+      "cc4bedd5d363f9ecd9fe549ff6f0a3f2601f0153ed85c196ee0e0b58493f1960"
+     ],
+     [
+      "e",
+      "6af9ae68decf0f190dcf29a099f832ea3f0994db739d750c729c25d5eaf1ff1b"
+     ]
+    ],
+    "content": ""
+   }
   }
  }
 }

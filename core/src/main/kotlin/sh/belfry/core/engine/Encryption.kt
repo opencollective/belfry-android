@@ -57,9 +57,11 @@ class EncryptionService internal constructor(private val s: Session) {
         fun kindOf(k: String?) = when (k) { "tablet" -> DeviceKind.TABLET; "computer" -> DeviceKind.COMPUTER; else -> DeviceKind.PHONE }
         // a waiting device can't open my device names (§3.5: they are under the letterbox): the devices that hold
         // the key are named by their sessions, live or as last read (canvas Messages v5, n-e2e-locked-named)
-        // a letterbox behind (sealed.md §5.7) is not the waiting state: everything works, newer messages wait for the joiner
+        // in the head without the head's secret = a letterbox behind (sealed.md §5.7, unified): never the waiting state;
+        // everything works, newer messages wait for the device that holds the secret
         val behindFor = e.waitingFor
-        val noKey = e.inHeadWithoutKey && behindFor.isEmpty()
+        val isBehind = e.behind
+        val noKey = e.inHeadWithoutKey && !isBehind
         val waitingHere = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING || noKey
         val others = mine?.devices.orEmpty().filter { it != e.device.pubkey }
         var sessionNames: Map<String, String> = emptyMap()
@@ -152,7 +154,7 @@ class EncryptionService internal constructor(private val s: Session) {
             }
         } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { _state.value.added }
         // "Waiting for ‹session name›": the devices that added themselves and hold the key this one lacks
-        val waitingFor = if (behindFor.isEmpty()) emptyList() else {
+        val waitingFor = if (!isBehind) emptyList() else if (behindFor.isEmpty()) listOf(sh.belfry.core.model.SealedText.UNKNOWN_DEVICE) else {
             val rows = try { s.sessions() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { emptyList() }
             behindFor.map { d -> rows.firstOrNull { it.clientPubkey == d }?.let { r -> sh.belfry.core.model.Unlockers.sessionName(r.applicationName, r.device) } ?: sh.belfry.core.model.SealedText.UNKNOWN_DEVICE }.distinct()
         }

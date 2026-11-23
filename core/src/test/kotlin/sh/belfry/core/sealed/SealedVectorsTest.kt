@@ -159,14 +159,15 @@ class SealedVectorsTest {
         }
         assertEquals(4, list("confirm").size)
 
-        // the endorsement roster "It was me" publishes
-        val en = j["endorsement"] as JsonObject
+        // the endorsement roster "It was me" publishes, and the same from Allow on the card
+        for ((key, tappedName) in listOf("endorsement" to "alice_phone", "endorsement_by_allow" to "alice_laptop")) {
+        val en = j[key] as JsonObject
         val before = (en["before"] as JsonObject).let { chainOf(it["anchor"] as JsonObject, evs(it["rosters"])) }!!
         val joiner = en.s("joiner")!!
         assertEquals(listOf(joiner), before.unendorsed)
         assertTrue(en.s("tapped_device")!! in before.endorsers(joiner))
         val want = ev(en["roster"] as JsonObject)
-        val tapped = LocalSigner(secret("alice_phone"))
+        val tapped = LocalSigner(secret(tappedName))
         assertEquals(en.s("tapped_device"), tapped.pubkey)
         val made = tapped.signNow(Roster.template(before.account, before.head.n + 1, before.head.id, before.head.lb, before.devices, before.ready, want.createdAt, strs(en["endorses"])))
         assertEquals(want.id, made.id, "the endorsement roster, tag for tag")
@@ -174,6 +175,9 @@ class SealedVectorsTest {
         assertEquals((en["after"] as JsonObject)["expected"], summary(after))
         assertEquals(want.id, after.head.id)
         assertTrue(after.unendorsed.isEmpty())
+        val said = Sealing.acceptConfirm(rumorOf(en["confirmation"] as JsonObject), tapped.pubkey, after, setOf(joiner))
+        assertTrue(said is Sealing.Confirm.Accept, "$key: its 8563")
+        }
     }
 
     @Test fun wraps() {
