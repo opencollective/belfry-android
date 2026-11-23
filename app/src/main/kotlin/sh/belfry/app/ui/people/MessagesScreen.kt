@@ -22,6 +22,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,8 +103,13 @@ fun MessagesScreen(
     val now = session.now()
     val seal by session.encryption.state.collectAsState()
     Column(Modifier.fillMaxSize().background(c.bg)) {
+        // the address small under the title; a tap copies it (home/messages, Home canvas v4)
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var copied by remember { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(2_000); copied = false } }
         TopBar(
-            "Messages", subtitle = if (address != null) "Your address: $address" else null,
+            "Messages", subtitle = if (copied) "Copied" else address,
+            onTitleClick = address?.let { a -> { sh.belfry.app.ui.kit.copyText(context, a, "Address"); copied = true } },
             navigation = when {
                 !place -> ({ BackButton { nav.back() } })
                 onMenu != null -> ({ IconAction(BelfryIcons.Menu, "Menu", onMenu, badge = menuBadge) })
