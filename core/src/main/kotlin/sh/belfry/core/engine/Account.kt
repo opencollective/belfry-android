@@ -202,6 +202,9 @@ class Onboarding(
     /** The charter of community C for someone with no account (`GET /charter`). Throws [sh.belfry.core.net.ApiException]. */
     suspend fun charterFor(c: Community): List<sh.belfry.core.net.PublicAgreement> = with(sh.belfry.core.net.BelfryApi(c, http)) { publicCharter() }
 
+    /** Signed out, an event's address in C: open, for members only, or no such event (SPEC 19.71; unsigned, as the web). */
+    suspend fun eventDoor(c: Community, link: String): sh.belfry.core.net.EventDoor = with(sh.belfry.core.net.BelfryApi(c, http)) { eventDoor(link) }
+
     /** Applies to join C (no auth). Throws [sh.belfry.core.net.ApiException] with words to show. */
     suspend fun applyTo(c: Community, email: String, motivation: String, agreed: List<String>): Unit =
         with(sh.belfry.core.net.BelfryApi(c, http)) { applyToJoin(email, motivation, agreed) }

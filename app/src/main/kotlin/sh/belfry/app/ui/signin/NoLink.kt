@@ -54,6 +54,10 @@ sealed interface NoLinkStep {
     data class OldApply(val c: Community) : NoLinkStep
     /** A request waiting at this belfry, shown again on open. */
     data class Pending(val c: Community) : NoLinkStep
+    /** Opened from the address of an event that is for members (SPEC 19.71). */
+    data class MembersOnly(val c: Community) : NoLinkStep
+    /** From that screen: the e-mail log-in or the application at once; back returns to it. */
+    data class EventWayIn(val c: Community, val apply: Boolean) : NoLinkStep
 }
 
 /**
@@ -74,6 +78,18 @@ fun SignedOutFlow(state: AppState) {
         val c = try { state.discover(d) } catch (e: Exception) { null } ?: return@LaunchedEffect
         if (step == NoLinkStep.Find) step = NoLinkStep.Pending(c)
     }
+    // an event's address opened signed out (SPEC 19.71): asked once whether it is for members; until
+    // the belfry answered, "Opening the event…" in place of the first screen
+    val eventLink by state.eventLink.collectAsState()
+    var asking by remember { mutableStateOf(state.eventLink.value != null) }
+    LaunchedEffect(eventLink) {
+        val link = eventLink
+        if (link == null) { asking = false; return@LaunchedEffect }
+        if (step != NoLinkStep.Find && step !is NoLinkStep.Pending) { asking = false; return@LaunchedEffect }
+        asking = true
+        val c = try { state.membersOnlyEvent(link) } finally { asking = false }
+        if (c != null && (step == NoLinkStep.Find || step is NoLinkStep.Pending)) step = NoLinkStep.MembersOnly(c)
+    }
     var scanning by rememberSaveable { mutableStateOf(false) }
     // "Sign in instead" from guest mode, a code on its way, a sign-in finishing: the sign-in screen as before
     val prefilled = remember { state.hasPrefill() }
@@ -82,7 +98,15 @@ fun SignedOutFlow(state: AppState) {
         sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false }, onLogin = { scanning = false; state.onLoginLink(it) })
         return
     }
+    if (asking && step == NoLinkStep.Find) { OpeningEvent(); return }
     when (val s = step) {
+        is NoLinkStep.MembersOnly -> {
+            // nothing is under this screen: back leaves the event and shows the first screen
+            BackHandler { state.forgetEventLink(); step = NoLinkStep.Find }
+            MembersOnlyScreen(s.c.name, onSignIn = { step = NoLinkStep.EventWayIn(s.c, apply = false) }, onApply = { step = NoLinkStep.EventWayIn(s.c, apply = true) })
+        }
+        // the event's address stays kept (AppState.eventLink): the event opens once signed in to its belfry
+        is NoLinkStep.EventWayIn -> MemberWayIn(state, s.c, s.apply, onBack = { step = NoLinkStep.MembersOnly(s.c) })
         NoLinkStep.Find -> FindScreen(state, onCommunity = { step = NoLinkStep.Welcome(it) }, onScan = { scanning = true })
         is NoLinkStep.Welcome -> {
             BackHandler { step = NoLinkStep.Find }

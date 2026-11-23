@@ -334,3 +334,21 @@ internal fun apiPrice(x: kotlinx.serialization.json.JsonObject): sh.belfry.core.
     val priced = price != null || rows.isNotEmpty() || str(x, "needs_payment") == "true"
     return sh.belfry.core.model.TicketPrice(price, priced, rows, str(x, "on_sale")?.let { it == "true" } ?: true)
 }
+
+/** What someone with no account is told about an event's address (SPEC 19.71). */
+enum class EventDoor { OPEN, MEMBERS_ONLY, MISSING }
+
+/**
+ * `GET <api>/events/<link>` with no signature, as the web chat asks it signed out: 403 = the event
+ * is for members, 404 = no such event. Nothing of the answer is read. Throws [ApiException] when
+ * the belfry can't be asked.
+ */
+suspend fun BelfryApi.eventDoor(link: String): EventDoor {
+    val (status, _) = plainFetch(community.apiBase + "/events/" + encodeURIComponent(link))
+    return when {
+        status == 403 -> EventDoor.MEMBERS_ONLY
+        status == 404 -> EventDoor.MISSING
+        status in 200..299 -> EventDoor.OPEN
+        else -> throw ApiException("http", status, "The event could not be read just now.")
+    }
+}

@@ -95,6 +95,11 @@ private fun Phases(state: AppState, phase: Phase, adding: Adding?) {
                 null -> Unit
                 is Adding.SignIn -> Over { SignInScreen(state, onBack = { state.cancelAdd() }) }
                 is Adding.Join -> Over { JoinScreen(state, a.link) }
+                // a guest told "This event is for members" (SPEC 19.71): this belfry's e-mail log-in or application
+                is Adding.WayIn -> Over {
+                    androidx.activity.compose.BackHandler { state.cancelAdd() }
+                    sh.belfry.app.ui.signin.MemberWayIn(state, a.community, a.apply, onBack = { state.cancelAdd() })
+                }
             }
         }
     }
@@ -122,6 +127,7 @@ private fun SignedIn(state: AppState, session: Session) {
             discover = { state.discover(it) },
             charterOf = { state.publicCharter(it) },
             applyTo = { c, e, w, a -> state.applyToJoin(c, e, w, a) },
+            wayIn = { event, apply -> state.wayInFor(event, apply) },
         )
     }
     // The channel that was open last time (not when a channel waits to be opened after signing in).

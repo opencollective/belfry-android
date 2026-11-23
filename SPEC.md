@@ -2801,3 +2801,36 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   ‹owner›'s agent, joined ‹belfry name›" ("your agent" when it is mine, "an agent" with no known
   owner; owner from belfry.json `agents`). The name is the profile's, else the `name` tag; the belfry
   name is `communityName`, else "the belfry". The whole line opens the person's profile.
+
+### 19.71 A members-only event, signed out (2026-11-23; Xavier's request to the web, via the lead; web chat 3884008; canvas events/members-only-join, events/members-only-login)
+
+- **Which links.** The app opens `https://chat.<domain>/events/<link>` (`EventLink`; the hosts and the
+  `/events/` path are in the manifest). An event's public address `https://<domain>/events/<slug>` is
+  a web page and never opens the app.
+- **Signed out** (no account on this device): the app asks the link's belfry as the web chat does
+  signed out: discovery of `<domain>`, then `GET <api>/events/<link>` with no `Authorization`
+  (`BelfryApi.eventDoor`). 403 = for members (the status alone, as the web; nothing of the answer is
+  read or shown). While it asks: "Opening the event…". 403 → the screen below. Anything else (an open
+  event, 404, no answer within 8 s): the first screen as before, the link still kept for after a
+  sign-in. The web's page for an open event signed out (tickets, sign-up) is not built here.
+- **The screen**: the belfry's name on top (from discovery), a lock, "This event is for members",
+  "Members see the details, answer and join the conversation.", the button "I have an account: sign
+  in" and under it "Apply to join ‹belfry's name›". No back arrow (nothing is under it); the system's
+  back forgets the link and shows the first screen (Android's choice: a person could not reach
+  another belfry otherwise).
+- **Sign in** opens that belfry's e-mail log-in at once (the usual one: "Log in", "We send a 6-digit
+  code to your e-mail. No password.", "Send me a code"; `login/start`, `login/verify`), with no
+  Welcome first and no extra line. **Apply** opens its application at once (the same flow as Welcome →
+  Apply to join). A back arrow on either pops to the members-only screen. An older belfry gets the
+  native sign-in (19.20) / the older form, as from the Welcome.
+- **After**: the link stays in memory (`AppState.eventLink`); the session a sign-in makes in that
+  belfry opens the event's page (as an event link always did). An application approved while the
+  app is open does the same; after the app was closed the event is not remembered (not stored).
+- **A guest** of that belfry (guest mode, or a guest account) who opens such a link gets the event's
+  page with the same words and the two ways in, a back arrow that pops, in place of the bare "This
+  event is for members." (signed read, `error` = `members_only`). They open the same log-in /
+  application over the app (`Adding.WayIn`; back returns to the event's page); the session made
+  opens the event; the guest account stays on the device as another account. A member never sees
+  the two ways in. The demo answers `members_only` to a guest for `Demo.MEMBERS_EVENT` only.
+- Signed in elsewhere with no account in the link's belfry: still the sheet "Another community's
+  event" (not asked whether it is for members).

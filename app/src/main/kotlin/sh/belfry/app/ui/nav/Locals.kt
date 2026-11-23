@@ -64,6 +64,8 @@ class AccountsUi(
     val discover: suspend (domain: String) -> sh.belfry.core.net.Community = { throw IllegalStateException("no app") },
     val charterOf: suspend (sh.belfry.core.net.Community) -> List<sh.belfry.core.net.PublicAgreement> = { emptyList() },
     val applyTo: suspend (sh.belfry.core.net.Community, email: String, why: String, agreed: List<String>) -> Unit = { _, _, _, _ -> },
+    /** A guest told an event is for members (SPEC 19.71): this belfry's e-mail log-in, or its application; EVENT opens once in. */
+    val wayIn: (event: String?, apply: Boolean) -> Unit = { _, _ -> },
 )
 
 val LocalAccounts = staticCompositionLocalOf { AccountsUi() }
