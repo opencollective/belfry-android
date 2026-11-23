@@ -81,6 +81,7 @@ data class SavedSession(
             if (guest.coHost != null) put("cohost", JsonPrimitive(guest.coHost))
             if (guest.reading) put("reading", JsonPrimitive(true))
             if (guest.invite != null) put("invite", JsonPrimitive(guest.invite))
+            if (guest.card != null) put("card", JsonPrimitive(guest.card))
             guest.member?.let { m ->
                 put("member", buildJsonObject {
                     put("as", JsonPrimitive("member")); put("member_role", JsonPrimitive(m.role))
@@ -100,7 +101,7 @@ data class SavedSession(
             val g = o["guest"].obj()
             return SavedSession(
                 community, o.s("bunkerUrl") ?: "", secret, pubkey,
-                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false, it.s("cohost")?.takeIf { t -> InviteLink.isToken(t) }, it["reading"].bool() ?: false, sh.belfry.core.net.MemberLink.of(it["member"].obj()), it.s("invite")?.takeIf { t -> InviteLink.isToken(t) }) },
+                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false, it.s("cohost")?.takeIf { t -> InviteLink.isToken(t) }, it["reading"].bool() ?: false, sh.belfry.core.net.MemberLink.of(it["member"].obj()), it.s("invite")?.takeIf { t -> InviteLink.isToken(t) }, sh.belfry.core.model.GuestTopic.card(it.s("card"))) },
                 demo = o["demo"].bool() ?: false,
             )
         }
@@ -469,7 +470,7 @@ class Onboarding(
         }
         // a co-host link is used again once the e-mail is saved; a member link needs no second use
         // (saving the e-mail makes them a member: the web's setCoHostToken)
-        val guest = GuestInfo(joined.channel, false, if (joined.emailNeeded && joined.member == null) token else null, reading = joined.reading, member = joined.member, invite = if (joined.member != null) token else null)
+        val guest = GuestInfo(joined.channel, false, if (joined.emailNeeded && joined.member == null) token else null, reading = joined.reading, member = joined.member, invite = if (joined.member != null) token else null, card = joined.card)
         val s = open(community, joined.bunkerUrl, secret, joined.pubkey, guest)
         vault.remove(V_JOIN_KEY)
         pendingInvite = null

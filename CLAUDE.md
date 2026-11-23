@@ -292,6 +292,20 @@ minSdk 26, JDK 17.
   `InviteToCommunitySheet`, opened by the ＋ of `MembersScreen` (a sheet, no route). `InviteScreen` /
   `Routes.invite(id)` is only for a channel (people who are here first). Tests `InviteSheetTest`.
 
+- A topic card's guest (SPEC 19.77; docs/cards.md §3; canvas cards/contribute-*): `GuestInfo.card` (`group` / `topic`, from the
+  join answer's `card`; `GuestTopic.card`), `core/model/GuestTopic.kt` (the one thing a reading guest may send: `mayPost`,
+  checked in `Session.send` before `guard()`; every word), `Session.guestTopic / postGuestMessage`,
+  `ui/people/GuestTopic.kt` `GuestTopicComposer` (in `ChannelScreen` where the `GuestBar` would be; `Composer(plain = true)`).
+  Never widen `mayPost`: a new write path stays behind `guard()`. Demo: `demoGuestMode(channel, card = "topic")`. Tests `GuestTopicTest`.
+- Followers, not members (SPEC 19.78): a channel's people are followers, a group's are members. Every such word comes from
+  `core/model/Followers.kt` (`followsIt`, `peopleCount`, `title`, `asking`, `askLine`…): never write "member" or "Join" about a
+  channel in a screen. The belfry's own members stay members. The log is "Activity log".
+- Refusals that can pass (SPEC 19.79): `Access.aboutMembership` (only that sets the refused line / asks the register),
+  `Reopen.how` (what a CLOSED leads to: never, soon, backed off 2 s → 2 min), `Outbox.notListed / notListedYet` (the community
+  relay's "restricted: pubkey not in whitelist": a send is tried again for 10 minutes, `OutboxItem.notListedAt`),
+  `BunkerSigner` (a rate-limited request is asked again, 4 in flight), `Session.wake` → `catchUpOnReturn` (a fresh
+  subscription on each living socket, once per 2 s). `Access.isRefusal` is only the old word list `Reopen` still reads.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

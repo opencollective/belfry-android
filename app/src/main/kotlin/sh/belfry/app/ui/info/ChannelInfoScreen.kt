@@ -63,7 +63,9 @@ object InfoTab {
     const val TODOS = 2
     const val FILES = 3
     const val LOG = 4
-    val LABELS = listOf("About", "Members", "To-dos", "Files", "Log")
+    val LABELS = listOf("About", "Members", "To-dos", "Files", "Activity log")
+    /** A channel's people are its followers (SPEC 19.78). */
+    fun labels(g: sh.belfry.core.model.Group?): List<String> = LABELS.mapIndexed { i, l -> if (i == MEMBERS) sh.belfry.core.model.Followers.title(g) else l }
 
     /** The names a link uses (`Routes.channelInfo(id, "todos")`; the web's `c/<id>/todos`…). */
     const val KEY_MEMBERS = "members"
@@ -103,7 +105,7 @@ fun ChannelInfoScreen(id: String, initialTab: Int = InfoTab.ABOUT, settingsOpen:
                 }
             },
         )
-        Tabs(InfoTab.LABELS, tab, { tab = it })
+        Tabs(InfoTab.labels(g), tab, { tab = it })
         if (g == null) {
             EmptyState("This channel is not here", text = "It may have been removed.", icon = BelfryIcons.Hash)
         } else if (tab == InfoTab.LOG) {
@@ -425,7 +427,7 @@ fun ChannelSettingsForm(g: Group, onClose: () -> Unit, askPublicAtOnce: Boolean 
             val rows = buildList {
                 add(Triple(ChannelAccess.MEMBERS, BelfryIcons.Lock, "Members only" to "Everyone with a pass in this belfry"))
                 add(Triple(ChannelAccess.PUBLIC, BelfryIcons.Globe, "Public" to "Anyone on the web can read it. Only members write."))
-                if (mayClose(g)) add(Triple(ChannelAccess.CLOSED, Icons.Outlined.PersonAdd, "Closed" to "People ask to join. A steward of this $kind approves."))
+                if (mayClose(g)) add(Triple(ChannelAccess.CLOSED, Icons.Outlined.PersonAdd, "Closed" to sh.belfry.core.model.Followers.closedLine(g)))
             }
             rows.forEachIndexed { i, (a, icon, words) ->
                 if (i > 0) Hairline()

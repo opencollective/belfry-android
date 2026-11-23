@@ -152,6 +152,8 @@ fun Composer(
     onTint: androidx.compose.ui.graphics.Color? = null,
     /** Where typing here is told to others (docs/typing.md): keystrokes only, never a restored draft or an edit. Null: never. */
     typingPlace: sh.belfry.core.typing.TypingPlace? = null,
+    /** Plain text and photos only: no @ picker (a guest in a topic reached through a card, SPEC 19.77). */
+    plain: Boolean = false,
 ) {
     val c = Belfry.colors
     val typingSession = LocalSession.current
@@ -180,7 +182,7 @@ fun Composer(
 
     val v = state.value
     val caret = v.selection.end.coerceIn(0, v.text.length)
-    val query = if (v.selection.collapsed) Mentions.query(v.text.substring(0, caret)) else null
+    val query = if (v.selection.collapsed && !plain) Mentions.query(v.text.substring(0, caret)) else null
     val candidates = if (query != null) Mentions.candidates(query, world.people, world.me) else emptyList()
     val here = groupId?.let { world.group(it) }
     val chanQuery = if (groupId != null && query == null && v.selection.collapsed) ChannelRefs.query(v.text.substring(0, caret)) else null

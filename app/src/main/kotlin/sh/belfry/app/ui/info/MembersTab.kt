@@ -54,7 +54,7 @@ fun MembersTab(g: Group) {
     var labelling by remember { mutableStateOf<MemberRow?>(null) }
 
     if (reviewing.isNotEmpty()) {
-        Text("Asking to join · ${reviewing.size}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted, modifier = Modifier.padding(bottom = 6.dp))
+        Text("${sh.belfry.core.model.Followers.asking(g)} · ${reviewing.size}", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted, modifier = Modifier.padding(bottom = 6.dp))
         reviewing.forEach { a ->
             InfoCard(Modifier.padding(bottom = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -77,20 +77,12 @@ fun MembersTab(g: Group) {
             }
         }
         requestError?.let { ErrorLine(it, Modifier.padding(bottom = 8.dp)) }
-        SectionTitle("Members · ${g.members.size}")
+        SectionTitle("${sh.belfry.core.model.Followers.title(g)} · ${g.members.size}")
     }
 
-    if (rows.none { it.place?.lat != null }) {
-        Row(Modifier.padding(bottom = 10.dp)) {
-            Text("Nobody here shares their city yet. ", fontSize = 13.sp, color = c.muted)
-            if (!world.amGuest) {
-                Text("Add yours", fontSize = 13.sp, color = c.text, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { nav.go(Routes.profile(world.me)) })
-            }
-        }
-    }
-
+    // (no line when nobody shares their city: web 802be45, Xavier 2026-11-23)
     if (rows.isEmpty()) {
-        EmptyState("No members yet", icon = BelfryIcons.Users)
+        EmptyState(if (sh.belfry.core.model.Followers.followsIt(g)) "No followers yet" else "No members yet", icon = BelfryIcons.Users)
     } else {
         ActionGroup {
             rows.forEach { r ->

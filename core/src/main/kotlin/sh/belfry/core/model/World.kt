@@ -174,8 +174,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         if (pubkey == me) return "You"
         // never a key as a name (Xavier, 2026-11-18)
         // no profile: "Somebody", an agent "An agent", never "unknown" (canvas Main, 2026-11-19; web to-do bbd452d5)
-        return realName(pubkey).ifEmpty { if (isAgent(pubkey)) AN_AGENT else SOMEBODY }
+        // a reading guest (a 9000 tagged reading, never named): "Guest" until they save (SPEC 19.77; cards/contribute-save)
+        return realName(pubkey).ifEmpty { if (isAgent(pubkey)) AN_AGENT else if (pubkey in readingAnywhere) GuestTopic.GUEST_NAME else SOMEBODY }
     }
+
+    /** Keys that are reading somewhere (guest mode), whatever else they are in. */
+    private val readingAnywhere: Set<String> by lazy { groups.flatMapTo(HashSet()) { it.reading } }
 
     /** The name over a message: "Drop box" for an upload through a drop link by a key without a profile. */
     fun nameOver(m: Message): String =

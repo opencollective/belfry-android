@@ -25,8 +25,25 @@ object Outbox {
     private val REFUSED_UPLOAD = Pattern.compile("^upload failed \\((4\\d\\d)")
     private val UPLOAD_MAY_PASS = setOf("401", "408", "429")
 
-    fun classify(message: String): ErrorClass = when {
+    // The community relay (rnostr main, 2026-11-23; web 92e5012): an authenticated key that is not on
+    // its whitelist gets "restricted: pubkey not in whitelist". A member just let in is listed within
+    // seconds, so a send to THAT relay refused with THAT reason is tried again, with the back-off,
+    // for 10 minutes from its first such refusal; then it counts as refused. Every other
+    // "restricted:" is refused for good, as before (SPEC 19.79).
+    private val NOT_LISTED = Pattern.compile("^restricted\\b.*whitelist", Pattern.CASE_INSENSITIVE)
+    const val NOT_LISTED_RETRY_S = 600L
+
+    /** The community relay's "restricted: pubkey not in whitelist". */
+    fun notListed(message: String): Boolean = NOT_LISTED.matcher(message).find()
+
+    /** ITEM, for the community relay, was told "not in whitelist" less than 10 minutes after the first time (NOW in seconds). */
+    fun notListedYet(message: String, item: OutboxItem, now: Long): Boolean =
+        item.target == Target.MAIN && notListed(message) && (item.notListedAt == 0L || now - item.notListedAt < NOT_LISTED_RETRY_S)
+
+    /** ITEM and NOW (seconds): given, the community relay's whitelist refusal is a retry for its 10 minutes. */
+    fun classify(message: String, item: OutboxItem? = null, now: Long = 0): ErrorClass = when {
         message.startsWith("duplicate:") -> ErrorClass.DUPLICATE
+        item != null && notListedYet(message, item, now) -> ErrorClass.RETRY
         PERMANENT_PREFIX.matcher(message).find() || PERMANENT_WORDS.matcher(message).find() || refusedUpload(message) -> ErrorClass.FAILED
         else -> ErrorClass.RETRY
     }
@@ -90,11 +107,12 @@ object Outbox {
      * retryable error (SPEC 5, 19.50):
      * - the item's lane ([lane]) waits for the rest of the pass (order kept within it);
      * - a signer that did not answer holds back every item that still needs signing;
+     * - (NOW, in seconds, dates the community relay's "not in whitelist": [notListedYet]);
      * - a relay that did not answer holds back its other items, unless the item failed
      *   [STALLS_RELAY_UNTIL] times already (then it stops holding back the others), and never a
      *   direct message for another item's sake.
      */
-    suspend fun run(items: List<OutboxItem>, send: suspend (OutboxItem) -> SendOutcome): PassResult {
+    suspend fun run(items: List<OutboxItem>, now: Long = System.currentTimeMillis() / 1000, send: suspend (OutboxItem) -> SendOutcome): PassResult {
         val box = items.toMutableList()
         val attempted = ArrayList<String>()
         val sent = ArrayList<Sent>()
@@ -121,7 +139,7 @@ object Outbox {
                     box.removeAll { it.localId == item.localId }
                     sent.add(Sent(item, outcome.event ?: item.signed))
                 }
-                is SendOutcome.Error -> when (classify(outcome.message)) {
+                is SendOutcome.Error -> when (classify(outcome.message, item, now)) {
                     ErrorClass.DUPLICATE -> {
                         box.removeAll { it.localId == item.localId }
                         sent.add(Sent(item, item.signed))
@@ -132,7 +150,9 @@ object Outbox {
                         failed.add(next)
                     }
                     ErrorClass.RETRY -> {
-                        replace(item.copy(tries = item.tries + 1, status = OutboxStatus.QUEUED, error = outcome.message))
+                        // the first "not in whitelist" from the community relay starts that item's 10 minutes
+                        val listedAt = if (item.notListedAt == 0L && item.target == Target.MAIN && notListed(outcome.message)) now else item.notListedAt
+                        replace(item.copy(tries = item.tries + 1, status = OutboxStatus.QUEUED, error = outcome.message, notListedAt = listedAt))
                         stalled.add(item.target)
                         lanes.add(lane)
                         when {

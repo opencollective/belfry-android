@@ -98,6 +98,10 @@ class FakeRelay(
     val reqTexts = CopyOnWriteArrayList<String>()
     /** CLOSE every REQ even after AUTH (a relay that refuses the query): a CLOSED is no answer. */
     @Volatile var closeReqs = false
+    /** What [closeReqs] says. */
+    @Volatile var closeReason = "error: not now"
+    /** Refuses an event by what it is (a reason), before [refuse]; null: not refused. */
+    @Volatile var refuseEvent: ((Event) -> String?)? = null
 
     val url: String get() = server.url("/").toString().replace("http://", "ws://")
 
@@ -174,7 +178,7 @@ class FakeRelay(
                 val sub = arr[1].str()!!
                 reqs.add(sub)
                 reqTexts.add(text)
-                if (closeReqs) { send(webSocket, "CLOSED", sub, "error: not now"); return }
+                if (closeReqs) { send(webSocket, "CLOSED", sub, closeReason); return }
                 val filters = arr.drop(2).mapNotNull { it as? JsonObject }
                 subsBy.getOrPut(webSocket) { java.util.concurrent.ConcurrentHashMap() }[sub] = filters
                 if (requireAuth && authBy[webSocket] == null) {
@@ -192,7 +196,7 @@ class FakeRelay(
                     send(webSocket, "OK", ev.id, false, "auth-required: sign in first")
                     return
                 }
-                val why = refuse[ev.content]
+                val why = refuseEvent?.invoke(ev) ?: refuse[ev.content]
                 if (why != null) {
                     send(webSocket, "OK", ev.id, false, why)
                     return
@@ -547,6 +551,36 @@ class RelayTest {
         assertTrue(signer.sign(EventTemplate(9, "found", emptyList())).isValid())
         // the silent request was asked once more on a fresh connection before giving up
         assertEquals(3, f.opens)
+        signer.disconnect()
+    }
+
+    /** SPEC 19.79 (web 3fc34bd): a request the signer's relay refuses for rate is asked again after a back-off, on the same socket. */
+    @Test
+    fun bunkerSignerAsksAgainWhenTheRelayLimitsTheRate() = runBlocking {
+        assertEquals(listOf(500L, 1_000L, 2_000L, 4_000L), (0..3).map { BunkerSigner.rateWaitMs(it) })
+        val f = fake(connections = 2)
+        val fs = FakeSigner(f)
+        val signer = BunkerSigner(BunkerUrl.parse(fs.bunkerUrl)!!, LocalSigner.random().secretHex, fs.member.pubkey, client, scope, timeoutMs = 5000)
+        signer.rateBaseMs = 20
+        assertTrue(signer.sign(EventTemplate(9, "warm", emptyList())).isValid())
+        val left = java.util.concurrent.atomic.AtomicInteger(2)
+        f.refuseEvent = { if (it.kind == 24133 && left.getAndDecrement() > 0) "restricted: connection rate limit exceeded" else null }
+        val start = System.currentTimeMillis()
+        assertTrue(signer.sign(EventTemplate(9, "after the limit", emptyList())).isValid())
+        assertTrue(System.currentTimeMillis() - start < 4000, "it did not wait its whole timeout")
+        assertEquals(1, f.opens, "the socket was kept")
+        // refused every time: after its tries it counts as a signer that did not answer (the outbox tries again later)
+        f.refuseEvent = { if (it.kind == 24133) "rate-limited: slow down" else null }
+        try {
+            signer.sign(EventTemplate(9, "never", emptyList()))
+            fail("the relay refused every try")
+        } catch (e: SignerTimeout) {
+            assertTrue(sh.belfry.core.outbox.Outbox.signerDown(e.message ?: ""))
+        }
+        assertEquals(1, f.opens)
+        // any other refusal is not a rate limit: the request waits for its answer as before (no retry storm)
+        f.refuseEvent = null
+        assertTrue(signer.sign(EventTemplate(9, "fine again", emptyList())).isValid())
         signer.disconnect()
     }
 

@@ -165,6 +165,8 @@ fun ChannelScreen(
     // guest mode (SPEC 19.26): reading only; the composer's place says so, with Join
     val guestInfo by session.guest.collectAsState()
     val guestReading = guestInfo?.reading == true
+    // a topic reached through a card (SPEC 19.77): the one place where a reading guest has a composer
+    val guestTopic = sh.belfry.core.model.GuestTopic.here(guestReading, guestInfo?.channel, guestInfo?.card, groupId) && !world.isLocked(groupId)
 
     LaunchedEffect(groupId, g != null) { if (g != null) session.markSeen(groupId) }
     // a new event made from this channel's ＋: its URL waits in the composer, ready to send
@@ -345,7 +347,7 @@ fun ChannelScreen(
         // a recording that runs, or one that was not posted (the web's RecordingBar)
         RecordingBar(groupId)
         SaveAccountBar(session)
-        if (guestReading) GuestBar(groupId)
+        if (guestTopic) sh.belfry.app.ui.people.GuestTopicComposer(groupId) else if (guestReading) GuestBar(groupId)
         val readOnly = guestReading || (g != null && world.readOnlyClosed(g)) || world.isLocked(groupId)
         val editing = chat.editing
         // Posts (SPEC 19.60): with Messages and Threads off, the composer's plain send is replaced
@@ -382,7 +384,8 @@ fun ChannelScreen(
         if (!readOnly && kinds.isEmpty() && isPub) {
             Hairline()
             Text(
-                "🌐 Public: anyone on the web sees this channel" + if (page?.posts == "request") ". Members can turn a request into a proposal." else ".",
+                // (#requests says no more than any public channel: web 1826857, Xavier 2026-11-23)
+                "🌐 Public: anyone on the web sees this channel.",
                 fontSize = 12.sp, color = c.muted, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
             )
         }

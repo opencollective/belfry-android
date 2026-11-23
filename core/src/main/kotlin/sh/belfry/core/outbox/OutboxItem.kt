@@ -80,6 +80,8 @@ data class OutboxItem(
     /** [Target.API]: the call's path under the API base (`/group-meta`), POSTed with [body] (JSON). */
     val path: String? = null,
     val body: String? = null,
+    /** When the community relay first refused it with "not in whitelist" (seconds; 0 = never): tried again for 10 minutes from then (SPEC 19.79). */
+    val notListedAt: Long = 0,
 ) {
     /** The item as it shows in the log before it is signed: id = localId, no signature. */
     fun asEvent(me: String): Event = signed ?: Event(localId, me, createdAt, kind, tags, content, "")
@@ -99,6 +101,7 @@ data class OutboxItem(
         if (dm != null) put("dm", JsonPrimitive(dm))
         if (path != null) put("path", JsonPrimitive(path))
         if (body != null) put("body", JsonPrimitive(body))
+        if (notListedAt != 0L) put("not_listed_at", JsonPrimitive(notListedAt))
     }
 
     companion object {
@@ -117,6 +120,7 @@ data class OutboxItem(
             dm = o.s("dm"),
             path = o.s("path"),
             body = o.s("body"),
+            notListedAt = o["not_listed_at"].long() ?: 0,
         )
     }
 }

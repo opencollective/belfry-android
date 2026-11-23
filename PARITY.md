@@ -253,6 +253,18 @@ Web changes of 2026-11-11 and 12 (up to c6579a0), each checked against the web's
 | Reply by e-mail as the channel, 8 s Undo send, delivery line | done, never run live | Admins only, as the web. Behaviour tests for Undo (sends nothing) and elapse (sends once). |
 | Not on the web either: review drafts, rules, team notification e-mails | n/a | |
 
+## Cards, followers, refusals (web chat since 0.8.2, 2026-11-23)
+
+| Web feature | Status | Notes |
+|---|---|---|
+| A guest posts in a topic reached through a card, without an e-mail (8e2b3b2, fa579cd; canvas cards/follow-channel, contribute-compose, contribute-save) | done, never run live | SPEC 19.77. The join answer's `"card": "topic"` only (no card-screen record as a fallback). The save card opens the Join sheet (name + e-mail), as the web; the board's inline e-mail field is not built. Log in = this belfry's e-mail log-in over the app. |
+| Channels: followers, not members (75810d1; Channels canvas v5) | done | SPEC 19.78. A group's pull-down row keeps Android's "People". No Follow button on a channel's preview card and no "Only followers of #x see this" line: neither exists on Android. |
+| "Activity log" as a menu row; no "Nobody here shares their city yet"; no proposal line under #requests' composer (802be45, 1826857) | done | SPEC 19.78. The row existed ("Log"); renamed everywhere. |
+| Notes: "Write anything you want to keep: ideas, lists, pictures, files." (4c4b487) | done before | `Notes.EMPTY_TEXT`, SPEC 19.66. |
+| The community relay's `restricted: pubkey not in whitelist`: subscription backed off and reopened, sends tried again for 10 minutes (92e5012) | done, never run live | SPEC 19.79. From the item's first such refusal (the web: from when it was queued). |
+| "Almost in" only on a definite answer; a rate-limited signer request is retried, 4 in flight (3fc34bd) | done, never run live | SPEC 19.79. The register's word was needed for the screen already; new: a rate limit is no refusal at all and its subscription is opened again. Not ported: "ever seen in here" (Android asks the register each time). Diagnostics has no signer-request counts. |
+| Back in the foreground: a fresh subscription on each relay from the last event received (af8e002) | done, never run live | SPEC 19.79. |
+
 ## People and messages
 
 | Web feature | Status | Notes |

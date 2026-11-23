@@ -53,7 +53,7 @@ internal fun JoinBar(g: Group) {
         val text = when {
             !g.closed -> "You're not in this group yet."
             applied -> "Pending · The $kind’s stewards will answer."
-            else -> "People ask to join this $kind."
+            else -> sh.belfry.core.model.Followers.askLine(g)
         }
         Text(text, Modifier.weight(1f), fontSize = 15.sp, lineHeight = 20.sp, color = Belfry.colors.text)
         if (!g.closed) {
@@ -61,7 +61,7 @@ internal fun JoinBar(g: Group) {
             BusyButton("Join", onClick = { session.send(Actions.join(g.id)) }, small = true)
         } else if (!applied) {
             GapW(8)
-            BusyButton("Ask to join", onClick = { asking = true }, small = true, modifier = Modifier.testTag("ask-to-join"))
+            BusyButton(sh.belfry.core.model.Followers.askButton(g), onClick = { asking = true }, small = true, modifier = Modifier.testTag("ask-to-join"))
         }
     }
     if (asking) ApplySheet(g) { asking = false }
@@ -72,7 +72,7 @@ internal fun JoinBar(g: Group) {
 internal fun ApplySheet(g: Group, onDismiss: () -> Unit) {
     val session = LocalSession.current
     var answer by remember(g.id) { mutableStateOf("") }
-    BelfrySheet(onDismiss = onDismiss, title = "Ask to join ${if (g.isPod) g.name else "#" + g.name}") {
+    BelfrySheet(onDismiss = onDismiss, title = sh.belfry.core.model.Followers.askTitle(g)) {
         ApplyBody(g, answer, { answer = it }) {
             session.send(Actions.join(g.id, answer.trim()))
             onDismiss()

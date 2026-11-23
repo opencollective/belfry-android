@@ -2863,3 +2863,110 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   the two ways in. The demo answers `members_only` to a guest for `Demo.MEMBERS_EVENT` only.
 - Signed in elsewhere with no account in the link's belfry: still the sheet "Another community's
   event" (not asked whether it is for members).
+
+### 19.77 A reading guest posts in a topic reached by a card (2026-11-23; collective-belfry docs/cards.md §3; web chat 8e2b3b2, fa579cd; canvas cards/follow-channel, contribute-compose, contribute-save)
+
+- **The card field.** `GET /channel-invites/<token>` and the answer of `POST /channel-invites/<token>/join`
+  carry `"card": "group" | "topic"` for a printed card's guest link (absent on every other invite).
+  Read as exactly one of those two words, else nothing (`GuestTopic.card`); kept on the guest record
+  (`GuestInfo.card`, saved with the session as `"card"`), so the app opens offline as the same guest.
+- **Who.** A guest in guest mode (19.26: no name, no e-mail yet) whose join answer said `"card":
+  "topic"`, in the channel of that link and nowhere else (`GuestTopic.here`, `Session.guestTopic`).
+- **What goes** (`GuestTopic.mayPost`, checked in `Session.send`; the relay does not enforce it): one
+  kind 9 to the groups relay whose tags are `[["h", <topic>]]` and nothing else (the client tag is
+  added as on every event; its pictures become `imeta` when it is sent), with image attachments
+  only. No `t`, `p`, `e`, `a`: the text is never turned into tags. Queued through the outbox like any
+  message (`Session.postGuestMessage`). Everything else a reading guest tries (a reaction, a reply,
+  another channel, a file that is not a picture, any API write) is refused as before and opens the
+  Join sheet.
+- **The screen.** In that topic the composer stands where the Guest mode bar would be
+  (`GuestTopicComposer`): placeholder "Share a link, a message, a photo", a photo button (the
+  system's picker, images only), no ＋ sheet, no @ or # picker; under it "Sending as a guest · **Log
+  in**" (Log in = this belfry's e-mail log-in over the app, as from a members-only event, 19.71; the
+  guest session stays until an account's replaces it).
+- **After the first post** (a kind 9 of mine in that topic, sent or still in the outbox): one card
+  over the composer, "Shared. Don’t lose your account" / "Add your e-mail to keep what you shared,
+  get replies and follow this topic." with **Save** (the Join sheet of 19.26: name and e-mail, then
+  the 6-digit code) and **Not now** (kept per topic on the device: store key
+  `ui:topic-save-no:<topic>`). Once joined they are an ordinary guest with the usual composer.
+- **Names.** A reading guest never has a name: anyone's message by a key that is reading somewhere
+  and has no profile name is shown as "Guest" (not "Somebody").
+- A group card's guest (`"card": "group"`), an ordinary guest link, and the same guest in any other
+  channel keep the Guest mode bar and no composer.
+- Demo: `Session.demoGuestMode(channel, card = "topic")`. Tests `CardsGuestTest`,
+  `CardsGuestEngineTest`, `GuestTopicTest`. Not here: the web's fallback to what its card screen
+  recorded for a belfry that does not send `card` yet (the card screens are another branch's).
+
+### 19.78 Followers, not members, in a channel (2026-11-23; Xavier via the lead; Channels canvas v5, note n-followers; web chat 75810d1)
+
+In a channel (a topic: not a group, not an event's chat, not a proposal's; `Followers.followsIt`)
+its people are **followers**. Groups, events and proposals keep **members**; the belfry's own
+members stay members everywhere ("Members only", the Members place, "a member of ‹belfry›",
+"2/12 active members" in About, as on the web). The words, all from `core/model/Followers.kt`:
+
+| Where | A channel | A group |
+|---|---|---|
+| The summary line and a reference box | "12 followers", "1 follower" | "8 members" |
+| The pull-down's row | "Followers" | "People" (Android's word, unchanged) |
+| That row's screen, its title; the info tab | "Followers" | "Members" |
+| Over a closed one's requests | "Asking to follow · N", then "Followers · N" | "Asking to join · N", "Members · N" |
+| Nobody in it | "No followers yet" | "No members yet" |
+| The bar when I am not in a closed one | "People ask to follow this channel." + **Ask to follow** | "People ask to join this group." + **Ask to join** |
+| The ask sheet's title | "Ask to follow #name" | "Ask to join Name" |
+| Who can read it → Closed | "People ask to follow. A steward of this channel approves." | (a group's own three choices) |
+| The invite list, someone here already | "Already following" (a guest: "Already in") | "Already a member" / "Already in" |
+
+The wire is unchanged (9021 / 9000 / 39002). Not on Android, so nothing to rename: a Follow button
+on a channel's preview card (an open channel is written in at once; the preview bar of Navigation
+v2 says so), and the line "Only followers of #x see this" over a comment in an e-mail thread
+(`Followers.onlySee` holds the words for when it is built).
+
+Also from that day's web feedback (802be45, 1826857), words only:
+- The **activity log** is "Activity log" everywhere: the pull-down's row (it was a row already on
+  Android, named "Log"), its screen's title, the info tab.
+- Members / Followers has no "Nobody here shares their city yet" line.
+- A public channel whose posts are requests says only "🌐 Public: anyone on the web sees this
+  channel." under its composer (no "Members can turn a request into a proposal.").
+
+### 19.79 Refusals that can pass, and the return to the foreground (2026-11-23; web chat 92e5012, 3fc34bd, af8e002)
+
+- **The community relay's whitelist.** rnostr (main) answers an authenticated key that is not on
+  its whitelist with `restricted: pubkey not in whitelist` (it said `auth-required` before). A guest
+  and a removed member get it for good; a member just let in is listed within seconds. For the
+  COMMUNITY relay and exactly this reason (`^restricted\b.*whitelist`, case-insensitive;
+  `Outbox.notListed`):
+  - a CLOSED of the live subscription is opened again after 2 s, doubling up to 2 minutes
+    (`Reopen.how` = `BACKED_OFF`, `Reopen.backedOffMs`; the count starts again at that relay's next
+    EOSE). Before: never opened again.
+  - a send refused that way is tried again with the outbox's back-off for 10 minutes from its first
+    such refusal (`OutboxItem.notListedAt`, stored as `not_listed_at`; `Outbox.notListedYet`), then
+    it is refused for good with the relay's reason. Before: refused for good at once.
+  Every other `restricted:` / `blocked:` of the community relay, and this same reason from the
+  GROUPS relay, stay as they were (a send fails for good; the groups relay's refusal is the line or
+  the "Almost in" screen below).
+- **"Almost in" only on a definite answer.** A refusal from the groups relay counts as being about
+  membership only when its words say so and not a limit, a connection or a timeout
+  (`Access.aboutMembership`: `^(restricted|blocked)\b|\bpass\b|member|invite|not allowed|not
+  permitted`, and none of `rate|limit|too many|slow down|connection|timeout|timed out|later|busy|
+  overload|error|network`; the web's `aboutMembership`). Only such a refusal sets the "the relay
+  refused you" line and asks the register (`POST /whois`); the full screen still needs the register's
+  "no role" (the lead's rule of 2026-11-19, unchanged). A refusal that is not about membership (a rate limit above
+  all: `restricted: connection rate limit exceeded`) changes nothing about access, and a
+  subscription closed with it is opened again with the same 2 s → 2 min back-off on either relay.
+  An ordinary close keeps 2 s, 4, 8… up to a minute. Not ported: the web's "a browser that was ever
+  let in never gets Almost in from the relay's word alone" (Android asks the register every time and
+  shows the screen only on its "no role").
+- **A rate-limited signer request.** A NIP-46 request whose EVENT the signer's relay refuses for
+  rate (`rate.?limit|too many|slow down`) is asked again on the same socket after 0.5 s, 1 s, 2 s,
+  4 s (`BunkerSigner.rateWaitMs`); refused a fifth time it ends as "the signer did not answer" (the
+  outbox tries again later). Before: it waited its whole timeout, dropped the socket and asked once
+  more. At most 4 requests are on the wire at once (`MAX_IN_FLIGHT`), so a start's burst of decrypts
+  does not earn the limit.
+- **Back in the foreground** (`Session.wake`): after the socket check, each relay whose socket
+  lives gets a fresh subscription from the last event received (the catch-up marks: the groups relay's
+  mark, the community relay's newest event less an hour, gift wraps less three days), so what came while the app slept arrives even when the
+  socket survived and the relay dropped or never delivered the live one. A dead socket was dropped
+  by the check and subscribes again when it reconnects, as before. Once per 2 s. Diagnostics says
+  "caught up on return: … ago".
+- Tests: `CardsGuestEngineTest` (the rules, and local fake relays), `RelayTest.bunkerSignerAsksAgainWhenTheRelayLimitsTheRate`.
+  Never met a real relay.

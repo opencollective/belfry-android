@@ -73,6 +73,49 @@ object Backoff {
 object Access {
     private val REFUSAL = Regex("^(restricted|blocked)|pass|member", RegexOption.IGNORE_CASE)
     fun isRefusal(reason: String): Boolean = REFUSAL.containsMatchIn(reason)
+
+    // "Almost in" only on a definite answer (SPEC 19.79; web 3fc34bd sync.ts `aboutMembership`; Xavier
+    // 2026-11-23: a member saw it after "restricted: connection rate limit exceeded"): a refusal is
+    // about membership only when its words say so and not a limit, a connection or a timeout.
+    private val MEMBERSHIP = Regex("^(restricted|blocked)\\b|\\bpass\\b|member|invite|not allowed|not permitted", RegexOption.IGNORE_CASE)
+    private val NOT_MEMBERSHIP = Regex("rate|limit|too many|slow down|connection|timeout|timed out|later|busy|overload|error|network", RegexOption.IGNORE_CASE)
+    fun aboutMembership(reason: String): Boolean = MEMBERSHIP.containsMatchIn(reason) && !NOT_MEMBERSHIP.containsMatchIn(reason)
+
+    private val RATE = Regex("rate.?limit|too many|slow down", RegexOption.IGNORE_CASE)
+    /** Refused for rate ("rate-limited: slow down", "restricted: connection rate limit exceeded"): asked again after a back-off, never failed for it. */
+    fun rateLimited(reason: String): Boolean = RATE.containsMatchIn(reason)
+}
+
+/**
+ * What to do when a relay ends the live subscription with CLOSED (SPEC 19.79; web 3fc34bd, 92e5012
+ * sync.ts `resubscribe`). Without a new subscription nothing arrives until a restart.
+ */
+object Reopen {
+    enum class How {
+        /** `auth-required` (NIP-42 runs, the subscriptions are sent again after it), or a refusal about membership: the register is asked (groups), nothing is opened again. */
+        NEVER,
+        /** An ordinary close: again 2 s later, then 4, 8… up to a minute if the relay keeps closing it. */
+        SOON,
+        /** A refusal that can pass (a rate limit; the community relay's "not in whitelist"): 2 s, doubling up to 2 minutes, so the relay is never hammered. */
+        BACKED_OFF,
+    }
+
+    /** MAIN: the community relay (else the groups relay). */
+    fun how(main: Boolean, reason: String): How = when {
+        reason.startsWith("auth-required") -> How.NEVER
+        // the community relay's whitelist (a guest, a removed member, a member just let in): exactly this reason
+        main && sh.belfry.core.outbox.Outbox.notListed(reason) -> How.BACKED_OFF
+        Access.aboutMembership(reason) -> How.NEVER
+        // a refusal in the relay's words that is not about membership (a limit, a connection, an error), or any rate limit
+        Access.isRefusal(reason) || Access.rateLimited(reason) -> How.BACKED_OFF
+        else -> How.SOON
+    }
+
+    /** The N-th wait after an ordinary close (N from 0): 2 s, 4, 8, 16, 32, then a minute. */
+    fun soonMs(n: Int): Long = minOf(60_000L, 2_000L shl n.coerceIn(0, 5))
+
+    /** The N-th wait after a refusal that can pass (N from 0): 2 s doubling to 2 minutes. */
+    fun backedOffMs(n: Int): Long = minOf(120_000L, 2_000L shl n.coerceIn(0, 6))
 }
 
 /**

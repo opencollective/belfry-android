@@ -84,7 +84,7 @@ class R6ShotsTest : DemoShots() {
         val g = world.group(Demo.TOOLS)!!
         demoScreenShot("channel-closed-ask") {
             ChannelScreen(Demo.TOOLS, onMenu = {})
-            BelfrySheet(onDismiss = {}, title = "Ask to join #${g.name}") {
+            BelfrySheet(onDismiss = {}, title = sh.belfry.core.model.Followers.askTitle(g)) {
                 ApplyBody(g, "A drill for the community shelves, and I can lend my sander.", {}) {}
             }
         }

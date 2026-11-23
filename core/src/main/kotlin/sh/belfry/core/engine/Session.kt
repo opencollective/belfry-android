@@ -64,10 +64,12 @@ import sh.belfry.core.model.eventTagsFor
 import sh.belfry.core.model.ComposerDraft
 import sh.belfry.core.model.FormDrafts
 import sh.belfry.core.model.GuestMode
+import sh.belfry.core.model.GuestTopic
 import sh.belfry.core.net.GuestSignIn
 import sh.belfry.core.nostr.LocalSigner
 import sh.belfry.core.net.Branding
 import sh.belfry.core.net.Access
+import sh.belfry.core.net.Reopen
 import sh.belfry.core.net.ApiException
 import sh.belfry.core.net.BelfryApi
 import sh.belfry.core.net.Backoff
@@ -190,6 +192,8 @@ data class GuestInfo(
     val member: sh.belfry.core.net.MemberLink? = null,
     /** The member link's token, kept so that "Log in instead" can use it with an account. */
     val invite: String? = null,
+    /** The link was a printed card's (docs/cards.md §3: `"card"` in the join answer): `group`, `topic`, else null. */
+    val card: String? = null,
 ) {
     /** A member link opened and not joined yet: the app shows the invitation, never the channel behind it. */
     val memberInvite: Boolean get() = member != null && reading
@@ -452,6 +456,12 @@ class Session(
     val joinAsked: StateFlow<Boolean> = _joinAsked
     fun askToJoin() { if (reading) _joinAsked.value = true }
     fun closeJoin() { _joinAsked.value = false }
+
+    /**
+     * Reading in GROUP_ID, a topic this device reached through a topic card (SPEC 19.77): the one
+     * place where a reading guest has a composer ([postGuestMessage]).
+     */
+    fun guestTopic(groupId: String): Boolean = _guest.value.let { GuestTopic.here(it?.reading == true, it?.channel, it?.card, groupId) }
 
     /** Every write goes through here first: in guest mode it is refused and the Join sheet opens. */
     private fun guard() {
@@ -817,7 +827,7 @@ class Session(
             r.authSigner = signer
             r.onEvent = { _, e -> if (!typingEngine.offer(e)) incoming.trySend(Incoming.Ev(e)) } // typing: live only, never stored
             r.known = { id -> synchronized(logLock) { id in logIds } }
-            r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t, r.isAuthenticated || r.authSigner == null || localOnly)) } }
+            r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; refusals[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t, r.isAuthenticated || r.authSigner == null || localOnly)) } }
             r.onClosed = { sub, reason ->
                 if (t == Target.GROUPS) noteRefusal(reason)
                 if (sub == SUB) reopen(t, reason)
@@ -884,18 +894,26 @@ class Session(
     }
 
     private val reopens = IntArray(Target.entries.size)
+    /** Refusals that can pass (a rate limit, the community relay's whitelist) since the last whole answer, per relay. */
+    private val refusals = IntArray(Target.entries.size)
 
     /**
-     * The relay ended the live subscription for a reason that is not a refusal: without a new one
-     * nothing arrives until a restart (web sync.ts, 2026-11-11). Opened again while the socket
-     * lives, 2 s later (then 4, 8… up to a minute if the relay keeps closing it). `auth-required`
-     * is not handled here: the relay asks for NIP-42 and the subscriptions are sent again after it.
+     * The relay ended the live subscription: without a new one nothing arrives until a restart
+     * (web sync.ts, 2026-11-11). What happens is [Reopen.how] (SPEC 19.79): an ordinary close is
+     * opened again while the socket lives, 2 s later (then 4, 8… up to a minute if the relay keeps
+     * closing it); a rate limit, and the community relay's "restricted: pubkey not in whitelist",
+     * after 2 s doubling to 2 minutes; a refusal about membership never (the groups relay's: the
+     * register is asked, [noteRefusal]). `auth-required` is not handled here: the relay asks for
+     * NIP-42 and the subscriptions are sent again after it.
      */
     private fun reopen(t: Target, reason: String) {
-        if (Access.isRefusal(reason) || reason.startsWith("auth-required")) return
-        val n = reopens[t.ordinal].also { reopens[t.ordinal] = minOf(it + 1, 5) }
+        val ms = when (Reopen.how(t == Target.MAIN, reason)) {
+            Reopen.How.NEVER -> return
+            Reopen.How.SOON -> Reopen.soonMs(reopens[t.ordinal].also { reopens[t.ordinal] = minOf(it + 1, 5) })
+            Reopen.How.BACKED_OFF -> Reopen.backedOffMs(refusals[t.ordinal].also { refusals[t.ordinal] = minOf(it + 1, 6) })
+        }
         scope.launch(Dispatchers.Default) {
-            delay(minOf(60_000L, 2_000L shl n))
+            delay(ms)
             val r = relay(t) ?: return@launch
             if (!stopped && r.isUp && _status.value.access != AccessState.REFUSED) r.subscribe(SUB, filters(t))
         }
@@ -905,9 +923,10 @@ class Session(
      * Every socket (groups, main, the signer's) is asked at once; the dead are dropped and opened
      * again now; then the signer is said hello to ahead of the next send, and what waits goes.
      */
-    private fun checkConnections() {
+    private fun checkConnections(catchUp: Boolean = false) {
         launchSafely {
             connections.checkAll()
+            if (catchUp) catchUpOnReturn()
             requestFlush()
             (signer as? BunkerSigner)?.warm()
         }
@@ -917,10 +936,28 @@ class Session(
     fun wake() {
         connections.foreground = true
         if (!started || stopped || localOnly) return
-        if (_status.value.online) checkConnections()
+        if (_status.value.online) checkConnections(catchUp = true)
         launchSafely { dm.process() }
         requestFlush()
     }
+
+    /**
+     * Back in the foreground (SPEC 19.79; web af8e002, Xavier 2026-11-23): whatever the socket check
+     * said, each relay whose socket lives gets a fresh subscription from the last event received
+     * (the catch-up mark of [filters]; an hour's overlap, gift wraps three days), so what came while
+     * the app slept arrives even when the socket survived and the relay dropped or never delivered
+     * the live one. A dead socket was dropped by the check: it subscribes again when it reconnects.
+     * Once per 2 s (a foreground, a network change and "Check again" can come together).
+     */
+    private fun catchUpOnReturn() {
+        val now = Relay.nowMs()
+        if (caughtUp && now - caughtUpAt < CATCH_UP_GAP_MS) return
+        caughtUpAt = now
+        caughtUp = true
+        for (t in Target.entries) { val r = relay(t) ?: continue; if (r.isUp) r.subscribe(SUB, filters(t)) }
+    }
+    @Volatile private var caughtUpAt = 0L
+    @Volatile private var caughtUp = false
 
     /** The app went to the background: quiet sockets are no longer asked (the system decides now). */
     fun background() { connections.foreground = false }
@@ -967,6 +1004,7 @@ class Session(
             append("${e.role}: ${e.relay.state.value.name.lowercase()}" + (if (q > 0) ", quiet ${SendTrace.secs(q)}" else "") + "\n")
         }
         append("online: ${_status.value.online}, foreground: ${connections.foreground}\n")
+        if (caughtUp) append("caught up on return: ${SendTrace.secs(Relay.nowMs() - caughtUpAt)} ago\n")
         append("\nLast sends\n")
         val l = trace.lines()
         if (l.isEmpty()) append("none yet\n") else l.forEach { append(it).append('\n') }
@@ -994,9 +1032,13 @@ class Session(
         withContext(Dispatchers.IO) { store.wipe() }
     }
 
-    /** The relay's refusal alone never locks a member out: the register has the last word. */
+    /**
+     * The relay's refusal alone never locks a member out: the register has the last word. Only a
+     * refusal about membership counts ([Access.aboutMembership], SPEC 19.79): a rate limit, a
+     * connection or a timeout in the relay's words changes nothing here ([reopen] tries again).
+     */
     private fun noteRefusal(reason: String) {
-        if (!Access.isRefusal(reason) || _status.value.access == AccessState.REFUSED) return
+        if (!Access.aboutMembership(reason) || _status.value.access == AccessState.REFUSED) return
         setStatus { it.copy(access = AccessState.RELAY_REFUSED) }
         launchSafely { confirmRefusal() }
     }
@@ -1181,7 +1223,10 @@ class Session(
      * (the event ids while they are pending). Never throws for network reasons.
      */
     suspend fun send(drafts: List<Draft>, attachments: List<NewAttachment> = emptyList()): List<String> = withContext(Dispatchers.Default) {
-        guard()
+        // guest mode: nothing is queued, but a plain message in a topic reached through a card (SPEC 19.77)
+        val g = _guest.value
+        val guestPost = drafts.size == 1 && drafts[0].let { GuestTopic.mayPost(g?.reading == true, g?.channel, g?.card, it.target, it.kind, it.tags, attachments.map { a -> a.mime }) }
+        if (!guestPost) guard()
         // nothing is queued for an archived or deleted group, whatever a screen forgot to hide (SPEC 19.30)
         val locked = _world.value.lockedGroups
         if (drafts.any { GroupLock.refuses(it, locked) }) throw ActionException("archived", ARCHIVED_TEXT)
@@ -1264,12 +1309,12 @@ class Session(
                 val before = items.associateBy { it.localId }
                 val signedNow = HashMap<String, Event>()
                 val handled = HashSet<String>()
-                val result = Outbox.run(items) { item ->
+                val result = Outbox.run(items, clock()) { item ->
                     val id = item.dm ?: item.localId
                     val label = SendTrace.label(item)
                     val outcome = sendOne(item, signedNow) { step -> trace.step(id, label, step) }
                     if (outcome is SendOutcome.Ok) { handled.add(item.localId); sent(item, outcome.event ?: item.signed) }
-                    val cls = (outcome as? SendOutcome.Error)?.let { Outbox.classify(it.message) }
+                    val cls = (outcome as? SendOutcome.Error)?.let { Outbox.classify(it.message, item, clock()) }
                     val said = when (cls) {
                         null, ErrorClass.DUPLICATE -> "OK"
                         ErrorClass.FAILED -> "refused"
@@ -1515,6 +1560,14 @@ class Session(
         val a = _world.value.eventTagsFor(d.content, community.mainRelay) { events.knownCoord(it) }
         return send(d.copy(tags = d.tags + a), files)
     }
+
+    /**
+     * A reading guest's message in the topic they reached through a card (SPEC 19.77; the web's
+     * `postGuestMessage`): kind 9 with `[["h", T]]` only, its photos as `imeta`. Anywhere else, or
+     * with a file that is not a picture, it is refused like every guest-mode write (the Join sheet).
+     */
+    suspend fun postGuestMessage(groupId: String, text: String, files: List<NewAttachment> = emptyList()): String =
+        send(GuestTopic.post(groupId, text), files)
 
     /**
      * Presses BUTTON on message M in GROUP_ID (SPEC 19.36): signed and published on the groups
@@ -2168,8 +2221,8 @@ class Session(
     }
 
     /** The demo (and screenshots): this device as a guest of CHANNEL in guest mode. */
-    fun demoGuestMode(channel: String) {
-        if (localOnly) setGuest(GuestInfo(channel, saved = false, reading = true))
+    fun demoGuestMode(channel: String, card: String? = null) {
+        if (localOnly) setGuest(GuestInfo(channel, saved = false, reading = true, card = GuestTopic.card(card)))
     }
 
     private fun setGuest(g: GuestInfo?) {
@@ -2283,6 +2336,7 @@ class Session(
         private const val SUB = "main"
         private const val REBUILD_MS = 100L
         private const val WATCHDOG_MS = 15_000L
+        private const val CATCH_UP_GAP_MS = 2_000L
         const val SEALED_UPKEEP_MS = 6 * 3600 * 1000L
         const val K_SEALED_STATE = "sealed-state"
         /** The session names of my head's devices as last read (device key → name): the waiting view offline. */
