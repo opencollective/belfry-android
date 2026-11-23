@@ -288,6 +288,9 @@ minSdk 26, JDK 17.
   log-in or application opened with no Welcome first). Signed out: `SignedOutFlow` asks `AppState.membersOnlyEvent`
   (`BelfryApi.eventDoor`, the web's unsigned read) for the kept `eventLink`. A guest: `EventScreen` → `LocalAccounts.wayIn`
   → `Adding.WayIn` over the app; `AppState.eventAfter` hands the event to the session made. Tests `MembersOnlyTest`.
+- The invite sheet from Members (SPEC 19.70; canvas inviting/sheet-from-members): `ui/info/InviteSheet.kt`
+  `InviteToCommunitySheet`, opened by the ＋ of `MembersScreen` (a sheet, no route). `InviteScreen` /
+  `Routes.invite(id)` is only for a channel (people who are here first). Tests `InviteSheetTest`.
 
 ## UI rules (the owner's, not negotiable)
 

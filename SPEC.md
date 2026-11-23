@@ -2807,6 +2807,30 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   owner; owner from belfry.json `agents`). The name is the profile's, else the `name` tag; the belfry
   name is `communityName`, else "the belfry". The whole line opens the person's profile.
 
+### 19.70 The invite sheet from Members (2026-11-23; canvas inviting/sheet-from-members, approved; the web's `InviteSheet preset="member"`, web and iOS 0.8.1)
+
+- **Where**: the ＋ top right of the belfry's Members (shown to stewards, and to members when `GET
+  /membership` says `invite: "members"` and `may_invite_members`) opens a bottom sheet over the list,
+  "Invite to ‹belfry name›". It pushes no screen. A channel's or group's Members ＋ still opens that
+  channel's invite screen (inviting/sheet-from-channel: people who are here first).
+- **Wire**: nothing new. On opening, one `POST /channel-invites` with `channel: "general"`, `as:
+  "member"`, `role` = the default role, `membership: "permanent"`, `people: 1`, `link_days: 1`. Every
+  pick makes one new call and a new link (a newer answer wins). An agent's or a Steward's link is sent
+  with `people: 1` whatever "Link" says. My own agent: `agent: true`, and the link shown is `agent_url`.
+- **The sheet**: the QR code and the address (faded with a spinner and "Making the link…" while it is
+  made; the belfry's error in words with Retry when it could not be), two rows, Copy link and Share…
+  (locked until there is a link), one line on what happens ("They join ‹belfry› as ‹role› with their
+  name and e-mail address."). Row "Joins as" (‹role› · permanent / one year / one month, "A member of
+  ‹belfry›") opens: My own agent (when I may have one), the length of membership, the roles (a steward:
+  all of them; a member: the default role only). Row "Link" opens: One person / Up to 50 people, 1 day /
+  1 week / 1 month. A pick goes back to the first page; back on a page of choices goes back to it too.
+- **Not here**: no search by name (everyone in Members is in already) and no guest links (a guest of
+  which channel is open on the canvas). Android has no "Done" button: back, a swipe down or a tap
+  outside closes a Material sheet.
+- **Offline**: the roles and the Membership setting come from their stored copies; the link itself
+  needs the belfry, and the sheet says "No connection to the belfry. Check your connection and try
+  again." with Retry.
+
 ### 19.71 A members-only event, signed out (2026-11-23; Xavier's request to the web, via the lead; web chat 3884008; canvas events/members-only-join, events/members-only-login)
 
 - **Which links.** The app opens `https://chat.<domain>/events/<link>` (`EventLink`; the hosts and the

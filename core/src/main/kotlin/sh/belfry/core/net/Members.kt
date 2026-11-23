@@ -117,11 +117,11 @@ sealed interface JoinsAs {
     /** A member of the belfry with a role, for a month, a year or for good. */
     data class Member(val role: String, val membership: String) : JoinsAs
 
-    /** "Guest for a day" / "My own agent" / "<Role> · one year", and the line under it. */
-    fun line(channel: String, community: String, roles: RolesInfo): Pair<String, String> = when (this) {
+    /** "Guest for a day" / "My own agent" / "<Role> · one year", and the line under it (TOBELFRY: from Members, no channel named). */
+    fun line(channel: String, community: String, roles: RolesInfo, toBelfry: Boolean = false): Pair<String, String> = when (this) {
         is Guest -> "Guest for ${daysWord(days)}" to "$channel only, for ${daysWord(days)}"
         Agent -> "My own agent" to "Your AI agent: a member for as long as you are one"
-        is Member -> "${roles.role(role)?.label ?: "Member"} · ${membershipWord(membership)}" to "A member of $community, starting in $channel"
+        is Member -> "${roles.role(role)?.label ?: "Member"} · ${membershipWord(membership)}" to (if (toBelfry) "A member of $community" else "A member of $community, starting in $channel")
     }
 
     /** An agent's or a steward's link is for one person, whatever "Link" says. */

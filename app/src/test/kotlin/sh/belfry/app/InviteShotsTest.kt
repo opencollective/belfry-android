@@ -8,7 +8,7 @@ import org.junit.Test
 import sh.belfry.app.ui.info.InviteScreen
 import sh.belfry.core.engine.Demo
 
-/** The invite sheet as on the web (inviting/sheet-from-channel, sheet-external, sheet-member, sheet-link, sheet-from-members). */
+/** The invite sheet as on the web (inviting/sheet-from-channel, sheet-external, sheet-member, sheet-link). From Members: InviteSheetTest. */
 class InviteShotsTest : DemoShots() {
     /** From a channel: people already in the community first, the link folded (none made yet). */
     @Test fun fromChannel() {
@@ -44,7 +44,4 @@ class InviteShotsTest : DemoShots() {
         compose.waitForIdle()
         compose.onNodeWithTag("invite-link").performClick()
     }) { InviteScreen(Demo.GARDEN, startAsGuest = true) }
-
-    /** From Members: "Invite to Riverside Commons", the link at once, no search by name. */
-    @Test fun fromMembers() = demoShot("invite-sheet-from-members") { InviteScreen("general", toCommunity = true) }
 }
