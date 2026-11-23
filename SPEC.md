@@ -2906,6 +2906,12 @@ it afterwards joins through the card's guest link (19.74).
   (below), Description (optional, 500). The button "Start the group" / "Start the topic" is a
   BusyButton: one tap, one request, locked until the belfry answered. It can be tapped when the
   title is not blank, and for a topic only when the hashtag was checked free (`Cards.ready`).
+- **A topic's summary by e-mail** (canvas cards/claim-channel v45; the lead, 2026-11-23: the server
+  takes it). On a topic card's form only, last before the button: "Summary by e-mail" · Weekly |
+  Monthly (Material's segmented buttons; Weekly chosen first; the choice carries a check mark and a
+  heavier label, not a colour alone) · "What was said, once a week. Change it any time." ("once a
+  month" for Monthly). Sent as `"summary": "weekly" | "monthly"` in the body of the claim and of
+  claim-verify (19.73) on a topic card, **never on a group card**; kept with what was typed.
 - **A topic's hashtag** (canvas cards/claim-channel, approved: topic first, then the hashtag, then
   the description). Suggested from the topic as it is typed until the person changes the hashtag by
   hand: `Cards.hashtagSlug` = trimmed, leading `#` dropped, lower case, every run of characters
@@ -2919,7 +2925,7 @@ it afterwards joins through the card's guest link (19.74).
   topic, you can change it", "✓ Available" (changed by hand), "Taken: try another one", "Letters,
   digits and dashes, 2 to 30".
 - **The claim**: `POST <api>/cards/<id>/claim`, NIP-98 by the account's signer, body `{"title",
-  "about"}` + `"hashtag"` on a topic card (`Cards.claimBody`: the title without control or direction
+  "about"}` + `"hashtag"` and `"summary"` on a topic card (`Cards.claimBody`: the title without control or direction
   characters, 80; the about trimmed, 500; the hashtag's slug). `200 {"group"}`. It is one call that
   needs its answer, so it is not queued in the outbox; a guest in guest mode sends nothing and reads
   the words of `guest_not_saved`. After it the groups relay is asked again (the new group and its
@@ -2983,7 +2989,7 @@ address and a 6-digit code.
   address" (the form again, as typed; so does the back arrow). `404`, `409 claimed`, `409 retired`,
   `422 invalid` (`email`), `429` as in 19.72.
 - `POST <api>/cards/<id>/claim-verify` `{"email", "code", "name", "client": "belfry-android",
-  "title", "about", "hashtag"?}` (`Cards.verifyBody`) → `200 {"signed_in": true, "bunker_url",
+  "title", "about", "hashtag"?, "summary"?}` (`Cards.verifyBody`; `hashtag` and `summary` on a topic card only, 19.72) → `200 {"signed_in": true, "bunker_url",
   "pubkey", "npub", "nip05"?, "group"}`. The answer is a session only when `signed_in` is true,
   `bunker_url` is `bunker://<64 hex>…` (2000 at most) and parses, `pubkey` is a key and `group` an id;
   anything else: "That did not work. Try again." and nothing is kept.
@@ -3015,8 +3021,7 @@ address and a 6-digit code.
 - **The demo** (`chat.belfry.example`): nothing is mailed; the code is `123456` (any other: "2 tries
   left"); the right one opens the demo as that person and makes the group there.
 - **Not built**: "or tap Confirm in the e-mail" and the board cards/confirm-done (the web shipped
-  the code only; the server has no such link), "Summary by e-mail · Weekly / Monthly" (no server
-  field yet).
+  the code only; the server has no such link).
 
 ### 19.74 Printed cards: a claimed card is a guest link, and the guest keeps its kind (2026-11-23; docs/cards.md §3; canvas cards/join-*, follow-channel*; web chat fa579cd)
 

@@ -219,12 +219,23 @@ class CardsTest {
     @Test fun theBodies() {
         val f = CardForm(title = "  Tool\u0007 library ", about = " Borrow drills. ", hashtag = "#Tool-Library", name = " Dev‮ ", email = " dev@example.org ")
         assertEquals("""{"title":"Tool library","about":"Borrow drills."}""", Cards.claimBody(CardKind.GROUP, f).toString())
-        assertEquals("""{"title":"Tool library","about":"Borrow drills.","hashtag":"tool-library"}""", Cards.claimBody(CardKind.TOPIC, f).toString())
+        // a topic card: its hashtag and the summary by e-mail, weekly unless monthly was picked
+        assertEquals("""{"title":"Tool library","about":"Borrow drills.","hashtag":"tool-library","summary":"weekly"}""", Cards.claimBody(CardKind.TOPIC, f).toString())
+        assertEquals("""{"title":"Tool library","about":"Borrow drills.","hashtag":"tool-library","summary":"monthly"}""", Cards.claimBody(CardKind.TOPIC, f.copy(summary = "monthly")).toString())
+        assertEquals("""{"title":"Tool library","about":"Borrow drills.","hashtag":"tool-library","summary":"weekly"}""", Cards.claimBody(CardKind.TOPIC, f.copy(summary = "daily")).toString())
         assertEquals(
-            """{"email":"dev@example.org","code":"123456","name":"Dev","client":"belfry-android","title":"Tool library","about":"Borrow drills.","hashtag":"tool-library"}""",
-            Cards.verifyBody(CardKind.TOPIC, f, " 123456 ").toString(),
+            """{"email":"dev@example.org","code":"123456","name":"Dev","client":"belfry-android","title":"Tool library","about":"Borrow drills.","hashtag":"tool-library","summary":"monthly"}""",
+            Cards.verifyBody(CardKind.TOPIC, f.copy(summary = "monthly"), " 123456 ").toString(),
         )
-        assertFalse(Cards.verifyBody(CardKind.GROUP, f, "123456").containsKey("hashtag"))
+        // never on a group card, whatever the form holds
+        assertFalse(Cards.verifyBody(CardKind.GROUP, f.copy(summary = "monthly"), "123456").containsKey("hashtag"))
+        assertFalse(Cards.verifyBody(CardKind.GROUP, f.copy(summary = "monthly"), "123456").containsKey("summary"))
+        assertFalse(Cards.claimBody(CardKind.GROUP, f.copy(summary = "monthly")).containsKey("summary"))
+        assertEquals("What was said, once a week. Change it any time.", Cards.summaryHint("weekly"))
+        assertEquals("What was said, once a month. Change it any time.", Cards.summaryHint("monthly"))
+        assertEquals("monthly", CardForm.of(CardForm(summary = "monthly").toJson())!!.summary)
+        assertEquals("weekly", CardForm.of(obj("""{"summary":"yearly"}"""))!!.summary)
+        assertEquals("weekly", CardForm().summary)
         assertEquals(80, (Cards.claimBody(CardKind.GROUP, CardForm(title = "x".repeat(200)))["title"] as kotlinx.serialization.json.JsonPrimitive).content.length)
         assertEquals("Tool library · Borrow drills.", Cards.topicAbout(f))
         assertEquals("Tool library", Cards.topicAbout(f.copy(about = " ")))

@@ -36,17 +36,22 @@ sealed interface CardInfo {
 }
 
 /** What the person typed on "Start this group / topic". [name] and [email] only for a visitor. */
-data class CardForm(val title: String = "", val about: String = "", val hashtag: String = "", val name: String = "", val email: String = "") {
+data class CardForm(
+    val title: String = "", val about: String = "", val hashtag: String = "", val name: String = "", val email: String = "",
+    /** A topic card only: the summary by e-mail its starter gets, `weekly` (the default) or `monthly`. */
+    val summary: String = Cards.WEEKLY,
+) {
     fun toJson(): JsonObject = buildJsonObject {
         put("title", JsonPrimitive(title.take(80))); put("about", JsonPrimitive(about.take(500))); put("hashtag", JsonPrimitive(hashtag.take(30)))
         put("name", JsonPrimitive(name.take(100))); put("email", JsonPrimitive(email.take(200)))
+        put("summary", JsonPrimitive(Cards.summaryOf(summary)))
     }
 
     companion object {
         /** The web's `keptForm`: every field cut to its length, anything else empty. */
         fun of(o: JsonObject?): CardForm? {
             if (o == null) return null
-            return CardForm((o.s("title") ?: "").take(80), (o.s("about") ?: "").take(500), (o.s("hashtag") ?: "").take(30), (o.s("name") ?: "").take(100), (o.s("email") ?: "").take(200))
+            return CardForm((o.s("title") ?: "").take(80), (o.s("about") ?: "").take(500), (o.s("hashtag") ?: "").take(30), (o.s("name") ?: "").take(100), (o.s("email") ?: "").take(200), Cards.summaryOf(o.s("summary")))
         }
     }
 }
@@ -254,7 +259,11 @@ object Cards {
     fun claimBody(kind: CardKind, f: CardForm): JsonObject = buildJsonObject {
         put("title", JsonPrimitive(plainLabel(f.title).take(80)))
         put("about", JsonPrimitive(f.about.trim().take(500)))
-        if (kind == CardKind.TOPIC) put("hashtag", JsonPrimitive(hashtagSlug(f.hashtag)))
+        if (kind == CardKind.TOPIC) {
+            put("hashtag", JsonPrimitive(hashtagSlug(f.hashtag)))
+            // topic cards only, never on a group card: the starter's summary by e-mail
+            put("summary", JsonPrimitive(summaryOf(f.summary)))
+        }
     }
 
     /** The body of `POST /cards/<id>/claim-verify` (the web's, with this app's `client`). */
@@ -266,8 +275,18 @@ object Cards {
         for ((k, v) in claimBody(kind, f)) put(k, v)
     }
 
+    // ---- a topic's summary by e-mail (canvas cards/claim-channel) ------------------------------------
+
+    const val WEEKLY = "weekly"
+    const val MONTHLY = "monthly"
+    /** `monthly`, else `weekly` (the default, and what anything else reads as). */
+    fun summaryOf(s: String?): String = if (s == MONTHLY) MONTHLY else WEEKLY
+    const val SUMMARY_LABEL = "Summary by e-mail"
+    fun summaryHint(summary: String): String =
+        if (summaryOf(summary) == MONTHLY) "What was said, once a month. Change it any time." else "What was said, once a week. Change it any time."
+
     /** A topic made from a card, as the server makes it: its description is `<topic> · <description>`. */
-    fun topicAbout(f: CardForm): String = listOf(f.title.trim(), f.about.trim()).filter { it.isNotEmpty() }.joinToString(" · ")
+    fun topicAbout(f: CardForm): String = listOf(plainLabel(f.title).take(80), f.about.trim().take(500)).filter { it.isNotEmpty() }.joinToString(" · ")
 
     // ---- the screens' words (the web as shipped, where a draft board says otherwise) ----------------
 

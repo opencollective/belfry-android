@@ -3,6 +3,8 @@ package sh.belfry.app
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
@@ -86,7 +88,7 @@ class PrintedCardsTest : DemoShots() {
     }
 
     @Test fun claimTopicTaken() = shot("printed-card-claim-topic-taken") {
-        CardStartContent(CardKind.TOPIC, Demo.NAME, lina, tools.copy(hashtag = "general"), {}, {}, {}, {}, {}, Cards.hashtagLine(HashtagState.TAKEN, false, true), true, null,
+        CardStartContent(CardKind.TOPIC, Demo.NAME, lina, tools.copy(hashtag = "general", summary = Cards.MONTHLY), {}, {}, {}, {}, {}, Cards.hashtagLine(HashtagState.TAKEN, false, true), true, null,
             Cards.errorText(CardFailed(CardError.HASHTAG_TAKEN), CardKind.TOPIC), false, {}, {})
     }
 
@@ -179,6 +181,8 @@ class PrintedCardsTest : DemoShots() {
         compose.onNodeWithText("Signed in as Lina Moreau").assertExists()
         // signed in: no name, no e-mail asked
         assertTrue(compose.onAllNodesWithTag("card-email").fetchSemanticsNodes().isEmpty())
+        // a group card has no summary by e-mail
+        assertTrue(compose.onAllNodesWithTag("card-summary").fetchSemanticsNodes().isEmpty())
         compose.onNodeWithTag("card-start").assertIsNotEnabled()
         field("card-title").performTextInput("Sourdough starters")
         compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
@@ -191,6 +195,7 @@ class PrintedCardsTest : DemoShots() {
         compose.waitForIdle()
         assertEquals(1, claims.get())
         assertEquals("Sourdough starters", sent!!.title)
+        assertEquals("""{"title":"Sourdough starters","about":""}""", Cards.claimBody(CardKind.GROUP, sent!!).toString())
     }
 
     /** A refusal is said in the app's words and the form stays as typed; "someone was first" and "retired" have their own screens. */
@@ -341,9 +346,20 @@ class PrintedCardsTest : DemoShots() {
         down = false
         compose.onNodeWithTag("card-recheck").performClick()
         waitText("✓ Available")
+        // the summary by e-mail: Weekly unless Monthly is picked; the choice is said, not only coloured
+        compose.onNodeWithText("Summary by e-mail").performScrollTo().assertExists()
+        compose.onNodeWithTag("card-summary-weekly").assertIsSelected()
+        compose.onNodeWithTag("card-summary-monthly").assertIsNotSelected()
+        compose.onNodeWithText("What was said, once a week. Change it any time.").assertExists()
+        compose.onNodeWithTag("card-summary-monthly").performScrollTo().performClick()
+        compose.onNodeWithTag("card-summary-monthly").assertIsSelected()
+        compose.onNodeWithTag("card-summary-weekly").assertIsNotSelected()
+        compose.onNodeWithText("What was said, once a month. Change it any time.").assertExists()
         compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
         compose.onNodeWithTag("card-start").performClick()
         compose.waitUntil(10_000) { sent != null }
+        assertEquals("monthly", sent!!.summary)
+        assertEquals("""{"title":"Tool library","about":"","hashtag":"drills","summary":"monthly"}""", Cards.claimBody(CardKind.TOPIC, sent!!).toString())
         assertEquals("drills", Cards.hashtagSlug(sent!!.hashtag))
         assertEquals("Tool library", sent!!.title)
     }
