@@ -46,6 +46,8 @@ import sh.belfry.app.ui.kit.BelfryTextField
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.ButtonKind
 import sh.belfry.app.ui.kit.Chip
+import sh.belfry.app.ui.kit.ConfirmSheet
+import sh.belfry.app.ui.kit.IconAction
 import sh.belfry.app.ui.kit.Keep
 import sh.belfry.app.ui.kit.SectionTitle
 import sh.belfry.app.ui.kit.rememberBusy
@@ -58,10 +60,11 @@ import sh.belfry.app.ui.theme.Belfry
 import sh.belfry.core.crypto.Hex
 import sh.belfry.core.model.Actions
 import sh.belfry.core.model.CalEvent
-import sh.belfry.core.model.EventLinks
 import sh.belfry.core.model.FormDrafts
 import sh.belfry.core.model.MeetingForm
 import sh.belfry.core.model.Meetings
+import sh.belfry.core.model.MeetingStatus
+import sh.belfry.core.model.meetingStatus
 import sh.belfry.core.model.Named
 import sh.belfry.core.model.attendance
 import sh.belfry.core.model.findPeople
@@ -187,12 +190,17 @@ private fun PeoplePicker(channel: String, people: List<String>, named: List<Name
 
 /**
  * A new meeting in a few taps (web 2026-11-12): a channel's ＋ → Meeting. Topic, people, when, how
- * long, where (the last place by default). Members only. Its URL is put in the channel's message
- * box, ready to send, like a new event's.
+ * long, where (the last place by default). Members only. Its URL is sent in the channel it was
+ * made from (Xavier, 2026-11-22: sent, not left in the message box); made from the calendar, the
+ * meeting opens instead.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun CreateMeetingScreen(channel: String) {
+fun CreateMeetingScreen(from: String) {
+    // from the calendar's ＋ (no channel): people are suggested from the Townsquare, nothing is posted
+    val posts = from != Routes.NO_CHANNEL
+    val c = Belfry.colors
+    val channel = if (posts) from else "general"
     val session = LocalSession.current
     val world = LocalWorld.current
     val nav = LocalNav.current
@@ -229,7 +237,7 @@ fun CreateMeetingScreen(channel: String) {
         "minutes" to minutes.toString(), "place" to place, "online" to online,
     )
 
-    CardScreen("New meeting", subtitle = where?.let { "From # " + it.name }) {
+    CardScreen("New meeting", subtitle = if (posts) where?.let { "From # " + it.name } else null) {
         PageColumn {
             BelfryTextField(topic, { topic = it.take(200) }, Modifier.fillMaxWidth().testTag("meet-topic"), label = "Topic", placeholder = "e.g. Plan the garden day", keyboardOptions = words)
             Column {
@@ -253,11 +261,21 @@ fun CreateMeetingScreen(channel: String) {
                 Gap(8)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (pl in places.filter { it != place }) Chip(pl, icon = BelfryIcons.MapPin, onClick = { place = pl })
-                    Chip(
-                        if (online.isNotEmpty()) "Video link added" else "Add a video link", selected = online.isNotEmpty(), icon = BelfryIcons.Link,
-                        onClick = { online = if (online.isNotEmpty()) "" else Actions.jitsiLink(topic.ifBlank { "meeting" }) },
+                    if (online.isEmpty()) Chip(
+                        "Add a video link", icon = BelfryIcons.Link,
+                        onClick = { online = Actions.jitsiLink(topic.ifBlank { "meeting" }) },
                         modifier = Modifier.testTag("meet-video"),
                     )
+                }
+                // the link itself, so the person sees what is added (and can take it off)
+                if (online.isNotEmpty()) {
+                    Gap(8)
+                    Row(Modifier.fillMaxWidth().testTag("meet-video-link"), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(BelfryIcons.Link, contentDescription = "Video link", tint = c.text, modifier = Modifier.size(18.dp))
+                        GapW(8)
+                        Text(online, Modifier.weight(1f), fontSize = 14.sp, lineHeight = 19.sp, color = c.text)
+                        IconAction(BelfryIcons.Close, "Remove the video link", { online = "" }, Modifier.testTag("meet-video-remove"))
+                    }
                 }
             }
             error?.let { ErrorLine(it) }
@@ -268,10 +286,11 @@ fun CreateMeetingScreen(channel: String) {
                     if (!done && topic.isNotBlank()) {
                         done = true
                         val start = ZonedDateTime.of(date, time, zone).toEpochSecond()
-                        val d = session.events.createMeeting(channel, MeetingForm(topic.trim(), people, named, start, minutes, place.trim(), online.trim(), zone.id))
+                        // its link is sent in the channel as soon as the meeting is queued (before the people by name are added)
+                        val d = session.events.createMeeting(channel, MeetingForm(topic.trim(), people, named, start, minutes, place.trim(), online.trim(), zone.id), announce = posts)
                         draft.clear()
                         nav.back()
-                        EventHandoff.hand(channel, EventLinks.url(world.ctx.domain, d))
+                        if (!posts) nav.go(Routes.event(d))
                     }
                 },
                 modifier = Modifier.fillMaxWidth().testTag("create-submit"),
@@ -311,7 +330,11 @@ internal fun MeetingPeople(e: CalEvent, host: Boolean) {
     val there = world.attendance(e)
     val keys = world.meetingPeople(e)
     val held = world.heldByMe(e)
-    val started = e.start - now < 3600
+    // before it starts a host can only take someone off; checking in comes with the meeting
+    val started = Meetings.checkInOpen(e, now)
+    var removing by remember(e.coord) { mutableStateOf<String?>(null) }
+    // only the maker or a belfry admin: readers ignore anyone else's 9001 (vectors/meetings.json), a co-host's too
+    val mayRemove = host && (world.me == e.creator || world.isCommunityAdmin)
     var giving by remember(e.coord) { mutableStateOf<String?>(null) }
     var email by remember(e.coord) { mutableStateOf("") }
     var name by remember(e.coord) { mutableStateOf("") }
@@ -320,11 +343,13 @@ internal fun MeetingPeople(e: CalEvent, host: Boolean) {
     val nThere = there.values.count { it }
 
     Column(Modifier.testTag("meeting-people")) {
-        SectionTitle("People · ${keys.size}" + if (there.isNotEmpty()) " · $nThere there" else "")
+        SectionTitle("People · ${keys.size}" + if (nThere > 0) " · $nThere checked in" else "")
         for (k in keys) {
             val isThere = there[k] == true
             Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                Avatar(world.face(k), Modifier.clip(CircleShape).clickable(role = Role.Button, onClickLabel = world.displayName(k) + ": profile") { nav.go(Routes.profile(k)) }, size = 32.dp)
+                Box(Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button, onClickLabel = world.displayName(k) + ": profile") { nav.go(Routes.profile(k)) }) {
+                    StatusFace(k, world.meetingStatus(e, k, there), 36)
+                }
                 GapW(10)
                 Column(Modifier.weight(1f)) {
                     Text(world.displayName(k), fontSize = 15.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -334,15 +359,17 @@ internal fun MeetingPeople(e: CalEvent, host: Boolean) {
                     GapW(6)
                     BusyButton("Hand over", onClick = { giving = k; email = ""; error = null }, small = true, kind = ButtonKind.Ghost, modifier = Modifier.testTag("meet-give-" + k.take(8)))
                 }
-                if (host) {
+                if (host && (started || isThere)) {
                     GapW(6)
                     BusyButton(
-                        if (isThere) "✓ There" else if (started) "Check in" else "Confirm",
+                        if (isThere) "Checked in" else "Check in",
                         onClick = { session.events.checkIn(e, k, !isThere) },
-                        small = true, kind = if (isThere) ButtonKind.Primary else ButtonKind.Ghost,
+                        small = true, kind = if (isThere) ButtonKind.Primary else ButtonKind.Ghost, icon = if (isThere) BelfryIcons.Check else null,
                         modifier = Modifier.testTag("meet-check-" + k.take(8)).semantics { selected = isThere },
                         onError = { error = shownError(it) },
                     )
+                } else if (mayRemove && k != e.creator) {
+                    IconAction(BelfryIcons.Close, "Remove " + world.displayName(k), { removing = k; error = null }, Modifier.testTag("meet-remove-" + k.take(8)))
                 }
             }
         }
@@ -384,5 +411,78 @@ internal fun MeetingPeople(e: CalEvent, host: Boolean) {
             }
         }
         error?.let { Gap(6); ErrorLine(it) }
+    }
+    removing?.let { k ->
+        ConfirmSheet(
+            title = "Remove ${world.displayName(k)} from this meeting?",
+            confirmLabel = "Remove",
+            onConfirm = { session.events.uninvite(e, k); removing = null },
+            onDismiss = { removing = null },
+            message = "They leave its chat and it no longer shows in their calendar.",
+            confirmTag = "meet-remove-ok",
+        )
+    }
+}
+
+/** A face with its status in the corner (never by colour alone: each status has its own mark). */
+@Composable
+internal fun StatusFace(pubkey: String, status: MeetingStatus, size: Int) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val filled = status == MeetingStatus.CHECKED_IN
+    Box(Modifier.size((size + 4).dp)) {
+        Avatar(world.face(pubkey), Modifier.align(Alignment.Center), size = size.dp)
+        val mark = when (status) {
+            MeetingStatus.INVITED -> BelfryIcons.Clock
+            MeetingStatus.CONFIRMED, MeetingStatus.CHECKED_IN -> BelfryIcons.Check
+            MeetingStatus.MAYBE -> null
+            MeetingStatus.DECLINED -> BelfryIcons.Close
+        }
+        val badge = (size * 0.45f).coerceAtLeast(14f).dp
+        Box(
+            Modifier.align(Alignment.BottomEnd).size(badge).clip(CircleShape).background(if (filled) c.text else c.bg).border(1.dp, c.text, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (mark != null) Icon(mark, contentDescription = null, tint = if (filled) c.bg else c.text, modifier = Modifier.size(badge * 0.7f))
+            else Text("?", fontSize = 10.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold, color = c.text)
+        }
+    }
+}
+
+/**
+ * A meeting's people at a glance (mid): one row of faces, each with its status mark (a clock:
+ * invited, a tick: confirmed, a filled tick: checked in), then the counts in words. A tap opens
+ * the whole page, where the list is.
+ */
+@Composable
+internal fun MeetingFaces(e: CalEvent, onOpen: () -> Unit) {
+    val c = Belfry.colors
+    val world = LocalWorld.current
+    val there = world.attendance(e)
+    val people = world.meetingPeople(e).map { it to world.meetingStatus(e, it, there) }
+    // those checked in first, then confirmed, then the rest
+    val order = listOf(MeetingStatus.CHECKED_IN, MeetingStatus.CONFIRMED, MeetingStatus.MAYBE, MeetingStatus.INVITED, MeetingStatus.DECLINED)
+    val sorted = people.sortedBy { order.indexOf(it.second) }
+    val words = order.mapNotNull { st -> people.count { it.second == st }.takeIf { it > 0 }?.let { "$it ${st.label.lowercase()}" } }.joinToString(" · ")
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button, onClickLabel = "See the people", onClick = onOpen)
+            .semantics(mergeDescendants = true) { contentDescription = "People: $words" }.padding(vertical = 4.dp).testTag("meeting-faces"),
+    ) {
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            // as many faces as fit in one row (never a sideways scroll), then +N
+            val fit = ((maxWidth.value + 6f) / 50f).toInt().coerceAtLeast(1)
+            val shown = if (sorted.size > fit) sorted.take(fit - 1) else sorted
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                for ((k, st) in shown) StatusFace(k, st, 40)
+                if (sorted.size > shown.size) Box(Modifier.size(40.dp).clip(CircleShape).border(1.dp, c.line, CircleShape), contentAlignment = Alignment.Center) {
+                    Text("+${sorted.size - shown.size}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                }
+            }
+        }
+        Gap(6)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(words, Modifier.weight(1f), fontSize = 14.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(BelfryIcons.Chevron, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp))
+        }
     }
 }

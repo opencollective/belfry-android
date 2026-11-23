@@ -74,6 +74,32 @@ object Meetings {
             EventActions.edit(e, formOf(e, zone), g, groupsRelay, invitedTags(fresh))
     }
 
+    /**
+     * A host takes PUBKEY off meeting E: out of its chat (9001) and off the event (a new version
+     * without their `p … invited`). Never the person who made it.
+     */
+    fun uninvite(e: CalEvent, pubkey: String, g: Group?, groupsRelay: String, zone: String): List<Draft> {
+        if (pubkey == e.creator || !Hex.isKey(pubkey)) return emptyList()
+        return listOf(Draft(Target.GROUPS, 9001, tags = listOf(listOf("h", e.groupId), listOf("p", pubkey)))) +
+            if (pubkey in e.invited) EventActions.edit(e, formOf(e, zone), g, groupsRelay, drop = setOf(pubkey)) else emptyList()
+    }
+
+    /** CHAT: the events of the meeting's chat; MAY: who else than the maker may put people in and out (the belfry's admins). */
+    fun removed(chat: List<sh.belfry.core.nostr.Event>, maker: String, may: Set<String>): Set<String> {
+        val last = HashMap<String, Pair<Long, Int>>()
+        for (x in chat) {
+            if ((x.kind != 9000 && x.kind != 9001) || (x.pubkey != maker && x.pubkey !in may)) continue
+            val p = x.tags.firstOrNull { it.size >= 2 && it[0] == "p" }?.get(1) ?: continue
+            if (p == maker) continue
+            val had = last[p]
+            if (had == null || had.first <= x.createdAt) last[p] = x.createdAt to x.kind
+        }
+        return last.filter { it.value.second == 9001 }.keys
+    }
+
+    /** Checking people in opens when the meeting starts (Xavier's word); before, a host can only remove. */
+    fun checkInOpen(e: CalEvent, now: Long): Boolean = now >= e.start
+
     /** A host marks PUBKEY as there (ON) or not. */
     fun checkIn(e: CalEvent, pubkey: String, on: Boolean): Draft = Draft(
         Target.GROUPS, 1985, "",
@@ -103,18 +129,48 @@ fun World.attendance(e: CalEvent): Map<String, Boolean> {
     return out.mapValues { it.value.second }
 }
 
-/** A meeting's people: who made it, everyone invited, and whoever answered. */
-fun World.meetingPeople(e: CalEvent): List<String> = (listOf(e.creator) + e.invited + e.rsvps.keys).distinct()
+/** Where a person stands for a meeting: asked, said yes (or maybe / no), or seen there by a host. */
+enum class MeetingStatus(val label: String) {
+    INVITED("Invited"), CONFIRMED("Confirmed"), MAYBE("Maybe"), DECLINED("Can't come"), CHECKED_IN("Checked in")
+}
+
+/**
+ * Who was taken off the meeting (vectors/meetings.json `removal`): of the chat's 9000 / 9001 signed
+ * by its maker or a belfry admin, the latest about a person is a 9001. Anyone else's are ignored
+ * (the relay refuses them, but we don't rely on it); a later 9000 brings the person back.
+ */
+fun World.meetingRemoved(e: CalEvent): Set<String> = Meetings.removed(groupEventsSorted(e.groupId), e.creator, everywhere(e.groupId))
+
+/** A meeting's people: who made it, everyone invited, and whoever answered; not who was removed. */
+fun World.meetingPeople(e: CalEvent): List<String> {
+    val gone = meetingRemoved(e)
+    return (listOf(e.creator) + (e.invited + e.rsvps.keys).filter { it !in gone }).distinct()
+}
 
 /** The name-only accounts I made for a meeting: mine to hand over (the belfry checks it too). */
 fun World.heldByMe(e: CalEvent): Set<String> = guestJoins(e.groupId).filter { it.unsaved && it.by == me }.map { it.pubkey }.toSet()
 
-/** What a person's row of a meeting says under the name. */
-fun World.meetingRole(e: CalEvent, pubkey: String, there: Map<String, Boolean>): String = when {
-    there[pubkey] == true -> "There"
-    e.rsvps[pubkey] != null -> e.rsvps.getValue(pubkey).label
-    pubkey in e.hosts -> "Host"
-    else -> "Invited"
+/** Checked in (a host's mark) wins, then their answer; the person who made it has confirmed by making it. */
+fun World.meetingStatus(e: CalEvent, pubkey: String, there: Map<String, Boolean>): MeetingStatus = when {
+    there[pubkey] == true -> MeetingStatus.CHECKED_IN
+    e.rsvps[pubkey] == Rsvp.ACCEPTED -> MeetingStatus.CONFIRMED
+    e.rsvps[pubkey] == Rsvp.TENTATIVE -> MeetingStatus.MAYBE
+    e.rsvps[pubkey] == Rsvp.DECLINED -> MeetingStatus.DECLINED
+    pubkey == e.creator -> MeetingStatus.CONFIRMED
+    else -> MeetingStatus.INVITED
+}
+
+/**
+ * What a person's row of a meeting says under the name: "Host · " for who made it, "Co-host · "
+ * for someone made one (never the belfry's admins, who are admins of every chat), then the status.
+ */
+fun World.meetingRole(e: CalEvent, pubkey: String, there: Map<String, Boolean>): String {
+    val status = meetingStatus(e, pubkey, there).label
+    return when (eventRole(e, pubkey)) {
+        EventRole.HOST -> "Host · $status"
+        EventRole.COHOST -> "Co-host · $status"
+        else -> status
+    }
 }
 
 /**
@@ -148,3 +204,49 @@ fun World.lastPlace(): String {
 /** Where meetings were held lately (the form's chips), most recent first, at most five. */
 fun World.meetingPlaces(): List<String> =
     calendar.filter { it.meeting }.sortedByDescending { it.ev.createdAt }.mapNotNull { it.location?.takeIf { l -> l.isNotBlank() } }.distinct().take(5)
+
+
+/**
+ * Inviting members to an event that is not a meeting (SPEC 19.65): a host's new version of the
+ * event with one `["p",<pubkey>,"","invited"]` each (so it shows under their Calendar · Invited),
+ * and a marked line in the event's chat (drawn "<host> invited <names>"). Nobody is put in
+ * the chat and nobody gets a role.
+ */
+object EventInvites {
+    /** Members who can still be invited: not me, not a host, not invited, no answer yet; by name. */
+    fun candidates(w: World, e: CalEvent): List<String> {
+        val taken = e.invited.toSet() + e.rsvps.keys + e.hosts + w.me
+        return w.people.map { it.first }.filter { it !in taken && Hex.isKey(it) }.distinct().sortedBy { w.displayName(it).lowercase() }
+    }
+
+    /** The new version: the event as it is plus the fresh `p … invited` tags. Empty when none is new. */
+    fun version(e: CalEvent, keys: List<String>, g: Group?, groupsRelay: String, zone: String): List<Draft> {
+        val fresh = keys.distinct().filter { it !in e.invited && it != e.creator && Hex.isKey(it) }
+        if (fresh.isEmpty()) return emptyList()
+        return EventActions.edit(e, Meetings.formOf(e, zone), g, groupsRelay, fresh.map { listOf("p", it, "", "invited") })
+    }
+
+    val MARK = listOf("invited", "event")
+
+    /**
+     * The chat's line: a kind 9 by the host, `h`, one `p` per person and `["invited","event"]`; its
+     * content is the readable fallback for clients that don't know the tag ("invited nostr:npub…").
+     */
+    fun message(groupId: String, keys: List<String>): Draft? {
+        val who = keys.distinct().filter { Hex.isKey(it) }
+        val refs = who.mapNotNull { try { "nostr:" + sh.belfry.core.crypto.Bech32.npub(it) } catch (x: IllegalArgumentException) { null } }
+        if (refs.isEmpty()) return null
+        return Draft(Target.GROUPS, 9, "invited " + refs.joinToString(" "), listOf(listOf("h", groupId)) + who.map { listOf("p", it) } + listOf(MARK))
+    }
+
+    /**
+     * Who a message of the event's chat says was invited, when it is such a line by a host (the
+     * maker, a co-host by role, a belfry admin); null: an ordinary message (anyone else's mark
+     * counts for nothing).
+     */
+    fun invitedBy(w: World, e: CalEvent, ev: sh.belfry.core.nostr.Event): List<String>? {
+        if (ev.kind != 9 || ev.tags.none { it == MARK }) return null
+        if (ev.pubkey != e.creator && ev.pubkey !in e.hosts && ev.pubkey !in w.ctx.communityAdmins) return null
+        return ev.tags.filter { it.size >= 2 && it[0] == "p" && Hex.isKey(it[1]) }.map { it[1] }.distinct().ifEmpty { null }
+    }
+}

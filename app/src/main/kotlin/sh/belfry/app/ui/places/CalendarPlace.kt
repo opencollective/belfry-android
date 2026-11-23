@@ -68,6 +68,7 @@ fun CalendarPlace(onMenu: (() -> Unit)? = null, menuBadge: Int = 0) {
     val lists = if (guest) listOf(CalendarList.PUBLIC) else listOf(CalendarList.MINE, CalendarList.INVITED, CalendarList.DISCOVER)
     var tab by rememberSaveable { mutableStateOf(0) }
     var accounts by rememberSaveable { mutableStateOf(false) }
+    var adding by rememberSaveable { mutableStateOf(false) }
     val now = session.now()
     val remote by session.members.publicEvents.collectAsState()
     if (guest) LaunchedEffect(session) { try { session.members.refreshPublicEvents() } catch (e: Exception) { } }
@@ -79,7 +80,7 @@ fun CalendarPlace(onMenu: (() -> Unit)? = null, menuBadge: Int = 0) {
             subtitle = world.ctx.communityName.ifEmpty { session.community.name },
             onTitleClick = { accounts = true },
             navigation = if (onMenu != null) ({ IconAction(BelfryIcons.Menu, "Menu", onMenu, badge = menuBadge) }) else null,
-            actions = { if (!guest) IconAction(BelfryIcons.Plus, "New event", { nav.go(Routes.createEvent(Routes.NO_CHANNEL)) }) },
+            actions = { if (!guest) IconAction(BelfryIcons.Plus, "New", { adding = true }, Modifier.testTag("calendar-add")) },
         )
         if (lists.size > 1) {
             PrimaryTabRow(selectedTabIndex = tab, containerColor = c.bg, contentColor = c.text) {
@@ -136,6 +137,20 @@ fun CalendarPlace(onMenu: (() -> Unit)? = null, menuBadge: Int = 0) {
         }
     }
     if (accounts) AccountsSheet(onDismiss = { accounts = false }, go = nav::go)
+    // the ＋: a public event or a meeting (Xavier, 2026-11-22)
+    if (adding) sh.belfry.app.ui.kit.BelfrySheet(onDismiss = { adding = false }, title = "New", modifier = Modifier.testTag("calendar-new")) {
+        sh.belfry.app.ui.kit.ActionGroup {
+            sh.belfry.app.ui.kit.ActionRow(
+                "Event", onClick = { adding = false; nav.go(Routes.createEvent(Routes.NO_CHANNEL)) }, icon = BelfryIcons.Calendar,
+                sub = "Public or for members, with its own page and tickets", modifier = Modifier.testTag("calendar-new-event"),
+            )
+            sh.belfry.app.ui.kit.ActionRow(
+                "Meeting", onClick = { adding = false; nav.go(Routes.createMeeting(Routes.NO_CHANNEL)) }, icon = BelfryIcons.Users,
+                sub = "A topic, people, a time; only for those invited", modifier = Modifier.testTag("calendar-new-meeting"),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+    }
 }
 
 

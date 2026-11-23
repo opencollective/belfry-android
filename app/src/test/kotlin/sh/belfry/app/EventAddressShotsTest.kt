@@ -32,6 +32,9 @@ class EventAddressShotsTest : DemoShots() {
         assertTrue(abs((copy.right - copy.left).value - (share.right - share.left).value) < 1f)
         assertTrue(abs((copy.bottom - copy.top).value - 50f) < 1f)
         assertTrue(abs((share.bottom - share.top).value - 50f) < 1f)
+        // Copy URL · Share · QR on one row, the same width each
+        val qr = compose.onNodeWithTag("event-qr").getBoundsInRoot()
+        assertTrue(abs((qr.right - qr.left).value - (share.right - share.left).value) < 1f)
     }
 
     @Test fun copied() {
@@ -43,7 +46,7 @@ class EventAddressShotsTest : DemoShots() {
         }) { EventScreen(repair.coord) }
         compose.onNodeWithText("Copied").assertExists()
         compose.mainClock.advanceTimeBy(2_500)
-        compose.onNodeWithText("Copy link").assertExists()
+        compose.onNodeWithText("Copy").assertExists()
         compose.mainClock.autoAdvance = true
     }
 }

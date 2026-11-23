@@ -55,8 +55,10 @@ class CardsBehaviourTest : DemoShots() {
         compose.waitUntil(10_000) { world.calEvent(coord)?.let { world.myRsvp(it) } == Rsvp.ACCEPTED }
         settle()
         assertEquals("one tap, one answer", before + 1, mine(31925))
-        // after an answer the header's icon row says so (one shape: "✓ Going" leads, read out as "You’re going")
-        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("You’re going"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        // after an answer its button is the one marked (full keeps mid's header since SPEC 19.65: no icon row there)
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(androidx.compose.ui.test.hasTestTag("rsvp-accepted") and androidx.compose.ui.test.isSelected(), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     @Test

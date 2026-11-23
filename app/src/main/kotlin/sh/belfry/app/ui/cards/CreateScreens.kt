@@ -480,14 +480,15 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
 
     when (picking) {
         Picking.None -> Unit
+        // a new start moves the end with it: the event keeps its length
         Picking.StartDate -> PickDate(startDate, { picking = Picking.None }) {
-            startDate = it
-            if (endDate.isBefore(it)) endDate = it
+            val (d, t) = sh.belfry.core.model.EventShape.endFor(startDate, startTime, endDate, endTime, it, startTime, allDay)
+            startDate = it; endDate = d; endTime = t
         }
         Picking.EndDate -> PickDate(endDate, { picking = Picking.None }) { endDate = it }
         Picking.StartTime -> PickTime(startTime, { picking = Picking.None }) {
-            startTime = it
-            if (endDate == startDate && endTime.isBefore(it)) endTime = it.plusHours(1).let { e -> if (e.isBefore(it)) LocalTime.of(23, 59) else e }
+            val (d, t) = sh.belfry.core.model.EventShape.endFor(startDate, startTime, endDate, endTime, startDate, it, allDay)
+            startTime = it; endDate = d; endTime = t
         }
         Picking.EndTime -> PickTime(endTime, { picking = Picking.None }) { endTime = it }
     }

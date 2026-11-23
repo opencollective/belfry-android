@@ -86,4 +86,7 @@ class PlacesShotsTest : DemoShots() {
         assertEquals(listOf(Routes.MENTIONS), went)
         assertEquals(ShellState.Place.HOME, s.place)
     }
+
+    /** The calendar's ＋: an event or a meeting. */
+    @Test fun calendarNew() = demoScreenShot("places-calendar-new", act = { compose.onNodeWithTag("calendar-add").performClick() }) { CalendarPlace() }
 }

@@ -6,6 +6,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import sh.belfry.core.engine.MemoryVault
 import sh.belfry.core.engine.Onboarding
@@ -121,9 +124,9 @@ class MeetingsTest {
         events.add(ev(alice, t0 + 303, 1985, tags = listOf(listOf("h", g), listOf("L", "belfry/pin"), listOf("l", "pinned", "belfry/pin"), listOf("p", dave))))
         var w = world(events)
         assertEquals(mapOf(bob to true, carol to false), w.attendance(e))
-        assertEquals("There", w.meetingRole(e, bob, w.attendance(e)))
+        assertEquals("Checked in", w.meetingRole(e, bob, w.attendance(e)))
         assertEquals("Invited", w.meetingRole(e, carol, w.attendance(e)))
-        assertEquals("Host", w.meetingRole(e, alice, w.attendance(e)))
+        assertEquals("Host · Confirmed", w.meetingRole(e, alice, w.attendance(e)))
         // the host changes their mind: the latest counts
         events.add(draft(alice, t0 + 400, Meetings.checkIn(e, bob, false)))
         w = world(events)
@@ -133,6 +136,31 @@ class MeetingsTest {
         w = world(events)
         val now = w.calendar.single()
         assertEquals("Maybe", w.meetingRole(now, carol, w.attendance(now)))
+        events.add(draft(carol, t0 + 600, EventActions.rsvp(now, Rsvp.ACCEPTED, carol)))
+        w = world(events)
+        assertEquals(MeetingStatus.CONFIRMED, w.meetingStatus(w.calendar.single(), carol, emptyMap()))
+    }
+
+    @Test
+    fun aHostTakesSomeoneOff() {
+        val events = made().toMutableList()
+        val e = world(events).calendar.single()
+        assertTrue(carol in world(events).meetingPeople(e))
+        val drafts = Meetings.uninvite(e, carol, null, "wss://g", "UTC")
+        assertEquals(listOf(listOf("h", g), listOf("p", carol)), drafts.first().tags)
+        assertEquals(9001, drafts.first().kind)
+        // never the person who made it
+        assertTrue(Meetings.uninvite(e, alice, null, "wss://g", "UTC").isEmpty())
+        drafts.forEachIndexed { i, d -> events.add(draft(alice, t0 + 700 + i, d)) }
+        val w = world(events)
+        val now = w.calendar.single()
+        assertTrue(carol !in now.invited)
+        assertTrue(bob in now.invited)
+        assertTrue(now.meeting)
+        assertTrue(carol !in w.meetingPeople(now))
+        // checking in opens at the start
+        assertTrue(!Meetings.checkInOpen(now, now.start - 1))
+        assertTrue(Meetings.checkInOpen(now, now.start))
     }
 
     @Test
@@ -220,5 +248,47 @@ class MeetingsTest {
         } finally {
             scope.coroutineContext[Job]?.cancel()
         }
+    }
+
+    /** vectors/meetings.json (written here; for belfry-ios and the web to read removals the same way). */
+    @Test
+    fun removalVectors() {
+        val v = sh.belfry.core.Vectors.load("meetings.json")["removal"]!!.jsonObject
+        val maker = v["maker"]!!.jsonPrimitive.content
+        val admins = v["admins"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+        for (c in v["cases"]!!.jsonArray.map { it.jsonObject }) {
+            val events = c["events"]!!.jsonArray.map { Event.fromJson(it)!! }
+            assertEquals(c["removed"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(), Meetings.removed(events, maker, admins), c["name"]!!.jsonPrimitive.content)
+        }
+    }
+
+    @Test
+    fun invitingToAnEvent() {
+        val plain = EventActions.create(EventForm(title = "Garden day", start = t0 + 86400, allDay = true, startDate = "2027-01-10", endDate = "2027-01-12"), "2026-plain2", alice, "wss://g", "wss://m").mapIndexed { i, x -> draft(alice, t0 + i, x) }.toMutableList()
+        var w = world(plain)
+        val e = w.calendar.single()
+        // three whole days: its last day is the end date itself
+        assertEquals(java.time.LocalDate.of(2027, 1, 12), w.lastDay(e))
+        val drafts = EventInvites.version(e, listOf(bob, carol, bob, alice), null, "wss://g", "UTC")
+        assertEquals(listOf(listOf("p", bob, "", "invited"), listOf("p", carol, "", "invited")), drafts.single().tags.filter { it[0] == "p" })
+        drafts.forEachIndexed { i, d -> plain.add(draft(alice, t0 + 100 + i, d)) }
+        w = world(plain)
+        val now = w.calendar.single()
+        assertEquals(listOf(bob, carol), now.invited)
+        assertFalse(now.meeting)
+        assertTrue(now.allDay)
+        // nothing new: no version
+        assertTrue(EventInvites.version(now, listOf(bob), null, "wss://g", "UTC").isEmpty())
+        // the invited see it under Invited
+        assertTrue(world(plain, me = bob).isInvited(now))
+        // the chat's line: h, a p each, the mark; the text is the fallback for clients that don't know it
+        val line = EventInvites.message(now.groupId, listOf(bob, carol))!!
+        assertEquals(9, line.kind)
+        assertEquals(listOf(listOf("h", now.groupId), listOf("p", bob), listOf("p", carol), listOf("invited", "event")), line.tags)
+        assertTrue(line.content.startsWith("invited nostr:npub1"))
+        assertEquals(listOf(bob, carol), EventInvites.invitedBy(w, now, draft(alice, t0 + 200, line)))
+        // someone who is not a host: an ordinary message
+        assertNull(EventInvites.invitedBy(w, now, draft(dave, t0 + 201, line)))
+        assertNull(EventInvites.invitedBy(w, now, ev(alice, t0 + 202, 9, "invited them", listOf(listOf("h", now.groupId), listOf("p", bob)))))
     }
 }

@@ -2558,6 +2558,38 @@ Nothing new on the wire: everything is read from the event (31923), its RSVPs (3
   Public row; a group made Private while its page is public is saved as members only (its web
   settings written with `on`/`visibility` members, as going members only always did).
 
+### 19.63 Meetings, second pass (2026-11-22; Xavier's word, from his tablet; changes 19.23 on Android)
+
+- **Made from a channel:** its URL is sent in that channel as a message (kind 9, the URL alone) as
+  soon as the meeting's events are queued; nothing is left in the message box. **Made from the
+  Calendar's ＋** (which now asks: Event or Meeting): nothing is posted, the meeting opens; people
+  are suggested from the Townsquare and its `channel` tag says `general`.
+- **The form** shows the video link itself once added (with ✕ to take it off), not "Video link added".
+- **The page opens mid** (19.54's three states; a meeting no longer opens whole): title, when,
+  where, "Hosted by", then one row of faces, each with its status in the corner, and the counts in
+  words ("1 checked in · 2 confirmed · 1 invited"); a tap opens full. Below, its chat. No "Show my
+  ticket" and no "Check people in" (QR) on a meeting.
+- **Status** (`MeetingStatus`): Checked in (a host's latest `attended` label) · Confirmed (RSVP
+  accepted; also the person who made it, unless they answered otherwise) · Maybe · Can't come ·
+  Invited. Marks: a filled tick, a tick, "?", ✕, a clock (never colour alone).
+- **Hosts.** Only the person who made it is "Host"; "Co-host" is someone made one (an admin by
+  role); the belfry's admins (admins of every chat through its 39001) and the door are neither.
+  A row says "Host · Confirmed", "Invited", …
+- **Per person:** the ✕ is only for the meeting's maker and a belfry admin (a co-host's 9001 would
+  count for nothing); "Check in" is for every host. Before check-in opens (at the start,
+  `Meetings.checkInOpen`), a ✕ that asks, then takes the person off: `9001 [["h",<chat>],["p",<pubkey>]]`
+  and a new version of the event without their `p … invited` (`Meetings.uninvite`; never the
+  maker). Someone whose latest 9000 / 9001 in the chat is a 9001 is no longer among the meeting's
+  people, whatever they answered; only a 9000 / 9001 signed by the meeting's maker or a belfry
+  admin counts (anyone else's is ignored, whatever the relay let through), the latest per person
+  decides, and a later 9000 brings them back (`Meetings.removed`, **vectors/meetings.json**
+  `removal`). From then on: "Check in" → "✓ Checked in" (the 1985 of 19.23).
+  There is no "Confirm" button any more.
+- **The handle** of an event's page (all events): ⌃ on its left goes up a level (full → mid →
+  tiny), ⌄ on its right goes down; the drag and the tap on the bar stay.
+- **The event form:** changing the start (day or time) moves the end by as much: the event keeps
+  its length (`EventShape.endFor`; all-day: its number of days).
+
 ### 19.64 Sealed: the waiting view names who can unlock; It was me once for all (8563) (2026-11-22; Xavier via the lead; contract collective-belfry docs/sealed.md §5.2 step 2b at belfry-sh 3c20015; canvas Messages v5 note n-e2e-locked-named, boards messages/encryption-new-device, -waiting-list, -devices-waiting, -locked-thread, -waiting, -locked-added, -start-fresh)
 
 **The waiting view.** A device that is not in my head (or is in it without the key) says, wherever it showed the
@@ -2608,6 +2640,33 @@ notice). When my chain, or the roster named, isn't known yet the wrap is kept an
 shows a notice already answered. An 8563 never reaches the conversations (not a message, never marks a conversation
 sealed), and is never shared or taken in a shared history (8564). Vectors: `vectors/sealed.json` → `confirm`
 (the chain, 15 cases, one real wrap; made by `tools/sealed_confirm_vectors.py`).
+
+### 19.65 The event page, second pass (2026-11-22; Xavier's word, from his tablet; changes 19.54 on Android)
+
+- **Every event opens mid** (answered or not; an older calendar event still opens whole). Mid and
+  full share one top: the cover with ‹ ••• on it (no cover: the usual header) and the title;
+  pulling down (or "More") only shows more under it. Tiny keeps its two header lines.
+- **Whole days over several days** say their days ("Thu 12 Nov → Sat 14 Nov"), never "All day"
+  (`World.lastDay`: an all-day event's end date is its last day). One whole day still says "All day".
+- **Address** (full): the URL on one line that scrolls sideways when it is longer than the screen,
+  then one row: Copy · Share · QR.
+- **Tickets.** With a ticket: "Show my ticket" under Going / Maybe / Can't go (as before). With
+  none, on an event that has ticket types: the tickets themselves, each with its button (RSVP /
+  Apply / Ask / Buy / Waitlist), in mid too; no single "Pick a ticket" button.
+- **An event's chat with nothing said yet** shows a short menu instead of "… is new · Invite
+  people": Copy URL, QR code, Open the public page (not members only), and for hosts Invite a
+  co-host (the link of 19.29) and Invite people.
+- **Invite people** (hosts; not a meeting, which has its own people): members only, a search and
+  ticks, no roles (nobody becomes a member or a steward from an event). It publishes a new version
+  of the event with one `["p",<pubkey>,"","invited"]` per person (the tag a meeting uses, 19.23;
+  the event then shows under their Calendar · Invited until they answer: **a reader shows Invited
+  for any event carrying my `p … invited`, not only one with `t meeting`**) and posts one marked
+  line in the event's chat: kind 9 by the host, tags `["h",<chat>]`, one `["p",<pubkey>]` per
+  person and `["invited","event"]`; its content is the readable fallback, `invited nostr:<npub> …`.
+  A client that knows the tag draws a system line "‹host› invited ‹names›" (names, never ids) when
+  its author is a host (the maker, a co-host by role, a belfry admin); anyone else's is an ordinary
+  message, as it is for an old client. Nobody is put in the chat. Telling the invitee (push, mail)
+  is the belfry's, from the event's `p … invited` tags. `EventInvites` (core).
 
 ### 19.66 Notes to myself (2026-11-23; Xavier; contract collective-belfry docs/one-shape.md "Notes to myself" at belfry-sh ec048e3; canvas Messages v6 note n-notes, boards messages/notes-list, one-shape/notes-empty, notes-thread, notes-unsealed)
 

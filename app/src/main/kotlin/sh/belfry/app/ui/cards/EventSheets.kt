@@ -1,5 +1,24 @@
 package sh.belfry.app.ui.cards
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import sh.belfry.app.ui.chat.face
+import sh.belfry.app.ui.kit.Avatar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -313,4 +332,78 @@ internal fun PaymentNote(modifier: Modifier = Modifier) {
         "Priced tickets: you ask, you pay the hosts, and once they confirm your payment the place is yours. Until then: \u201cWaiting for the host to confirm your payment\u201d.",
         fontSize = 14.sp, lineHeight = 19.sp, color = Belfry.colors.muted, modifier = modifier.testTag("payment-note"),
     )
+}
+
+
+/**
+ * An event's chat with nothing said yet: the short menu (Xavier, 2026-11-22) instead of "Invite
+ * people". Copy the URL, its QR code, the public page, and for hosts a co-host link and inviting
+ * members.
+ */
+@Composable
+internal fun EventQuickMenu(e: CalEvent, host: Boolean, open: (EventSheet) -> Unit) {
+    val world = LocalWorld.current
+    val context = LocalContext.current
+    val url = world.eventUrl(e)
+    var copied by remember(e.coord) { mutableStateOf(false) }
+    LaunchedEffect(copied) { if (copied) { kotlinx.coroutines.delay(2_000); copied = false } }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp).testTag("event-quick"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Muted("Nothing said here yet.")
+        ActionGroup {
+            ActionRow(if (copied) "Copied" else "Copy URL", onClick = { copyText(context, url, e.title); copied = true }, icon = if (copied) BelfryIcons.Check else BelfryIcons.Copy, modifier = Modifier.testTag("quick-copy"))
+            ActionRow("QR code", onClick = { open(EventSheet.Qr) }, icon = BelfryIcons.Qr, modifier = Modifier.testTag("quick-qr"))
+            if (e.visibility != Visibility.MEMBERS) ActionRow("Open the public page", onClick = { openInBrowser(context, url) }, icon = BelfryIcons.Globe, modifier = Modifier.testTag("quick-page"))
+            if (host) ActionRow("Invite a co-host", onClick = { open(EventSheet.CoHost) }, icon = BelfryIcons.Link, modifier = Modifier.testTag("quick-cohost"))
+            if (host && !e.meeting) ActionRow("Invite people", onClick = { open(EventSheet.Invite) }, icon = BelfryIcons.Users, modifier = Modifier.testTag("quick-invite"))
+        }
+    }
+}
+
+/**
+ * Invite members to an event: search, tick, Invite. No roles here (nobody becomes a member or a
+ * steward from an event). The chat then says "<me> invited @A @B".
+ */
+@Composable
+internal fun EventInviteSheet(e: CalEvent, onDismiss: () -> Unit) {
+    val world = LocalWorld.current
+    val session = LocalSession.current
+    val c = Belfry.colors
+    var q by remember(e.coord) { mutableStateOf("") }
+    var picked by remember(e.coord) { mutableStateOf<List<String>>(emptyList()) }
+    var error by remember(e.coord) { mutableStateOf<String?>(null) }
+    val already = remember(world, e.coord) { e.invited.toSet() + e.rsvps.keys + e.hosts + world.me }
+    val all = remember(world, e.coord) { sh.belfry.core.model.EventInvites.candidates(world, e) }
+    val shown = (picked + all.filter { it !in picked && (q.isBlank() || world.displayName(it).contains(q.trim(), ignoreCase = true)) }).take(40)
+    BelfrySheet(onDismiss = onDismiss, title = "Invite people", modifier = Modifier.testTag("event-invite")) {
+        Column(Modifier.padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            BelfryTextField(q, { q = it.take(60) }, Modifier.fillMaxWidth().testTag("invite-search"), placeholder = "Search members")
+            if (shown.isEmpty()) Muted(if (all.isEmpty()) "Everyone here is invited already." else "Nobody by that name.")
+            else Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                for (k in shown) {
+                    val on = k in picked
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .clickable(role = Role.Checkbox) { picked = if (on) picked - k else picked + k }
+                            .semantics { selected = on }.padding(vertical = 8.dp, horizontal = 4.dp).testTag("invite-" + k.take(8)),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Avatar(world.face(k), size = 34.dp)
+                        GapW(10)
+                        Text(world.displayName(k), Modifier.weight(1f), fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        // picked: a filled disc with a tick; not picked: an empty ring (never colour alone)
+                        Box(Modifier.size(24.dp).clip(CircleShape).background(if (on) c.text else c.bg).border(1.5.dp, if (on) c.text else c.line, CircleShape), contentAlignment = Alignment.Center) {
+                            if (on) Icon(BelfryIcons.Check, contentDescription = null, tint = c.bg, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+            error?.let { ErrorLine(it) }
+            BusyButton(
+                if (picked.isEmpty()) "Invite" else if (picked.size == 1) "Invite ${world.displayName(picked[0])}" else "Invite ${picked.size} people",
+                onClick = { error = null; session.events.inviteTo(e, picked); onDismiss() },
+                enabled = picked.isNotEmpty(), modifier = Modifier.fillMaxWidth().testTag("invite-send"), onError = { error = shownError(it) },
+            )
+            Muted("They find it under Calendar · Invited. The event's chat says who you invited.")
+        }
+    }
 }
