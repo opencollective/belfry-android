@@ -101,7 +101,7 @@ fun MessagesScreen(
     val seal by session.encryption.state.collectAsState()
     Column(Modifier.fillMaxSize().background(c.bg)) {
         TopBar(
-            "Messages", subtitle = if (address != null) "Your address: $address" else null,
+            "Messages", subtitle = address,
             navigation = when {
                 !place -> ({ BackButton { nav.back() } })
                 onMenu != null -> ({ IconAction(BelfryIcons.Menu, "Menu", onMenu, badge = menuBadge) })
