@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Adds the "join" section (collective-belfry docs/sealed.md §5.7 "A device that signed in adds itself", as
-tightened at belfry-sh 88a27b9) to vectors/sealed.json, in the style of the rest of the file (keys made
+tightened at belfry-sh 1440e79) to vectors/sealed.json, in the style of the rest of the file (keys made
 from their names, fixed nonces, 32 zero bytes of Schnorr auxiliary randomness; the crypto is
 tools/sealed_confirm_vectors.py's). Only adds: every existing section is written back byte for byte.
 Every `expected` is computed by the small reference below (a port of the server's sealed.chain / follow /
@@ -23,6 +23,7 @@ class R:
         s.id, s.signer, s.at = e['id'], e['pubkey'], e['created_at']
         s.account = one('p')[0]; s.n = int(one('n')[0]); s.prev = (one('prev') or [None])[0]
         s.lb = one('lb')[0]; s.devices = one('device'); s.ready = any(x and x[0] == 'ready' for x in t)
+        s.endorses = one('endorse')
         s.ok = len(one('p')) == 1 and len(one('n')) == 1 and len(one('lb')) == 1 and len(one('prev')) <= 1 \
             and 1 <= len(s.devices) <= 20 and len(set(s.devices)) == len(s.devices)
 
@@ -37,6 +38,24 @@ def joins(prev, lbs, had, r):
     chain never had, a device the chain never had, dated not before its prev."""
     return (r.n == prev.n + 1 and r.signer not in prev.devices and r.signer not in had
             and r.devices == prev.devices + [r.signer] and r.lb not in lbs and r.at >= prev.at)
+
+def unendorsed(path):
+    """§5.7: the devices of PATH that added themselves and that no later roster endorses, each with the
+    devices of the roster before its join. An endorsement is a roster's ["endorse", <device>] tag, signed by
+    a device that was in the roster BEFORE that device's join. A device that left the head waits for nothing."""
+    waiting = {}
+    for before, r in zip(path, path[1:]):
+        if r.signer not in before.devices:
+            waiting[r.signer] = before.devices; continue
+        for dv in r.endorses:
+            if dv in waiting and r.signer in waiting[dv]: del waiting[dv]
+        for dv in [x for x in waiting if x not in r.devices]: del waiting[dv]
+    return waiting
+
+def lifted(path, i):
+    """The joiners that roster I of PATH endorses (they were waiting before it and are not after)."""
+    a, b = unendorsed(path[:i]), unendorsed(path[:i + 1])
+    return [dv for dv in a if dv not in b and dv in path[i].devices]
 
 class Chain:
     def __init__(s, account, rosters, anchored):
@@ -59,8 +78,8 @@ def anchor_of(a):
 def chain(anchor, rosters, pinned=None, seen_anchored=None):
     """The valid chain. A join counts only on the anchored path (root → the anchor's head), and in a pinned
     path only up to SEEN_ANCHORED (the furthest roster this client saw anchored); never in the tail. A normal
-    roster signed by a device that added itself is invalid, anywhere, until a roster signed by a device that
-    was in the head before that join comes after the join."""
+    roster signed by a device that added itself is invalid, on the path and in the tail, until a roster after
+    its join carries ["endorse", it] signed by a device that was in the roster before that join."""
     if anchor is None: return None
     account = anchor['pubkey']; root_id, head_id = anchor_of(anchor)
     parsed = {}
@@ -70,13 +89,10 @@ def chain(anchor, rosters, pinned=None, seen_anchored=None):
     root = parsed.get(root_id)
     if root is None or root.n != 1 or root.prev is not None or root.signer not in root.devices: return None
 
-    def step(path, lbs, had, joined, r, join_ok):
+    def step(path, lbs, had, r, join_ok):
         if follows(path[-1], lbs, r):
-            if r.signer in joined: return False
-            joined.clear()
-        elif join_ok and joins(path[-1], lbs, had, r):
-            joined.add(r.signer)
-        else:
+            if r.signer in unendorsed(path): return False
+        elif not (join_ok and joins(path[-1], lbs, had, r)):
             return False
         path.append(r); lbs.add(r.lb); had.update(r.devices)
         return True
@@ -91,24 +107,24 @@ def chain(anchor, rosters, pinned=None, seen_anchored=None):
         if at is None: return None
         ids = [root.id] + [r.id for r in reversed(back)]
         limit = len(ids) if joins_until is None else (ids.index(joins_until) + 1 if joins_until in ids else 1)
-        st = ([root], {root.lb}, set(root.devices), set())
+        st = ([root], {root.lb}, set(root.devices))
         for i, r in enumerate(reversed(back), start=1):
             if not step(*st, r, i < limit): return None
         return st
 
-    st = path_to(head_id) or ([root], {root.lb}, set(root.devices), set())
+    st = path_to(head_id) or ([root], {root.lb}, set(root.devices))
     anchored = st[0][-1].id
     if pinned:
         held = path_to(pinned, seen_anchored or root.id)
         if held and len(held[0]) > len(st[0]) and held[0][len(st[0]) - 1].id == anchored: st = held
-    path, lbs, had, joined = st
+    path, lbs, had = st
     kids = {}
     for r in parsed.values():
         if r.prev is not None: kids.setdefault(r.prev, []).append(r)
     while True:
-        ok = [r for r in kids.get(path[-1].id, []) if follows(path[-1], lbs, r) and r.signer not in joined]
+        ok = [r for r in kids.get(path[-1].id, []) if follows(path[-1], lbs, r) and r.signer not in unendorsed(path)]
         if not ok: break
-        step(path, lbs, had, joined, min(ok, key=lambda r: r.id), False)
+        step(path, lbs, had, min(ok, key=lambda r: r.id), False)
     return Chain(account, path, anchored)
 
 def summary(c):
@@ -124,10 +140,15 @@ def _pin(c, seen, was=None, **ch):
             'trusted': None if tr is None else sorted(tr), 'switch_head': ch.get('switch_head', was.get('switch_head')),
             'prev_root': ch.get('prev_root', was.get('prev_root'))}
 
-def _trust_step(trusted, before, r):
+def _trust_step(trusted, c, i):
+    """One roster after a switch: drops leave trust; a device it adds, and a joiner it endorses (§5.7), is
+    trusted only when its signer was."""
+    before, r = c.rosters[i - 1], c.rosters[i]
     vouches = r.signer in trusted
     trusted.difference_update(d for d in before.devices if d not in r.devices)
-    if vouches: trusted.update(d for d in r.devices if d not in before.devices)
+    if vouches:
+        trusted.update(d for d in r.devices if d not in before.devices)
+        trusted.update(lifted(c.rosters, i))
 
 def _carry(pin, c, seen):
     ids = c.ids
@@ -137,7 +158,7 @@ def _carry(pin, c, seen):
         known = 0
         while known < min(len(ids), len(pin['path'])) and ids[known] == pin['path'][known]: known += 1
         tr = set(tr)
-        for i in range(max(known, ids.index(pin['switch_head']) + 1), len(ids)): _trust_step(tr, c.rosters[i - 1], c.rosters[i])
+        for i in range(max(known, ids.index(pin['switch_head']) + 1), len(ids)): _trust_step(tr, c, i)
     return _pin(c, seen, pin, trusted=tr)
 
 def _cut(pin, rosters):
@@ -223,8 +244,8 @@ def build(d):
     T0 = d['fixed']['T0']
     A = pub('alice'); P, L, T, N, X = 'alice_phone', 'alice_laptop', 'alice_tablet', 'alice_new', 'alice_extra'
 
-    def roster(signer, n, prev, lb, devices, at, ready=False):
-        tags = [['p', A], ['n', str(n)]] + ([['prev', prev['id']]] if prev else []) + [['lb', pub(lb)]] + [['device', pub(x)] for x in devices] + ([['ready']] if ready else [])
+    def roster(signer, n, prev, lb, devices, at, ready=False, endorse=()):
+        tags = [['p', A], ['n', str(n)]] + ([['prev', prev['id']]] if prev else []) + [['lb', pub(lb)]] + [['device', pub(x)] for x in devices] + ([['ready']] if ready else []) + [['endorse', pub(x)] for x in endorse]
         return sign_event(sec(signer), at, 8560, tags, '')
 
     def anchor(root, head, at):
@@ -242,7 +263,7 @@ def build(d):
 
     def cc(name, note, anc, rosters, **more):
         c = chain(anc, rosters)
-        exp = summary(c); exp.update(more)
+        exp = summary(c); exp['unendorsed'] = [x for x in (c.devices if c else []) if x in unendorsed(c.rosters)]; exp.update(more)
         return {'name': name, 'note': note, 'anchor': anc, 'rosters': rosters, 'expected': exp}
 
     chains = []
@@ -264,6 +285,11 @@ def build(d):
         rs = (rosters or [r1, r2]) + [r]
         c = cc(name, note, anchor(anc_root, r, r['created_at'] + 1), rs)
         assert r['id'] not in c['expected']['valid_ids'], name
+        return c
+    def tail_bad(name, note, r, rosters):
+        """The anchor names the last good roster; R comes after it and is not taken."""
+        c = cc(name, note, anchor(r1, rosters[-1], rosters[-1]['created_at'] + 1), rosters + [r])
+        assert c['expected']['head'] == rosters[-1]['id'], name
         return c
     chains.append(bad('a join that keeps the old letterbox', 'The same devices, but lb is still alice_lb1. Invalid; the anchor names an invalid roster, so the anchored path is the root alone and roster 2 follows as a valid step.', roster(T, 3, r2, 'alice_lb1', [P, L, T], T0 + 200)))
     r3out = roster(P, 3, r2, 'alice_lb2', [P], T0 + 200)           # the phone removes the laptop
@@ -290,39 +316,72 @@ def build(d):
     chains.append(cc('after a join, an older device removes the joiner', 'The phone (in the head before the join) signs roster 4 without the tablet, a new letterbox the tablet never gets. A normal step.', anchor(r1, out, T0 + 301), [r1, r2, J, out]))
     assert chains[-1]['expected']['head'] == out['id']
 
-    # ---- a device that added itself changes nothing until an older device has signed
+    # ---- a device that added itself changes nothing until it is endorsed
     jadd = roster(T, 4, J, 'alice_lb2', [P, L, T, X], T0 + 300)
-    chains.append(bad('the joiner adds a device before any older device signed', 'Roster 4, signed by the tablet, adds alice_extra. Invalid while no roster signed by a device that was in the head before the join comes after the join. The anchor names an invalid path: the root, then roster 2 as a valid step; the join is not in a tail.', jadd, [r1, r2, J]))
-    chains.append(bad('the joiner removes a device before any older device signed', 'Roster 4, signed by the tablet, drops the phone (new letterbox). Invalid.', roster(T, 4, J, 'alice_lb3', [L, T], T0 + 300), [r1, r2, J]))
-    chains.append(bad('the joiner only restates the roster before any older device signed', 'Roster 4, signed by the tablet: same devices, same letterbox, with ready. Invalid as well: a joiner signs nothing that counts.', roster(T, 4, J, 'alice_lb2', [P, L, T], T0 + 300, ready=True), [r1, r2, J]))
+    chains.append(bad('the joiner adds a device before it is endorsed', 'Roster 4, signed by the tablet, adds alice_extra. Invalid while no roster after the join carries ["endorse", tablet] signed by a device of the roster before the join. The anchor names an invalid path: the root, then roster 2 as a valid step; the join is not in a tail.', jadd, [r1, r2, J]))
+    chains.append(bad('the joiner removes a device before it is endorsed', 'Roster 4, signed by the tablet, drops the phone (new letterbox). Invalid.', roster(T, 4, J, 'alice_lb3', [L, T], T0 + 300), [r1, r2, J]))
+    chains.append(bad('the joiner only restates the roster before it is endorsed', 'Roster 4, signed by the tablet: same devices, same letterbox, with ready. Invalid as well: a joiner signs nothing that counts.', roster(T, 4, J, 'alice_lb2', [P, L, T], T0 + 300, ready=True), [r1, r2, J]))
+    chains.append(bad('the joiner endorses itself', 'Roster 4, signed by the tablet, carries ["endorse", tablet]. The tablet was not in the roster before its join, and its roster counts for nothing anyway.', roster(T, 4, J, 'alice_lb2', [P, L, T], T0 + 300, endorse=[T]), [r1, r2, J]))
     chains.append(cc("the joiner's roster in the provisional tail", "The anchor names the join; the tablet's roster 4 (adds alice_extra) comes after the anchored end. Not taken there either: the head stays the join.", aJ, [r1, r2, J, jadd]))
-    assert chains[-1]['expected']['head'] == J['id']
-    E = roster(P, 4, J, 'alice_lb2', [P, L, T], T0 + 300)           # "It was me" on the phone: the endorsement
+    assert chains[-1]['expected']['head'] == J['id'] and chains[-1]['expected']['unendorsed'] == [pub(T)]
+    E = roster(P, 4, J, 'alice_lb2', [P, L, T], T0 + 300, endorse=[T])   # "It was me" on the phone: the endorsement
     aE = anchor(r1, E, T0 + 301)
-    chains.append(cc('the endorsement: "It was me" on the phone', "Roster 4 = the join's devices, the join's letterbox, signed by the phone, with its anchor. From then on the tablet is a device like the others.", aE, [r1, r2, J, E]))
+    chains.append(cc('the endorsement: "It was me" on the phone', "Roster 4 = the join's devices, the join's letterbox, one [\"endorse\", tablet] tag, signed by the phone (in roster 2, the one before the join), with its anchor. From then on the tablet is a device like the others: 'unendorsed' is empty.", aE, [r1, r2, J, E]))
+    assert chains[-1]['expected']['unendorsed'] == []
     add5 = roster(T, 5, E, 'alice_lb2', [P, L, T, X], T0 + 400)
     chains.append(cc('endorsed, then the joiner adds a device', 'After the endorsement the tablet signs roster 5, which adds alice_extra: valid.', anchor(r1, add5, T0 + 401), [r1, r2, J, E, add5]))
     assert chains[-1]['expected']['head'] == add5['id']
-    rm4 = roster(P, 4, J, 'alice_lb3', [P, T], T0 + 300)            # the phone removes the laptop
-    add5b = roster(T, 5, rm4, 'alice_lb3', [P, T, X], T0 + 400)
-    chains.append(cc('any roster of an older device after the join endorses', "The phone's roster 4 removes the laptop (it says nothing of the tablet). It is signed by a device that was in the head before the join and comes after it: the tablet's roster 5 is valid.", anchor(r1, add5b, T0 + 401), [r1, r2, J, rm4, add5b]))
+    Etail = cc('the endorsement in the provisional tail', "The anchor still names the join; the phone's endorsement (4) and then the tablet's roster 5 come after the anchored end. Both are taken for now: an endorsement is a normal roster, and it counts where it stands.", aJ, [r1, r2, J, E, add5])
+    assert Etail['expected']['head'] == add5['id']
+    chains.append(Etail)
+    plain = roster(P, 4, J, 'alice_lb2', [P, L, T], T0 + 300, ready=True)   # what a device publishes by itself
+    chains.append(bad('a plain roster of an older device does not endorse', "The phone's roster 4 (ready; no endorse tag) is what devices publish by themselves. The tablet is still limited: its roster 5 is invalid. Only the tag endorses, so the limits lift only when the person taps.", roster(T, 5, plain, 'alice_lb2', [P, L, T, X], T0 + 400), [r1, r2, J, plain]))
+    assert chain(anchor(r1, plain, T0 + 301), [r1, r2, J, plain]).head.id == plain['id']
+    rm4 = roster(P, 4, J, 'alice_lb3', [P, T], T0 + 300)            # the phone removes the laptop (its session is gone)
+    chains.append(bad("an older device's removal of another device does not endorse", "The phone's roster 4 removes the laptop and says nothing of the tablet. The tablet's roster 5 is invalid.", roster(T, 5, rm4, 'alice_lb3', [P, T, X], T0 + 400), [r1, r2, J, rm4]))
+    c = cc('a roster that keeps the joiner, without the tag: still limited', "The same roster 4 (the phone removes the laptop) as the head: valid, and 'unendorsed' still names the tablet.", anchor(r1, rm4, T0 + 301), [r1, r2, J, rm4])
+    assert c['expected']['head'] == rm4['id'] and c['expected']['unendorsed'] == [pub(T)]
+    chains.append(c)
+    rmE = roster(P, 4, J, 'alice_lb3', [P, T], T0 + 300, endorse=[T])
+    add5b = roster(T, 5, rmE, 'alice_lb3', [P, T, X], T0 + 400)
+    chains.append(cc('the tag counts on any roster of a device that was there before the join', "The phone's roster 4 removes the laptop AND carries [\"endorse\", tablet]. Validity asks only for the tag and its signer: the tablet's roster 5 is valid. (\"It was me\" itself publishes the same devices and the same letterbox.)", anchor(r1, add5b, T0 + 401), [r1, r2, J, rmE, add5b]))
     assert chains[-1]['expected']['head'] == add5b['id']
+    odd = roster(P, 4, J, 'alice_lb2', [P, L, T], T0 + 300, endorse=[X, L])
+    c = cc('an endorse tag for a device that is not waiting', "The phone's roster 4 names alice_extra (never in the chain) and the laptop (not a joiner). The tags are ignored, the roster is valid, the tablet is still limited.", anchor(r1, odd, T0 + 301), [r1, r2, J, odd])
+    assert c['expected']['head'] == odd['id'] and c['expected']['unendorsed'] == [pub(T)]
+    chains.append(c)
+    gone = roster(P, 4, J, 'alice_lb3', [P, L], T0 + 300)
+    c = cc('a joiner that left the head is no longer waiting', "The phone removes the tablet (roster 4, a new letterbox). Nothing is waiting: 'unendorsed' is empty. (It can never add itself again: the chain had it.)", anchor(r1, gone, T0 + 301), [r1, r2, J, gone])
+    assert c['expected']['unendorsed'] == [] and c['expected']['head'] == gone['id']
+    chains.append(c)
     J2 = roster(N, 4, J, 'alice_lb3', [P, L, T, N], T0 + 300)       # alice_new adds itself after the tablet
-    chains.append(cc('two devices add themselves, one after the other', 'The tablet (roster 3, alice_lb2), then alice_new (roster 4, alice_lb3). Both valid on the anchored path.', anchor(r1, J2, T0 + 301), [r1, r2, J, J2]))
-    assert chains[-1]['expected']['head'] == J2['id']
-    chains.append(bad('a joiner does not endorse an earlier joiner', "After both joins alice_new signs roster 5 (same devices, same letterbox). It was not in the head before the tablet's join, and it added itself too: invalid, nobody is endorsed.", roster(N, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400), [r1, r2, J, J2]))
-    chains.append(bad('the earlier joiner does not endorse the later one', "After both joins the tablet signs roster 5. It was in the head before alice_new's join, but it added itself and no older device has signed since: invalid.", roster(T, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400), [r1, r2, J, J2]))
-    E2 = roster(L, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400)
+    c = cc('two devices add themselves, one after the other', 'The tablet (roster 3, alice_lb2), then alice_new (roster 4, alice_lb3). Both valid on the anchored path, both limited.', anchor(r1, J2, T0 + 301), [r1, r2, J, J2])
+    assert c['expected']['head'] == J2['id'] and c['expected']['unendorsed'] == [pub(T), pub(N)]
+    chains.append(c)
+    chains.append(bad('a joiner does not endorse an earlier joiner', "After both joins alice_new signs roster 5 with [\"endorse\", tablet]. It was not in the roster before the tablet's join, and it is itself not endorsed: its roster is invalid, nobody is endorsed.", roster(N, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400, endorse=[T]), [r1, r2, J, J2]))
+    chains.append(bad('a joiner that is not endorsed does not endorse a later one', "After both joins the tablet signs roster 5 with [\"endorse\", alice_new]. It was in the roster before alice_new's join, but it is itself not endorsed: its roster is invalid.", roster(T, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400, endorse=[N]), [r1, r2, J, J2]))
+    E2 = roster(L, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400, endorse=[T, N])
     t6 = roster(T, 6, E2, 'alice_lb3', [P, L, T, N, X], T0 + 500)
     n7 = roster(N, 7, t6, 'alice_lb4', [P, L, T, N], T0 + 600)
-    chains.append(cc('several joiners, one endorsement after both', "The laptop's roster 5 comes after both joins: both are endorsed. The tablet adds alice_extra (6), alice_new removes it (7, alice_lb4): valid.", anchor(r1, n7, T0 + 601), [r1, r2, J, J2, E2, t6, n7]))
+    chains.append(cc('several joiners, one endorsement after both', "The laptop's roster 5 carries one endorse tag per joiner (it was in the roster before each join): both are endorsed. The tablet adds alice_extra (6), alice_new removes it (7, alice_lb4): valid.", anchor(r1, n7, T0 + 601), [r1, r2, J, J2, E2, t6, n7]))
     assert chains[-1]['expected']['head'] == n7['id']
+    E1 = roster(L, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400, endorse=[T])
+    t6o = roster(T, 6, E1, 'alice_lb3', [P, L, T, N], T0 + 500, ready=True)
+    chains.append(tail_bad('several joiners, the endorsement names one', "The laptop's roster 5 endorses the tablet only. The tablet's roster 6 is valid; alice_new's roster 7, after the anchored end, is not taken: it is still limited.", roster(N, 7, t6o, 'alice_lb3', [P, L, T, N, X], T0 + 600), [r1, r2, J, J2, E1, t6o]))
+    assert chains[-1]['expected']['unendorsed'] == [pub(N)]
+    EN = roster(P, 5, J2, 'alice_lb3', [P, L, T, N], T0 + 400, endorse=[N])
+    n6 = roster(N, 6, EN, 'alice_lb3', [P, L, T, N], T0 + 500, endorse=[T])
+    chains.append(tail_bad('the tag signed by a device that joined after', "alice_new (which joined after the tablet) is endorsed by the phone (5), then signs roster 6 with [\"endorse\", tablet]. Its roster is valid, but it was not in the roster before the tablet's join: the tag does nothing, and the tablet's roster 7, after the anchored end, is not taken.", roster(T, 7, n6, 'alice_lb3', [P, L, T, N, X], T0 + 600), [r1, r2, J, J2, EN, n6]))
+    assert chains[-1]['expected']['unendorsed'] == [pub(T)]
     J2e = roster(N, 5, E, 'alice_lb3', [P, L, T, N], T0 + 400)       # alice_new joins after the tablet was endorsed
-    t6e = roster(T, 6, J2e, 'alice_lb3', [P, L, T, N], T0 + 500, ready=True)
+    t6e = roster(T, 6, J2e, 'alice_lb3', [P, L, T, N], T0 + 500, endorse=[N])
     n7e = roster(N, 7, t6e, 'alice_lb3', [P, L, T, N, X], T0 + 600)
-    chains.append(cc('an endorsed joiner endorses a later one', "The tablet joined (3) and was endorsed by the phone (4). alice_new joins (5). The tablet was in the head before THAT join and is a device like the others: its roster 6 is valid and endorses alice_new, whose roster 7 is valid.", anchor(r1, n7e, T0 + 601), [r1, r2, J, E, J2e, t6e, n7e]))
+    chains.append(cc('an endorsed joiner endorses a later one', "The tablet joined (3) and was endorsed by the phone (4). alice_new joins (5). The tablet was in the roster before THAT join and is a device like the others: its roster 6 with [\"endorse\", alice_new] is valid and endorses alice_new, whose roster 7 is valid.", anchor(r1, n7e, T0 + 601), [r1, r2, J, E, J2e, t6e, n7e]))
     assert chains[-1]['expected']['head'] == n7e['id']
-    chains.append(bad('an endorsement is used once: a later joiner needs its own', "The phone endorsed the tablet (4). alice_new joins (5) and signs roster 6 at once: invalid, nothing signed by an older device comes after ITS join.", roster(N, 6, J2e, 'alice_lb3', [P, L, T, N, X], T0 + 500), [r1, r2, J, E, J2e]))
+    chains.append(bad('an endorsement is used once: a later joiner needs its own', "The phone endorsed the tablet (4). alice_new joins (5) and signs roster 6 at once: invalid, no roster after ITS join endorses it.", roster(N, 6, J2e, 'alice_lb3', [P, L, T, N, X], T0 + 500), [r1, r2, J, E, J2e]))
+    chains.append(tail_bad('an endorsement before the join it names does nothing', "The phone's roster 3 carries [\"endorse\", tablet] before the tablet has joined; the tablet then joins (4) and signs roster 5 after the anchored end: not taken, the tag must come after the join.", roster(T, 5, roster(T, 4, roster(P, 3, r2, 'alice_lb1', [P, L], T0 + 150, endorse=[T]), 'alice_lb2', [P, L, T], T0 + 200), 'alice_lb2', [P, L, T, X], T0 + 300),
+                      [r1, r2, roster(P, 3, r2, 'alice_lb1', [P, L], T0 + 150, endorse=[T]), roster(T, 4, roster(P, 3, r2, 'alice_lb1', [P, L], T0 + 150, endorse=[T]), 'alice_lb2', [P, L, T], T0 + 200)]))
+    assert len(chains[-1]['expected']['valid_ids']) == 4 and chains[-1]['expected']['unendorsed'] == [pub(T)]
 
     # ---- races
     Jn = roster(N, 3, r2, 'alice_lb3', [P, L, N], T0 + 200)          # alice_new joins on the same prev as the tablet
@@ -377,16 +436,26 @@ def build(d):
     follows_.append(f)
     JS = roster(T, 4, S, 'alice_lb3', [P, L, T], T0 + 300)
     aJS = anchor(r1, JS, T0 + 301)
-    ES = roster(P, 5, JS, 'alice_lb3', [P, L, T], T0 + 400)
-    aES = anchor(r1, ES, T0 + 401)
-    TS = roster(T, 6, ES, 'alice_lb3', [P, L, T, X], T0 + 500)
-    aTS = anchor(r1, TS, T0 + 501)
     sw = [st(aS, [r1, r2, J, S]), st(aJS, [r1, r2, J, S, JS])]
     f, c, p = fc('after a switch, a join: the joiner is not trusted', 'After the switch the tablet adds itself (roster 4). The join alone gives no trust: the device keeps the Allow card for it and hands it nothing (reading (2)).', pinJ, sw, ['switch', 'moved'])
     assert pub(T) not in p['trusted']
     follows_.append(f)
-    f, c, p = fc('after a switch, the endorsement gives no trust either', "The phone (trusted) signs the endorsement, roster 5. It merely keeps the tablet: it vouches for nothing (§3.3). The tablet then adds alice_extra (6): valid, and neither is trusted on this device.", pinJ, sw + [st(aES, [r1, r2, J, S, JS, ES]), st(aTS, [r1, r2, J, S, JS, ES, TS])], ['switch', 'moved', 'moved', 'moved'])
-    assert pub(T) not in p['trusted'] and pub(X) not in p['trusted'] and c.head.id == TS['id']
+    S2 = roster(P, 3, r2, 'alice_lb1', [P, L, N], T0 + 260)          # the other branch: the phone had added alice_new
+    aS2 = anchor(r1, S2, T0 + 261)
+    JX = roster(X, 4, S2, 'alice_lb3', [P, L, N, X], T0 + 300)       # alice_extra adds itself after the switch
+    aJX = anchor(r1, JX, T0 + 301)
+    sw2 = [st(aS2, [r1, r2, J, S2]), st(aJX, [r1, r2, J, S2, JX])]
+    EP = roster(P, 5, JX, 'alice_lb3', [P, L, N, X], T0 + 400, endorse=[X])
+    XA = roster(X, 6, EP, 'alice_lb3', [P, L, N, X, T], T0 + 500)
+    f, c, p = fc('after a switch, endorsed by a trusted device: trusted', "The switch left this device trusting the phone and the laptop (alice_new, which the new branch added, is not). alice_extra adds itself (4): not trusted. The phone, trusted here, publishes the endorsement (5): alice_extra is trusted from then on, and the tablet it then adds (6) is too.", pinJ,
+                 sw2 + [st(anchor(r1, EP, T0 + 401), [r1, r2, J, S2, JX, EP]), st(anchor(r1, XA, T0 + 501), [r1, r2, J, S2, JX, EP, XA])], ['switch', 'moved', 'moved', 'moved'])
+    assert p['trusted'] == sorted([pub(P), pub(L), pub(X), pub(T)]) and c.head.id == XA['id']
+    follows_.append(f)
+    EU = roster(N, 5, JX, 'alice_lb3', [P, L, N, X], T0 + 400, endorse=[X])
+    XB = roster(X, 6, EU, 'alice_lb3', [P, L, N, X, T], T0 + 500)
+    f, c, p = fc('after a switch, endorsed by a device that is not trusted here: the card stays', "The same, but the endorsement (5) is signed by alice_new, which this device does not trust. The chain takes it (alice_new was in the roster before the join): alice_extra may sign, and adds the tablet (6). On this device neither is trusted: the Allow card stays.", pinJ,
+                 sw2 + [st(anchor(r1, EU, T0 + 401), [r1, r2, J, S2, JX, EU]), st(anchor(r1, XB, T0 + 501), [r1, r2, J, S2, JX, EU, XB])], ['switch', 'moved', 'moved', 'moved'])
+    assert p['trusted'] == sorted([pub(P), pub(L)]) and c.head.id == XB['id']
     follows_.append(f)
     f, c, p = fc('after a switch, the joiner allowed on this device', 'The person taps Allow for the tablet on this device: trusted from then on.', pinJ, [sw[0], st(aJS, [r1, r2, J, S, JS], allow_locally=[pub(T)])], ['switch', 'moved'])
     assert pub(T) in p['trusted']
@@ -474,23 +543,24 @@ def build(d):
     confirms = [
         conf('an older device confirms the joiner', "The phone was in roster 2, the one before the join, and is in the head: accepted, the notice for the tablet goes. (The phone also publishes the endorsement roster; see 'endorsement'.)", with_join, P, T, J['id'], [T]),
         conf('the joiner confirms itself', 'The tablet is not in the roster before its own join.', with_join, T, T, J['id'], [T]),
-        conf("a joiner whose own notice is unanswered here confirms a device it added", "The tablet joined (3), the phone's roster 4 endorsed it, the tablet added alice_extra (5) and says 'It was me' for it. On THIS device the notice for the tablet is still unanswered (its 8563 has not been accepted here): the tablet's word does not count yet. Kept and judged again; the notice for alice_extra stays.", ch_add, T, X, add5['id'], [T, X]),
+        conf("a joiner whose own notice is unanswered here confirms a device it added", "The tablet joined (3), the phone's roster 4 endorsed it (the tag), the tablet added alice_extra (5) and says 'It was me' for it. On THIS device the notice for the tablet is still unanswered (its 8563 has not been accepted here): the tablet's word does not count yet. Kept and judged again; the notice for alice_extra stays.", ch_add, T, X, add5['id'], [T, X]),
         conf('the same once the notice for the joiner is answered here', 'This device accepted an 8563 for the tablet (or the person tapped here): now the confirmation counts.', ch_add, T, X, add5['id'], [X]),
     ]
     assert [(c['expected']['accepted'], c['expected']['judged_again_later']) for c in confirms] == [(True, False), (False, False), (False, True), (True, False)]
 
     endorsement = {
-        'note': "\"It was me\" endorses (§5.7): besides the 8563, the device that is tapped publishes roster n+1 = the head's devices in their order, the head's lb, `ready` by the usual rule, signed by itself, with its anchor (§3.2). 'before' is my chain with the unanswered join as its head; 'roster' and 'anchor' are what the phone publishes; 'after' is the chain then. Remove needs no endorsement: it is a roster of an older device already.",
+        'note': "\"It was me\" endorses (§5.7): besides the 8563, the device that is tapped publishes roster n+1 = the head's devices in their order, the head's lb, `ready` by the usual rule, then one [\"endorse\", <device>] tag per joiner it confirms (after `ready`, the last tags), signed by itself, with its anchor (§3.2). Only that tag endorses. 'before' is my chain with the unanswered join as its head; 'roster' and 'anchor' are what the phone publishes; 'after' is the chain then. Remove needs no endorsement: it is a roster of an older device already.",
         'tapped_device': pub(P), 'joiner': pub(T),
         'before': {'anchor': aJ, 'rosters': [r1, r2, J], 'expected': summary(chain(aJ, [r1, r2, J]))},
         'roster': E, 'anchor': aE,
         'after': {'expected': summary(chain(aE, [r1, r2, J, E]))},
         'confirmation': confirms[0]['rumor'],
     }
-    assert [t for t in E['tags'] if t[0] in ('lb', 'device')] == [t for t in J['tags'] if t[0] in ('lb', 'device')]
+    assert [t for t in E['tags'] if t[0] in ('lb', 'device')] == [t for t in J['tags'] if t[0] in ('lb', 'device')] and E['tags'][-1] == ['endorse', pub(T)]
+    endorsement['endorses'] = [pub(T)]
 
     return {
-        'note': "sealed.md §5.7 \"A device that signed in adds itself\", with its \"Readings fixed before the first build\" and \"Tightened after Android's review\" (belfry-sh 88a27b9). Added by belfry-android (tools/sealed_join_vectors.py, which writes this file's other sections back byte for byte, and computes every 'expected' with its own port of the reference) on 2026-11-23; to be taken into services/onboarding/tools/sealed_vectors.py. A JOIN is a roster signed by a device that is not in its prev: valid only when n = prev's + 1, its devices are exactly prev's in their order plus the signer last, its lb is a letterbox the chain never had, its signer is in no earlier roster of the path, its created_at is not before its prev's, AND it lies on the anchored path (root → the anchor's head); a client also keeps one it pinned as anchored. It is never taken in the provisional tail. A normal roster signed by a device that added itself is invalid (on the path and in the tail) while no roster signed by a device that was in the head before that join comes after the join. Sections: 'chains' (shape of the top-level 'chains'; 'added' where given = device → the roster that added it), 'follow' (shape of 'follow'), 'requests' (shape of 'trust': after the steps each of 'asks' is answer_without_prompt(chain, pin, device, live_chat_devices, request_created_at, added_at, last_handover_at); 'self_added' says the roster that last added the device is signed by it, which is what makes >= apply), 'older_keys' (the decision to hand a joiner the earlier letterboxes without a prompt, from plain facts: 'keys' or 'card'), 'handover' (shape of 'keys_handover', the chain given whole; 'kept_for_later' = not taken now but kept and tried again), 'confirm' (shape of 'confirm', each case with its own chain and the devices whose added-notice is unanswered on the judging device) and 'endorsement'. 'keys' holds the test keys this section adds (made from their names like every other).",
+        'note': "sealed.md §5.7 \"A device that signed in adds itself\", with its \"Readings fixed before the first build\" and \"Tightened after Android's review\" (belfry-sh 1440e79). Added by belfry-android (tools/sealed_join_vectors.py, which writes this file's other sections back byte for byte, and computes every 'expected' with its own port of the reference) on 2026-11-23; to be taken into services/onboarding/tools/sealed_vectors.py. A JOIN is a roster signed by a device that is not in its prev: valid only when n = prev's + 1, its devices are exactly prev's in their order plus the signer last, its lb is a letterbox the chain never had, its signer is in no earlier roster of the path, its created_at is not before its prev's, AND it lies on the anchored path (root → the anchor's head); a client also keeps one it pinned as anchored. It is never taken in the provisional tail. A normal roster signed by a device that added itself is invalid (on the path and in the tail) while no roster after its join carries [\"endorse\", <that device>] signed by a device that was in the roster BEFORE that join; only that tag endorses (a roster's endorse tags come last, after `ready`), and a joiner that left the head waits for nothing. After a switch, an endorsed joiner is trusted when the endorsing device is trusted on that device. Sections: 'chains' (shape of the top-level 'chains'; 'added' where given = device → the roster that added it; 'unendorsed' = the devices of the head still limited, in the head's order), 'follow' (shape of 'follow'), 'requests' (shape of 'trust': after the steps each of 'asks' is answer_without_prompt(chain, pin, device, live_chat_devices, request_created_at, added_at, last_handover_at); 'self_added' says the roster that last added the device is signed by it, which is what makes >= apply), 'older_keys' (the decision to hand a joiner the earlier letterboxes without a prompt, from plain facts: 'keys' or 'card'), 'handover' (shape of 'keys_handover', the chain given whole; 'kept_for_later' = not taken now but kept and tried again), 'confirm' (shape of 'confirm', each case with its own chain and the devices whose added-notice is unanswered on the judging device) and 'endorsement'. 'keys' holds the test keys this section adds (made from their names like every other).",
         'keys': own,
         'chains': chains,
         'follow': follows_,
@@ -509,6 +579,6 @@ if __name__ == '__main__':
     section = build(d)
     if '--check' in sys.argv:
         print('up to date' if had == section else 'DIFFERENT'); sys.exit(0 if had == section else 1)
-    assert json.dumps(d, indent=1, ensure_ascii=False) + '\n' == (raw if had is None else json.dumps({**d, 'join': had}, indent=1, ensure_ascii=False) + '\n'), 'the file is not in the generator\'s format'
+    assert json.dumps(d if had is None else {**d, 'join': had}, indent=1, ensure_ascii=False) + '\n' == raw, 'the file is not in the generator\'s format, or join is not its last section'
     d['join'] = section
     open(path, 'w', encoding='utf-8').write(json.dumps(d, indent=1, ensure_ascii=False) + '\n')
