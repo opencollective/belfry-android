@@ -6,7 +6,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import sh.belfry.core.net.Community
 import sh.belfry.core.nostr.Tag
-import sh.belfry.core.nostr.parseJsonOrNull
 import sh.belfry.core.nostr.s
 
 /**
@@ -321,6 +320,4 @@ object Cards {
         val word = if (pod) "group" else "topic"
         return if (who != null) "$who started this $word from a printed card" else "This $word was started from a printed card"
     }
-
-    internal fun obj(text: String?): JsonObject? = parseJsonOrNull(text ?: return null) as? JsonObject
 }
