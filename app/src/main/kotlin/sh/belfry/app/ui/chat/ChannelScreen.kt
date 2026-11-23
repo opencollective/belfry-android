@@ -491,6 +491,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                     Text(ChatFormat.time(world, j.at), fontSize = 12.sp, color = c.faint)
                 }
             }
+            is FeedItem.BelfryJoined -> BelfryJoinRow(item.j)
             is FeedItem.MailThread -> MailThreadRow(item.t) { openThread(item.t.id) }
             is FeedItem.Preview -> ActivityPreviewRow(groupId, item.p, now)
             is FeedItem.Answer -> sh.belfry.app.ui.cards.AnswerLine(item)

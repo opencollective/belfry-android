@@ -190,6 +190,7 @@ class ModelVectorsTest {
                         }
                         is FeedItem.MailThread -> assertEquals("mail", x["t"].sOrNull(), name)
                         is FeedItem.Answer -> assertEquals("rsvp", x["t"].sOrNull(), name)
+                        is FeedItem.BelfryJoined -> assertEquals("joined", x["t"].sOrNull(), name)
                         is FeedItem.Activity -> {
                             assertEquals("act", x["t"].sOrNull(), name)
                             assertEquals(x["root"].sOrNull(), item.root.id, name)

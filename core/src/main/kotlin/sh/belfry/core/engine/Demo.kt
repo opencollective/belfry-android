@@ -98,13 +98,16 @@ object Demo {
     val nora = key("guest Nora")
     /** Kofi's own agent (belfry.json `agents`): a member while he is one. */
     val wren = key("agent Wren")
+    /** Joined the belfry today: a line in #general (SPEC 19.59), and Maya's agent. */
+    val rosa = key("Rosa Lindgren")
+    val pip = key("agent Pip")
     /** The demo's `_groups` key (posts e-mail cards and guest joins) and `_smtp` key (the mail bridge). */
     val groups = key("_groups")
     val bridge = key("_smtp")
     private val relayKey = key("relay").pubkey
 
     /** The demo community: Maya and the person using the demo are its admins. */
-    fun community(me: String): Community = Community.defaults(DOMAIN).copy(name = NAME, admins = listOf(maya.pubkey, me), agents = mapOf(wren.pubkey to kofi.pubkey))
+    fun community(me: String): Community = Community.defaults(DOMAIN).copy(name = NAME, admins = listOf(maya.pubkey, me), agents = mapOf(wren.pubkey to kofi.pubkey, pip.pubkey to maya.pubkey))
 
     private class Person(val key: LocalSigner, val name: String, val about: String, val tags: List<String>, val place: Int)
 
@@ -262,6 +265,11 @@ object Demo {
         val kitchenRef = "nostr:" + Nip19.naddr(Nip19.Addr(39000, relayKey, KITCHEN, listOf(gr)))
         say(wren, GENERAL, t + 6400, "Pantry list is updated: rice and lentils are low. Details in $kitchenRef")
         say(maya, GENERAL, now - 40 * 60, "Reminder: the gate code changes on Monday. I'll send it by direct message.")
+        // joining the belfry (SPEC 19.59): a new member and Maya's agent, each a line in #general
+        post(rosa, now - 2 * day, Actions.saveProfile(JsonObject(emptyMap()), "Rosa Lindgren", "Just moved in on the river side.", "rosa@$DOMAIN"))
+        raw(groups, now - 30 * 60, 9000, listOf(listOf("h", GENERAL), listOf("p", rosa.pubkey, "member"), listOf("joined", "belfry"), listOf("name", "Rosa Lindgren")))
+        post(pip, now - 2 * day, Actions.saveProfile(JsonObject(emptyMap()), "Pip", "Maya's agent. I answer the door bell.", null))
+        raw(groups, now - 20 * 60, 9000, listOf(listOf("h", GENERAL), listOf("p", pip.pubkey, "member"), listOf("joined", "belfry"), listOf("name", "Pip"), listOf("agent", "1")))
 
         // reactions, an edit, pinned topics, seen
         for ((who, emoji) in listOf(tomas to "🎉", lena to "🎉", aroha to "❤️", me to "🎉", kofi to "👍")) post(who, d2 + 100, Actions.react(GENERAL, welcome.id, maya.pubkey, emoji))
