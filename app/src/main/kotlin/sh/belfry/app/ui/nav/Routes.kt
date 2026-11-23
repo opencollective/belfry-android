@@ -62,10 +62,9 @@ object Routes {
     /** One to-do of a channel: tick it, claim / assign / unassign it, discuss it (SPEC 19.40). */
     const val TODO = "todo/{id}/{task}"
     fun todo(channel: String, taskId: String) = "todo/${enc(channel)}/${enc(taskId)}"
-    const val INVITE = "invite/{id}?members={members}"
+    /** Invite to a channel. To the belfry itself (the ＋ of Members) it is a sheet, not a route: `InviteToCommunitySheet`. */
+    const val INVITE = "invite/{id}"
     fun invite(channel: String) = "invite/${enc(channel)}"
-    /** From Members: "Invite to <community>", no search by name (inviting/sheet-from-members). */
-    fun inviteToCommunity() = "invite/general?members=1"
     const val TOPICS = "topics/{id}"
     fun topics(channel: String) = "topics/${enc(channel)}"
     /** A channel's files and its drop box links. */

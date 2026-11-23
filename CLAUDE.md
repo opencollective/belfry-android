@@ -282,6 +282,10 @@ minSdk 26, JDK 17.
   Vectors `sealed.json` → `join` (`tools/sealed_join_vectors.py`; generators' order in `tools/README.md`). The WRITING
   side (a device adding itself) is not built.
 
+- The invite sheet from Members (SPEC 19.70; canvas inviting/sheet-from-members): `ui/info/InviteSheet.kt`
+  `InviteToCommunitySheet`, opened by the ＋ of `MembersScreen` (a sheet, no route). `InviteScreen` /
+  `Routes.invite(id)` is only for a channel (people who are here first). Tests `InviteSheetTest`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

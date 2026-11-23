@@ -92,12 +92,15 @@ fun MembersScreen() {
     val people = sh.belfry.core.model.MembersFold.count(shown, { world.isAgent(it) })
     val total = sh.belfry.core.model.MembersFold.count(sh.belfry.core.model.MembersFold.lines(list, world.ctx.agents, { world.realName(it) }, "") { world.isAgent(it) }) { world.isAgent(it) }
     val mayInvite = world.isCommunityAdmin || (membership.invite == "members" && membership.mayInviteMembers)
+    var inviting by rememberSaveable { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(c.bg).testTag("members")) {
         TopBar(
             PlaceNames.MEMBERS, subtitle = "$total ${if (total == 1) "person" else "people"}",
             navigation = { BackButton { nav.back() } },
-            actions = { if (mayInvite) IconAction(BelfryIcons.Plus, "Invite", { nav.go(Routes.inviteToCommunity()) }, modifier = Modifier.testTag("members-invite")) },
+            // inviting/sheet-from-members: the ＋ opens the sheet over this list, it never pushes a screen
+            actions = { if (mayInvite) IconAction(BelfryIcons.Plus, "Invite someone", { inviting = true }, modifier = Modifier.testTag("members-invite")) },
         )
+        if (inviting) sh.belfry.app.ui.info.InviteToCommunitySheet(onDismiss = { inviting = false })
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding()) {
             item(key = "<search>") {
                 BelfryTextField(q, { q = it }, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("members-search"), placeholder = "Search")

@@ -99,11 +99,14 @@ fun LinkBox(
     error: String? = null,
     waitingText: String = "Making the link…",
     onRetry: (suspend () -> Unit)? = null,
+    qrSize: androidx.compose.ui.unit.Dp = 220.dp,
+    /** Between the address and Copy / Share (the invite sheet's "Joins as" and "Link" rows). */
+    between: (@Composable () -> Unit)? = null,
 ) {
     val c = Belfry.colors
     val context = LocalContext.current
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        QrCode(url, Modifier.alpha(if (waiting) 0.12f else 1f), size = 220.dp)
+        QrCode(url, Modifier.alpha(if (waiting) 0.12f else 1f), size = qrSize)
         if (waiting && busy) Spinner(size = 28.dp)
         if (waiting && !busy && error != null) {
             Column(Modifier.padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -126,6 +129,10 @@ fun LinkBox(
         )
     }
     Spacer(Modifier.height(10.dp))
+    if (between != null) {
+        between()
+        Spacer(Modifier.height(10.dp))
+    }
     // both secondary (canvas v48); equal widths, 50 dp, "Copied" with a check for 2 s (canvas v113)
     sh.belfry.app.ui.kit.CopyShareButtons(url, shareTitle, enabled = !waiting)
 }
