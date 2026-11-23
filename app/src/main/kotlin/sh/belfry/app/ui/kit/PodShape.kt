@@ -77,6 +77,8 @@ object MoreIcons {
     /** A microphone (audio recording). */
     val Mic by lazy { icon("mic", "M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z", "M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6") }
     val ChevronUp by lazy { icon("chevron-up", "M6 15l6-6 6 6") }
+    /** An agent: a little robot head (one-shape/townsquare-join). */
+    val Bot by lazy { icon("bot", "M8 8h8a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3Z", "M12 4v4M9 13h.01M15 13h.01M3 13v2M21 13v2") }
     /** A document (a file in a direct message). */
     val File by lazy { icon("file", "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z", "M14 3v5h5") }
 }
