@@ -13,6 +13,7 @@ import sh.belfry.core.Vectors
 import sh.belfry.core.dm.GiftWrap
 import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.LocalSigner
+import sh.belfry.core.nostr.isValid
 import sh.belfry.core.nostr.s
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -56,6 +57,56 @@ class SealedVectorsTest {
             assertEquals(str(e, "lb"), chain?.head?.lb, name)
             assertEquals(e["ready"]!!.jsonPrimitive.boolean, chain?.ready ?: false, name)
         }
+    }
+
+    /**
+     * vectors `join` (sealed.md §5.7, belfry-sh 88a27b9; tools/sealed_join_vectors.py), FIRST PART: what holds
+     * before the engine reads joins. Every event of the section is well formed and signed; the hand-over wraps
+     * open with the phone's key and give the pairs that check out; and every `chains` case whose expected chain
+     * holds no join (a join refused, not anchored, or only in the tail) already gives that chain. The cases that
+     * need a join followed (chains, follow, requests, older_keys, confirm, endorsement) are read by the reading
+     * side's tests, which replace the filter below.
+     */
+    @Test fun joinVectorsAsFarAsBuilt() = runBlocking<Unit> {
+        val j = v["join"] as JsonObject
+        fun list(k: String) = (j[k] as JsonArray).map { it as JsonObject }
+        var events = 0
+        fun walk(x: kotlinx.serialization.json.JsonElement?) {
+            when (x) {
+                is JsonObject -> if (x.containsKey("sig") && x.containsKey("kind")) { assertTrue(ev(x).isValid(), "a bad event in join: ${x.s("id")}"); events++ } else x.values.forEach { walk(it) }
+                is JsonArray -> x.forEach { walk(it) }
+                else -> {}
+            }
+        }
+        walk(j)
+        assertTrue(events > 150, "events checked: $events")
+        // chains: the cases that no join rule is needed for
+        var ran = 0
+        for (c in list("chains")) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val rosters = evs(c["rosters"]).mapNotNull { Roster.parse(it) }.associateBy { it.id }
+            val needsJoins = strs(e["valid_ids"]).any { id -> rosters[id]?.let { r -> r.prev != null && rosters[r.prev]?.devices?.contains(r.signer) == false } == true }
+            if (needsJoins) continue
+            val chain = chainOf(c["anchor"] as? JsonObject, evs(c["rosters"]))
+            assertEquals(strs(e["valid_ids"]), chain?.rosters?.map { it.id } ?: emptyList<String>(), name)
+            assertEquals(strs(e["devices"]), chain?.devices ?: emptyList<String>(), name)
+            assertEquals(str(e, "lb"), chain?.head?.lb, name)
+            ran++
+        }
+        assertTrue(ran >= 14, "chains cases run: $ran")
+        // hand-overs: opened by the phone, the giver and the pairs that check out
+        for (c in list("handover")) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val h = Sealing.openKeys(ev(c["wrap"] as JsonObject), LocalSigner(c.s("device_secret")!!))!!
+            assertEquals(e.s("giver"), h.giver, name)
+            assertTrue(GiftWrap.isSilent(ev(c["wrap"] as JsonObject)), name)
+            if (e["accepted"]!!.jsonPrimitive.boolean) {
+                assertEquals((e["keys"] as JsonArray).associate { k -> (k as JsonObject).s("lb")!! to k.s("secret")!! }, h.keys, name)
+            }
+        }
+        assertEquals(3, list("handover").size)
     }
 
     @Test fun wraps() {
