@@ -106,7 +106,8 @@ fun LinkBox(
     val c = Belfry.colors
     val context = LocalContext.current
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        QrCode(url, Modifier.alpha(if (waiting) 0.12f else 1f), size = qrSize)
+        // an error is read as words on a clear ground (e-ink): the faded code stays only while the link is made
+        QrCode(url, Modifier.alpha(if (!waiting) 1f else if (!busy && error != null) 0f else 0.12f), size = qrSize)
         if (waiting && busy) Spinner(size = 28.dp)
         if (waiting && !busy && error != null) {
             Column(Modifier.padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
