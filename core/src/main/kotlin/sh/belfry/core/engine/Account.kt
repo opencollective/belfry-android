@@ -13,6 +13,15 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import okhttp3.OkHttpClient
 import sh.belfry.core.crypto.Hex
+import sh.belfry.core.model.CardError
+import sh.belfry.core.model.CardFailed
+import sh.belfry.core.model.CardForm
+import sh.belfry.core.model.CardInfo
+import sh.belfry.core.model.CardKind
+import sh.belfry.core.model.CardLink
+import sh.belfry.core.model.Cards
+import sh.belfry.core.model.HashtagState
+import sh.belfry.core.net.CardsApi
 import sh.belfry.core.crypto.Keys
 import sh.belfry.core.net.ApiException
 import sh.belfry.core.net.BelfryApi
@@ -81,6 +90,7 @@ data class SavedSession(
             if (guest.coHost != null) put("cohost", JsonPrimitive(guest.coHost))
             if (guest.reading) put("reading", JsonPrimitive(true))
             if (guest.invite != null) put("invite", JsonPrimitive(guest.invite))
+            if (guest.card != null) put("card", JsonPrimitive(guest.card))
             guest.member?.let { m ->
                 put("member", buildJsonObject {
                     put("as", JsonPrimitive("member")); put("member_role", JsonPrimitive(m.role))
@@ -100,7 +110,7 @@ data class SavedSession(
             val g = o["guest"].obj()
             return SavedSession(
                 community, o.s("bunkerUrl") ?: "", secret, pubkey,
-                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false, it.s("cohost")?.takeIf { t -> InviteLink.isToken(t) }, it["reading"].bool() ?: false, sh.belfry.core.net.MemberLink.of(it["member"].obj()), it.s("invite")?.takeIf { t -> InviteLink.isToken(t) }) },
+                guest = g?.let { GuestInfo(it.s("channel") ?: "general", it["saved"].bool() ?: false, it.s("cohost")?.takeIf { t -> InviteLink.isToken(t) }, it["reading"].bool() ?: false, sh.belfry.core.net.MemberLink.of(it["member"].obj()), it.s("invite")?.takeIf { t -> InviteLink.isToken(t) }, sh.belfry.core.net.cardOf(it)) },
                 demo = o["demo"].bool() ?: false,
             )
         }
@@ -469,7 +479,7 @@ class Onboarding(
         }
         // a co-host link is used again once the e-mail is saved; a member link needs no second use
         // (saving the e-mail makes them a member: the web's setCoHostToken)
-        val guest = GuestInfo(joined.channel, false, if (joined.emailNeeded && joined.member == null) token else null, reading = joined.reading, member = joined.member, invite = if (joined.member != null) token else null)
+        val guest = GuestInfo(joined.channel, false, if (joined.emailNeeded && joined.member == null) token else null, reading = joined.reading, member = joined.member, invite = if (joined.member != null) token else null, card = joined.card)
         val s = open(community, joined.bunkerUrl, secret, joined.pubkey, guest)
         vault.remove(V_JOIN_KEY)
         pendingInvite = null
@@ -500,6 +510,123 @@ class Onboarding(
                 throw OnboardingException("network", "No connection to the belfry. Try again.")
             }
         }
+    }
+
+    // ---- printed cards (SPEC 19.72–19.74; collective-belfry docs/cards.md) ---------------------------
+
+    /** A card the app was opened with (or that was scanned), kept until it is dealt with (the web's `pendingCard`). */
+    var pendingCard: CardLink?
+        get() = vault.get(V_CARD)?.split(" ")?.takeIf { it.size == 2 && Community.isDomain(it[0]) && (it[1].isEmpty() || Cards.isId(it[1])) }?.let { CardLink(it[0], it[1]) }
+        set(value) { if (value == null) vault.remove(V_CARD) else vault.set(V_CARD, value.domain + " " + value.id) }
+
+    /** What was typed for this card, kept between the code's two steps and a killed app (the vault: a name and an address are in it). */
+    fun cardForm(link: CardLink): CardForm? {
+        val o = vault.get(V_CARD_FORM)?.let { parseJsonOrNull(it) } as? JsonObject ?: return null
+        if (o.s("domain") != link.domain || o.s("id") != link.id) return null
+        return CardForm.of(o)
+    }
+
+    fun keepCardForm(link: CardLink, f: CardForm) = vault.set(V_CARD_FORM, JsonObject(f.toJson() + mapOf("domain" to JsonPrimitive(link.domain), "id" to JsonPrimitive(link.id))).toString())
+    fun dropCardForm() = vault.remove(V_CARD_FORM)
+
+    /** The community a card belongs to (belfry.json; the defaults of its domain when that can't be read). */
+    suspend fun cardCommunity(domain: String): Community =
+        if (domain == Demo.DOMAIN) Community.defaults(Demo.DOMAIN).copy(name = Demo.NAME)
+        else try { discovery(domain) } catch (e: IOException) { Community.defaults(domain) }
+
+    /** What the belfry says about a card, asked with no account. Throws [CardFailed]. */
+    suspend fun cardInfo(c: Community, id: String): CardInfo = withContext(Dispatchers.Default) {
+        if (c.domain == Demo.DOMAIN) DemoCards.info(id) else CardsApi(BelfryApi(c, http)).info(id)
+    }
+
+    suspend fun cardHashtag(c: Community, name: String): HashtagState = withContext(Dispatchers.Default) {
+        if (c.domain == Demo.DOMAIN) DemoCards.hashtag(name) else CardsApi(BelfryApi(c, http)).hashtag(name)
+    }
+
+    /**
+     * A visitor starts a card's group, step 1: a 6-digit code goes to EMAIL. Signed by this phone's
+     * applicant key for that belfry ([applicantSecret]: the key of the e-mail log-in and of
+     * applying, kept in the vault), which becomes the session's key. `key_taken`: that key is let
+     * go, so the next code is asked with a new one. Throws [CardFailed].
+     */
+    suspend fun cardClaimStart(c: Community, id: String, email: String): Unit = withContext(Dispatchers.Default) {
+        if (c.domain == Demo.DOMAIN) { DemoCards.start(id); return@withContext }
+        cardCall(c) { CardsApi(BelfryApi(c, http)).claimStart(id, email, applicantSecret(c.domain)) }
+    }
+
+    /**
+     * Step 2, the code: the belfry makes the group and answers with a session bound to the
+     * applicant key. That answer (the signer's address, the account's public key, the group) is
+     * kept in the vault before the signer is asked, as the native sign-in does: the code is spent,
+     * so a signer that does not answer, or a killed app, must not need another ([resumeCardClaim]).
+     * Then the session is opened and saved exactly as the e-mail log-in's ([open], the signer's key
+     * checked against the one the belfry named), and the applicant key is let go: it is the
+     * session's now. Returns the session (not started) and the group to open. Throws [CardFailed]
+     * (the belfry's refusals) or [OnboardingException] (`signer`: try again, no new code; `mismatch`).
+     */
+    suspend fun cardClaimVerify(c: Community, id: String, kind: CardKind, f: CardForm, code: String): Pair<Session, String> = withContext(Dispatchers.Default) {
+        if (c.domain == Demo.DOMAIN) return@withContext demoCardClaim(id, kind, f, code)
+        var kept = cardClaim()?.takeIf { it.community.domain == c.domain && it.id == id }
+        if (kept == null) {
+            val got = cardCall(c) { CardsApi(BelfryApi(c, http)).claimVerify(id, kind, f, code, applicantSecret(c.domain)) }
+            kept = KeptCardClaim(c, id, got.signed.bunkerUrl, got.signed.pubkey, got.group, clock())
+            vault.set(V_CARD_CLAIM, kept.toJsonString())
+        }
+        finishCardClaim(kept)
+    }
+
+    /** Is a claim waiting for its signer (the code was right, the session is not open yet)? */
+    val cardClaimWaiting: Boolean get() = cardClaim() != null
+
+    /**
+     * A claim whose code was right when the app stopped (or whose signer did not answer): its
+     * session, opened now. Null when there is none; one older than an hour is forgotten (the
+     * e-mail log-in opens that account). Throws [OnboardingException] `signer` when the signer
+     * still does not answer (kept for the next try).
+     */
+    suspend fun resumeCardClaim(): Pair<Session, String>? = withContext(Dispatchers.Default) {
+        val kept = cardClaim() ?: return@withContext null
+        finishCardClaim(kept)
+    }
+
+    private fun cardClaim(): KeptCardClaim? {
+        val k = vault.get(V_CARD_CLAIM)?.let(KeptCardClaim::fromJsonString)
+        if (k == null || clock() - k.at > CARD_CLAIM_SECONDS) { vault.remove(V_CARD_CLAIM); return null }
+        return k
+    }
+
+    private suspend fun finishCardClaim(k: KeptCardClaim): Pair<Session, String> {
+        val domain = k.community.domain
+        val s = try {
+            open(k.community, k.bunkerUrl, applicantSecret(domain), null, null, expect = k.pubkey)
+        } catch (e: OnboardingException) {
+            if (e.code == "mismatch") vault.remove(V_CARD_CLAIM)
+            throw e
+        }
+        vault.remove(V_CARD_CLAIM)
+        forgetApplicant(domain)
+        pendingCard = null
+        dropCardForm()
+        return s to k.group
+    }
+
+    /** `key_taken`: one key, one identity: the applicant key goes, the next request makes a new one (the web's `dropApplicantKey`). */
+    private suspend fun <T> cardCall(c: Community, block: suspend () -> T): T = try {
+        block()
+    } catch (e: CardFailed) {
+        if (e.code == CardError.KEY_TAKEN) vault.remove("$V_APPLICANT:${c.domain}")
+        throw e
+    }
+
+    /** The demo: code 123456 opens the demo as that person and makes the group there; nothing leaves the device. */
+    private suspend fun demoCardClaim(id: String, kind: CardKind, f: CardForm, code: String): Pair<Session, String> {
+        DemoCards.start(id)
+        if (code.trim() != DemoCards.CODE) throw CardFailed(CardError.WRONG_CODE, triesLeft = 2)
+        val s = demo(Cards.plainLabel(f.name).ifEmpty { Demo.DEFAULT_NAME })
+        val group = s.cards.claim(id, kind, f)
+        pendingCard = null
+        dropCardForm()
+        return s to group
     }
 
     // ---- reopening --------------------------------------------------------------------------------
@@ -570,6 +697,7 @@ class Onboarding(
         vault.remove(V_FLOW)
         vault.remove(V_JOIN_KEY)
         vault.remove(V_NATIVE)
+        vault.remove(V_CARD_CLAIM)
         return if (demo) null else SignIn.logoutUrl(community)
     }
 
@@ -583,11 +711,42 @@ class Onboarding(
         const val V_NATIVE = "native-signin"
         const val V_APPLICANT = "applicant"
         const val V_APPLY_PENDING = "apply-pending"
+        /** Printed cards: the card being dealt with, what was typed for it, and a claim whose code was right (SPEC 19.73). */
+        const val V_CARD = "pending-card"
+        const val V_CARD_FORM = "card-form"
+        const val V_CARD_CLAIM = "card-claim"
+        const val CARD_CLAIM_SECONDS = 3600L
         /** The belfry keeps a request for 15 minutes (a code for 10): after that, screen 1 again. */
         const val CODE_SECONDS = 900L
         private val ENDS_THE_REQUEST = setOf(
             SessionFailure.EXPIRED, SessionFailure.KEY_TAKEN, SessionFailure.OWN_KEY, SessionFailure.MISMATCH, SessionFailure.NOT_APPROVED,
         )
+    }
+}
+
+/**
+ * A card's claim whose code was right, in the [Vault] until its session is open: the signer's
+ * address the belfry answered with, the account's public key and the group that was made.
+ */
+internal data class KeptCardClaim(val community: Community, val id: String, val bunkerUrl: String, val pubkey: String, val group: String, val at: Long) {
+    fun toJsonString(): String = buildJsonObject {
+        put("community", community.toJson())
+        put("id", JsonPrimitive(id)); put("bunkerUrl", JsonPrimitive(bunkerUrl)); put("pubkey", JsonPrimitive(pubkey))
+        put("group", JsonPrimitive(group)); put("at", JsonPrimitive(at))
+    }.toString()
+
+    companion object {
+        fun fromJsonString(text: String): KeptCardClaim? {
+            val o = parseJsonOrNull(text) as? JsonObject ?: return null
+            return KeptCardClaim(
+                community = o["community"]?.let { Community.fromJsonString(it.toString()) } ?: return null,
+                id = o.s("id")?.takeIf(Cards::isId) ?: return null,
+                bunkerUrl = o.s("bunkerUrl")?.takeIf { BunkerUrl.parse(it) != null } ?: return null,
+                pubkey = o.s("pubkey")?.takeIf(Hex::isKey) ?: return null,
+                group = o.s("group")?.takeIf(Cards::isGroup) ?: return null,
+                at = (o["at"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 0,
+            )
+        }
     }
 }
 

@@ -119,7 +119,7 @@ fun SignInScreen(
     LaunchedEffect(Unit) { state.takePrefill()?.let { p -> if (p.address.isNotEmpty()) address = p.address; hint = p.hint } }
     if (scanning) {
         // a valid invitation goes where a link the app is opened with goes: the guest-join flow
-        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false }, onLogin = { scanning = false; state.onLoginLink(it) })
+        sh.belfry.app.scan.ScanScreen(onInvite = { scanning = false; state.onInviteLink(it) }, onClose = { scanning = false }, onLogin = { scanning = false; state.onLoginLink(it) }, onCard = { scanning = false; state.onCardLink(it) })
         return
     }
     // reopened while a code was on its way: the address comes back with it
