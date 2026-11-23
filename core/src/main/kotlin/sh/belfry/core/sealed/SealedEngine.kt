@@ -10,6 +10,7 @@ import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.EventTemplate
 import sh.belfry.core.nostr.LocalSigner
 import sh.belfry.core.nostr.parseJsonOrNull
+import sh.belfry.core.nostr.withId
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -88,7 +89,10 @@ class SealedEngine(
     @Volatile var onChain: ((String) -> Unit)? = null
 
     /** Asks the relay again for PERSON's anchor and rosters (never by `#lb`). */
-    suspend fun refresh(person: String): Chain? = kotlinx.coroutines.withContext(confined) { refreshHere(person) }
+    suspend fun refresh(person: String): Chain? = kotlinx.coroutines.withContext(confined) {
+        if (v2) try { refreshListHere(person) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+        refreshHere(person)
+    }
 
     private suspend fun refreshHere(person: String): Chain? {
         val began = clock()
@@ -196,6 +200,11 @@ class SealedEngine(
             put("oldLb", JsonArray(oldLetterboxes.map { JsonPrimitive(it) }))
             freshElsewhere?.let { f -> put("freshElsewhere", buildJsonObject { put("device", JsonPrimitive(f.device)); put("at", JsonPrimitive(f.at)) }) }
             put("firstSeen", buildJsonObject { firstSeenStored.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
+            // sealed v2 §3.2: the device lists this app has seen, each with when it first saw it; for good
+            put("lists", buildJsonObject {
+                for ((who, seen) in lists) put(who, JsonArray(synchronized(seen) { seen.toList() }.map { s -> buildJsonObject { put("event", s.event.toJson()); put("seen", JsonPrimitive(s.firstSeen)) } }))
+            })
+            put("cards", buildJsonObject { cards.forEach { (d, c) -> put(d, buildJsonObject { put("at", JsonPrimitive(c.at)); c.seenBy?.let { put("by", JsonPrimitive(it)) } }) } })
             put("joinSeen", buildJsonObject { joinSeen.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
             // hand-overs kept for later (their giver not in my chain yet): the session hands a wrap over only once,
             // when it first reaches the store, so they must survive a restart here
@@ -229,6 +238,18 @@ class SealedEngine(
             if (d != null && at != null) freshElsewhere = FreshElsewhere(d, at)
         }
         (o["firstSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { firstSeenStored[k] = it } }
+        (o["lists"] as? JsonObject)?.forEach { (who, arr) ->
+            val seen = (arr as? JsonArray)?.mapNotNull { el ->
+                val x = el as? JsonObject ?: return@mapNotNull null
+                val e = (x["event"] as? JsonObject)?.let { Event.fromJson(it) } ?: return@mapNotNull null
+                V2.Seen(e, (x["seen"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return@mapNotNull null)
+            }.orEmpty()
+            if (seen.isNotEmpty()) lists[who] = java.util.Collections.synchronizedList(ArrayList(seen))
+        }
+        (o["cards"] as? JsonObject)?.forEach { (d, c) ->
+            val x = c as? JsonObject ?: return@forEach
+            cards[d] = Card(d, (x["at"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return@forEach, (x["by"] as? JsonPrimitive)?.content)
+        }
         (o["joinSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { joinSeen[k] = it } }
         (o["earlyKeys"] as? JsonArray)?.forEach { el -> (el as? JsonObject)?.let { Event.fromJson(it) }?.let { pendingKeys[it.id] = it } }
         (o["previous"] as? JsonObject)?.let { pv ->
@@ -380,6 +401,7 @@ class SealedEngine(
      * from a well-formed list that holds my own session. Called by the session after my chain moved.
      */
     suspend fun checkJoiners() {
+        if (v2) return
         if (!joinersUnchecked || mine != Mine.IN_HEAD) return
         val chain = chainOf(account) ?: return
         val joiners = chain.unendorsed.filter { it != device.pubkey }
@@ -397,6 +419,307 @@ class SealedEngine(
         }
     }
 
+    // ---- version 2: one list of devices, a copy for each (docs/sealed-v2.md at df53525; SPEC 19.73) ----
+
+    /** The belfry writes device lists: this app works by them, and makes, follows or changes no chain any more (§8). */
+    val v2: Boolean get() = ports.sealedMode() != SealedMode.V1
+
+    /** §3.2: every list this app has seen, per account, with when it first saw it. Kept for good. */
+    private val lists = java.util.concurrent.ConcurrentHashMap<String, MutableList<V2.Seen>>()
+    /** When each account's list was last read completely (after AUTH, to EOSE) on this connection. */
+    private val listAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun seenLists(person: String): List<V2.Seen> = lists[person]?.let { synchronized(it) { it.toList() } }.orEmpty()
+
+    /** PERSON's newest list as this app holds it (the event), else null. */
+    fun listEvent(person: String): Event? = ports.belfry()?.let { b -> V2.newest(seenLists(person).map { it.event }, b, person, clock()) }
+
+    /** PERSON's devices by their newest list; null = no list seen. */
+    fun devicesOf(person: String): List<String>? = ports.belfry()?.let { b -> listEvent(person)?.let { V2.readList(it, b, person, clock()) } }
+
+    /** Is this device on my account's newest list? null = no list read yet. */
+    val onMyList: Boolean? get() = devicesOf(account)?.contains(device.pubkey)
+
+    private fun listFresh(person: String): Boolean = listAt[person]?.let { clock() - it < 600 } == true
+
+    /** Asks the relay again for PERSON's device list (the belfry's key only, no `since`). */
+    suspend fun refreshList(person: String) = kotlinx.coroutines.withContext(confined) { refreshListHere(person) }
+
+    private suspend fun refreshListHere(person: String) {
+        val belfry = ports.belfry() ?: return
+        val a = ports.query(Query(kinds = listOf(V2.LIST_KIND), authors = listOf(belfry), d = listOf(V2.d(person))))
+        val fresh = takeLists(person, a.events)
+        if (a.complete) listAt[person] = clock()
+        if (person == account && a.complete && devicesOf(account)?.contains(device.pubkey) != true) { if (notListedSince == 0L) notListedSince = clock() } else if (person == account && a.complete) notListedSince = 0L
+        if (fresh) { retryPending(); onChain?.invoke(person) }
+    }
+
+    /** Lists of PERSON that arrived: remembered when new. True when the list this app holds for it changed. */
+    private fun takeLists(person: String, events: List<Event>, revealedBy: String? = null): Boolean {
+        val belfry = ports.belfry() ?: return false
+        val before = listEvent(person)
+        val beforeDevices = devicesOf(person)
+        val everMine = if (person == account) seenLists(account).flatMap { V2.readList(it.event, belfry, account, Long.MAX_VALUE - V2.AHEAD).orEmpty() }.toSet() else emptySet()
+        val seen = lists.getOrPut(person) { java.util.Collections.synchronizedList(ArrayList()) }
+        var added = false
+        for (e in events) {
+            if (V2.readList(e, belfry, person, Long.MAX_VALUE - V2.AHEAD) == null) continue // a list at all (its date is judged at each use)
+            synchronized(seen) { if (seen.none { it.event.id == e.id }) { seen.add(V2.Seen(e, clock())); added = true } }
+        }
+        if (!added) return false
+        val now = listEvent(person)
+        if (person == account) {
+            val devices = devicesOf(account).orEmpty()
+            // §6.4: a card for a device that was not on the last list this app saw; none at all for the first list ever
+            if (before != null && now?.id != before.id) for (d in devices) if (d != device.pubkey && d !in beforeDevices.orEmpty() && !cards.containsKey(d)) cards[d] = Card(d, clock(), null)
+            // §3.3: a list of mine this device was never shown, named by a correspondent's message: its unknown devices
+            if (revealedBy != null) for (e in events) for (d in V2.readList(e, belfry, account, Long.MAX_VALUE - V2.AHEAD).orEmpty()) {
+                if (d != device.pubkey && d !in everMine) cards[d] = Card(d, clock(), revealedBy)
+            }
+            // the first list ever, on a device that holds nothing from before: the earlier messages are on my other devices
+            if (before == null && devices.any { it != device.pubkey } && keys.size == 0 && sealedSince.isEmpty() && ports.loadNote(NOTE_V2_EARLIER) == null) ports.saveNote(NOTE_V2_EARLIER, clock().toString())
+            cards.keys.filter { it !in devices && cards[it]?.seenBy == null }.forEach { cards.remove(it) }
+        }
+        saveState()
+        return now?.id != before?.id
+    }
+
+    /** §3.1: since when this device has not found itself on its account's list (0 = it is on it, or not known). */
+    @Volatile var notListedSince: Long = 0L
+        private set
+
+    /** Conversations that are not sealed because their people have more than 100 devices together (§5): said in one line. */
+    val tooMany: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * Version 2 at start, after authentication (in place of [start]): my list, my chain READ only (to open version 1
+     * wraps and to know who still has a letterbox), and on the first run the `#d` wraps from 0 (§8).
+     */
+    suspend fun startV2() = kotlinx.coroutines.withContext(confined) {
+        refreshListHere(account)
+        val chain = try { refreshHere(account) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
+        // nothing of version 1 is made or changed; `mine` only says where this device stands in the old chain
+        mine = when {
+            chain == null -> Mine.NONE
+            device.pubkey in chain.devices -> Mine.IN_HEAD
+            else -> Mine.WAITING
+        }
+        if (ports.loadNote(NOTE_V2_REREAD) == null && listFresh(account)) { ports.saveNote(NOTE_V2_REREAD, clock().toString()); onV2First?.invoke() }
+        try { sendOwedConfirmsV2() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+    }
+
+    /** Told once, on the first version 2 run: the app reads its `#d` wraps from 0 (§8). */
+    @Volatile var onV2First: (() -> Unit)? = null
+
+    /** §5 through [V2.sealedOrNot]; while the belfry says version 1 the letterbox wraps go too (§8). */
+    private suspend fun planV2(conv: String, participants: Collection<String>): Plan {
+        val people = (participants + account).toSet()
+        val both = ports.sealedMode() == SealedMode.BOTH
+        withTimeoutOrNull(3000) { people.forEach { refreshListHere(it); if (both) refreshHere(it) } }
+        val belfry = ports.belfry() ?: return Plan.Hold
+        val persons = people.map { p ->
+            val devices = devicesOf(p)
+            val seenNonEmpty = seenLists(p).any { !V2.readList(it.event, belfry, p, clock()).isNullOrEmpty() }
+            // a non-empty list held from before is enough to seal to (the queue looks again before it sends); "no list"
+            // or an empty one needs a complete answer of this connection
+            V2.Person(p, complete = listFresh(p) || !devices.isNullOrEmpty(), devices = devices, seenNonEmpty = seenNonEmpty)
+        }
+        val sticky = sealedSince.containsKey(conv)
+        val v1Heads = if (!both) emptyMap() else people.mapNotNull { p -> chainOf(p)?.takeIf { it.ready }?.let { p to it.head.lb } }.toMap()
+        return when (V2.sealedOrNot(persons, account, device.pubkey, sticky)) {
+            V2.Decision.SEAL -> {
+                tooMany.remove(conv)
+                if (!sticky) { sealedSince[conv] = clock(); saveState() }
+                Plan.Seal(v1Heads, persons.associate { it.account to it.devices!! }, people.mapNotNull { p -> listEvent(p)?.let { p to it.id } }.toMap())
+            }
+            V2.Decision.HOLD -> Plan.Hold
+            V2.Decision.NOT_ON_MY_LIST -> Plan.NotListed
+            V2.Decision.TOO_MANY -> { tooMany.add(conv); Plan.OldWay }
+            V2.Decision.OLD_WAY ->
+                // while the belfry says version 1, a conversation version 1 would seal is still sealed that way (someone
+                // whose list is not written yet): never a downgrade because of the move
+                if (both && v1Heads.keys.containsAll(people)) { if (!sticky) { sealedSince[conv] = clock(); saveState() }; Plan.Seal(v1Heads) } else Plan.OldWay
+        }
+    }
+
+    /**
+     * §3.3: the list tags a rumor for PEOPLE (me included or not) must carry, when every one of them has a device;
+     * else none (the conversation is not sealed the version 2 way). Asked before the rumor is made: they are part of it.
+     */
+    suspend fun listTags(people: Collection<String>): List<List<String>> = kotlinx.coroutines.withContext(confined) {
+        if (!v2) return@withContext emptyList()
+        val all = (people + account).toSet()
+        withTimeoutOrNull(3000) { all.filter { !listFresh(it) }.forEach { refreshListHere(it) } }
+        if (all.any { devicesOf(it).isNullOrEmpty() }) return@withContext emptyList()
+        V2.listTags(all.associateWith { listEvent(it)!!.id })
+    }
+
+    /** Does RUMOR carry the list tag of every account PLAN seals to the version 2 way (§3.3)? */
+    fun hasListTags(rumor: Event, plan: Plan.Seal): Boolean = plan.v2 == null || plan.v2.keys.all { V2.listTagOf(rumor, it) != null }
+
+    /** RUMOR with PLAN's list tags as its last tags (a rumor made before the lists were known); its id changes. */
+    fun withListTags(rumor: Event, plan: Plan.Seal): Event =
+        if (hasListTags(rumor, plan)) rumor else rumor.copy(tags = rumor.tags.filter { it.firstOrNull() != "list" } + V2.listTags(plan.lists), sig = "").withId()
+
+    private fun peopleOf(rumor: Event): Set<String> =
+        if (rumor.kind == 1301) setOf(account) else (rumor.tags.filter { it.size >= 2 && it[0] == "p" && hexOk(it[1]) }.map { it[1] } + rumor.pubkey + account).toSet()
+
+    /** A queued version 2 wrap for DEV of WHO: has that device left WHO's list meanwhile (§4.1: the message loses it)? */
+    fun v2Gone(who: String, dev: String): Boolean = devicesOf(who)?.contains(dev) == false
+
+    /** §4.1: wraps of a still queued RUMOR for the devices that came onto its people's lists since (not in HAVE). */
+    fun v2Missing(rumor: Event, have: Set<String>): List<Queued> {
+        if (!v2) return emptyList()
+        val targets = peopleOf(rumor).associateWith { p -> devicesOf(p).orEmpty().filter { it !in have } }.filterValues { it.isNotEmpty() }
+        if (targets.isEmpty()) return emptyList()
+        return V2.wraps(rumor, device, targets, clock()).map { w -> Queued(rumor, w.account, V2_QUEUED + w.device, w.wrap) }
+    }
+
+    /** §4.2: a wrap with a `d` tag. */
+    private suspend fun receiveV2(wrap: Event, convOf: (Event) -> String?): Received {
+        fun settled(): Received { if (pending.remove(wrap.id) != null) stateDirty = true; firstSeenStored.remove(wrap.id); return Received(Sealing.Verdict.DROP) }
+        if (V2.classify(wrap, account, device.pubkey) != V2.Kind.V2) return settled() // another device's, or not well formed: never this device's
+        val o = V2.open(wrap, device) ?: return settled()
+        val firstSeen = pending[wrap.id]?.second ?: firstSeenStored[wrap.id] ?: clock().also { firstSeenStored[wrap.id] = it }
+        fun keep(): Received { pending[wrap.id] = wrap to firstSeen; capPending(); stateDirty = true; return Received(Sealing.Verdict.KEEP) }
+        if (o.rumor.kind == Sealing.CONFIRM) {
+            // "It was me" from another of my devices (§6.5): judged against my list, never a message
+            return when (takeConfirmV2(o)) { null -> if (clock() - firstSeen < V2.KEEP_FOR) keep() else settled(); else -> settled() }
+        }
+        val author = o.rumor.pubkey
+        var v = judgeV2(o, firstSeen)
+        if (v == V2.Verdict.KEEP && mayAsk(author)) { refreshListHere(author); v = judgeV2(o, firstSeen) }
+        return when (v) {
+            V2.Verdict.ACCEPT -> {
+                pending.remove(wrap.id); firstSeenStored.remove(wrap.id)
+                convOf(o.rumor)?.let { if (sealedSince.putIfAbsent(it, clock()) == null) saveState() }
+                try { checkMyListTag(o.rumor) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+                Received(Sealing.Verdict.ACCEPT, o.rumor, o.sealPubkey)
+            }
+            V2.Verdict.KEEP -> keep()
+            V2.Verdict.DROP -> settled()
+        }
+    }
+
+    private fun judgeV2(o: V2.Opened, firstSeen: Long): V2.Verdict =
+        V2.accept(o.rumor, o.sealPubkey, seenLists(o.rumor.pubkey), ports.belfry(), account, clock(), firstSeen)
+
+    /** A kept version 2 wrap, judged again (the author's list was read): no network here. */
+    private fun retryV2(id: String, wrap: Event, firstSeen: Long) {
+        val o = V2.open(wrap, device)
+        if (o != null && o.rumor.kind == Sealing.CONFIRM) return // settled by the next read of the wrap
+        when (if (o == null) V2.Verdict.DROP else judgeV2(o, firstSeen)) {
+            V2.Verdict.ACCEPT -> { pending.remove(id); firstSeenStored.remove(id); later.add(o!!.rumor to o.sealPubkey); settledSeen.add(id); stateDirty = true }
+            V2.Verdict.DROP -> { pending.remove(id); firstSeenStored.remove(id); settledSeen.add(id); stateDirty = true }
+            V2.Verdict.KEEP -> {}
+        }
+    }
+
+    /**
+     * §3.3: the message says which list of MY account it was sealed to. One this device never saw is read by its id;
+     * a device on it that this app did not know as mine gets the added-device card, marked as seen by the sender.
+     */
+    private suspend fun checkMyListTag(rumor: Event) {
+        val id = V2.listTagOf(rumor, account) ?: return
+        if (seenLists(account).any { it.event.id == id }) return
+        val got = ports.query(Query(kinds = listOf(V2.LIST_KIND), ids = listOf(id)))
+        val mineOnly = got.events.filter { it.id == id }
+        if (mineOnly.isEmpty()) { trace("a list named by a message was not found"); return }
+        if (takeLists(account, mineOnly, revealedBy = rumor.pubkey)) onChain?.invoke(account)
+        onConfirmed?.invoke()
+    }
+
+    // ---- the card: a device added to my list (§6.4), "It was me" once for all (§6.5), Remove (§6.6) ----
+
+    /** An open card: DEVICE came onto my list at AT (when this app first saw it); SEEN_BY: the correspondent whose message revealed it (§3.3). */
+    data class Card(val device: String, val at: Long, val seenBy: String?)
+
+    private val cards = java.util.concurrent.ConcurrentHashMap<String, Card>()
+
+    /** The cards to show, oldest first: devices on my list (or revealed, §3.3) this app was not told "It was me" for. */
+    fun cardsV2(): List<Card> {
+        val devices = devicesOf(account).orEmpty()
+        return cards.values.filter { (it.device in devices || it.seenBy != null) && ports.loadNote("v2-ok:${it.device}") == null }.sortedBy { it.at }
+    }
+
+    /** The earlier messages are on my other devices (§6.2), until the person dismisses the line (slice 1: no Ask yet). */
+    val earlierElsewhere: Boolean get() = v2 && ports.loadNote(NOTE_V2_EARLIER).let { !it.isNullOrEmpty() && it != "seen" }
+    fun earlierElsewhereSeen() = ports.saveNote(NOTE_V2_EARLIER, "seen")
+
+    private fun owedV2(): List<String> = ports.loadNote(NOTE_V2_OWED).orEmpty().split(' ').filter { hexOk(it) }
+
+    /** "It was me" for DEV: the card goes here at once, and an 8563 sealed to my own devices clears it on the others. */
+    suspend fun addedWasMeV2(dev: String): Unit = kotlinx.coroutines.withContext(confined) {
+        ports.saveNote("v2-ok:$dev", clock().toString())
+        ports.saveNote(NOTE_V2_OWED, (owedV2() + dev).distinct().joinToString(" "))
+        try { sendOwedConfirmsV2() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { trace("confirm: not sent yet") }
+    }
+
+    /** The 8563s still to send (§6.5): only by a device whose word counts (older session, on my list); owed until the relay took every wrap. */
+    private suspend fun sendOwedConfirmsV2() {
+        val todo = owedV2()
+        if (todo.isEmpty()) return
+        val mineNow = devicesOf(account) ?: return
+        if (device.pubkey !in mineNow) return
+        val list = listEvent(account) ?: return
+        val ages = sessionAges() ?: return
+        val left = ArrayList<String>()
+        for (dev in todo) {
+            if (dev !in mineNow) continue // it left my list: nothing to confirm
+            val mineAge = ages[device.pubkey]; val its = ages[dev]
+            if (mineAge == null || its == null) { left.add(dev); continue }
+            if (mineAge >= its) continue // this device's word would not count: it only cleared its own card
+            val rumor = V2.confirmRumor(device.pubkey, account, dev, list.id, clock())
+            val ok = try { V2.wraps(rumor, device, mapOf(account to mineNow), clock()).map { ports.publish(it.wrap) }.all { it } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { false }
+            if (!ok) left.add(dev) else trace("confirm v2: sent")
+        }
+        ports.saveNote(NOTE_V2_OWED, left.joinToString(" "))
+    }
+
+    /** Device → when its session was opened, from the sessions list (30 s cache); null = the list could not be read. */
+    private suspend fun sessionAges(): Map<String, Long>? =
+        cachedSessions()?.mapNotNull { r -> r.clientPubkey?.let { k -> r.createdAt?.let { k to it } } }?.toMap()
+
+    /** An opened 8563 of version 2: true = accepted, false = ignored, null = can't tell yet. */
+    private suspend fun takeConfirmV2(o: V2.Opened): Boolean? {
+        val mineLists = seenLists(account).mapNotNull { s -> ports.belfry()?.let { b -> V2.readList(s.event, b, account, clock())?.let { s.event.id to it } } }.toMap()
+        val open = cardsV2().map { it.device }.toSet()
+        return when (val c = V2.acceptConfirm(o.rumor, o.sealPubkey, account, devicesOf(account), mineLists, sessionAges(), open)) {
+            is V2.Confirm.Accept -> {
+                if (ports.loadNote("v2-ok:${c.device}") == null) { ports.saveNote("v2-ok:${c.device}", clock().toString()); onConfirmed?.invoke() }
+                true
+            }
+            is V2.Confirm.Reject -> false
+            V2.Confirm.Later -> null
+        }
+    }
+
+    /** Remove (§6.6): the session is revoked; the belfry rewrites the list without it. Nothing to rotate. */
+    suspend fun removeV2(dev: String) {
+        require(dev != device.pubkey) { "this device signs out instead" }
+        ports.revoke(dev)
+        kotlinx.coroutines.withContext(confined) {
+            sessionsCache = null
+            cards.remove(dev)
+            saveState()
+            try { refreshListHere(account) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+        }
+    }
+
+    /** Device changes of PERSON's list as this app saw them, oldest first (the grey lines; dated when first seen here). */
+    fun listChanges(person: String): List<RosterChange> {
+        val belfry = ports.belfry() ?: return emptyList()
+        val seen = seenLists(person).mapNotNull { s -> V2.readList(s.event, belfry, person, clock())?.let { Triple(s.event, it, s.firstSeen) } }
+            .sortedWith(compareBy<Triple<Event, List<String>, Long>> { it.first.createdAt }.thenByDescending { it.first.id.lowercase() })
+        val out = ArrayList<RosterChange>()
+        for (i in 1 until seen.size) {
+            val a = seen[i - 1].second; val b = seen[i].second
+            b.filter { it !in a }.forEach { out.add(RosterChange(it, true, seen[i].third, seen[i].first.id)) }
+            a.filter { it !in b }.forEach { out.add(RosterChange(it, false, seen[i].third, seen[i].first.id)) }
+        }
+        return out
+    }
+
     // ---- my own chain -------------------------------------------------------------------------
 
     /** My chain's state on this device. */
@@ -411,6 +734,7 @@ class SealedEngine(
      */
     suspend fun start(myName: String, kind: String, link: String? = null) = locked {
         // two starts at once (AUTH twice on one connection, a late AUTH beside the poll): the second finds it known
+        if (v2) { trace("start: version 2, no chain is made"); return@locked }
         if (mine != Mine.UNKNOWN) { trace("start: already $mine"); return@locked }
         val qa = ports.query(Query(kinds = listOf(Anchor.KIND), authors = listOf(account), d = listOf(Anchor.D)))
         val qr = ports.query(Query(kinds = listOf(Roster.KIND), p = listOf(account)))
@@ -498,6 +822,7 @@ class SealedEngine(
      * c233eec), at start and at each upkeep. Lock held by the caller.
      */
     private suspend fun anchorOwnTail(chain: Chain) {
+        if (v2) return
         val anchored = anchoredHead() ?: return
         if (chain.head.id == anchored || chain.head.signer != device.pubkey) return
         if (chain.rosters.none { it.id == anchored }) return
@@ -531,6 +856,7 @@ class SealedEngine(
     }
 
     private suspend fun askAgainHere(link: String?, force: Boolean) {
+        if (v2) return // a request (8562) is no way in any more (sealed-v2 §8)
         if (mine == Mine.UNKNOWN) { trace("unknown"); return }
         val c = refreshHere(account) ?: run { trace("no chain (complete=${lastReadComplete[account]})"); return }
         if (device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; trace("in head"); return }
@@ -593,6 +919,7 @@ class SealedEngine(
      * hands them over once allowed). Everyone sees the amber notice.
      */
     suspend fun startFresh(myName: String, kind: String) = locked {
+        if (v2) throw FreshNotDone("Not needed any more: this device reads and writes as soon as it is signed in.")
         val c = refreshHere(account)
         // the head from THIS read, complete, on this connection (never what the device stored)
         if (lastReadComplete[account] != true || known[account]?.completeAt == null) throw FreshNotDone("Can't reach the belfry to check your devices. Try again in a moment.")
@@ -622,6 +949,12 @@ class SealedEngine(
 
     /** The 6-hour upkeep: gone sessions, ready, my own unanchored roster. */
     suspend fun upkeep() {
+        if (v2) {
+            // version 2: nothing of the chain is kept up; the lists are read again and owed confirmations sent
+            for (p in (lists.keys + account).toList()) try { refresh(p) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+            try { kotlinx.coroutines.withContext(confined) { sendOwedConfirmsV2() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+            return
+        }
         for (p in known.keys.toList()) if (p != account) try { refresh(p) } catch (e: Exception) { }
         locked { refresh(account)?.let { anchorOwnTail(it) } }
         try { kotlinx.coroutines.withContext(confined) { sendOwedConfirms() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
@@ -634,6 +967,7 @@ class SealedEngine(
     /** The connection dropped: what the relay said no longer counts as knowledge (c233eec). */
     fun connectionLost() {
         trace("connection lost")
+        listAt.clear()
         askedThisConnection = false
         for ((k, v) in known.entries.toList()) known[k] = Known(v.chain, null)
     }
@@ -655,6 +989,7 @@ class SealedEngine(
      * the new head); a roster the relay refused is never kept here.
      */
     private suspend fun land(r: Event, anchor: Event): Boolean {
+        if (v2) return false // no roster and no anchor is published any more (sealed-v2 §8)
         if (!ports.publish(r)) return false
         if (!ports.publish(anchor)) return false
         anchors[account] = anchor
@@ -690,6 +1025,7 @@ class SealedEngine(
     suspend fun onRequest(req: Event): OnRequest = kotlinx.coroutines.withContext(confined) { onRequestHere(req) }
 
     private suspend fun onRequestHere(req: Event): OnRequest {
+        if (v2) return OnRequest.Ignore // no hand-over, no letting in: the list is the belfry's (the history ask is slice 2)
         val (dev, acc) = Sealing.readRequest(req) ?: return OnRequest.Ignore
         if (acc != account || mine != Mine.IN_HEAD) return OnRequest.Ignore
         // each request once, only the newest per device (N2): before any network call
@@ -788,7 +1124,7 @@ class SealedEngine(
      * this device didn't allow from its own prompt or link, still in the head, not answered "It was me".
      * Kept across restarts (the notes); a device that leaves the head drops its notice.
      */
-    suspend fun addedNotices(): List<AddedNotice> = kotlinx.coroutines.withContext(confined) { noticesHere() }
+    suspend fun addedNotices(): List<AddedNotice> = kotlinx.coroutines.withContext(confined) { if (v2) cardsV2().map { AddedNotice(it.device, it.at) } else noticesHere() }
 
     /** The devices whose "was added" notice is open on this device (none while it has never looked: nothing was shown). */
     private fun openNotices(): Set<String> =
@@ -815,6 +1151,7 @@ class SealedEngine(
      * in the roster before the one that added DEV, since no other device's word is accepted.
      */
     suspend fun addedWasMe(dev: String) {
+        if (v2) return addedWasMeV2(dev)
         confirmHere(dev)
         // §5.7 "It was me" endorses: roster n+1 = same devices, same lb, one endorse tag per device confirmed; owed
         // until it is on the anchored path (tried again at each upkeep)
@@ -912,6 +1249,11 @@ class SealedEngine(
     }
 
     companion object {
+        /** In a queued wrap's `lb` field: a version 2 wrap, followed by the device it is for. */
+        const val V2_QUEUED = "d:"
+        private const val NOTE_V2_REREAD = "v2-reread"
+        private const val NOTE_V2_EARLIER = "v2-earlier"
+        private const val NOTE_V2_OWED = "v2-confirm-owed"
         const val MAX_KEPT = 2_000
         /** §5.2 step 2: devices added in the last 24 h before a new one asks again. */
         const val AUTO_PER_DAY = 3
@@ -935,6 +1277,7 @@ class SealedEngine(
      * allowed without a prompt (§5.2 step 2).
      */
     suspend fun allow(newDevice: String, prompted: Boolean = true) = locked {
+        if (v2) throw IllegalStateException("A device is on your list as soon as it signs in: there is nothing to allow.")
         if (prompted) ports.saveNote("prompted:$newDevice", clock().toString())
         val chain = refresh(account) ?: throw IllegalStateException("no chain")
         if (mine != Mine.IN_HEAD) throw IllegalStateException("This device can't allow others yet.")
@@ -993,6 +1336,7 @@ class SealedEngine(
 
     /** Remove DEVICE (never this one): a new letterbox, keys to each remaining device, roster n+1, anchor. */
     suspend fun remove(dev: String, revoke: Boolean = true) = locked {
+        if (v2) { removeV2(dev); return@locked }
         require(dev != device.pubkey) { "this device signs out instead" }
         if (mine != Mine.IN_HEAD) throw IllegalStateException("This device can't remove devices yet.") // the review's 12
         val chain = refresh(account) ?: return@locked
@@ -1034,6 +1378,7 @@ class SealedEngine(
      * through it), the head read again. Only from a well-formed list that holds my own session.
      */
     suspend fun checkSessions() {
+        if (v2) return
         val sessions = ports.sessions() ?: return
         if (sessions.none { it.clientPubkey == device.pubkey }) return
         val liveKeys = sessions.mapNotNull { it.clientPubkey }.toSet()
@@ -1051,6 +1396,7 @@ class SealedEngine(
 
     /** Publishes a roster with `ready` when every counted chat session is a device of my head. */
     suspend fun checkReady() {
+        if (v2) return
         val sessions = ports.sessions() ?: return
         locked {
             val chain = refresh(account) ?: return@locked
@@ -1093,7 +1439,7 @@ class SealedEngine(
             // new head until this hand-over let it in. Anything else goes through the request's own rule (§5.5).
             val mineOnly = keys.toMap().keys - h.keys.keys
             val cameBack = wasOut && previousChain?.let { it.root.id != c.root.id && it.everHad(device.pubkey) } == true
-            if (cameBack && mineOnly.isNotEmpty() && h.giver != device.pubkey && h.giver in c.devices && ports.loadNote("handback:${h.giver}") == null) {
+            if (!v2 && cameBack && mineOnly.isNotEmpty() && h.giver != device.pubkey && h.giver in c.devices && ports.loadNote("handback:${h.giver}") == null) {
                 try {
                     Sealing.keysFor(device, account, h.giver, keys, clock()).forEach { ports.publish(it) }
                     ports.saveNote("handback:${h.giver}", clock().toString())
@@ -1108,8 +1454,14 @@ class SealedEngine(
     // ---- sending (§4, §6) ---------------------------------------------------------------------
 
     sealed interface Plan {
-        /** Seal to these heads (account → lb), the self-copy included. */
-        data class Seal(val heads: Map<String, String>) : Plan
+        /**
+         * Seal to these heads (account → lb), the self-copy included. Version 2 (docs/sealed-v2.md): V2 = every
+         * participant's devices (account → its list's devices), LISTS = the list each was taken from (account → list
+         * id, §3.3); HEADS then holds only the version 1 letterboxes to ALSO wrap to while the belfry says version 1.
+         */
+        data class Seal(val heads: Map<String, String>, val v2: Map<String, List<String>>? = null, val lists: Map<String, String> = emptyMap()) : Plan
+        /** Version 2: this device is not on its account's list (the cap, or not written yet): it seals nothing meanwhile. */
+        data object NotListed : Plan
         /** Today's way: known, from a complete answer, that someone has no ready chain. */
         data object OldWay : Plan
         /** Sealed with no head (WHO: the person with no head to seal to), or this device is locked: not sent, the text kept. */
@@ -1137,6 +1489,7 @@ class SealedEngine(
     }
 
     private suspend fun planHere(conv: String, participants: Collection<String>): Plan {
+        if (v2) return planV2(conv, participants)
         val people = (participants + account).toSet()
         withTimeoutOrNull(3000) { people.forEach { refresh(it) } }
         // Notes to myself (docs/one-shape.md, SPEC 19.66): the conversation whose only participant is me. Sealed
@@ -1169,13 +1522,16 @@ class SealedEngine(
 
     /** The wraps of a rumor for a Seal plan. A rumor over 40 000 bytes is refused. */
     fun seal(rumor: Event, plan: Plan.Seal): List<Queued> =
-        plan.heads.map { (who, lb) -> Queued(rumor, who, lb, Sealing.seal(rumor, device, who, lb, clock(), silent = who == account)) } // my own copy is silent (§4)
+        plan.heads.map { (who, lb) -> Queued(rumor, who, lb, Sealing.seal(rumor, device, who, lb, clock(), silent = who == account)) } + // my own copy is silent (§4)
+            plan.v2?.let { t -> V2.wraps(rumor, device, t, clock()).map { w -> Queued(rumor, w.account, V2_QUEUED + w.device, w.wrap) } }.orEmpty()
 
     /** A wrap waiting in the outbox, with what it was sealed to. */
     data class Queued(val rumor: Event, val recipient: String, val lb: String, val wrap: Event)
 
     /** Sealed again when the recipient's head changed before it was sent (§9), any kind (14, 7, 5…). */
     fun resealIfNeeded(q: Queued): Queued {
+        if (q.lb.startsWith(V2_QUEUED)) return q // a per-device wrap never changes: it is dropped or joined by others ([v2Gone], [v2Missing])
+        if (ports.sealedMode() == SealedMode.V2) return q
         val head = chainOf(q.recipient)?.head?.lb ?: return q
         if (!Sealing.needsReseal(q.lb, head)) return q
         return Queued(q.rumor, q.recipient, head, Sealing.seal(q.rumor, device, q.recipient, head, clock(), silent = q.recipient == account))
@@ -1225,6 +1581,7 @@ class SealedEngine(
     suspend fun receive(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received = kotlinx.coroutines.withContext(confined) { receiveHere(wrap, belfry, convOf) }
 
     private suspend fun receiveHere(wrap: Event, belfry: String?, convOf: (Event) -> String?): Received {
+        if (V2.isV2(wrap)) return receiveV2(wrap, convOf)
         val o = Sealing.open(wrap, keys)
         val firstSeen = pending[wrap.id]?.second ?: firstSeenStored[wrap.id] ?: clock().also { firstSeenStored[wrap.id] = it }
         // "It was me" from another of my devices (§5.2 step 2b): judged against my own chain, never a message.
@@ -1306,6 +1663,7 @@ class SealedEngine(
 
     private suspend fun retryPending() {
         for ((id, p) in pending.entries.toList()) {
+            if (V2.isV2(p.first)) { retryV2(id, p.first, p.second); continue }
             val o = Sealing.open(p.first, keys)
             if (o is Opening.Opened && o.rumor.kind == Sealing.CONFIRM) {
                 // an 8563 kept until my chain held the roster it names (§5.2 step 2b)
@@ -1347,7 +1705,7 @@ class SealedEngine(
 
     /** This device is in my head but has no secret for it (a lost hand-over): "Waiting for another of your devices". */
     /** In my head with its letterbox's secret, from my chain as last read (and [mine] says so). */
-    fun inHeadNow(): Boolean = mine == Mine.IN_HEAD && chainOf(account)?.devices?.contains(device.pubkey) == true
+    fun inHeadNow(): Boolean = if (v2) onMyList != false else mine == Mine.IN_HEAD && chainOf(account)?.devices?.contains(device.pubkey) == true
 
     val inHeadWithoutKey: Boolean get() = chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) == null } == true
 
@@ -1364,6 +1722,7 @@ class SealedEngine(
 
     /** Writes this device's own name record under the head letterbox (§3.5), when it is in the head. */
     suspend fun writeMyName(name: String, kind: String) {
+        if (v2) return // names are the sessions list's; nothing is written under a letterbox any more
         val head = chainOf(account) ?: return
         val secret = keys.secretFor(head.head.lb) ?: return
         if (device.pubkey !in head.devices) return
@@ -1375,7 +1734,7 @@ class SealedEngine(
         ports.query(Query(kinds = listOf(Sealing.REQUEST), p = listOf(account))).events.sortedByDescending { it.createdAt }
 
     /** Is DEVICE removable from this device's list (not this one, and this device is in the head)? */
-    fun canRemove(dev: String): Boolean = mine == Mine.IN_HEAD && dev != device.pubkey && chainOf(account)?.devices?.contains(dev) == true
+    fun canRemove(dev: String): Boolean = if (v2) dev != device.pubkey && onMyList == true && devicesOf(account)?.contains(dev) == true else mine == Mine.IN_HEAD && dev != device.pubkey && chainOf(account)?.devices?.contains(dev) == true
 
     // last: every field above exists before the saved state is read (Kotlin runs initialisers in order)
     init { loadState() }
@@ -1387,7 +1746,16 @@ data class Query(
     val authors: List<String>? = null,
     val p: List<String>? = null,
     val d: List<String>? = null,
+    /** By event id (sealed-v2 §3.3: the list a message names). */
+    val ids: List<String>? = null,
 )
+
+/**
+ * What the belfry says of sealed conversations (belfry.json `sealed`; docs/sealed-v2.md §8): V1 = no device lists
+ * (everything as before); BOTH = `{"version": 1, "lists": true}`: the app works by the lists and ALSO sends the
+ * version 1 wrap to anyone with a ready chain; V2 = `{"version": 2}`: nothing is sent the version 1 way.
+ */
+enum class SealedMode { V1, BOTH, V2 }
 
 /** One row of GET /api/me/sessions, as the engine needs it. LAST_SEEN = last_activity, else created_at. */
 data class SessionRow(
@@ -1412,6 +1780,10 @@ interface SealedPorts {
     /** The engine's pins and sealed conversations, one value, kept beside the conversation data. */
     fun loadState(): String? = null
     fun saveState(json: String) {}
+    /** belfry.json `sealed` as the app holds it now. */
+    fun sealedMode(): SealedMode = SealedMode.V1
+    /** The belfry's own key (belfry.json `nostr.pubkey`): the only author of device lists. */
+    fun belfry(): String? = null
     /** Small records kept across restarts (my last hand-over to each device, f28220c). */
     fun loadNote(name: String): String? = null
     fun saveNote(name: String, value: String) {}

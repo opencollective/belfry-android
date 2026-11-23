@@ -276,12 +276,14 @@ class Session(
     val sealed: sh.belfry.core.sealed.SealedEngine? by lazy {
         val device = (signer as? BunkerSigner)?.device ?: deviceKeyOverride
         val ks = sealedKeys
-        if (localOnly || device == null || ks == null || _guest.value != null) null
+        // a guest has no chain (version 1), but has a device list like anyone (sealed-v2 §3.1)
+        if (localOnly || device == null || ks == null || (_guest.value != null && community.sealedMode == sh.belfry.core.sealed.SealedMode.V1)) null
         else sh.belfry.core.sealed.SealedEngine(
             SessionSealedPorts({ mainRelay }, { t -> signer.sign(t) }, { api().sessions(signer) }, { b -> api().revokeSession(signer, b) }, ks,
                 // pins and sealed conversations beside the conversation data (wiped with the account), one value
-                { store.get(K_SEALED_STATE) } to { v -> if (!stopped) store.set(K_SEALED_STATE, v) }), // never after sign-out's wipe
-            device, me, clock = clock, guest = false,
+                { store.get(K_SEALED_STATE) } to { v -> if (!stopped) store.set(K_SEALED_STATE, v) }, // never after sign-out's wipe
+                { community.sealedMode }, { community.belfryPubkey }),
+            device, me, clock = clock, guest = _guest.value != null,
         ).also { e ->
             // a note to myself written while I have no chain: the first-device path, now (SPEC 19.66)
             e.makeChain = { withContext(Dispatchers.Default) { sealedStart() } }
@@ -289,6 +291,21 @@ class Session(
     }
 
     /** Keys arrived: kept wraps tried again, and every wrap to me read again from 0, paged (§5.5). */
+    /**
+     * sealed-v2 §8: the first version 2 run reads this device's own wraps (`#d`) from 0, also those an earlier build
+     * took for old NIP-17 wraps, could not open and settled.
+     */
+    private suspend fun rereadV2() {
+        val r = mainRelay ?: return
+        val dev = sealed?.device?.pubkey ?: return
+        val all = Paging.all { f -> r.queryKnown(listOf(f)) }(Filters.of(kinds = listOf(1059), tags = mapOf("p" to listOf(me), "d" to listOf(dev))))
+        dm.forgetSeen(all.events.filter { sh.belfry.core.sealed.V2.isV2(it) }.map { it.id })
+        addToLog(all.events)
+        dm.offer(all.events)
+        dm.process()
+        try { encryption.refresh() } catch (x: Exception) { }
+    }
+
     private suspend fun rereadWraps(joined: Set<String> = emptySet()) {
         dm.retryKept()
         val r = mainRelay ?: return
@@ -336,9 +353,9 @@ class Session(
     @Volatile private var subscribedPeers: Set<String> = emptySet()
 
     /** The sealed set gained a person: the community relay's live subscription is sent again to cover them (N3). */
-    private fun resubscribeIfSealedGrew() {
+    private fun resubscribeIfSealedGrew(force: Boolean = false) {
         val now = sealedPeers().toSet()
-        if ((now - subscribedPeers).isEmpty()) return
+        if (!force && (now - subscribedPeers).isEmpty()) return
         subscribedPeers = now
         mainRelay?.let { r -> if (r.isUp) r.subscribe(SUB, filters(Target.MAIN)) }
     }
@@ -384,6 +401,17 @@ class Session(
             if (who == me) { nameWritten = false; launchSafely { if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) writeNameOnce(e) } }
             // a device that added itself and is no live chat session is removed at once (sealed.md §5.7)
             if (who == me) launchSafely { e.checkJoiners(); encryption.refresh() }
+        }
+        if (e.v2) {
+            // version 2 (docs/sealed-v2.md): the belfry's lists; no chain is made, followed or changed. On the first
+            // run this device's own wraps are read from 0 (§8)
+            if (e.onV2First == null) e.onV2First = { launchSafely { rereadV2() } }
+            e.startV2()
+            resubscribeIfSealedGrew(force = true)
+            requestFlush()
+            try { encryption.refresh() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
+            if (upkeepRunning.compareAndSet(false, true)) launchSafely { try { delay(2_000); e.upkeep() } finally { upkeepRunning.set(false) } }
+            return
         }
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN && !e.firstRefused) {
             val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
@@ -695,6 +723,8 @@ class Session(
             val who = when {
                 e.kind == sh.belfry.core.sealed.Roster.KIND -> e.tag("p")
                 e.kind == 30078 && e.tag("d") == sh.belfry.core.sealed.Anchor.D -> e.pubkey
+                // a device list (sealed-v2 §3.1): only from the belfry's key
+                e.kind == 30078 && e.pubkey == community.belfryPubkey -> sh.belfry.core.sealed.V2.accountOf(e)
                 else -> null
             } ?: continue
             sealedChainMoved(who)
@@ -851,7 +881,7 @@ class Session(
         if (sealed != null) jobs += scope.launch(Dispatchers.Default) {
             while (isActive) {
                 delay(SEALED_UPKEEP_MS)
-                try { if (sealed?.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) sealed?.upkeep() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+                try { if (sealed?.v2 == true || sealed?.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) sealed?.upkeep() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
             }
         }
         // requests from my new devices (the Allow prompt) and device lines: looked at every two minutes
@@ -861,7 +891,10 @@ class Session(
                 try {
                     if (_status.value.online) {
                         val e = sealed
-                        when (e?.mine) {
+                        if (e?.v2 == true) {
+                            // version 2: my list read again (am I on it, who came), the cards and lines redrawn
+                            if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN) sealedStart() else { e.refresh(me); resubscribeIfSealedGrew(); encryption.refresh() }
+                        } else when (e?.mine) {
                             sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN -> sealedStart()
                             sh.belfry.core.sealed.SealedEngine.Mine.WAITING -> { e.askAgain(linkSecret, force = false); encryption.refresh() } // every 24 h (§5.2); AUTH asks once per connection
                             sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD -> {
@@ -1082,6 +1115,12 @@ class Session(
         ) + listOfNotNull(
             // sealed: key hand-overs come to this DEVICE's key (§5.5), not to the account
             sealed?.device?.pubkey?.let { Filters.of(kinds = listOf(1059), limit = 300, tags = mapOf("p" to listOf(it))) },
+            // sealed v2: this device's own wraps by `#d` (docs/sealed-v2.md §4.2); the `#p` read above stays for version 1
+            sealed?.takeIf { it.v2 }?.device?.pubkey?.let { Filters.of(kinds = listOf(1059), since = wraps, limit = 300, tags = mapOf("p" to listOf(me), "d" to listOf(it))) },
+            // sealed v2: the device lists of me and of the people I write with, from the belfry's key only (§3.1)
+            community.belfryPubkey?.takeIf { sealed?.v2 == true }?.let { b ->
+                Filters.of(kinds = listOf(30078), authors = listOf(b), limit = 300, tags = mapOf("d" to (listOf(me) + sealedPeers()).map { sh.belfry.core.sealed.V2.d(it) }))
+            },
             // sealed: my correspondents' rosters and anchors on the live subscription (§4; the review's 1)
             sealedPeers().also { subscribedPeers = it.toSet() }.takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(sh.belfry.core.sealed.Roster.KIND), limit = 300, tags = mapOf("p" to it)) },
             sealedPeers().takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(30078), authors = it, limit = 300, tags = mapOf("d" to listOf(sh.belfry.core.sealed.Anchor.D))) },
@@ -1861,6 +1900,7 @@ class Session(
         override fun realName(pubkey: String): String = _world.value.realName(pubkey)
         override fun outbox(): List<OutboxItem> = store.outbox()
         override suspend fun enqueueSigned(target: Target, event: Event, dm: String?): String = this@Session.enqueueSigned(target, event, dm)
+        override fun dropOutbox(localIds: Collection<String>) { localIds.forEach { store.dropOutbox(it) }; countOutbox() }
         override fun preparing(id: String) { if (!localOnly) trace.step(id, "DM", SendState.STEP_PREPARE) }
         override fun notPrepared(id: String) { trace.end(id, "not prepared", left = false) }
         override val isGuest: Boolean get() = _guest.value != null

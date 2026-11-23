@@ -67,7 +67,21 @@ data class Community(
     val sessionApi: String? = null,
     /** The belfry's groups key (belfry.json `groups_key.pubkey`): signs answers to `belfry:` buttons, e-mail cards, guest joins. */
     val groupsKey: String? = null,
+    /**
+     * belfry.json `sealed` (docs/sealed-v2.md §8): `{"version": 1, "lists": true}` = the belfry writes device lists
+     * and apps send both ways; `{"version": 2}` = nothing is sent the version 1 way. Absent or odd = version 1, no lists.
+     */
+    val sealedVersion: Int = 1,
+    val sealedLists: Boolean = false,
 ) {
+    /** How this app seals on this belfry. Lists need the belfry's key (their only author): without it, version 1. */
+    val sealedMode: sh.belfry.core.sealed.SealedMode get() = when {
+        belfryPubkey == null -> sh.belfry.core.sealed.SealedMode.V1
+        sealedVersion >= 2 -> sh.belfry.core.sealed.SealedMode.V2
+        sealedLists -> sh.belfry.core.sealed.SealedMode.BOTH
+        else -> sh.belfry.core.sealed.SealedMode.V1
+    }
+
     /** The four branding values as the belfry's `/branding` takes them ("" = none). */
     val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty(), brandColors)
 
@@ -111,6 +125,8 @@ data class Community(
         if (agents.isNotEmpty()) put("agents", buildJsonObject { agents.forEach { (a, o) -> put(a, JsonPrimitive(o)) } })
         if (sessionApi != null) put("sessionApi", JsonPrimitive(sessionApi))
         if (groupsKey != null) put("groupsKey", JsonPrimitive(groupsKey))
+        if (sealedVersion != 1) put("sealedVersion", JsonPrimitive(sealedVersion))
+        if (sealedLists) put("sealedLists", JsonPrimitive(true))
         // kept so the colours and the logo are there before the belfry answers (and offline)
         val b = branding
         if (b != Branding()) put("branding", b.toJson(withColors = true))
@@ -178,6 +194,11 @@ data class Community(
             doc["nostr"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(belfryPubkey = it) }
             c = c.copy(agents = agentsOf(doc["agents"].obj()))
             doc["groups_key"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(groupsKey = it) }
+            (doc["sealed"] as? JsonObject)?.let { sl ->
+                val version = (sl["version"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull() ?: 1
+                val lists = (sl["lists"] as? kotlinx.serialization.json.JsonPrimitive)?.let { !it.isString && it.content == "true" } == true
+                c = c.copy(sealedVersion = if (version >= 2) 2 else 1, sealedLists = lists || version >= 2)
+            }
             return c
         }
 
@@ -209,6 +230,8 @@ data class Community(
                 agents = agentsOf(o["agents"].obj()),
                 sessionApi = o.s("sessionApi"),
                 groupsKey = o.s("groupsKey")?.takeIf(Hex::isKey),
+                sealedVersion = (o["sealedVersion"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() ?: 1,
+                sealedLists = (o["sealedLists"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true",
             ).withBranding(Branding.clean(o["branding"].obj()))
         }
 

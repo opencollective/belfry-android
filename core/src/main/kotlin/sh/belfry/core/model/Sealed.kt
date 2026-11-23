@@ -80,7 +80,11 @@ data class SharedBlock(val by: String, val from: Long, val to: Long) {
 data class AccessAsk(val id: String, val device: String, val kind: DeviceKind, val at: Long)
 
 /** A device added to my head without this device asking me (§5.2 step 2a): "‹name› was added just now". */
-data class AddedDevice(val id: String, val name: String, val at: Long)
+data class AddedDevice(
+    val id: String, val name: String, val at: Long,
+    /** sealed-v2 §3.3: a correspondent's message named a list of mine that has this device and that this device was never shown; their name. */
+    val seenBy: String? = null,
+)
 
 /** Where and when my sealed conversations were started fresh (DEVICE: its signed-in name, null if unknown). */
 data class FreshElsewhere(val device: String?, val at: Long)
@@ -117,6 +121,14 @@ data class SealState(
      * added itself holds the key of the newer messages. Its session name(s); empty = not so. Everything else works.
      */
     val waitingFor: List<String> = emptyList(),
+    /** Version 2 (docs/sealed-v2.md): the belfry's device lists; nothing is ever locked or waiting. */
+    val v2: Boolean = false,
+    /** §3.1: this device does not find itself on its account's list: 0 = it does, 1 = "Getting your messages ready…", 2 = after 15 s, "not on your device list yet" with Retry. */
+    val notListed: Int = 0,
+    /** §6.2: a new device: the earlier messages were encrypted for my other devices (until dismissed; the Ask button comes later). */
+    val earlierElsewhere: Boolean = false,
+    /** §5: conversations not sealed because their people have more than 100 devices together. */
+    val tooMany: Set<String> = emptySet(),
     /** A device that added itself without a live chat session was removed by this device, at (Unix seconds; 0 = none to tell). */
     val removedJoinerAt: Long = 0,
     /** Demo and tests only: how many newer messages wait (the real count is the conversations' `lockedCount`). */
@@ -380,6 +392,17 @@ object SealedText {
     }
     const val REMOVED_JOINER_TEXT = "It can't read anything new. If this wasn't you, change your e-mail's password."
     const val REMOVED_JOINER_OK = "OK"
+    /** docs/sealed-v2.md §6.2 (slice 1: the sentence without "Ask my other devices"). Wording is the contract's. */
+    const val EARLIER_ELSEWHERE = "Earlier messages were encrypted for your other devices."
+    const val EARLIER_ELSEWHERE_OK = "OK"
+    /** §3.1: a signed-in device that does not find itself on its account's list. */
+    const val GETTING_READY = "Getting your messages ready…"
+    const val NOT_ON_LIST = "This device isn't on your device list yet."
+    const val RETRY = "Retry"
+    /** §5: over 100 devices in a conversation. */
+    const val TOO_MANY_DEVICES = "Too many devices to encrypt for everyone here"
+    /** §3.3: the card of a device found through a correspondent's message. */
+    fun seenBy(name: String): String = "Seen by $name, not shown to this device before"
     const val LOCKED_BLOCK = "Locked on this device"
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours adds this one."

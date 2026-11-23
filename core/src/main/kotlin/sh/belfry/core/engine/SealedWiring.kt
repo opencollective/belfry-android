@@ -76,6 +76,7 @@ internal fun Query.toFilter(): JsonObject = buildJsonObject {
     authors?.let { put("authors", JsonArray(it.map { a -> JsonPrimitive(a) })) }
     p?.let { put("#p", JsonArray(it.map { a -> JsonPrimitive(a) })) }
     d?.let { put("#d", JsonArray(it.map { a -> JsonPrimitive(a) })) }
+    ids?.let { put("ids", JsonArray(it.map { a -> JsonPrimitive(a) })) }
 }
 
 /** A session-list row as the engine reads it (last seen = last_activity, else created_at). */
@@ -133,7 +134,12 @@ internal class SessionSealedPorts(
     private val revokeSession: suspend (String) -> Unit,
     private val keys: SealedKeyStore,
     private val state: Pair<() -> String?, (String) -> Unit> = { null } to { _ -> },
+    /** belfry.json `sealed` and the belfry's key, as the session holds them now (sealed-v2 §3.1, §8). */
+    private val mode: () -> sh.belfry.core.sealed.SealedMode = { sh.belfry.core.sealed.SealedMode.V1 },
+    private val belfryKey: () -> String? = { null },
 ) : SealedPorts {
+    override fun sealedMode(): sh.belfry.core.sealed.SealedMode = mode()
+    override fun belfry(): String? = belfryKey()
     override fun loadState(): String? = state.first()
     override fun saveState(json: String) = state.second(json)
     override suspend fun query(q: Query): SealedEngine.Answer {
