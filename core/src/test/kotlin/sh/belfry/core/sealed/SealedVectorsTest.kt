@@ -15,6 +15,7 @@ import sh.belfry.core.nostr.Event
 import sh.belfry.core.nostr.LocalSigner
 import sh.belfry.core.nostr.isValid
 import sh.belfry.core.nostr.s
+import sh.belfry.core.nostr.withId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -178,6 +179,75 @@ class SealedVectorsTest {
         val said = Sealing.acceptConfirm(rumorOf(en["confirmation"] as JsonObject), tapped.pubkey, after, setOf(joiner))
         assertTrue(said is Sealing.Confirm.Accept, "$key: its 8563")
         }
+    }
+
+    /**
+     * vectors `v2` (docs/sealed-v2.md at belfry-sh df53525; tools/sealed_v2_vectors.py), FIRST PART, as far as it can
+     * be read before the version 2 engine exists: every event is well formed and signed (but the one that is
+     * there to be refused); every wrap of `sending` opens with the key of the device it is for, to the same
+     * rumor, sealed by the sending device, with the tags §4.1 gives it and the list tags of §3.3; the wraps of
+     * `receiving` open or not as said. The rules themselves (lists, accepting, sealed or not) are read by the
+     * engine's tests when it is built: until then their cases are only checked for their shape.
+     */
+    @Test fun v2FirstPart() {
+        val s = v["v2"] as JsonObject
+        fun list(k: String) = (s[k] as JsonArray).map { it as JsonObject }
+        var events = 0; var bad = 0
+        fun walk(x: kotlinx.serialization.json.JsonElement?) {
+            when (x) {
+                is JsonObject -> if (x.containsKey("sig") && x.containsKey("kind")) { events++; if (!ev(x).isValid()) bad++ } else x.values.forEach { walk(it) }
+                is JsonArray -> x.forEach { walk(it) }
+                else -> {}
+            }
+        }
+        walk(s)
+        assertTrue(events > 100, "events: $events")
+        assertEquals(1, bad, "only the list with a bad signature")
+        fun open(wrap: Event, secret: String): Pair<Event, Event>? = try {
+            val seal = Event.fromJsonString(sh.belfry.core.crypto.Nip44.decryptFrom(secret, wrap.pubkey, wrap.content))!!
+            if (seal.kind != 13 || !seal.isValid() || seal.tags.isNotEmpty()) null
+            else seal to Event.fromJsonString(sh.belfry.core.crypto.Nip44.decryptFrom(secret, seal.pubkey, seal.content))!!.withId()
+        } catch (e: Exception) { null }
+        for (c in list("sending")) {
+            val name = c.s("name")!!
+            val rumor = c["rumor"] as JsonObject
+            val e = c["expected"] as JsonObject
+            val wraps = (c["wraps"] as JsonArray).map { it as JsonObject }
+            assertEquals(e["wraps"]!!.jsonPrimitive.int, wraps.size, name)
+            val lists = evs(c["lists"])
+            assertEquals(wraps.size, lists.sumOf { l -> l.tags.count { it.size >= 2 && it[0] == "device" } }, "$name: one wrap per device of every list")
+            // §3.3: one list tag per participant, naming the list it was sealed to
+            val listTags = ev(JsonObject(rumor + mapOf("sig" to JsonPrimitive("")))).tags.filter { it.size >= 3 && it[0] == "list" }
+            assertEquals(lists.map { it.tag("p") to it.id }.toSet(), listTags.map { it[1] to it[2] }.toSet(), name)
+            assertTrue(wraps.any { it.s("to_device") == c.s("sender_device") }, "$name: a wrap to the sending device itself")
+            for (w in wraps) {
+                val wrap = ev(w["wrap"] as JsonObject)
+                assertEquals(1059, wrap.kind)
+                val silent = w["silent"]!!.jsonPrimitive.boolean
+                assertEquals(listOfNotNull(listOf("p", w.s("to_account")!!), listOf("d", w.s("to_device")!!), GiftWrap.SILENT.takeIf { silent }), wrap.tags, name)
+                val (seal, opened) = open(wrap, w.s("device_secret")!!)!!
+                assertEquals(e.s("seal_pubkey"), seal.pubkey, name)
+                assertEquals(rumor.s("id"), opened.id, name)
+                assertEquals(silent, opened.pubkey == w.s("to_account"), "$name: silent when the device's account is the sender's own")
+            }
+        }
+        assertEquals(3, list("sending").size)
+        for (c in list("receiving")) {
+            val e = c["expected"] as JsonObject
+            val wrap = ev(c["wrap"] as JsonObject)
+            val ds = wrap.tags.filter { it.size >= 2 && it[0] == "d" }.map { it[1] }
+            val lb = wrap.tags.any { it.size >= 2 && it[0] == "lb" }
+            assertEquals(e.s("kind") == "v1", ds.isEmpty() && lb, c.s("name"))
+            assertEquals(e.s("kind") == "old", ds.isEmpty() && !lb, c.s("name"))
+            if (e.s("kind") == "v2") assertEquals(listOf(c.s("reader_device")), ds)
+            assertEquals(e["opens"]!!.jsonPrimitive.boolean, e.s("kind") == "v2" && open(wrap, c.s("reader_device_secret")!!) != null, c.s("name"))
+        }
+        assertEquals(8, list("receiving").size)
+        assertEquals(20, list("lists").size); assertEquals(21, list("accepting").size); assertEquals(12, list("sealed").size)
+        for (c in list("lists")) assertTrue((c["expected"] as JsonObject).containsKey("devices"))
+        for (c in list("accepting")) assertTrue((c["expected"] as JsonObject).s("verdict") in setOf("accept", "keep", "drop"))
+        for (c in list("sealed")) assertTrue((c["expected"] as JsonObject).s("decision") in setOf("seal", "old_way", "hold", "not_sealed_too_many", "not_on_my_list"))
+        assertEquals(13, (s["readings"] as JsonArray).size)
     }
 
     @Test fun wraps() {
