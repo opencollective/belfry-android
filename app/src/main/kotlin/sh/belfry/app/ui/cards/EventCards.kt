@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,9 +137,13 @@ internal fun EventCardView(e: CalEvent, api: ApiEvent?, modifier: Modifier = Mod
             if (plain) {
                 // Going and Maybe share one lock: one tap, one answer
                 val busy = rememberBusy()
+                // answered from this card: the buttons stay off until the card redraws with the answer
+                // (the lock alone left a moment, between the answer sent and the next snapshot, where a
+                // second tap sent a second answer: EventsTest.goingOnACardFiresOnce failed on it now and then)
+                var answered by remember(e.coord) { mutableStateOf(false) }
                 Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BusyButton("Going", onClick = { session.events.rsvp(e, Rsvp.ACCEPTED) }, modifier = Modifier.weight(1f).testTag("card-going"), small = true, busy = busy)
-                    BusyButton("Maybe", onClick = { session.events.rsvp(e, Rsvp.TENTATIVE) }, modifier = Modifier.weight(1f).testTag("card-maybe"), small = true, kind = ButtonKind.Ghost, busy = busy)
+                    BusyButton("Going", onClick = { session.events.rsvp(e, Rsvp.ACCEPTED); answered = true }, modifier = Modifier.weight(1f).testTag("card-going"), small = true, busy = busy, enabled = !answered)
+                    BusyButton("Maybe", onClick = { session.events.rsvp(e, Rsvp.TENTATIVE); answered = true }, modifier = Modifier.weight(1f).testTag("card-maybe"), small = true, kind = ButtonKind.Ghost, busy = busy, enabled = !answered)
                 }
             } else {
                 Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 10.dp)) {
