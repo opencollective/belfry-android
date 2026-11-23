@@ -47,6 +47,16 @@ object GuestTopic {
     /** A reading guest has no name until they save: "Guest" (web model.ts displayName). */
     const val GUEST_NAME = "Guest"
 
+    // ---- the e-mail summary of a topic followed from a card (SPEC 19.77; canvas Cards v45 cards/follow-channel-form) ----
+    const val WEEKLY = "weekly"
+    const val MONTHLY = "monthly"
+    const val SUMMARY_LABEL = "Summary by e-mail"
+    /** The two choices in order, Weekly first (the default): value → word. */
+    val SUMMARIES = listOf(WEEKLY to "Weekly", MONTHLY to "Monthly")
+    /** What is sent: `monthly` only when chosen, else `weekly`. */
+    fun summary(choice: String?): String = if (choice == MONTHLY) MONTHLY else WEEKLY
+    fun summaryHint(choice: String?): String = "What was said, once a ${if (summary(choice) == WEEKLY) "week" else "month"}. Change it any time."
+
     /** The store key of "Not now" for one topic (kept on the device, as the web's localStorage). */
     fun laterKey(groupId: String): String = "ui:topic-save-no:$groupId"
 }

@@ -2134,9 +2134,13 @@ class Session(
      * belfry opened a session for it on this phone's new key (canvas onboarding/guest-code v41):
      * the caller swaps this guest for that account. Null otherwise (saved, or a member now).
      */
-    suspend fun guestVerify(email: String, code: String, name: String? = null): GuestSignIn? {
+    suspend fun guestVerify(email: String, code: String, name: String? = null, summary: String? = null): GuestSignIn? {
         val n = name?.let(GuestMode::cleanName)?.takeIf { it.isNotEmpty() }
         val g = _guest.value
+        // SUMMARY (the e-mail summary, `weekly` or `monthly`) goes only when a topic card's reading guest
+        // follows that topic with a name and an e-mail (SPEC 19.77); nowhere else, whatever a screen passed
+        val sum = if (summary != null && n != null && g != null && GuestTopic.here(g.reading, g.channel, g.card, g.channel)) GuestTopic.summary(summary) else null
+        summarySent = sum
         if (localOnly) { // demo: what the belfry would do
             delay(300)
             if (email.trim().lowercase() == GuestMode.DEMO_TAKEN) throw GuestJoinException("taken", moved = true, nip05 = "ana@${community.domain}")
@@ -2147,12 +2151,12 @@ class Session(
             // a guest of this device: a new session key, the one an account's session would be bound to
             var key = if (g != null) LocalSigner.random() else null
             val saved = try {
-                guestCall { it.guestVerify(signer, email.trim(), code.trim(), n, key?.pubkey) }
+                guestCall { it.guestVerify(signer, email.trim(), code.trim(), n, key?.pubkey, sum) }
             } catch (e: GuestJoinException) {
                 // 422 invalid with a session key: the key was refused, the code is not spent: another key, the same code
                 if (key == null || e.code != "invalid") throw e
                 key = LocalSigner.random()
-                guestCall { it.guestVerify(signer, email.trim(), code.trim(), n, key.pubkey) }
+                guestCall { it.guestVerify(signer, email.trim(), code.trim(), n, key.pubkey, sum) }
             }
             saved.signedIn?.let { return it.copy(secret = key!!.secretHex) }
             // a member link: a member now (`"member": true`). Never a guest any more on this device
@@ -2220,6 +2224,10 @@ class Session(
         }
     }
 
+    /** The `summary` the last [guestVerify] sent (null: none): the demo and tests. */
+    @Volatile var summarySent: String? = null
+        private set
+
     /** The demo (and screenshots): this device as a guest of CHANNEL in guest mode. */
     fun demoGuestMode(channel: String, card: String? = null) {
         if (localOnly) setGuest(GuestInfo(channel, saved = false, reading = true, card = GuestTopic.card(card)))
@@ -2265,13 +2273,13 @@ class Session(
         rebuild()
     }
 
-    /** The channels I follow by e-mail (channel → `asap` or `monthly`) and the address they go to. */
+    /** The channels I follow by e-mail (channel → `asap`, `weekly` or `monthly`) and the address they go to. */
     suspend fun follows(): Follows {
         if (localOnly) return Follows("you@example.org", HashMap(demoFollows))
         return call { api -> spaced(community.follows) { api.follows(signer) } }
     }
 
-    /** CHOICE: `asap`, `monthly` or `stop`. Returns what is in force now (null = not following). */
+    /** CHOICE: `asap`, `weekly`, `monthly` or `stop`. Returns what is in force now (null = not following). */
     suspend fun setFollow(channel: String, choice: String): String? {
         guard()
         if (localOnly) {

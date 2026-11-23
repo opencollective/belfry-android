@@ -258,6 +258,8 @@ Web changes of 2026-11-11 and 12 (up to c6579a0), each checked against the web's
 | Web feature | Status | Notes |
 |---|---|---|
 | A guest posts in a topic reached through a card, without an e-mail (8e2b3b2, fa579cd; canvas cards/follow-channel, contribute-compose, contribute-save) | done, never run live | SPEC 19.77. The join answer's `"card": "topic"` only (no card-screen record as a fallback). The save card opens the Join sheet (name + e-mail), as the web; the board's inline e-mail field is not built. Log in = this belfry's e-mail log-in over the app. |
+| Summary by e-mail, Weekly / Monthly, when a topic is followed from a card (Cards v45, cards/follow-channel-form; web's working tree after 9b96ed3) | done, never run live | SPEC 19.77. `"summary"` in `/guest/save/verify`, a topic card's guest only. The claim forms' summary row is the card screens' branch. |
+| E-mail follow frequency Weekly (`/me/follows`, the server 2026-11-23) | done, never run live | SPEC 19.78. In the Follow screen's list. |
 | Channels: followers, not members (75810d1; Channels canvas v5) | done | SPEC 19.78. A group's pull-down row keeps Android's "People". No Follow button on a channel's preview card and no "Only followers of #x see this" line: neither exists on Android. |
 | "Activity log" as a menu row; no "Nobody here shares their city yet"; no proposal line under #requests' composer (802be45, 1826857) | done | SPEC 19.78. The row existed ("Log"); renamed everywhere. |
 | Notes: "Write anything you want to keep: ideas, lists, pictures, files." (4c4b487) | done before | `Notes.EMPTY_TEXT`, SPEC 19.66. |

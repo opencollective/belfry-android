@@ -296,7 +296,8 @@ minSdk 26, JDK 17.
   join answer's `card`; `GuestTopic.card`), `core/model/GuestTopic.kt` (the one thing a reading guest may send: `mayPost`,
   checked in `Session.send` before `guard()`; every word), `Session.guestTopic / postGuestMessage`,
   `ui/people/GuestTopic.kt` `GuestTopicComposer` (in `ChannelScreen` where the `GuestBar` would be; `Composer(plain = true)`).
-  Never widen `mayPost`: a new write path stays behind `guard()`. Demo: `demoGuestMode(channel, card = "topic")`. Tests `GuestTopicTest`.
+  The Join sheet of such a guest has `SummaryChoice` (Weekly | Monthly → `"summary"` in `/guest/save/verify`; `Session.guestVerify`
+  drops it for anyone else; `Session.summarySent` for tests). Never widen `mayPost`: a new write path stays behind `guard()`. Demo: `demoGuestMode(channel, card = "topic")`. Tests `GuestTopicTest`.
 - Followers, not members (SPEC 19.78): a channel's people are followers, a group's are members. Every such word comes from
   `core/model/Followers.kt` (`followsIt`, `peopleCount`, `title`, `asking`, `askLine`…): never write "member" or "Join" about a
   channel in a screen. The belfry's own members stay members. The log is "Activity log".

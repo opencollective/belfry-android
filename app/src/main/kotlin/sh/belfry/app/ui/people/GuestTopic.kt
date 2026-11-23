@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.Icon
+import sh.belfry.app.ui.kit.BelfryIcons
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -108,5 +114,41 @@ fun GuestTopicComposer(groupId: String, modifier: Modifier = Modifier) {
                 modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable(role = Role.Button) { accounts.wayIn(null, false) }.padding(horizontal = 6.dp, vertical = 8.dp).testTag("guest-topic-login"),
             )
         }
+    }
+}
+
+/**
+ * "Summary by e-mail": Weekly (the default) or Monthly, when a topic is followed from a card
+ * (canvas Cards v45 cards/follow-channel-form; the web's SummaryChoice). Two segments in one
+ * outline; the chosen one carries a check mark, a heavier frame and bold words (never colour alone).
+ */
+@Composable
+fun SummaryChoice(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    val c = Belfry.colors
+    val chosen = GuestTopic.summary(value)
+    Column(modifier.fillMaxWidth().testTag("summary-choice")) {
+        Text(GuestTopic.SUMMARY_LABEL, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted)
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((key, word) in GuestTopic.SUMMARIES) {
+                val on = key == chosen
+                val shape = RoundedCornerShape(12.dp)
+                Row(
+                    Modifier.weight(1f).heightIn(min = 48.dp).clip(shape).background(if (on) c.surface else c.bg)
+                        .border(if (on) 2.dp else 1.dp, if (on) c.text else c.line, shape)
+                        .selectable(selected = on, role = Role.RadioButton, onClick = { onChange(key) })
+                        .padding(horizontal = 12.dp, vertical = 10.dp).testTag("summary-$key"),
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (on) {
+                        Icon(BelfryIcons.Check, contentDescription = null, tint = c.text, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(word, fontSize = 15.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, color = c.text, maxLines = 1)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(GuestTopic.summaryHint(chosen), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted)
     }
 }

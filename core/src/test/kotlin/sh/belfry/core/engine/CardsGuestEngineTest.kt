@@ -155,6 +155,41 @@ class CardsGuestEngineTest {
     }
 
     @Test
+    fun theSummaryGoesOnlyWhenATopicCardsGuestFollowsIt() = runBlocking<Unit> {
+        // a topic card's guest joining with a name: what was chosen (anything else than monthly is weekly)
+        val monthly = demo()
+        monthly.demoGuestMode(Demo.GARDEN, card = "topic")
+        monthly.guestVerify("ana@example.org", GuestMode.DEMO_CODE, "Ana", summary = "monthly")
+        assertEquals("monthly", monthly.summarySent)
+        val weekly = demo()
+        weekly.demoGuestMode(Demo.GARDEN, card = "topic")
+        weekly.guestVerify("ana@example.org", GuestMode.DEMO_CODE, "Ana", summary = "weekly")
+        assertEquals("weekly", weekly.summarySent)
+        // nowhere else, whatever a screen passed: a group card, an ordinary link, a save without a name
+        val group = demo()
+        group.demoGuestMode(Demo.GARDEN, card = "group")
+        group.guestVerify("ana@example.org", GuestMode.DEMO_CODE, "Ana", summary = "monthly")
+        assertNull(group.summarySent)
+        val link = demo()
+        link.demoGuestMode(Demo.GARDEN)
+        link.guestVerify("ana@example.org", GuestMode.DEMO_CODE, "Ana", summary = "monthly")
+        assertNull(link.summarySent)
+        val noName = demo()
+        noName.demoGuestMode(Demo.GARDEN, card = "topic")
+        try { noName.guestVerify("ana@example.org", GuestMode.DEMO_CODE, null, summary = "monthly") } catch (e: GuestJoinException) { /* a name may be asked for first */ }
+        assertNull(noName.summarySent)
+        // not asked: not sent
+        val plain = demo()
+        plain.demoGuestMode(Demo.GARDEN, card = "topic")
+        plain.guestVerify("ana@example.org", GuestMode.DEMO_CODE, "Ana")
+        assertNull(plain.summarySent)
+        // a weekly follow in the demo
+        val member = demo()
+        assertEquals("weekly", member.setFollow(Demo.GENERAL, "weekly"))
+        assertEquals(mapOf(Demo.GENERAL to "weekly"), member.follows().byChannel)
+    }
+
+    @Test
     fun theCardIsReadFromTheBelfryAndKeptWithTheSession() = runBlocking<Unit> {
         val server = MockWebServer().also { it.start(); servers.add(it) }
         val base = server.url("/api/v1").toString()
@@ -174,6 +209,28 @@ class CardsGuestEngineTest {
             assertTrue(joined.reading)
             server.takeRequest()
         }
+
+        // following the topic: the summary goes in the body of /guest/save/verify, only when given
+        val guest = LocalSigner.random()
+        server.enqueue(json("""{"saved":true,"joined":true}"""))
+        assertTrue(api.guestVerify(guest, "ana@example.org", "123456", "Ana Lima", summary = "monthly").joined)
+        var sent = server.takeRequest()
+        assertEquals("/api/v1/guest/save/verify", sent.path)
+        assertEquals("""{"email":"ana@example.org","code":"123456","name":"Ana Lima","summary":"monthly"}""", sent.body.readUtf8())
+        server.enqueue(json("""{"saved":true,"joined":true}"""))
+        api.guestVerify(guest, "ana@example.org", "123456", "Ana Lima")
+        sent = server.takeRequest()
+        assertFalse(sent.body.readUtf8().contains("summary"))
+
+        // an e-mail follow may be weekly (the server, 2026-11-23)
+        val c2 = c.copy(follows = "$base/me/follows")
+        val api2 = BelfryApi(c2, http)
+        server.enqueue(json("""{"email":"ada@example.org","follows":[{"channel":"general","frequency":"weekly","state":"active"},{"channel":"garden","frequency":"daily","state":"active"}]}"""))
+        assertEquals(mapOf("general" to "weekly"), api2.follows(guest).byChannel)
+        server.takeRequest()
+        server.enqueue(json("""{"channel":"general","frequency":"weekly","state":"active"}"""))
+        assertEquals("weekly", api2.setFollow(guest, "general", "weekly"))
+        assertTrue(server.takeRequest().body.readUtf8().contains("\"frequency\":\"weekly\""))
 
         // kept between launches (the app opens offline as the same guest)
         val key = LocalSigner.random()
@@ -219,7 +276,7 @@ class CardsGuestEngineTest {
         }
         assertEquals(Reopen.How.NEVER, Reopen.how(main, "restricted: no pass"))
         assertEquals(Reopen.How.NEVER, Reopen.how(main, "blocked: gone"))
-        assertEquals(Reopen.How.NEVER, Reopen.how(main, "whitelist: restricted"), "the reason must start with restricted")
+        assertEquals(Reopen.How.SOON, Reopen.how(main, "whitelist: restricted"), "the reason must start with restricted: this is an ordinary close")
         // NIP-42 runs and sends the subscriptions again
         assertEquals(Reopen.How.NEVER, Reopen.how(main, "auth-required: sign in first"))
         assertEquals(Reopen.How.NEVER, Reopen.how(groups, "auth-required: sign in first"))
@@ -255,7 +312,7 @@ class CardsGuestEngineTest {
         assertEquals(ErrorClass.RETRY, Outbox.classify("RESTRICTED: Pubkey not in Whitelist", item(Target.MAIN), now))
         assertEquals(ErrorClass.RETRY, Outbox.classify(notListed, item(Target.MAIN, listedAt = now - 599), now))
         assertEquals(ErrorClass.FAILED, Outbox.classify(notListed, item(Target.MAIN, listedAt = now - 600), now))
-        assertEquals(ErrorClass.FAILED, Outbox.classify(notListed, item(Target.MAIN, listedAt = now - 5_000), now))
+        assertEquals(ErrorClass.FAILED, Outbox.classify(notListed, item(Target.MAIN, listedAt = now - 4_000), now))
 
         // one pass: kept queued, its 10 minutes start, its lane waits; another relay's item goes
         val wrap = item(Target.MAIN)

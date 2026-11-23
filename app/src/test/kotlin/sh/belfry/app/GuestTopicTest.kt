@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -129,6 +131,67 @@ class GuestTopicTest : DemoShots() {
         compose.waitUntil(10_000) { none("guest-topic") }
         compose.onNodeWithTag("composer-field").assertExists()
         assertTrue(compose.onAllNodesWithText("Sending as a guest ·").fetchSemanticsNodes().isEmpty())
+    }
+
+    // ---- following the topic: Summary by e-mail (canvas Cards v45, cards/follow-channel-form) ---
+
+    private fun field(tag: String) = compose.onNode(androidx.compose.ui.test.hasSetTextAction() and androidx.compose.ui.test.hasAnyAncestor(androidx.compose.ui.test.hasTestTag(tag)))
+
+    /** The Join sheet of a topic card's guest: name, e-mail, then Weekly (chosen, with its check) | Monthly. */
+    @Test
+    fun theFollowFormHasTheSummaryRowShot() {
+        session.demoGuestMode(Demo.GARDEN, card = "topic")
+        demoScreenShot("guest-topic-follow-form") { sh.belfry.app.ui.people.JoinSheet(session, onClose = {}) }
+        compose.onNodeWithText(GuestTopic.SUMMARY_LABEL).assertExists()
+        compose.onNodeWithTag("summary-weekly").assertIsSelected()
+        compose.onNodeWithTag("summary-monthly").assertIsNotSelected()
+        compose.onNodeWithText("What was said, once a week. Change it any time.").assertExists()
+    }
+
+    @Test
+    fun monthlyIsSentWithTheCode() {
+        session.demoGuestMode(Demo.GARDEN, card = "topic")
+        topic()
+        session.askToJoin()
+        waitFor("join-name")
+        field("join-name").performTextInput("Ana Lima")
+        field("join-email").performTextInput("ana@example.org")
+        compose.onNodeWithTag("summary-monthly").performClick()
+        compose.onNodeWithTag("summary-monthly").assertIsSelected()
+        compose.onNodeWithTag("summary-weekly").assertIsNotSelected()
+        compose.onNodeWithText("What was said, once a month. Change it any time.").assertExists()
+        compose.onNodeWithTag("join-continue").performClick()
+        waitFor("join-code-line")
+        compose.onNodeWithTag("code-boxes").performTextInput(sh.belfry.core.model.GuestMode.DEMO_CODE)
+        compose.waitUntil(10_000) { !session.reading }
+        assertEquals("monthly", session.summarySent)
+    }
+
+    /** An ordinary guest link, and a group card: no such row, nothing sent. */
+    @Test
+    fun noSummaryRowAnywhereElse() {
+        session.demoGuestMode(Demo.GARDEN, card = "group")
+        topic()
+        session.askToJoin()
+        waitFor("join-name")
+        assertTrue(none("summary-choice"))
+        field("join-name").performTextInput("Ana Lima")
+        field("join-email").performTextInput("ana@example.org")
+        compose.onNodeWithTag("join-continue").performClick()
+        waitFor("join-code-line")
+        compose.onNodeWithTag("code-boxes").performTextInput(sh.belfry.core.model.GuestMode.DEMO_CODE)
+        compose.waitUntil(10_000) { !session.reading }
+        assertEquals(null, session.summarySent)
+    }
+
+    /** A channel's e-mail follow: Weekly between As soon as possible and Monthly, the choice with its check. */
+    @Test
+    fun theFollowScreenHasWeekly() {
+        demoShot("follow-weekly") {
+            sh.belfry.app.ui.info.FollowScreen(Demo.GARDEN, preloaded = sh.belfry.core.net.Follows("alex@belfry.example", mapOf(Demo.GARDEN to "weekly")))
+        }
+        compose.onNodeWithTag("follow-weekly").assertExists()
+        compose.onNodeWithText("Once a week, when there was something new").assertExists()
     }
 
     // ---- nowhere else ----------------------------------------------------------------------------

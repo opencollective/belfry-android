@@ -2889,6 +2889,13 @@ confirm, endorsement), read whole by `SealedVectorsTest.join`.
   get replies and follow this topic." with **Save** (the Join sheet of 19.26: name and e-mail, then
   the 6-digit code) and **Not now** (kept per topic on the device: store key
   `ui:topic-save-no:<topic>`). Once joined they are an ordinary guest with the usual composer.
+- **Summary by e-mail** (canvas Cards v45, cards/follow-channel-form; the server, 2026-11-23): when
+  such a guest follows the topic through that Join sheet (name and e-mail), the form has one more
+  row under the e-mail, "Summary by e-mail": two segments, **Weekly** (the default) | **Monthly**,
+  the chosen one with a check mark and a heavier frame; under it "What was said, once a week
+  (month). Change it any time." The choice goes in the body of `POST <api>/guest/save/verify` as
+  `"summary": "weekly" | "monthly"`. Only then: `Session.guestVerify` drops it for any other guest
+  (a group card, an ordinary link, saving an account that has a name), whatever a screen passed.
 - **Names.** A reading guest never has a name: anyone's message by a key that is reading somewhere
   and has no profile name is shown as "Guest" (not "Somebody").
 - A group card's guest (`"card": "group"`), an ordinary guest link, and the same guest in any other
@@ -2920,6 +2927,11 @@ The wire is unchanged (9021 / 9000 / 39002). Not on Android, so nothing to renam
 on a channel's preview card (an open channel is written in at once; the preview bar of Navigation
 v2 says so), and the line "Only followers of #x see this" over a comment in an e-mail thread
 (`Followers.onlySee` holds the words for when it is built).
+
+An e-mail follow of a channel's announcements (`POST <api>/me/follows`) may be `weekly` since
+2026-11-23: the Follow screen lists As soon as possible · **Weekly** ("Once a week, when there was
+something new") · Monthly · Not following, as the web's; `weekly` is read from `GET /me/follows`
+too, and the Notifications sheet's switch says "· once a week".
 
 Also from that day's web feedback (802be45, 1826857), words only:
 - The **activity log** is "Activity log" everywhere: the pull-down's row (it was a row already on

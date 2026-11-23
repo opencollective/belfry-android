@@ -74,6 +74,18 @@ class CardsGuestTest {
     }
 
     @Test
+    fun theEmailSummaryIsWeeklyUnlessMonthlyWasChosen() {
+        assertEquals(listOf("weekly" to "Weekly", "monthly" to "Monthly"), GuestTopic.SUMMARIES)
+        assertEquals("weekly", GuestTopic.summary(null))
+        assertEquals("weekly", GuestTopic.summary("weekly"))
+        assertEquals("monthly", GuestTopic.summary("monthly"))
+        assertEquals("weekly", GuestTopic.summary("daily"))
+        assertEquals("Summary by e-mail", GuestTopic.SUMMARY_LABEL)
+        assertEquals("What was said, once a week. Change it any time.", GuestTopic.summaryHint("weekly"))
+        assertEquals("What was said, once a month. Change it any time.", GuestTopic.summaryHint("monthly"))
+    }
+
+    @Test
     fun aReadingGuestWithNoNameIsCalledGuest() {
         val by = "aa".repeat(32)
         val guest = "bb".repeat(32)
