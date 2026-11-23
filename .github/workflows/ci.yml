@@ -57,39 +57,41 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository/org/robolectric
-          key: robolectric-android-all-14-10818077-i7
+          key: robolectric-android-all-14-10818077-i7+15-12650502-i7
       - name: Fetch it when it is not there (Central, then its mirrors)
         id: robofetch
         run: |
-          v=14-robolectric-10818077-i7
-          dir="$HOME/.m2/repository/org/robolectric/android-all-instrumented/$v"
-          mkdir -p "$dir"
+          # both runtimes the tests use (SDK 34 and 35); a new Robolectric or SDK = a new line here and in the key
           ok=yes
-          for ext in pom pom.sha512 jar jar.sha512; do
-            f="$dir/android-all-instrumented-$v.$ext"
-            [ -s "$f" ] && continue
-            for base in https://repo1.maven.org/maven2 https://maven-central.storage-download.googleapis.com/maven2 https://repo.maven.apache.org/maven2; do
-              if curl -fsSL --retry 2 --retry-delay 5 --retry-all-errors -o "$f.part" "$base/org/robolectric/android-all-instrumented/$v/android-all-instrumented-$v.$ext"; then
-                mv "$f.part" "$f"; echo "$ext from $base"; break
-              fi
+          for v in 14-robolectric-10818077-i7 15-robolectric-12650502-i7; do
+            dir="$HOME/.m2/repository/org/robolectric/android-all-instrumented/$v"
+            mkdir -p "$dir"
+            for ext in pom pom.sha512 jar jar.sha512; do
+              f="$dir/android-all-instrumented-$v.$ext"
+              [ -s "$f" ] && continue
+              for base in https://repo1.maven.org/maven2 https://maven-central.storage-download.googleapis.com/maven2 https://repo.maven.apache.org/maven2; do
+                if curl -fsSL --retry 2 --retry-delay 5 --retry-all-errors -o "$f.part" "$base/org/robolectric/android-all-instrumented/$v/android-all-instrumented-$v.$ext"; then
+                  mv "$f.part" "$f"; echo "$v $ext from $base"; break
+                fi
+              done
+              [ -s "$f" ] || { ok=no; echo "could not fetch $v $ext now: the tests will try themselves"; }
             done
-            [ -s "$f" ] || { ok=no; echo "could not fetch $ext now: the tests will try themselves"; }
+            # the jar is what it says it is
+            if [ -s "$dir/android-all-instrumented-$v.jar" ] && [ -s "$dir/android-all-instrumented-$v.jar.sha512" ]; then
+              want=$(cut -d' ' -f1 "$dir/android-all-instrumented-$v.jar.sha512")
+              got=$(sha512sum "$dir/android-all-instrumented-$v.jar" | cut -d' ' -f1)
+              [ "$want" = "$got" ] || { echo "sha512 differs for $v: dropping the jar"; rm -f "$dir"/android-all-instrumented-$v.jar*; ok=no; }
+            fi
+            ls -la "$dir"
           done
-          # the jar is what it says it is
-          if [ "$ok" = yes ]; then
-            want=$(cut -d' ' -f1 "$dir/android-all-instrumented-$v.jar.sha512")
-            got=$(sha512sum "$dir/android-all-instrumented-$v.jar" | cut -d' ' -f1)
-            [ "$want" = "$got" ] || { echo "sha512 differs: dropping the jar"; rm -f "$dir"/android-all-instrumented-$v.jar*; ok=no; }
-          fi
           echo "complete=$ok" >> "$GITHUB_OUTPUT"
-          ls -la "$dir"
       # saved at once (not at the job's end), so a run whose tests fail still leaves it for the next
       - name: Keep it
         if: steps.robo.outputs.cache-hit != 'true' && steps.robofetch.outputs.complete == 'yes'
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository/org/robolectric
-          key: robolectric-android-all-14-10818077-i7
+          key: robolectric-android-all-14-10818077-i7+15-12650502-i7
       - name: Firebase config (push), when the GOOGLE_SERVICES_JSON secret is set
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
