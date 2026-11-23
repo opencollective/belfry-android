@@ -1509,11 +1509,15 @@ class Session(
      * Posts a message. PICKED are the people picked with @ in the composer (name → pubkey): each
      * "@Name" becomes a mention. ANNOUNCE only counts from a channel admin. Returns the local id.
      */
-    suspend fun postMessage(groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList()): String {
+    suspend fun postMessage(
+        groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList(),
+        /** More tags for the message (`["preview","none"]`, SPEC 19.80). */
+        extra: List<Tag> = emptyList(),
+    ): String {
         val d = Actions.postMessage(groupId, Mentions.substitute(text, picked).trim(), topic, announce)
         // an event's URL in the text: its `a` tag too, so every client shows the card
         val a = _world.value.eventTagsFor(d.content, community.mainRelay) { events.knownCoord(it) }
-        return send(d.copy(tags = d.tags + a), files)
+        return send(d.copy(tags = d.tags + a + extra), files)
     }
 
     /**
@@ -1555,8 +1559,8 @@ class Session(
     }
 
     /** A reply in the thread under ROOT (a channel message). */
-    suspend fun replyInThread(groupId: String, root: Event, text: String, files: List<NewAttachment> = emptyList(), picked: List<Pair<String, String>> = emptyList()): String =
-        send(Actions.postThreadReply(groupId, root, Mentions.substitute(text, picked).trim()), files)
+    suspend fun replyInThread(groupId: String, root: Event, text: String, files: List<NewAttachment> = emptyList(), picked: List<Pair<String, String>> = emptyList(), extra: List<Tag> = emptyList()): String =
+        send(Actions.postThreadReply(groupId, root, Mentions.substitute(text, picked).trim()).let { d -> if (extra.isEmpty()) d else d.copy(tags = d.tags + extra) }, files)
 
     /** Edits my own message or reply (kind 1010); its photos and files are kept. */
     suspend fun editMessage(groupId: String, m: Message, text: String, picked: List<Pair<String, String>> = emptyList()): String =
@@ -1916,6 +1920,12 @@ class Session(
     val members: MembersService by lazy { MembersService(this) }
     /** Channels' e-mail addresses through the belfry (SPEC 19.60). */
     val mailAlias: MailAliasService by lazy { MailAliasService(this) }
+    /** Previews of outside pages, asked of the belfry only (SPEC 19.80). */
+    val linkPreviews: LinkPreviewService by lazy { LinkPreviewService(this) }
+    private val httpNoRedirect: OkHttpClient by lazy { http.newBuilder().followRedirects(false).followSslRedirects(false).build() }
+    /** A signed GET that stays on the host it names (a redirect is an answer, never followed). */
+    internal suspend fun signedGetNoRedirect(url: String): Pair<Int, kotlinx.serialization.json.JsonObject?> =
+        BelfryApi(community, httpNoRedirect).signedFetch(signer, url)
 
     /** Sign in to another app with this account through the belfry (engine/RemoteApps.kt, SPEC 19.47). */
     val remoteApps: RemoteAppsService by lazy { RemoteAppsService(this) }

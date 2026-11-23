@@ -291,6 +291,14 @@ minSdk 26, JDK 17.
 - The invite sheet from Members (SPEC 19.70; canvas inviting/sheet-from-members): `ui/info/InviteSheet.kt`
   `InviteToCommunitySheet`, opened by the ＋ of `MembersScreen` (a sheet, no route). `InviteScreen` /
   `Routes.invite(id)` is only for a channel (people who are here first). Tests `InviteSheetTest`.
+- Previews of outside pages (SPEC 19.80; docs/link-previews.md; canvas channels/og-*): the pure rules are
+  `core/preview/LinkPreviews.kt` (`LinkPreviews.outsideLink` which link, `imageFrom` the picture's origin, `endpoint`,
+  `PreviewCache`, `PreviewLoader` = one request per link, 3 at once, backoff), `Session.linkPreviews` (`engine/LinkPreviews.kt`;
+  the demo's `DemoPreviews`), `ui/chat/LinkPreviewCard.kt` (`MessageLinkPreview` in `MessageRow`, `ComposerLinkPreview` in
+  `Composer(linkPreview = true)`, `LinkPreviewImages`). The app asks only `https://belfry.<domain>`, never the page's site.
+  **Never in a private conversation**: the DM screens must not call any of it (`PreviewPlace.PRIVATE`; `LinkPreviewShotsTest.
+  noneInAPrivateConversation` fails if they do). A new composer that turns `linkPreview` on must send `ComposerState.previewTags`.
+  Vectors `link-previews.json` (written here; the web has none yet).
 
 ## UI rules (the owner's, not negotiable)
 

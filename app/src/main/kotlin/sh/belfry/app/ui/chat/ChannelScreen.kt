@@ -410,12 +410,13 @@ fun ChannelScreen(
                         chat.editing = null
                     } else {
                         val topic = chat.topic?.takeIf { it != Topics.ANNOUNCE }
-                        session.postMessage(groupId, text, files, topic, admin && (announce || chat.topic == Topics.ANNOUNCE), picked)
+                        session.postMessage(groupId, text, files, topic, admin && (announce || chat.topic == Topics.ANNOUNCE), picked, extra = composer.previewTags(world.ctx.domain, session.community.blossom))
                     }
                 },
                 modifier = Modifier.navigationBarsPadding(),
                 draftKey = ComposerDraft.channel(groupId),
                 draftPaused = { chat.editing != null },
+                linkPreview = editing == null,
                 photos = editing == null,
                 onPlus = if (editing == null) ({ chat.plusOpen = true }) else null,
                 groupId = groupId,
