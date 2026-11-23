@@ -126,10 +126,10 @@ object Cards {
 
     /** The hashtag as a channel id (the web's `hashtagSlug`): lower case, letters, digits and dashes, 30 at most. */
     fun hashtagSlug(s: String): String =
-        s.trim().replace(Regex("^#+"), "").lowercase().replace(Regex("[^a-z0-9-]+"), "-").replace(Regex("^-+|-+$"), "").take(30)
+        s.trim().replace(Regex("^#+"), "").lowercase().replace(Regex("[^a-z0-9-]+"), "-").replace(Regex("^-+|-+$"), "").take(30).trimEnd('-') // a cut at 30 must not leave a dash at the end (the server calls that invalid)
 
     /** The Nth name offered when [slug] is taken: `slug-2`, `slug-3`… cut so that it stays 30 at most. */
-    fun nextHashtag(slug: String, n: Int): String = slug.take(30 - n.toString().length - 1) + "-" + n
+    fun nextHashtag(slug: String, n: Int): String = slug.take(30 - n.toString().length - 1).trimEnd('-') + "-" + n
 
     /**
      * A suggested hashtag is taken: the next free one, `-2` to `-9` asked in turn (the web's rule).

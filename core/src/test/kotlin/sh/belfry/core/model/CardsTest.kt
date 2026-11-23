@@ -77,6 +77,9 @@ class CardsTest {
 
     @Test fun theNextFreeOneWhenTaken() = runBlocking<Unit> {
         assertEquals("tools-2", Cards.nextHashtag("tools", 2))
+        // a cut never leaves a dash at the end, nor two before the number
+        assertEquals("a".repeat(29), Cards.hashtagSlug("a".repeat(29) + " bcd"))
+        assertEquals("a".repeat(27) + "-2", Cards.nextHashtag("a".repeat(27) + "-bc", 2))
         assertEquals("a".repeat(28) + "-9", Cards.nextHashtag("a".repeat(30), 9))
         assertEquals(30, Cards.nextHashtag("a".repeat(30), 2).length)
 
