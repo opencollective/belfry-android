@@ -166,7 +166,10 @@ data class Place(
 
 data class Places(val places: List<Place>, val attribution: String?)
 
-/** E-mail follows of channels' announcements: channel id → `asap` | `monthly`. */
+/** The frequencies of an e-mail follow (`weekly`: the server, 2026-11-23). */
+val FOLLOW_FREQUENCIES = setOf("asap", "weekly", "monthly")
+
+/** E-mail follows of channels' announcements: channel id → `asap` | `weekly` | `monthly`. */
 data class Follows(val email: String, val byChannel: Map<String, String>)
 
 /** A session open on my key: an app or device that can sign as me. */
@@ -461,13 +464,15 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
      * `taken` (then [ApiException.moved]: the belfry gave that account the channel and closed this
      * guest).
      */
-    suspend fun guestVerify(signer: Signer, email: String, code: String, name: String? = null, sessionKey: String? = null): GuestSaved {
+    suspend fun guestVerify(signer: Signer, email: String, code: String, name: String? = null, sessionKey: String? = null, summary: String? = null): GuestSaved {
         val a = signed(signer, "$base/guest/save/verify", "POST", buildJsonObject {
             put("email", JsonPrimitive(email.trim()))
             put("code", JsonPrimitive(code.trim()))
             if (name != null) put("name", JsonPrimitive(name))
             // guest mode: an address with an account signs straight in, on a new session for this key
             if (sessionKey != null) { put("session_key", JsonPrimitive(sessionKey)); put("client", JsonPrimitive("belfry-android")) }
+            // following a topic from a card: its e-mail summary, `weekly` or `monthly` (never sent otherwise)
+            if (summary != null) put("summary", JsonPrimitive(summary))
         })
         if (!a.ok) {
             if (a.error == "taken") throw ApiException(
@@ -535,12 +540,12 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
             val o = f.obj() ?: continue
             val frequency = o.s("frequency") ?: continue
             val channel = o.s("channel") ?: continue
-            if (o.s("state") == "active" && (frequency == "asap" || frequency == "monthly")) map[channel] = frequency
+            if (o.s("state") == "active" && frequency in FOLLOW_FREQUENCIES) map[channel] = frequency
         }
         return Follows(b.s("email") ?: "", map)
     }
 
-    /** CHOICE: `asap`, `monthly` or `stop`. Returns the frequency now in force, null when not following. */
+    /** CHOICE: `asap`, `weekly`, `monthly` or `stop`. Returns the frequency now in force, null when not following. */
     suspend fun setFollow(signer: Signer, channel: String, choice: String): String? {
         val a = signed(signer, community.follows, "POST", buildJsonObject {
             put("channel", JsonPrimitive(channel))
@@ -549,7 +554,7 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         if (!a.ok) fail(a, emptyMap(), "Not saved. Try again.")
         val b = a.body ?: return null
         val frequency = b.s("frequency") ?: return null
-        return if (b.s("state") == "active" && (frequency == "asap" || frequency == "monthly")) frequency else null
+        return if (b.s("state") == "active" && frequency in FOLLOW_FREQUENCIES) frequency else null
     }
 
     // ---- my address and my sessions -----------------------------------------------------------------

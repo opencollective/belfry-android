@@ -106,12 +106,13 @@ fun ChannelMenu(groupId: String, chat: ChatState, now: Long, onShowMessage: (Str
         if (n.showsRow("files")) MenuRow(Icons.Outlined.AttachFile, "Files", n.files, "pd-files") { go(Routes.files(groupId)) }
         if (!g.isEvent && !g.isProposal && n.showsRow("groups")) MenuRow(null, "Groups", n.groups, "pd-groups", pod = true) { place(ChannelPlaceKey.GROUPS) }
         if (n.showsRow("topics")) MenuRow(BelfryIcons.Hash, "Topics", n.topics, "pd-topics") { go(Routes.topics(groupId)) }
-        MenuRow(BelfryIcons.Users, "People", n.members, "pd-members") { place(ChannelPlaceKey.MEMBERS) }
+        // a channel's people are its followers (SPEC 19.78); a group keeps "People"
+        MenuRow(BelfryIcons.Users, sh.belfry.core.model.Followers.title(g, otherwise = "People"), n.members, "pd-members") { place(ChannelPlaceKey.MEMBERS) }
         // the one row that opens a sheet (round 6): the channel stays behind it
         if (!world.isLocked(groupId)) MenuRow(Icons.Outlined.NotificationsNone, "Notifications", 0, "pd-notifications") { notify = true }
         // search left the header's right side (one shape: only the bell stays there)
         MenuRow(BelfryIcons.Search, "Search", 0, "pd-search") { go(Routes.search(groupId)) }
-        MenuRow(Icons.Outlined.History, "Log", 0, "pd-log") { place(ChannelPlaceKey.LOG) }
+        MenuRow(Icons.Outlined.History, "Activity log", 0, "pd-log") { place(ChannelPlaceKey.LOG) }
         // every member (Navigation v2, nav2/channel-pin): Pin for me and Notify me of everything; admins also the rest
         if (world.canAdmin(g) || !world.amGuest) MenuRow(Icons.Outlined.Settings, "Settings", 0, "pd-settings") { place(ChannelPlaceKey.SETTINGS) }
     }

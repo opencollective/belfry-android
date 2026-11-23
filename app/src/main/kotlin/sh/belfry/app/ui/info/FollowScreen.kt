@@ -31,6 +31,7 @@ import sh.belfry.core.push.PushLevel
 
 private val OPTIONS = listOf(
     Triple("asap", "As soon as possible", "A few minutes after each announcement"),
+    Triple("weekly", "Weekly", "Once a week, when there was something new"),
     Triple("monthly", "Monthly", "On the 1st, when there was something new"),
     Triple("stop", "Not following", "No e-mails"),
 )
@@ -147,7 +148,7 @@ fun FollowScreen(id: String, preloaded: Follows? = null) {
                                 }
                             }
                         },
-                        icon = when (choice) { "asap" -> BelfryIcons.BellFilled; "monthly" -> BelfryIcons.Calendar; else -> BelfryIcons.Bell },
+                        icon = when (choice) { "asap" -> BelfryIcons.BellFilled; "weekly", "monthly" -> BelfryIcons.Calendar; else -> BelfryIcons.Bell },
                         sub = hint, enabled = !busy.busy, modifier = Modifier.testTag("follow-$choice"),
                         trailing = {
                             if (picking == choice) Spinner(size = 18.dp)

@@ -349,7 +349,7 @@ private fun InviteSomeone(id: String, invite: (suspend (String) -> Session.Invit
                 val here = world.inChannel(g, pk)
                 val guestHere = world.isGuest(pk)
                 val state = (world.kindLabel(pk)?.let { "$it · " } ?: "") +
-                    if (here) (if (g?.closed == true || guestHere) "Already in" else "Already a member") else "Not in this channel"
+                    if (here) sh.belfry.core.model.Followers.alreadyHere(g, guestHere) else "Not in this channel"
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).testTag("invite-row"), verticalAlignment = Alignment.CenterVertically) {
                     Avatar(world.face(pk), size = 28.dp)
                     Spacer(Modifier.width(10.dp))

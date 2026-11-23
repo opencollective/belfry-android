@@ -299,9 +299,9 @@ minSdk 26, JDK 17.
   way to open a session. App: `AppState.card` / `onCardLink`, `ui/printed/` (`CardScreen` talks to a `CardDoor`, so the same
   screens serve a visitor and an account; `VisitorCard` in `SignedOutFlow`, `CardHost` in `AppRoot`; `CardWelcomeBar` in
   `ChannelBars`). A claimed card is its guest link (`AppState.cardJoin` → `onInviteLink`); `GuestInfo.card` keeps
-  `group` / `topic` for the rule that lets a reading guest post in a topic (not built). Tests `CardsTest`,
+  `group` / `topic` for the rule that lets a reading guest post in a topic (SPEC 19.77, `GuestTopic`). Tests `CardsTest`,
   `NativeSignInTest` (the claim's key and session), `PrintedCardsTest` (screens `printed-card-*`, the flow's rules),
-  `PrintedCardsStateTest`. Not built: the steward's card section, the Townsquare's cards, the `["card","1"]` system line.
+  `PrintedCardsStateTest`. The steward's card section and the Townsquare's cards: SPEC 19.75 / 19.76 below.
 
 - Printed cards in the town (SPEC 19.75 / 19.76; collective-belfry docs/cards.md §2.2, §2.5, §2.6, §4; canvas
   "Belfry · Group cards": cards/townsquare-new-topic, cards/steward): **who wrote an event is `World.realAuthor(e)`**
@@ -312,6 +312,21 @@ minSdk 26, JDK 17.
   `StewardCardSection` in `ChannelSettingsForm`); `core/net/GroupCard.kt` + `Session.groupCards`
   (`GET /groups/<id>/card`, `POST /cards/<id>/retire`; 404 / 403 = no section). Demo: `Demo.POD_CARD`,
   `Demo.TOPIC_CARD`. Tests `CardAuthorsTest`, `GroupCardTest`, `TownCardsTest`.
+
+- A topic card's guest (SPEC 19.77; docs/cards.md §3; canvas cards/contribute-*): `GuestInfo.card` (`group` / `topic`, from the
+  join answer's `card`; `GuestTopic.card`), `core/model/GuestTopic.kt` (the one thing a reading guest may send: `mayPost`,
+  checked in `Session.send` before `guard()`; every word), `Session.guestTopic / postGuestMessage`,
+  `ui/people/GuestTopic.kt` `GuestTopicComposer` (in `ChannelScreen` where the `GuestBar` would be; `Composer(plain = true)`).
+  The Join sheet of such a guest has `SummaryChoice` (Weekly | Monthly → `"summary"` in `/guest/save/verify`; `Session.guestVerify`
+  drops it for anyone else; `Session.summarySent` for tests). Never widen `mayPost`: a new write path stays behind `guard()`. Demo: `demoGuestMode(channel, card = "topic")`. Tests `GuestTopicTest`.
+- Followers, not members (SPEC 19.78): a channel's people are followers, a group's are members. Every such word comes from
+  `core/model/Followers.kt` (`followsIt`, `peopleCount`, `title`, `asking`, `askLine`…): never write "member" or "Join" about a
+  channel in a screen. The belfry's own members stay members. The log is "Activity log".
+- Refusals that can pass (SPEC 19.79): `Access.aboutMembership` (only that sets the refused line / asks the register),
+  `Reopen.how` (what a CLOSED leads to: never, soon, backed off 2 s → 2 min), `Outbox.notListed / notListedYet` (the community
+  relay's "restricted: pubkey not in whitelist": a send is tried again for 10 minutes, `OutboxItem.notListedAt`),
+  `BunkerSigner` (a rate-limited request is asked again, 4 in flight), `Session.wake` → `catchUpOnReturn` (a fresh
+  subscription on each living socket, once per 2 s). `Access.isRefusal` is only the old word list `Reopen` still reads.
 
 ## UI rules (the owner's, not negotiable)
 

@@ -3,8 +3,11 @@ package sh.belfry.core.net
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
@@ -192,6 +195,12 @@ class BunkerSigner(
         scope.launch {
             try {
                 r.publish(ev, timeoutMs)
+            } catch (e: RelayException) {
+                // refused for rate ("restricted: connection rate limit exceeded", 2026-11-23): no answer
+                // will come; said at once, so the request is asked again after a back-off ([request])
+                // without waiting its whole timeout or dropping the socket. Anything else: the answer
+                // may still come; a dead connection ends in the timeout below
+                if (Access.rateLimited(e.reason)) d.completeExceptionally(RateLimited())
             } catch (e: Exception) {
                 // the answer may still come; a dead connection ends in the timeout below
             }
@@ -203,17 +212,51 @@ class BunkerSigner(
         }
     }
 
+    /**
+     * One request: at most [MAX_IN_FLIGHT] at a time (a start's burst of decrypts goes out a few at a
+     * time), and one the signer's relay refused for rate is asked again after 0.5 s, 1 s, 2 s, 4 s,
+     * never failed for that alone (SPEC 19.79; web 3fc34bd nip46.ts). Still refused after those:
+     * [SignerTimeout], which the outbox tries again later.
+     */
     private suspend fun request(method: String, params: List<String>): String {
         val start = Relay.nowMs()
         try {
-            return try {
-                once(method, params, retry = true)
-            } catch (e: RetryOnFresh) {
-                once(method, params, retry = false)
+            return slots.withPermit {
+                var answer: String? = null
+                for (i in 0..RATE_RETRIES) {
+                    try {
+                        answer = try {
+                            once(method, params, retry = true)
+                        } catch (e: RetryOnFresh) {
+                            once(method, params, retry = false)
+                        }
+                        break
+                    } catch (e: RateLimited) {
+                        if (i == RATE_RETRIES) break
+                        delay(rateWaitMs(i, rateBaseMs))
+                    }
+                }
+                answer ?: throw SignerTimeout("timeout: the signer did not answer")
             }
         } finally {
             onRequest?.invoke(method, Relay.nowMs() - start)
         }
+    }
+
+    private val slots = Semaphore(MAX_IN_FLIGHT)
+    /** The first wait after a rate-limit refusal (a test seam). */
+    @Volatile var rateBaseMs: Long = 500
+
+    /** The signer's relay refused the request for rate: nothing was asked, it is asked again after a back-off. */
+    private class RateLimited : Exception("rate-limited: the signer's relay")
+
+    companion object {
+        /** Requests on the wire at once. */
+        const val MAX_IN_FLIGHT = 4
+        /** How many times a rate-limited request is asked again. */
+        const val RATE_RETRIES = 4
+        /** The wait before the (N+1)-th try of a rate-limited request: 0.5 s, 1 s, 2 s, 4 s. */
+        fun rateWaitMs(n: Int, baseMs: Long = 500): Long = baseMs shl n.coerceIn(0, RATE_RETRIES - 1)
     }
 
     /** Hears each request and how long it took (ms): the send trace (SPEC 19.50). No content. */

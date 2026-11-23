@@ -76,8 +76,8 @@ fun ChannelPlaceScreen(id: String, key: String) {
         ChannelPlaceKey.TODOS -> "To-dos"
         ChannelPlaceKey.PHOTOS -> "Photos"
         ChannelPlaceKey.GROUPS -> "Groups"
-        ChannelPlaceKey.MEMBERS -> "Members"
-        ChannelPlaceKey.LOG -> "Log"
+        ChannelPlaceKey.MEMBERS -> sh.belfry.core.model.Followers.title(g)
+        ChannelPlaceKey.LOG -> "Activity log"
         else -> if (g?.isPod == true) "Group settings" else "Settings"
     }
     Column(Modifier.fillMaxSize().background(c.bg).testTag("place-$key")) {

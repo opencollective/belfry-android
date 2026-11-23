@@ -223,7 +223,7 @@ fun World.lineWhen(e: CalEvent): String = when {
 private fun World.dayAt(e: CalEvent, now: Long): String = lineDay(e.start, now) + if (e.allDay) "" else " " + lineTime(e.start)
 
 fun peopleLine(n: Int): String = if (n > 0) "$n ${if (n == 1) "person" else "people"} active this month" else "Nobody active this month yet"
-/** "12 members": what the line says when nothing else needs saying (web 2026-11-12). */
+/** "12 members": what the line says when nothing else needs saying (web 2026-11-12); a channel says "12 followers" ([Followers.peopleCount]). */
 fun membersLine(n: Int): String = "$n ${if (n == 1) "member" else "members"}"
 
 private fun membersWord(n: Int) = "$n ${if (n == 1) "member" else "members"}"
@@ -244,7 +244,8 @@ fun World.channelLine(groupId: String, now: Long, topic: String? = null, hiddenP
     val f = channelFacts(groupId, now)
     val g = f.group
     var shown = ""
-    var line = ChannelLine(LineIcon.PEOPLE, "", membersLine(f.members.size), quiet = true)
+    // a channel's people are its followers (SPEC 19.78); anything else keeps members
+    var line = ChannelLine(LineIcon.PEOPLE, "", Followers.peopleCount(g, f.members.size), quiet = true)
 
     val pin = f.pins.firstOrNull { it.id !in hiddenPins }
     val next = f.events.firstOrNull()

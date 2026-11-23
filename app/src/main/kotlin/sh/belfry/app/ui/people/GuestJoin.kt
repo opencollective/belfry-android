@@ -114,7 +114,10 @@ private class JoinFlow(
     movedState: androidx.compose.runtime.MutableState<Boolean>,
     nip05State: androidx.compose.runtime.MutableState<String?>,
     val busy: sh.belfry.app.ui.kit.BusyState,
+    summaryState: androidx.compose.runtime.MutableState<String> = mutableStateOf(sh.belfry.core.model.GuestTopic.WEEKLY),
 ) {
+    /** Following a topic from a card: its e-mail summary, `weekly` (the default) or `monthly`. */
+    var summary by summaryState
     var step by stepState
     var name by nameState
     var email by emailState
@@ -135,6 +138,7 @@ private fun rememberJoinFlow(): JoinFlow = JoinFlow(
     rememberSaveable { mutableStateOf(false) },
     rememberSaveable { mutableStateOf<String?>(null) },
     rememberBusy(),
+    rememberSaveable { mutableStateOf(sh.belfry.core.model.GuestTopic.WEEKLY) },
 )
 
 /**
@@ -222,8 +226,11 @@ private fun JoinFlowBody(
     val guest by session.guest.collectAsState()
     val channel = guest?.channel ?: ""
     val label = channelLabel(channel)
+    // following a topic from a card (SPEC 19.77; cards/follow-channel-form): Summary by e-mail, Weekly or Monthly
+    val topic = !saveOnly && guest.let { g -> g != null && sh.belfry.core.model.GuestTopic.here(g.reading, g.channel, g.card, g.channel) }
     when (flow.step) {
         Step.WHO -> WhoStep(
+            summary = if (topic) flow.summary else null, onSummary = { flow.summary = it },
             saveOnly = saveOnly, whoLine = whoLine, name = flow.name, onName = { flow.name = it }, email = flow.email, onEmail = { flow.email = it },
             domain = session.community.domain,
             send = {
@@ -237,7 +244,7 @@ private fun JoinFlowBody(
             to = flow.sentTo,
             resend = { session.guestSave(flow.sentTo, if (saveOnly) null else flow.name) },
             verify = { code ->
-                val signedIn = session.guestVerify(flow.sentTo, code, if (saveOnly) null else flow.name)
+                val signedIn = session.guestVerify(flow.sentTo, code, if (saveOnly) null else flow.name, if (topic) flow.summary else null)
                 // the address is an account here: signed straight in as it (canvas onboarding/guest-code v41)
                 if (signedIn != null && guestSignedIn != null) {
                     onClose()
@@ -268,6 +275,9 @@ private fun WhoStep(
     domain: String,
     send: suspend () -> Unit,
     onTaken: (moved: Boolean, nip05: String?) -> Unit,
+    /** Not null: the "Summary by e-mail" row shows, with this choice. */
+    summary: String? = null,
+    onSummary: (String) -> Unit = {},
 ) {
     val c = Belfry.colors
     var error by remember { mutableStateOf<String?>(null) }
@@ -288,6 +298,10 @@ private fun WhoStep(
         email, { onEmail(it.take(254)); error = null }, Modifier.fillMaxWidth().testTag("join-email"), label = "E-mail", placeholder = "you@example.org",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, capitalization = KeyboardCapitalization.None),
     )
+    if (summary != null) {
+        Spacer(Modifier.height(14.dp))
+        SummaryChoice(summary, onSummary)
+    }
     ErrorLine(error)
     Spacer(Modifier.height(16.dp))
     BusyButton(

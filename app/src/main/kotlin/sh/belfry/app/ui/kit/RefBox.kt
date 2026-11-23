@@ -106,7 +106,7 @@ fun RefBox(target: RefTarget, modifier: Modifier = Modifier) {
                     is RefSeen.GroupSeen -> {
                         val g = seen.group
                         Title(g.name)
-                        Line((if (g.isPod) "Group" else "Channel") + " · ${g.members.size} member${if (g.members.size == 1) "" else "s"}")
+                        Line((if (g.isPod) "Group" else "Channel") + " · " + sh.belfry.core.model.Followers.peopleCount(g, g.members.size))
                         if (g.about.isNotBlank()) About(sh.belfry.core.markdown.Markdown.text(sh.belfry.core.markdown.Markdown.inline(g.about.trim().lineSequence().first())))
                     }
                     is RefSeen.EventSeen -> {

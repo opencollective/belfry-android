@@ -161,7 +161,7 @@ fun NotifyBody(groupId: String, push: NotificationSettings? = null, follows: Str
     val f = follow
     SwitchRow(
         "Also e-mail me its announcements",
-        checked = f == "asap" || f == "monthly",
+        checked = f in sh.belfry.core.net.FOLLOW_FREQUENCIES,
         onCheckedChange = { want ->
             savingMail = true
             scope.launch {
@@ -170,7 +170,7 @@ fun NotifyBody(groupId: String, push: NotificationSettings? = null, follows: Str
                 } finally { savingMail = false }
             }
         },
-        sub = "What stewards mark as an announcement" + (if (f == "monthly") " · once a month" else ""),
+        sub = "What stewards mark as an announcement" + (if (f == "monthly") " · once a month" else if (f == "weekly") " · once a week" else ""),
         enabled = followKnown,
         busy = savingMail,
         modifier = Modifier.testTag("notify-mail"),
