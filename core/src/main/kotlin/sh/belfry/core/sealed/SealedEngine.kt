@@ -887,6 +887,8 @@ class SealedEngine(
         if (mineChain == null) { pendingKeys[wrap.id] = wrap; return@withContext false }
         // from a device of my current chain, or (after a fresh start) of the previously pinned one
         if (!Sealing.acceptHandover(h, account, listOfNotNull(mineChain, previousChain))) return@withContext false
+        // was this device out (not in my head with its key) when the hand-over came? Only then may it hand back (below)
+        val wasOut = !inHeadNow()
         val added = keys.merge(h.keys)
         if (added > 0) { saveKeys(); onKeys?.invoke() }
         pendingKeys.remove(wrap.id)
@@ -894,9 +896,13 @@ class SealedEngine(
         if (c != null && device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) {
             mine = Mine.IN_HEAD
             // §5.4: a device of an earlier chain, allowed into this one after a fresh start, hands its old key chain
-            // to the device that let it in (which lacks the letterboxes the giver didn't send): earlier messages open there
+            // to the device that let it in (which lacks the letterboxes the giver didn't send): earlier messages open there.
+            // ONLY that case (sealed.md §5.7 "Older keys": nobody hands a device its whole chain because that device
+            // sent it an 8561): this device was a device of the chain pinned before the fresh start, and was out of the
+            // new head until this hand-over let it in. Anything else goes through the request's own rule (§5.5).
             val mineOnly = keys.toMap().keys - h.keys.keys
-            if (mineOnly.isNotEmpty() && h.giver != device.pubkey && h.giver in c.devices && ports.loadNote("handback:${h.giver}") == null) {
+            val cameBack = wasOut && previousChain?.let { it.root.id != c.root.id && it.everHad(device.pubkey) } == true
+            if (cameBack && mineOnly.isNotEmpty() && h.giver != device.pubkey && h.giver in c.devices && ports.loadNote("handback:${h.giver}") == null) {
                 try {
                     Sealing.keysFor(device, account, h.giver, keys, clock()).forEach { ports.publish(it) }
                     ports.saveNote("handback:${h.giver}", clock().toString())

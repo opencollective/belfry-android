@@ -1081,6 +1081,38 @@ class SealedEngineTest {
         assertNotNull(laptop.keys.secretFor(oldHead.head.lb), "the old letterbox came back from the phone")
     }
 
+    /**
+     * sealed.md §5.7 "Older keys" (Android's review A1): a hand-over received is no reason to hand one's whole key
+     * chain back. Only a device of the chain pinned before a fresh start, let into the new one, does (§5.4, above).
+     */
+    @Test fun noHandbackOutsideAFreshStart() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        // the phone removes nobody but holds an older letterbox the laptop's hand-over won't carry: a rotation first
+        val third = LocalSigner.random()
+        server.live(alice.pubkey, third.pubkey, "Tablet")
+        phone.allow(third.pubkey)
+        phone.remove(third.pubkey)
+        assertTrue(phone.keys.size >= 2)
+        val before = relay.to(aliceLaptop.pubkey).size
+        // a device of my head sends the phone one new key (as a device that added itself would: only its new secret)
+        val (lb, secret) = KeyChain.newLetterbox()
+        val wraps = Sealing.keysFor(aliceLaptop, alice.pubkey, alicePhone.pubkey, KeyChain(mapOf(lb to secret)), now)
+        wraps.forEach { assertTrue(phone.onDeviceWrap(it)) }
+        assertNotNull(phone.keys.secretFor(lb), "the key is taken")
+        assertEquals(before, relay.to(aliceLaptop.pubkey).size, "and nothing is handed back: the phone was in its head, no fresh start")
+        // a device waiting in the head for a lost hand-over (no fresh start either) hands nothing back
+        val waiting = LocalSigner.random()
+        server.live(alice.pubkey, waiting.pubkey, "Old tablet")
+        phone.allow(waiting.pubkey)
+        engine(alice, waiting) // its store
+        portsOf[waiting.pubkey]!!.saved = mapOf(KeyChain.newLetterbox()) // a key of its own the giver doesn't send
+        val again = engine(alice, waiting); again.start("Old tablet", "tablet")
+        val toPhone = relay.to(alicePhone.pubkey).size
+        relay.to(waiting.pubkey).forEach { again.onDeviceWrap(it) }
+        assertEquals(SealedEngine.Mine.IN_HEAD, again.mine)
+        assertEquals(toPhone, relay.to(alicePhone.pubkey).size, "let in without a fresh start: no hand-back")
+    }
+
     /** Review of start-fresh: a device already in the head (its keys on the way) never starts fresh. */
     @Test fun noStartFreshOnceAllowed() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")
