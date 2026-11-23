@@ -283,6 +283,12 @@ minSdk 26, JDK 17.
   Vectors `sealed.json` → `join` (`tools/sealed_join_vectors.py`; generators' order in `tools/README.md`). The WRITING
   side (a device adding itself) is not built.
 
+- A members-only event opened by someone who is not a member (SPEC 19.71; canvas events/members-only-join,
+  -login): `ui/signin/MembersOnly.kt` (`MembersOnlyScreen` / `MembersOnlyBody`, `MemberWayIn` = a belfry's e-mail
+  log-in or application opened with no Welcome first). Signed out: `SignedOutFlow` asks `AppState.membersOnlyEvent`
+  (`BelfryApi.eventDoor`, the web's unsigned read) for the kept `eventLink`. A guest: `EventScreen` → `LocalAccounts.wayIn`
+  → `Adding.WayIn` over the app; `AppState.eventAfter` hands the event to the session made. Tests `MembersOnlyTest`.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

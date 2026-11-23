@@ -74,6 +74,8 @@ object Demo {
     /** Belfry events (ev-<d>): an open one Maya hosts, and one by application that I host. */
     const val SWAP_D = "2026-swap01"
     const val SWAP_SLUG = "seed-swap"
+    /** An event's address the demo answers "for members" to a guest (SPEC 19.71); it is in no channel. */
+    const val MEMBERS_EVENT = "members-supper"
     const val REPAIR_D = "2026-repair"
     /** One shape (SPEC 19.54): an online event with a cover (Jitsi, next week) and one happening now (Google Meet, no cover). */
     const val PLAN_D = "2026-plan01"

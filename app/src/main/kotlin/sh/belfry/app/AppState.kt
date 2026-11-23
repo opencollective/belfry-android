@@ -38,6 +38,8 @@ sealed interface Adding {
     data object SignIn : Adding
     /** A guest link for a belfry where this device has no account. */
     data class Join(val link: InviteLink) : Adding
+    /** A guest told "This event is for members" (SPEC 19.71): the e-mail log-in of that belfry, or the application ([apply]), at once. */
+    data class WayIn(val community: Community, val apply: Boolean) : Adding
 }
 
 /**
@@ -113,6 +115,32 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         scope.launch { if (switchTo(other.id)) _eventLink.value = link }
     }
 
+    /**
+     * Signed out, an event's address (SPEC 19.71): its community when the belfry says the event is
+     * for members (the web's unsigned read: 403), else null (an open event, no such event, no
+     * answer within 8 s: the app goes on as it did).
+     */
+    suspend fun membersOnlyEvent(link: EventLink): Community? = try {
+        kotlinx.coroutines.withTimeoutOrNull(8_000) {
+            val c = onboarding.discover(link.domain)
+            if (onboarding.eventDoor(c, link.link) == sh.belfry.core.net.EventDoor.MEMBERS_ONLY) c else null
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
+
+    /** The event that opens once the way in started by [wayInFor] made a session (a guest's: kept in memory only). */
+    @Volatile private var eventAfter: EventLink? = null
+
+    /**
+     * A guest of this belfry was told an event is for members: the e-mail log-in (or the
+     * application) of this belfry over the app, and EVENT (its link) opens once they are in.
+     */
+    fun wayInFor(event: String?, apply: Boolean) {
+        val s = _session.value ?: return
+        _message.value = null
+        eventAfter = event?.let { EventLink(s.community.domain, it) }
+        _adding.value = Adding.WayIn(s.community, apply)
+    }
+
     /** A notification was tapped: what it opens, once signed in (kept until then). */
     private val _pushOpen = MutableStateFlow<PushOpen?>(null)
     val pushOpen: StateFlow<PushOpen?> = _pushOpen
@@ -176,6 +204,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         try { onboarding.pendingInvite = null } catch (e: Exception) { }
         _adding.value = null
         _message.value = null
+        eventAfter = null
     }
 
     /**
@@ -279,6 +308,8 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         _session.value = s
         _joinOffer.value = null
         _adding.value = null
+        // signed in from "This event is for members" as a guest: that event opens in the new session
+        eventAfter?.let { ev -> eventAfter = null; if (fresh && ev.domain == s.community.domain) _eventLink.value = ev }
         _phase.value = Phase.SignedIn(s)
         // its dot in the switcher goes (the vault decrypts with the Keystore: not on the main thread)
         scope.launch {

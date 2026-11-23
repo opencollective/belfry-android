@@ -58,7 +58,8 @@ class EventsService internal constructor(private val s: Session) {
     suspend fun fetch(link: String, force: Boolean = false): RemoteEvent {
         val had = _remote.value[link]
         if (!force && had != null && s.now() - had.at < 60) return had
-        val got = if (s.localOnly) RemoteEvent(error = "not_found", at = s.now()) else try {
+        // the demo knows no event by its address, but one that a guest is told is for members (SPEC 19.71)
+        val got = if (s.localOnly) RemoteEvent(error = if (link == Demo.MEMBERS_EVENT && s.guest.value != null) "members_only" else "not_found", at = s.now()) else try {
             RemoteEvent(api = api(write = false) { it.event(link) }, at = s.now())
         } catch (e: ActionException) {
             RemoteEvent(error = e.code, at = s.now())

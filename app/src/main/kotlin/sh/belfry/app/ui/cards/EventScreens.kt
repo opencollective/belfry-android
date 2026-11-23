@@ -243,6 +243,16 @@ fun EventScreen(key: String, ticket: String? = null) {
     val got = remote[key]
     val api = got?.api
     if (api != null) return EventView(api.toCalEvent(world.ctx.zone, world.me), api, ticket)
+    // a guest of this belfry (SPEC 19.71): the words of the signed-out screen and the two ways in
+    val guest by session.guest.collectAsState()
+    if (isLink && got?.error == "members_only" && (guest != null || world.amGuest)) {
+        val accounts = sh.belfry.app.ui.nav.LocalAccounts.current
+        val name = world.ctx.communityName.ifEmpty { session.community.name }
+        CardScreen(name.ifBlank { "Event" }) {
+            sh.belfry.app.ui.signin.MembersOnlyBody(name, onSignIn = { accounts.wayIn(key, false) }, onApply = { accounts.wayIn(key, true) }, modifier = Modifier.weight(1f))
+        }
+        return
+    }
     val title = when {
         !isLink -> "This event is not here (yet)"
         got == null -> "Opening the event…"

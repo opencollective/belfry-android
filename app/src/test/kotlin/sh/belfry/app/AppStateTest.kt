@@ -101,6 +101,30 @@ class AppStateTest {
         assertTrue(onboarding.accounts.accounts.isEmpty())
     }
 
+    /** SPEC 19.71: a guest told "This event is for members" signs in over the app; the event opens in the new session. */
+    @Test
+    fun aGuestsWayInKeepsTheEvent() = runBlocking<Unit> {
+        state.boot()
+        until("signed out") { state.phase.value is Phase.SignedOut }
+        state.demo()
+        val guest = state.session.value!!
+        val domain = guest.community.domain
+        // the e-mail log-in of this belfry over the app; back leaves it and forgets the event
+        state.wayInFor("members-supper", apply = false)
+        assertEquals(Adding.WayIn(guest.community, apply = false), state.adding.value)
+        assertTrue(state.session.value === guest)
+        state.cancelAdd()
+        assertNull(state.adding.value)
+        state.demo()
+        assertNull(state.eventLink.value)
+        // the application; once a sign-in made a session in that belfry, the event's address is handed to it
+        state.wayInFor("members-supper", apply = true)
+        assertEquals(Adding.WayIn(state.session.value!!.community, apply = true), state.adding.value)
+        state.demo()
+        assertNull(state.adding.value)
+        assertEquals(sh.belfry.core.net.EventLink(domain, "members-supper"), state.eventLink.value)
+    }
+
     @Test
     fun aGuestLinkFindsItsAccount() = runBlocking<Unit> {
         threeAccounts()
