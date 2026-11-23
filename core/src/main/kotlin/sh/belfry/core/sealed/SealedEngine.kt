@@ -99,7 +99,9 @@ class SealedEngine(
         // the stored anchor only when the relay gave none (never competing with a newer one in the same second)
         val a = SealedEngine.Answer(if (newestAnchor(qa.events, person) != null) qa.events else qa.events + listOfNotNull(anchors[person]), qa.complete)
         val r = SealedEngine.Answer((qr.events + pathEvents[person].orEmpty()).distinctBy { it.id }, qr.complete)
+        val hadPin = pins.containsKey(person)
         val chain = followRead(person, a, r)
+        if (person == account && chain != null) noteJoins(chain, hadPin)
         lastReadComplete[person] = complete
         // my chain read complete without this device (a removal it missed, a fresh start elsewhere): out at once,
         // never sealing as a member (the web's hole, 0.7.7)
@@ -194,6 +196,7 @@ class SealedEngine(
             put("oldLb", JsonArray(oldLetterboxes.map { JsonPrimitive(it) }))
             freshElsewhere?.let { f -> put("freshElsewhere", buildJsonObject { put("device", JsonPrimitive(f.device)); put("at", JsonPrimitive(f.at)) }) }
             put("firstSeen", buildJsonObject { firstSeenStored.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
+            put("joinSeen", buildJsonObject { joinSeen.forEach { (k, t) -> put(k, JsonPrimitive(t)) } })
             // my previously pinned chain after a fresh start (its devices may still hand over keys)
             previousChain?.let { pc -> put("previous", buildJsonObject {
                 put("account", JsonPrimitive(pc.account))
@@ -213,7 +216,7 @@ class SealedEngine(
             pathEvents[p] = (pin["path"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { e -> Event.fromJson(e) } }.orEmpty()
             (pin["reset"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { resetAt[p] = it }
             (pin["shared"] as? JsonPrimitive)?.content?.toLongOrNull()?.let { sharedAfter[p] = it }
-            val chain = anchors[p]?.let { Chain.of(p, listOf(it), pathEvents[p].orEmpty(), pinned = pins[p]?.head) }
+            val chain = anchors[p]?.let { Chain.of(p, listOf(it), pathEvents[p].orEmpty(), pinned = pins[p]?.head, seenAnchored = pins[p]?.anchoredHead) }
             if (chain != null) { known[p] = Known(chain, null); lastHead[p] = chain.head.lb }
         }
         (o["sealed"] as? JsonObject)?.forEach { (c, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { sealedSince[c] = it } }
@@ -223,6 +226,7 @@ class SealedEngine(
             if (d != null && at != null) freshElsewhere = FreshElsewhere(d, at)
         }
         (o["firstSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { firstSeenStored[k] = it } }
+        (o["joinSeen"] as? JsonObject)?.forEach { (k, t) -> (t as? JsonPrimitive)?.content?.toLongOrNull()?.let { joinSeen[k] = it } }
         (o["previous"] as? JsonObject)?.let { pv ->
             val anchor = (pv["anchor"] as? JsonObject)?.let { Event.fromJson(it) }
             val path = (pv["path"] as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { e -> Event.fromJson(e) } }.orEmpty()
@@ -280,6 +284,102 @@ class SealedEngine(
         return fresh && k.chain?.ready != true
     }
 
+    // ---- devices that added themselves (sealed.md §5.7, the reading side) -----------------------
+
+    /** When THIS device first saw each join roster of my chain (roster id → Unix seconds): notices and counts use it, never the roster's own date. */
+    private val joinSeen = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** Told when my chain gained joins this device had not seen (their letterboxes): the app reads its wraps again from 0. */
+    @Volatile var onJoin: ((Set<String>) -> Unit)? = null
+
+    /** A join was seen whose signer's session has not been checked yet ([checkJoiners]). */
+    @Volatile private var joinersUnchecked = false
+
+    /**
+     * The joins of my chain this device sees for the first time. HAD_PIN: this device already followed my chain
+     * before this read (then "first seen" is now; on a very first read the roster's own date is all there is).
+     */
+    private fun noteJoins(chain: Chain, hadPin: Boolean) {
+        val fresh = HashSet<String>()
+        for (i in 1 until chain.rosters.size) if (chain.isJoin(i)) {
+            val r = chain.rosters[i]
+            if (joinSeen.putIfAbsent(r.id, if (hadPin) clock() else r.createdAt) == null) fresh.add(r.lb)
+        }
+        if (fresh.isEmpty()) return
+        joinersUnchecked = true
+        saveState()
+        onJoin?.invoke(fresh)
+    }
+
+    /** When a device came into my head, as this device counts it: a join from when it was first seen here. */
+    private fun addedTime(ch: RosterChange): Long = if (ch.self) joinSeen[ch.roster] ?: ch.at else ch.at
+
+    /** Devices let into my head in the 24 h before NOW (§5.2 step 2; joins counted from first sight), EXCEPT one. */
+    private fun letIn24h(chain: Chain, now: Long, except: String? = null): Int =
+        chain.changesAfter(null).count { it.added && it.device != except && addedTime(it) > now - 86_400L }
+
+    /**
+     * §5.7 "in the head, a letterbox behind": the devices that added themselves and hold the secret this device
+     * lacks (empty: not in that state). Such a device keeps everything (Remove, the notice, 8563, session checks,
+     * answering, writing); only reading the newer messages waits.
+     */
+    val waitingFor: List<String> get() = chainOf(account)?.behind(device.pubkey) { keys.secretFor(it) != null }.orEmpty()
+    val behind: Boolean get() = waitingFor.isNotEmpty()
+
+    /** DEV added itself, is not endorsed, and the person has not answered for it on this device: nothing by itself for it. */
+    private fun limitedJoiner(chain: Chain, dev: String): Boolean =
+        dev in chain.unendorsed && ports.loadNote("prompted:$dev") == null && ports.loadNote("added-ok:$dev") == null &&
+            chain.addedBy(dev)?.let { ports.loadNote("confirmed:$dev:${it.id}") } == null
+
+    /**
+     * §5.7 "Older keys": a device that added itself is handed the earlier letterboxes without a prompt only under
+     * exactly §5.2 step 2's conditions (ROWS: the session list read for this request); otherwise the Allow card.
+     * That the chain never had it before is its join's validity; that it is trusted and its request is in time is
+     * [Follow.answerWithoutPrompt], checked before.
+     */
+    private fun mayHandOlderKeys(req: Event, dev: String, head: Chain, rows: List<SessionRow>): Boolean {
+        val now = clock()
+        val row = rows.firstOrNull { it.clientPubkey == dev && it.chat }
+        val pin = pins[account] ?: return false
+        return Follow.olderKeysWithoutPrompt(
+            now, req.createdAt, row?.createdAt, sessionLiveChatReadFresh = row != null,
+            inPinnedAnchoredHead = head.head.id == pin.head && head.root.id == pin.root && head.anchored == head.head.id && device.pubkey in head.devices,
+            thisTrusted = pin.trusted == null || device.pubkey in pin.trusted,
+            askerTrusted = pin.trusted == null || dev in pin.trusted,
+            askerInChainBefore = false, // its join's validity: the chain never had it
+            othersLetIn24h = letIn24h(head, now, except = dev),
+        )
+    }
+
+    /** A device that added itself with no live chat session, removed at once by this device (§5.7): who and when, until seen. */
+    data class RemovedJoiner(val device: String, val at: Long)
+
+    val removedJoiner: RemovedJoiner? get() = ports.loadNote(NOTE_REMOVED_JOINER)?.split(':')?.takeIf { it.size == 2 && hexOk(it[0]) }?.let { p -> p[1].toLongOrNull()?.let { RemovedJoiner(p[0], it) } }
+    fun removedJoinerSeen() = ports.saveNote(NOTE_REMOVED_JOINER, "")
+
+    /**
+     * §5.7 "The joiner on first sight": the session list read fresh; a device that added itself, is not endorsed
+     * and is not a live chat session there is removed at once (§5.6, no revoke: there is no such session). Only
+     * from a well-formed list that holds my own session. Called by the session after my chain moved.
+     */
+    suspend fun checkJoiners() {
+        if (!joinersUnchecked || mine != Mine.IN_HEAD) return
+        val chain = chainOf(account) ?: return
+        val joiners = chain.unendorsed.filter { it != device.pubkey }
+        if (joiners.isEmpty()) { joinersUnchecked = false; return }
+        val rows = ports.sessions() ?: return
+        if (rows.none { it.clientPubkey == device.pubkey }) return
+        val liveChat = rows.filter { it.chat }.mapNotNull { it.clientPubkey }.toSet()
+        joinersUnchecked = false
+        for (d in joiners) if (d !in liveChat) {
+            try {
+                remove(d, revoke = false)
+                ports.saveNote(NOTE_REMOVED_JOINER, "$d:${clock()}")
+                trace("joiner without a session removed")
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { joinersUnchecked = true }
+        }
+    }
+
     // ---- my own chain -------------------------------------------------------------------------
 
     /** My chain's state on this device. */
@@ -300,7 +400,9 @@ class SealedEngine(
         val complete = qa.complete && qr.complete
         val a = SealedEngine.Answer(if (newestAnchor(qa.events, account) != null) qa.events else qa.events + listOfNotNull(anchors[account]), qa.complete)
         val r = SealedEngine.Answer((qr.events + pathEvents[account].orEmpty()).distinctBy { it.id }, qr.complete)
+        val hadPin = pins.containsKey(account)
         val chain = followRead(account, a, r)
+        if (chain != null) noteJoins(chain, hadPin)
         if (chain != null) {
             known[account] = Known(chain, if (complete) clock() else null)
             remember(account, chain, a.events, r.events)
@@ -310,7 +412,9 @@ class SealedEngine(
         when {
             // in the head but without its letterbox's secret (a lost hand-over): ask too (c233eec, §5.5)
             chain != null && device.pubkey in chain.devices && keys.secretFor(chain.head.lb) == null -> {
-                mine = Mine.WAITING
+                // §5.7: missing only what a device that added itself brought = in the head, a letterbox behind: it keeps
+                // everything and asks for the secret; any other missing key is the old waiting state
+                if (behind) { mine = Mine.IN_HEAD; anchorOwnTail(chain) } else mine = Mine.WAITING
                 askAtStart(link)
             }
             chain != null && device.pubkey in chain.devices -> {
@@ -413,7 +517,7 @@ class SealedEngine(
         if (mine == Mine.UNKNOWN) { trace("unknown"); return }
         val c = refreshHere(account) ?: run { trace("no chain (complete=${lastReadComplete[account]})"); return }
         if (device.pubkey in c.devices && keys.secretFor(c.head.lb) != null) { mine = Mine.IN_HEAD; trace("in head"); return }
-        mine = Mine.WAITING
+        mine = if (behind) Mine.IN_HEAD else Mine.WAITING // a letterbox behind (§5.7): still in the head, and it asks
         // at most once a minute, and once per connection (N2); else every 24 h
         // force (AUTH, a new state): once per connection and once a minute; any call: once a day (§5.2)
         val since = clock() - lastAsk
@@ -504,6 +608,8 @@ class SealedEngine(
         for (p in known.keys.toList()) if (p != account) try { refresh(p) } catch (e: Exception) { }
         locked { refresh(account)?.let { anchorOwnTail(it) } }
         try { kotlinx.coroutines.withContext(confined) { sendOwedConfirms() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+        try { locked { sendOwedEndorsements() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
+        try { joinersUnchecked = true; checkJoiners() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { }
         checkSessions()
         checkReady()
     }
@@ -520,8 +626,8 @@ class SealedEngine(
      * the signer, and only then both sent, roster first. If the anchor can't be signed, neither goes
      * (the change is tried again later; 294c94f).
      */
-    private suspend fun publishNext(head: Chain, devices: List<String>, lb: String, ready: Boolean): Boolean {
-        val r = device.signNow(Roster.template(account, head.head.n + 1, head.head.id, lb, devices, ready, clock()))
+    private suspend fun publishNext(head: Chain, devices: List<String>, lb: String, ready: Boolean, endorse: List<String> = emptyList()): Boolean {
+        val r = device.signNow(Roster.template(account, head.head.n + 1, head.head.id, lb, devices, ready, clock(), endorse))
         val anchor = ports.signAsAccount(Anchor.template(head.root.id, r.id, anchorTime()))
         return land(r, anchor)
     }
@@ -583,17 +689,26 @@ class SealedEngine(
             // a device of the head this device holds that lost its hand-over: the keys at once, no
             // prompt, only as the reference's answer_without_prompt allows (§5.5: on the anchored end,
             // in the pinned head, trusted after a switch, a live chat session, a strictly newer request)
-            if (keys.secretFor(head.head.lb) == null) return OnRequest.Ignore
+            // a giver gives what it holds (§5.7): a letterbox behind, it still answers a device that added itself (it
+            // holds the older letterboxes that device asks for); anyone else wants the head's secret, which it lacks
+            val joiner = head.selfAdded(dev)
+            if (keys.secretFor(head.head.lb) == null && !(joiner && behind)) return OnRequest.Ignore
             val lastGiven = ports.loadNote("handover:$dev")?.toLongOrNull()
             val added = addedLast(head, dev)
             // the cheap tests first, as if the session were live (fourth review 5): only a request that could pass
             // costs a fresh read of the session list
             val could = Follow.answerWithoutPrompt(head, pins[account], dev, listOf(dev), req.createdAt, added, lastGiven)
             // "live" for a no-prompt hand-over is read fresh, never from the cache (P4)
-            val live = if (!could) emptyList() else (ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return OnRequest.Ignore)
-                .filter { it.chat }.mapNotNull { it.clientPubkey }
+            val fresh = if (!could) emptyList() else (ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return OnRequest.Ignore)
+            val live = fresh.filter { it.chat }.mapNotNull { it.clientPubkey }
             if (!could || !Follow.answerWithoutPrompt(head, pins[account], dev, live, req.createdAt, added, lastGiven)) {
                 return if (dev in (pins[account]?.trusted ?: head.devices)) OnRequest.Ignore else OnRequest.Ask(dev, row.device?.ifEmpty { null } ?: row.applicationName)
+            }
+            // §5.7 "Older keys": for a device that added itself and that nobody answered for yet, only under step 2's
+            // conditions; otherwise the Allow card (Allow by hand gives the keys and trusts it)
+            if (joiner && limitedJoiner(head, dev) && !mayHandOlderKeys(req, dev, head, fresh)) {
+                trace("joiner: older keys need the card")
+                return OnRequest.Ask(dev, row.device?.ifEmpty { null } ?: row.applicationName)
             }
             Sealing.keysFor(device, account, dev, keys, clock()).forEach { ports.publish(it) }
             ports.saveNote("handover:$dev", clock().toString())
@@ -638,7 +753,7 @@ class SealedEngine(
         if (head.everHad(dev)) return false
         if (pin.trusted != null && device.pubkey !in pin.trusted) return false
         if (keys.secretFor(head.head.lb) == null) return false
-        if (recentlyAdded(head, now) >= AUTO_PER_DAY) return false
+        if (letIn24h(head, now) >= AUTO_PER_DAY) return false
         val fresh = ports.sessions()?.also { sessionsCache = it; sessionsAt = clock() } ?: return false
         val row = fresh.firstOrNull { it.clientPubkey == dev && it.chat } ?: return false
         val opened = row.createdAt ?: return false
@@ -656,17 +771,24 @@ class SealedEngine(
      * this device didn't allow from its own prompt or link, still in the head, not answered "It was me".
      * Kept across restarts (the notes); a device that leaves the head drops its notice.
      */
-    suspend fun addedNotices(): List<AddedNotice> = kotlinx.coroutines.withContext(confined) {
-        val chain = chainOf(account) ?: return@withContext emptyList()
-        if (device.pubkey !in chain.devices) return@withContext emptyList()
+    suspend fun addedNotices(): List<AddedNotice> = kotlinx.coroutines.withContext(confined) { noticesHere() }
+
+    /** The devices whose "was added" notice is open on this device (none while it has never looked: nothing was shown). */
+    private fun openNotices(): Set<String> =
+        if (ports.loadNote(NOTE_NOTICES_SINCE) == null) emptySet() else noticesHere().map { it.device }.toSet()
+
+    /** [addedNotices] on the confined thread. A device that added itself is dated from when this device first saw its join (§5.7). */
+    private fun noticesHere(): List<AddedNotice> {
+        val chain = chainOf(account) ?: return emptyList()
+        if (device.pubkey !in chain.devices) return emptyList()
         val since = ports.loadNote(NOTE_NOTICES_SINCE)?.toLongOrNull() ?: clock().also { ports.saveNote(NOTE_NOTICES_SINCE, it.toString()) }
-        chain.changesAfter(null)
-            .filter { it.added && it.at >= since && it.device != device.pubkey && it.device in chain.devices }
+        return chain.changesAfter(null)
+            .filter { it.added && addedTime(it) >= since && it.device != device.pubkey && it.device in chain.devices }
             .filter { ports.loadNote("prompted:${it.device}") == null && ports.loadNote("added-ok:${it.device}") == null }
             // answered "It was me" on another of my devices (§5.2 step 2b): the 8563 this device accepted
             .filter { ch -> chain.addedBy(ch.device)?.let { ports.loadNote("confirmed:${ch.device}:${it.id}") } == null }
             .distinctBy { it.device }
-            .map { AddedNotice(it.device, it.at) }
+            .map { AddedNotice(it.device, addedTime(it)) }
     }
 
     /**
@@ -675,8 +797,33 @@ class SealedEngine(
      * owed until the relay took it (tried again at each upkeep); it is only sent by a device that was
      * in the roster before the one that added DEV, since no other device's word is accepted.
      */
-    suspend fun addedWasMe(dev: String): Unit = kotlinx.coroutines.withContext(confined) {
+    suspend fun addedWasMe(dev: String) {
+        confirmHere(dev)
+        // §5.7 "It was me" endorses: roster n+1 = same devices, same lb, one endorse tag per device confirmed; owed
+        // until it is on the anchored path (tried again at each upkeep)
+        try { locked { sendOwedEndorsements() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { trace("endorse: not done yet") }
+    }
+
+    private fun owedEndorse(): List<String> = ports.loadNote(NOTE_OWED_ENDORSE).orEmpty().split(' ').filter { hexOk(it) }
+    private fun owedEndorse(list: List<String>) = ports.saveNote(NOTE_OWED_ENDORSE, list.distinct().joinToString(" "))
+
+    /**
+     * The endorsement rosters still to publish (lock held by the caller). Only for a device that added itself, still
+     * waiting, that THIS device may endorse (it was in the roster before that join); anything else is forgotten.
+     */
+    private suspend fun sendOwedEndorsements() {
+        val todo = owedEndorse()
+        if (todo.isEmpty() || mine != Mine.IN_HEAD) return
+        val chain = refresh(account) ?: return
+        if (lastReadComplete[account] != true) return
+        val can = todo.filter { it in chain.unendorsed && device.pubkey in chain.endorsers(it) }
+        if (can.isEmpty()) { owedEndorse(emptyList()); return }
+        if (publishNext(chain, chain.devices, chain.head.lb, chain.ready, endorse = can)) { owedEndorse(emptyList()); trace("endorse: published") } else owedEndorse(can)
+    }
+
+    private suspend fun confirmHere(dev: String): Unit = kotlinx.coroutines.withContext(confined) {
         ports.saveNote("added-ok:$dev", clock().toString())
+        owedEndorse(owedEndorse() + dev)
         try {
             withTimeoutOrNull(3000) { refreshHere(account) }
             val chain = chainOf(account) ?: return@withContext
@@ -714,7 +861,7 @@ class SealedEngine(
      * good), false = ignored, null = can't tell yet (my chain, or the roster it names, isn't here).
      * Never a message: it stops here.
      */
-    private fun takeConfirm(o: Opening.Opened): Boolean? = when (val c = Sealing.acceptConfirm(o.rumor, o.sealPubkey, known[account]?.chain)) {
+    private fun takeConfirm(o: Opening.Opened): Boolean? = when (val c = Sealing.acceptConfirm(o.rumor, o.sealPubkey, known[account]?.chain, openNotices())) {
         is Sealing.Confirm.Accept -> {
             if (ports.loadNote("confirmed:${c.device}:${c.roster}") == null) {
                 ports.saveNote("confirmed:${c.device}:${c.roster}", clock().toString())
@@ -754,6 +901,10 @@ class SealedEngine(
         private const val NOTE_NOTICES_SINCE = "added-notices-since"
         private const val NOTE_ASKED = "asked-at"
         private const val NOTE_OWED = "confirm-owed"
+        private const val NOTE_OWED_ENDORSE = "endorse-owed"
+        private const val NOTE_REMOVED_JOINER = "removed-joiner"
+        /** Hand-overs kept because their giver is not in my chain yet (§5.7 "Arrivals out of order"). */
+        const val MAX_EARLY_KEYS = 50
 
         /** Devices added to CHAIN by rosters dated in the 24 h before NOW (the root not counted), from roster times only. */
         fun recentlyAdded(chain: Chain, now: Long): Int = chain.changesAfter(null).count { it.added && it.at > now - 86_400L }
@@ -833,8 +984,11 @@ class SealedEngine(
             // new keys only to devices that stay, have a live session AND are trusted here (after a switch,
             // never a head device this device wouldn't answer without a prompt; sealed.md 52808c2)
             val trusted = pins[account]?.trusted?.toSet()
+            // a device that added itself, not answered for and never handed keys here, gets the new secret only (§5.7
+            // "Older keys": the earlier letterboxes go by its request's rule, never as a side effect of a rotation)
+            val onlyNew = KeyChain(mapOf(lbPub to lbSecret))
             val wraps = remaining.filter { it != device.pubkey && it in live && (trusted == null || it in trusted) }
-                .flatMap { d -> Sealing.keysFor(device, account, d, withNew, clock()) }
+                .flatMap { d -> Sealing.keysFor(device, account, d, if (limitedJoiner(cur, d) && ports.loadNote("handover:$d") == null) onlyNew else withNew, clock()) }
             // roster and anchor both signed before anything goes; the keys go first, then the two as one unit
             val r = device.signNow(Roster.template(account, cur.head.n + 1, cur.head.id, lbPub, remaining, cur.ready, clock()))
             val anchor = ports.signAsAccount(Anchor.template(cur.root.id, r.id, anchorTime()))
@@ -886,7 +1040,15 @@ class SealedEngine(
         val mineChain = chainOf(account)
         if (mineChain == null) { pendingKeys[wrap.id] = wrap; return@withContext false }
         // from a device of my current chain, or (after a fresh start) of the previously pinned one
-        if (!Sealing.acceptHandover(h, account, listOfNotNull(mineChain, previousChain))) return@withContext false
+        if (!Sealing.acceptHandover(h, account, listOfNotNull(mineChain, previousChain))) {
+            // §5.7 "Arrivals out of order": a hand-over from a device that added itself may come before its roster. Kept
+            // (a few), my chain read once, and tried again each time my chain moves ([retryPending])
+            if (h.account != account || pendingKeys.containsKey(wrap.id)) return@withContext false
+            if (pendingKeys.size >= MAX_EARLY_KEYS) pendingKeys.keys.firstOrNull()?.let { pendingKeys.remove(it) }
+            pendingKeys[wrap.id] = wrap
+            refreshHere(account)
+            return@withContext !pendingKeys.containsKey(wrap.id)
+        }
         // was this device out (not in my head with its key) when the hand-over came? Only then may it hand back (below)
         val wasOut = !inHeadNow()
         val added = keys.merge(h.keys)
@@ -1156,7 +1318,7 @@ class SealedEngine(
 
     /** This device is in my head but has no secret for it (a lost hand-over): "Waiting for another of your devices". */
     /** In my head with its letterbox's secret, from my chain as last read (and [mine] says so). */
-    fun inHeadNow(): Boolean = mine == Mine.IN_HEAD && chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) != null } == true
+    fun inHeadNow(): Boolean = mine == Mine.IN_HEAD && chainOf(account)?.let { device.pubkey in it.devices && (keys.secretFor(it.head.lb) != null || behind) } == true
 
     val inHeadWithoutKey: Boolean get() = chainOf(account)?.let { device.pubkey in it.devices && keys.secretFor(it.head.lb) == null } == true
 

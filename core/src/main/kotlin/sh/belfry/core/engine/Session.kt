@@ -289,10 +289,13 @@ class Session(
     }
 
     /** Keys arrived: kept wraps tried again, and every wrap to me read again from 0, paged (§5.5). */
-    private suspend fun rereadWraps() {
+    private suspend fun rereadWraps(joined: Set<String> = emptySet()) {
         dm.retryKept()
         val r = mainRelay ?: return
         val all = Paging.all { f -> r.queryKnown(listOf(f)) }(Filters.of(kinds = listOf(1059), tags = mapOf("p" to listOf(me))))
+        // the letterboxes of devices that added themselves, first followed now (sealed.md §5.7): their wraps are
+        // read again even when an earlier build settled them as not for me
+        if (joined.isNotEmpty()) dm.forgetSeen(all.events.filter { it.kind == 1059 && it.tag("lb") in joined }.map { it.id })
         addToLog(all.events)
         dm.offer(all.events)
         dm.process()
@@ -372,11 +375,15 @@ class Session(
         if (e.onKeys == null) e.onKeys = { launchSafely { rereadWraps() } }
         // "It was me" on another of my devices (8563, §5.2 step 2b): the notice goes here too
         if (e.onConfirmed == null) e.onConfirmed = { launchSafely { encryption.refresh() } }
+        // my chain gained a device that added itself (sealed.md §5.7): wraps again from 0 (onChain, right after, looks at its session)
+        if (e.onJoin == null) e.onJoin = { lbs -> launchSafely { rereadWraps(lbs) } }
         // a correspondent's (or my own) chain moved: the wraps kept for it are tried again (§4; the review's 1)
         if (e.onChain == null) e.onChain = { who ->
             launchSafely { dm.retryKept(); dm.process(); resubscribeIfSealedGrew() }
             // my own head moved (a rotation): my device name record again under the new letterbox (re-review (16))
             if (who == me) { nameWritten = false; launchSafely { if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.IN_HEAD) writeNameOnce(e) } }
+            // a device that added itself and is no live chat session is removed at once (sealed.md §5.7)
+            if (who == me) launchSafely { e.checkJoiners(); encryption.refresh() }
         }
         if (e.mine == sh.belfry.core.sealed.SealedEngine.Mine.UNKNOWN && !e.firstRefused) {
             val own = try { api().sessions(signer).firstOrNull { it.clientPubkey == e.device.pubkey }?.device } catch (x: Exception) { null }
@@ -862,6 +869,7 @@ class Session(
                                 // in the head but a rotation's hand-over missed: ask too (N4); my chain read first
                                 e.refresh(me)
                                 if (e.inHeadWithoutKey) e.askAgain(linkSecret, force = true)
+                                e.checkJoiners()
                                 writeNameOnce(e); encryption.refresh()
                             }
                             else -> {}

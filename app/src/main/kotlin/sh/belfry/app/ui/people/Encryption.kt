@@ -374,6 +374,24 @@ internal fun AddedHereBanner(st: sh.belfry.core.model.SealState) {
     }
 }
 
+/**
+ * canvas Messages v8 messages/encryption-waiting-device (sealed.md §5.7): on an older device, the newer messages
+ * wait for the device that added itself. A quiet line (a clock, no button); everything else works. N: how many
+ * messages wait, on top of Messages; null: the line inside a conversation.
+ */
+@Composable
+internal fun WaitingForLine(st: sh.belfry.core.model.SealState, n: Int? = null, modifier: Modifier = Modifier) {
+    val c = Belfry.colors
+    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).testTag("seal-waiting-for"), verticalAlignment = Alignment.Top) {
+        Icon(BelfryIcons.Clock, contentDescription = null, tint = c.muted, modifier = Modifier.size(18.dp).padding(top = 1.dp))
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(if (n != null) SealedText.waitingForMessages(n, st.waitingFor) else SealedText.waitingFor(st.waitingFor), fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+            if (n != null) Text(SealedText.WAITING_FOR_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.muted)
+        }
+    }
+}
+
 /** messages/encryption-waiting: in place of the composer while this device, added, waits for its key. */
 @Composable
 internal fun WaitingKeysLines(st: sh.belfry.core.model.SealState, modifier: Modifier = Modifier) {
@@ -396,11 +414,30 @@ internal fun AddedDeviceCards(modifier: Modifier = Modifier) {
     val session = LocalSession.current
     val world = LocalWorld.current
     val st by session.encryption.state.collectAsState()
-    if (st.added.isEmpty()) return
+    if (st.added.isEmpty() && st.removedJoinerAt == 0L) return
     val c = Belfry.colors
     var removing by remember { mutableStateOf<sh.belfry.core.model.AddedDevice?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     Column(modifier) {
+        if (st.removedJoinerAt > 0L) {
+            // sealed.md §5.7: a device that added itself with no session, removed by this device at once
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp))
+                    .background(c.surface).padding(horizontal = 14.dp, vertical = 12.dp).testTag("seal-removed-joiner"),
+            ) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp).padding(top = 1.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(SealedText.removedJoinerTitle(st.removedJoinerAt, session.now(), world.ctx.zone), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                        Text(SealedText.REMOVED_JOINER_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                    BusyButton(SealedText.REMOVED_JOINER_OK, onClick = { session.encryption.removedJoinerSeen() }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("seal-removed-joiner-ok"))
+                }
+            }
+        }
         for (a in st.added) {
             Column(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp))

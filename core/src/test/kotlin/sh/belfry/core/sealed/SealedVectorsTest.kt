@@ -60,14 +60,11 @@ class SealedVectorsTest {
     }
 
     /**
-     * vectors `join` (sealed.md §5.7, belfry-sh 88a27b9; tools/sealed_join_vectors.py), FIRST PART: what holds
-     * before the engine reads joins. Every event of the section is well formed and signed; the hand-over wraps
-     * open with the phone's key and give the pairs that check out; and every `chains` case whose expected chain
-     * holds no join (a join refused, not anchored, or only in the tail) already gives that chain. The cases that
-     * need a join followed (chains, follow, requests, older_keys, confirm, endorsement) are read by the reading
-     * side's tests, which replace the filter below.
+     * vectors `join` (sealed.md §5.7 as tightened at belfry-sh 1440e79; tools/sealed_join_vectors.py), the whole
+     * section: joins on the anchored path only, the endorse tag, the pin, a joiner's requests, its older keys, its
+     * hand-over, "It was me" with joiners, and the endorsement roster.
      */
-    @Test fun joinVectorsAsFarAsBuilt() = runBlocking<Unit> {
+    @Test fun join() = runBlocking<Unit> {
         val j = v["join"] as JsonObject
         fun list(k: String) = (j[k] as JsonArray).map { it as JsonObject }
         var events = 0
@@ -80,33 +77,103 @@ class SealedVectorsTest {
         }
         walk(j)
         assertTrue(events > 150, "events checked: $events")
-        // chains: the cases that no join rule is needed for
-        var ran = 0
+
+        // chains
+        assertTrue(list("chains").size >= 42)
         for (c in list("chains")) {
             val name = c.s("name")!!
             val e = c["expected"] as JsonObject
-            val rosters = evs(c["rosters"]).mapNotNull { Roster.parse(it) }.associateBy { it.id }
-            val needsJoins = strs(e["valid_ids"]).any { id -> rosters[id]?.let { r -> r.prev != null && rosters[r.prev]?.devices?.contains(r.signer) == false } == true }
-            if (needsJoins) continue
             val chain = chainOf(c["anchor"] as? JsonObject, evs(c["rosters"]))
             assertEquals(strs(e["valid_ids"]), chain?.rosters?.map { it.id } ?: emptyList<String>(), name)
+            assertEquals(str(e, "head"), chain?.head?.id, name)
             assertEquals(strs(e["devices"]), chain?.devices ?: emptyList<String>(), name)
             assertEquals(str(e, "lb"), chain?.head?.lb, name)
-            ran++
+            assertEquals(e["ready"]!!.jsonPrimitive.boolean, chain?.ready ?: false, name)
+            assertEquals(strs(e["unendorsed"]), chain?.unendorsed ?: emptyList<String>(), "$name: unendorsed")
+            (e["added"] as? JsonObject)?.forEach { (d, r) -> assertEquals(r.jsonPrimitive.content, (chain!!.addedBy(d) ?: chain.root).id, "$name: added") }
         }
-        assertTrue(ran >= 14, "chains cases run: $ran")
-        // hand-overs: opened by the phone, the giver and the pairs that check out
+
+        // the pin
+        assertTrue(list("follow").size >= 8)
+        for (case in list("follow")) runSteps(case)
+
+        // a joiner's requests (§5.5 with >= for a device that added itself)
+        var asks = 0
+        for (case in list("requests")) {
+            val (c, pin) = runSteps(case)
+            for (a in (case["asks"] as JsonArray).map { it as JsonObject }) {
+                val where = "${case.s("name")}: ${a.s("device_name")}"
+                val given = (a["added_at"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.long
+                for (addedAt in listOf(given, null)) {
+                    val got = Follow.answerWithoutPrompt(
+                        c, pin, a.s("device")!!, strs(a["live_chat_devices"]), a["request_created_at"]!!.jsonPrimitive.long,
+                        addedAt, (a["last_handover_at"] as? JsonPrimitive)?.takeIf { it !is JsonNull }?.long,
+                    )
+                    assertEquals(a["expected"]!!.jsonPrimitive.boolean, got, where)
+                }
+                assertEquals(a["self_added"]!!.jsonPrimitive.boolean, c?.selfAdded(a.s("device")!!) ?: false, "$where: self_added")
+                asks++
+            }
+        }
+        assertEquals(13, asks)
+
+        // older keys for a joiner (§5.2 step 2's conditions)
+        for (c in list("older_keys")) {
+            val g = c["given"] as JsonObject
+            fun n(k: String) = g[k]!!.jsonPrimitive.long
+            fun b(k: String) = g[k]!!.jsonPrimitive.boolean
+            val got = Follow.olderKeysWithoutPrompt(
+                n("now"), n("request_created_at"), n("session_created_at"), b("session_live_chat_read_fresh"), b("this_device_in_pinned_anchored_head"),
+                b("this_device_trusted"), b("asker_trusted"), b("asker_in_chain_before_its_join"), g["others_let_in_last_24h"]!!.jsonPrimitive.int,
+            )
+            assertEquals(c.s("expected"), if (got) "keys" else "card", c.s("name"))
+        }
+        assertEquals(9, list("older_keys").size)
+
+        // the hand-over from the joiner
         for (c in list("handover")) {
             val name = c.s("name")!!
             val e = c["expected"] as JsonObject
-            val h = Sealing.openKeys(ev(c["wrap"] as JsonObject), LocalSigner(c.s("device_secret")!!))!!
+            val wrap = ev(c["wrap"] as JsonObject)
+            val h = Sealing.openKeys(wrap, LocalSigner(c.s("device_secret")!!))!!
             assertEquals(e.s("giver"), h.giver, name)
-            assertTrue(GiftWrap.isSilent(ev(c["wrap"] as JsonObject)), name)
-            if (e["accepted"]!!.jsonPrimitive.boolean) {
-                assertEquals((e["keys"] as JsonArray).associate { k -> (k as JsonObject).s("lb")!! to k.s("secret")!! }, h.keys, name)
-            }
+            assertTrue(GiftWrap.isSilent(wrap), name)
+            val ch = c["chain"] as JsonObject
+            val chain = chainOf(ch["anchor"] as JsonObject, evs(ch["rosters"]))!!
+            val accepted = Sealing.acceptHandover(h, c.s("account")!!, listOf(chain))
+            assertEquals(e["accepted"]!!.jsonPrimitive.boolean, accepted, name)
+            val want = (e["keys"] as JsonArray).associate { k -> (k as JsonObject).s("lb")!! to k.s("secret")!! }
+            assertEquals(want, if (accepted) h.keys else emptyMap(), name)
         }
         assertEquals(3, list("handover").size)
+
+        // "It was me" with joiners
+        for (c in list("confirm")) {
+            val name = c.s("name")!!
+            val e = c["expected"] as JsonObject
+            val ch = c["chain"] as JsonObject
+            val chain = chainOf(ch["anchor"] as JsonObject, evs(ch["rosters"]))!!
+            val got = Sealing.acceptConfirm(rumorOf(c["rumor"] as JsonObject), c.s("seal_pubkey")!!, chain, strs(c["unanswered_on_this_device"]).toSet())
+            assertEquals(e["accepted"]!!.jsonPrimitive.boolean, got is Sealing.Confirm.Accept, name)
+            assertEquals(e["judged_again_later"]!!.jsonPrimitive.boolean, got is Sealing.Confirm.Later, name)
+        }
+        assertEquals(4, list("confirm").size)
+
+        // the endorsement roster "It was me" publishes
+        val en = j["endorsement"] as JsonObject
+        val before = (en["before"] as JsonObject).let { chainOf(it["anchor"] as JsonObject, evs(it["rosters"])) }!!
+        val joiner = en.s("joiner")!!
+        assertEquals(listOf(joiner), before.unendorsed)
+        assertTrue(en.s("tapped_device")!! in before.endorsers(joiner))
+        val want = ev(en["roster"] as JsonObject)
+        val tapped = LocalSigner(secret("alice_phone"))
+        assertEquals(en.s("tapped_device"), tapped.pubkey)
+        val made = tapped.signNow(Roster.template(before.account, before.head.n + 1, before.head.id, before.head.lb, before.devices, before.ready, want.createdAt, strs(en["endorses"])))
+        assertEquals(want.id, made.id, "the endorsement roster, tag for tag")
+        val after = chainOf(en["anchor"] as JsonObject, evs((en["before"] as JsonObject)["rosters"]) + want)!!
+        assertEquals((en["after"] as JsonObject)["expected"], summary(after))
+        assertEquals(want.id, after.head.id)
+        assertTrue(after.unendorsed.isEmpty())
     }
 
     @Test fun wraps() {

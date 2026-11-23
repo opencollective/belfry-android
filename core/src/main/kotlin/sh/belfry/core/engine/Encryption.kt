@@ -57,7 +57,9 @@ class EncryptionService internal constructor(private val s: Session) {
         fun kindOf(k: String?) = when (k) { "tablet" -> DeviceKind.TABLET; "computer" -> DeviceKind.COMPUTER; else -> DeviceKind.PHONE }
         // a waiting device can't open my device names (§3.5: they are under the letterbox): the devices that hold
         // the key are named by their sessions, live or as last read (canvas Messages v5, n-e2e-locked-named)
-        val noKey = e.inHeadWithoutKey
+        // a letterbox behind (sealed.md §5.7) is not the waiting state: everything works, newer messages wait for the joiner
+        val behindFor = e.waitingFor
+        val noKey = e.inHeadWithoutKey && behindFor.isEmpty()
         val waitingHere = e.mine == sh.belfry.core.sealed.SealedEngine.Mine.WAITING || noKey
         val others = mine?.devices.orEmpty().filter { it != e.device.pubkey }
         var sessionNames: Map<String, String> = emptyMap()
@@ -149,12 +151,18 @@ class EncryptionService internal constructor(private val s: Session) {
                 AddedDevice(n.device, names[n.device]?.name ?: row?.device?.ifEmpty { null } ?: row?.applicationName ?: "A new device", n.at)
             }
         } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { _state.value.added }
+        // "Waiting for ‹session name›": the devices that added themselves and hold the key this one lacks
+        val waitingFor = if (behindFor.isEmpty()) emptyList() else {
+            val rows = try { s.sessions() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { emptyList() }
+            behindFor.map { d -> rows.firstOrNull { it.clientPubkey == d }?.let { r -> sh.belfry.core.model.Unlockers.sessionName(r.applicationName, r.device) } ?: sh.belfry.core.model.SealedText.UNKNOWN_DEVICE }.distinct()
+        }
         _state.value = SealState(
             added = added,
             freshElsewhere = fe,
             myDevices = myDevices, sealed = sealed, earlierLocked = waiting,
             locked = if (waiting) sealed.keys else emptySet(),
-            asks = asks, linked = linked, waitingKeys = e.inHeadWithoutKey,
+            asks = asks, linked = linked, waitingKeys = noKey,
+            waitingFor = waitingFor, removedJoinerAt = e.removedJoiner?.at ?: 0L,
             unlockers = unlockers, askedAt = if (waitingHere) e.lastAskedAt else 0L,
             addedAt = if (noKey) mine?.addedAt(e.device.pubkey) ?: 0L else 0L,
         )
@@ -174,7 +182,7 @@ class EncryptionService internal constructor(private val s: Session) {
         s.checkWrite()
         if (!demo) {
             // this device has no key to hand over yet: another of my devices will (canvas v96)
-            if (engine().inHeadWithoutKey) throw ActionException("waiting_other", sh.belfry.core.model.SealedText.ALLOW_WAITING)
+            if (engine().inHeadWithoutKey && !engine().behind) throw ActionException("waiting_other", sh.belfry.core.model.SealedText.ALLOW_WAITING)
             shown("Not allowed: try again.") { engine().allow(ask) }
             _state.value = _state.value.let { st -> st.copy(asks = st.asks.filter { it.id != ask }) }
             refresh()
@@ -330,6 +338,28 @@ class EncryptionService internal constructor(private val s: Session) {
         ) + st.myDevices.map { it.copy(thisDevice = false) }
         _state.value = st.copy(earlierLocked = true, locked = older, myDevices = if (asked) mine else mine.map { if (it.thisDevice) it.copy(added = 0) else it },
             unlockers = unlockers, askedAt = if (asked) now - 120 else 0L)
+    }
+
+    /** The person read "a device that was not signed in was added and removed" (sealed.md §5.7). */
+    fun removedJoinerSeen() {
+        if (!demo) s.sealed?.removedJoinerSeen()
+        _state.value = _state.value.copy(removedJoinerAt = 0L)
+    }
+
+    /**
+     * Demo and tests: an OLDER device of mine after another device added itself (sealed.md §5.7; canvas Messages v8
+     * messages/encryption-waiting-device): everything works here, the newer messages wait for that device.
+     */
+    fun demoWaitingDevice(name: String = "Belfry on iPhone", messages: Int = 1) {
+        if (!demo) return
+        demoAdded(name)
+        _state.value = _state.value.copy(waitingFor = listOf(name), demoWaiting = messages)
+    }
+
+    /** Demo and tests: a device that added itself with no session was removed by this one. */
+    fun demoRemovedJoiner() {
+        if (!demo) return
+        _state.value = _state.value.copy(removedJoinerAt = s.now() - 60)
     }
 
     /** Demo and tests: this device is allowed but its key hasn't arrived (canvas v96). */

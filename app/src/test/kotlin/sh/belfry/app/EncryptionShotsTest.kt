@@ -219,6 +219,38 @@ class EncryptionShotsTest : DemoShots() {
         compose.onNodeWithTag("seal-added").assertDoesNotExist()
     }
 
+    /**
+     * canvas Messages v8 messages/encryption-waiting-device (sealed.md §5.7): an OLDER device after another device
+     * added itself. Nothing is locked: the added notice on top, "1 message is waiting for Belfry on iPhone", no banner.
+     */
+    @Test fun waitingDeviceList() {
+        session.encryption.demoWaitingDevice("Belfry on iPhone")
+        demoShot("encryption-waiting-device-list") { MessagesScreen() }
+        compose.onNodeWithText("Belfry on iPhone was added just now").assertExists()
+        compose.onNodeWithText("1 message is waiting for Belfry on iPhone").assertExists()
+        compose.onNodeWithTag("seal-banner").assertDoesNotExist()
+        compose.onNodeWithTag("seal-added-here").assertDoesNotExist()
+    }
+
+    /** The same inside a sealed conversation: "Waiting for Belfry on iPhone" above the composer, which stays. */
+    @Test fun waitingDeviceThread() {
+        session.encryption.demoWaitingDevice("Belfry on iPhone")
+        demoShot("encryption-waiting-device") { ConversationScreen(maya) }
+        compose.onNodeWithText("Waiting for Belfry on iPhone").assertExists()
+        compose.onNodeWithTag("seal-write-later").assertDoesNotExist()
+        compose.onNodeWithTag("seal-waiting-keys").assertDoesNotExist()
+    }
+
+    /** sealed.md §5.7: a device that added itself with no session was removed by this device; said once, until OK. */
+    @Test fun removedJoiner() {
+        session.encryption.demoRemovedJoiner()
+        demoShot("encryption-removed-joiner") { MessagesScreen() }
+        compose.onNodeWithTag("seal-removed-joiner").assertExists()
+        compose.onNodeWithTag("seal-removed-joiner-ok").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("seal-removed-joiner").assertDoesNotExist()
+    }
+
     @Test fun showHow() {
         session.encryption.demoAsNewDevice()
         demoShot("encryption-new-device-steps") { UnlockStepsScreen() }

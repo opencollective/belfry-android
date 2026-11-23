@@ -313,9 +313,11 @@ object Sealing {
      * the rumor is exactly the documented shape (kind 8563, `pubkey` = the seal's signer, content "",
      * one `p` = my account, one `device`, one `e`); `e` is a roster of my chain that ADDED `device`
      * (in it, not in the roster before); the seal's signer is in the roster BEFORE that one (so the
-     * added device can't confirm itself, nor two added together each other) and in the head now.
+     * added device can't confirm itself, nor two added together each other) and in the head now. UNANSWERED: the
+     * devices whose own "was added" notice is still open on this device; a confirmation signed by one of them is
+     * kept and judged again (§5.7).
      */
-    fun acceptConfirm(rumor: Event, sealPubkey: String, chain: Chain?): Confirm {
+    fun acceptConfirm(rumor: Event, sealPubkey: String, chain: Chain?, unanswered: Set<String> = emptySet()): Confirm {
         if (rumor.kind != CONFIRM) return Confirm.Reject("not an 8563")
         if (rumor.pubkey != sealPubkey) return Confirm.Reject("the rumor's pubkey is not the seal's signer")
         if (rumor.content.isNotEmpty()) return Confirm.Reject("content is not empty")
@@ -331,6 +333,8 @@ object Sealing {
         if (added !in chain.rosters[i].devices || added in before.devices) return Confirm.Reject("that roster did not add that device")
         if (sealPubkey !in before.devices) return Confirm.Reject("the signer is not in the roster before")
         if (sealPubkey !in chain.head.devices) return Confirm.Reject("the signer is not in the head now")
+        // §5.7 "8563": the word of a device whose own added-notice is unanswered on this device does not count yet
+        if (sealPubkey in unanswered) return Confirm.Later
         return Confirm.Accept(added, e)
     }
 

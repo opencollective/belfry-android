@@ -994,6 +994,15 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     /** A sealed wrap in the outbox (flushed only after AUTH and a head refresh; the review's 8). */
     fun isSealedQueued(item: OutboxItem): Boolean = item.signed?.let { w -> synchronized(lock) { w.id in sealQ } } == true
 
+    /**
+     * Wraps to read again although they were settled (sealed.md §5.7: wraps to the letterbox of a device that added
+     * itself, which a build that did not follow joins took as "not for me" and marked seen). Only ever called for
+     * a letterbox this device has just learnt of, so none of them was accepted before.
+     */
+    fun forgetSeen(ids: Collection<String>) {
+        synchronized(lock) { seen.removeAll(ids.toSet()) }
+    }
+
     /** Keys arrived or my chain moved: the wraps kept as locked are tried again at the next [process]. */
     fun retryKept() {
         synchronized(lock) { for (w in kept.values) if (backlog.none { it.id == w.id }) backlog.add(w) }

@@ -112,6 +112,15 @@ data class SealState(
     val askedAt: Long = 0,
     /** In my head, the key not here yet: when this device was added (Unix seconds; 0 = not so, or unknown). */
     val addedAt: Long = 0,
+    /**
+     * In my head, a letterbox behind (sealed.md §5.7; canvas messages/encryption-waiting-device): a device that
+     * added itself holds the key of the newer messages. Its session name(s); empty = not so. Everything else works.
+     */
+    val waitingFor: List<String> = emptyList(),
+    /** A device that added itself without a live chat session was removed by this device, at (Unix seconds; 0 = none to tell). */
+    val removedJoinerAt: Long = 0,
+    /** Demo and tests only: how many newer messages wait (the real count is the conversations' `lockedCount`). */
+    val demoWaiting: Int = 0,
 ) {
     fun seal(conv: String): ConvSeal? = sealed[conv]
     val thisDevice: MyDevice? get() = myDevices.firstOrNull { it.thisDevice }
@@ -353,6 +362,24 @@ object SealedText {
      */
     fun waitingMessages(n: Int): String =
         if (n == 1) "1 message is waiting for another of your devices" else "$n messages are waiting for another of your devices"
+    /** canvas Messages v8 messages/encryption-waiting-device (sealed.md §5.7): newer messages wait for the device that added itself. Wording for Xavier. */
+    fun waitingFor(names: List<String>): String = "Waiting for " + when (names.size) {
+        0 -> UNKNOWN_DEVICE
+        1 -> names[0]
+        else -> names.dropLast(1).joinToString(", ") + " or " + names.last()
+    }
+    /** The same on top of Messages, with how many messages wait. */
+    fun waitingForMessages(n: Int, names: List<String>): String =
+        (if (n == 1) "1 message is waiting for " else "$n messages are waiting for ") + waitingFor(names).removePrefix("Waiting for ")
+    const val WAITING_FOR_TEXT = "They open here when that device is next open."
+    /** sealed.md §5.7 "The joiner on first sight": a device that added itself with no session was removed. Wording for Xavier. */
+    fun removedJoinerTitle(at: Long, now: Long, zone: ZoneId): String = "A device that was not signed in was added and removed " + when {
+        now - at < 120 -> "just now"
+        now - at < 3600 -> "${(now - at) / 60} min ago"
+        else -> "on " + day(at, now, zone)
+    }
+    const val REMOVED_JOINER_TEXT = "It can't read anything new. If this wasn't you, change your e-mail's password."
+    const val REMOVED_JOINER_OK = "OK"
     const val LOCKED_BLOCK = "Locked on this device"
     fun lockedFrom(since: Long, now: Long, zone: ZoneId): String =
         "Messages from ${day(since, now, zone)} on can be read once another device of yours adds this one."

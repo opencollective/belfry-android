@@ -22,6 +22,8 @@ data class Roster(
     val devices: List<String>,
     val ready: Boolean,
     val createdAt: Long,
+    /** §5.7: the devices this roster endorses (its `endorse` tags), after they added themselves. */
+    val endorses: List<String> = emptyList(),
 ) {
     companion object {
         const val KIND = 8560
@@ -40,11 +42,12 @@ data class Roster(
             val devices = e.tags.filter { it.size >= 2 && it[0] == "device" }.map { it[1] }
             if (!Hex.isKey(account) || !Hex.isKey(lb)) return null
             if (devices.isEmpty() || devices.size > MAX_DEVICES || devices.toSet().size != devices.size || devices.any { !Hex.isKey(it) }) return null
-            return Roster(e.id, e.pubkey, account, n, prev, lb, devices, e.tags.any { it.isNotEmpty() && it[0] == "ready" }, e.createdAt)
+            return Roster(e.id, e.pubkey, account, n, prev, lb, devices, e.tags.any { it.isNotEmpty() && it[0] == "ready" }, e.createdAt,
+                e.tags.filter { it.size >= 2 && it[0] == "endorse" && Hex.isKey(it[1]) }.map { it[1] })
         }
 
         /** The roster this device publishes (signed by the device key). */
-        fun template(account: String, n: Int, prev: String?, lb: String, devices: List<String>, ready: Boolean, now: Long): EventTemplate {
+        fun template(account: String, n: Int, prev: String?, lb: String, devices: List<String>, ready: Boolean, now: Long, endorse: List<String> = emptyList()): EventTemplate {
             require(devices.isNotEmpty() && devices.size <= MAX_DEVICES)
             val tags = ArrayList<List<String>>()
             tags.add(listOf("p", account))
@@ -53,6 +56,8 @@ data class Roster(
             tags.add(listOf("lb", lb))
             devices.forEach { tags.add(listOf("device", it)) }
             if (ready) tags.add(listOf("ready"))
+            // §5.7 "It was me": one tag per device that added itself and is confirmed here; always the last tags
+            endorse.forEach { tags.add(listOf("endorse", it)) }
             return EventTemplate(KIND, "", tags, now)
         }
     }
@@ -83,7 +88,11 @@ object Anchor {
 }
 
 /** A device change between two heads, for the thread's notice lines (§3.4). */
-data class RosterChange(val device: String, val added: Boolean, val at: Long)
+data class RosterChange(
+    val device: String, val added: Boolean, val at: Long,
+    /** The roster that made the change, and whether the device added itself by it (a join, §5.7). */
+    val roster: String = "", val self: Boolean = false,
+)
 
 /**
  * A person's valid chain (§3.3), root first. Its head's `lb` is where to seal for them; its
@@ -129,6 +138,51 @@ class Chain(val account: String, val rosters: List<Roster>, /** The end of the a
         return by
     }
 
+    /** §5.7: did DEVICE add itself (the roster that last added it is signed by it)? */
+    fun selfAdded(device: String): Boolean = addedBy(device)?.signer == device
+
+    /** Is roster I of the chain a join (signed by a device that is not in the roster before)? */
+    fun isJoin(i: Int): Boolean = i > 0 && rosters[i].signer !in rosters[i - 1].devices
+
+    /**
+     * §5.7: the devices of the head that added themselves and that no later roster endorses (head order): they
+     * read and write, and no roster they sign counts.
+     */
+    val unendorsed: List<String> get() = waiting(rosters).keys.let { w -> head.devices.filter { it in w } }
+
+    /** The devices that may endorse DEVICE (those of the roster before its join), when it still waits; else empty. */
+    fun endorsers(device: String): List<String> = waiting(rosters)[device].orEmpty()
+
+    /** The joiners that roster I endorses (waiting before it, not after, still in it). */
+    fun lifted(i: Int): List<String> {
+        if (i <= 0 || i >= rosters.size) return emptyList()
+        val a = waiting(rosters.subList(0, i)); val b = waiting(rosters.subList(0, i + 1))
+        return a.keys.filter { it !in b && it in rosters[i].devices }
+    }
+
+    /**
+     * §5.7 "in the head, a letterbox behind": DEVICE is in the head, HOLDS no secret for the head's letterbox, but
+     * holds the one in use before, and every letterbox since was brought by a device that added itself. The
+     * devices that brought them (they hold what is missing), newest first; null when that is not the state
+     * (not in the head, nothing missing, or a letterbox it lacks came from a removal: the old waiting state).
+     */
+    fun behind(device: String, holds: (String) -> Boolean): List<String>? {
+        if (device !in head.devices || holds(head.lb)) return null
+        val by = ArrayList<String>()
+        var i = rosters.size - 1
+        while (i > 0) {
+            val r = rosters[i]
+            if (holds(r.lb)) break
+            if (r.lb != rosters[i - 1].lb) {
+                if (!isJoin(i) || r.signer == device) return null
+                by.add(r.signer)
+            }
+            i--
+        }
+        if (!holds(rosters[i].lb) || device !in rosters[i].devices) return null
+        return by.distinct()
+    }
+
     /** Device changes after roster SINCE (by id; null = from the root), oldest first. */
     fun changesAfter(since: String?): List<RosterChange> {
         val start = if (since == null) 0 else rosters.indexOfFirst { it.id == since }.let { if (it < 0) return emptyList() else it + 1 }
@@ -136,8 +190,8 @@ class Chain(val account: String, val rosters: List<Roster>, /** The end of the a
         for (i in maxOf(start, 1) until rosters.size) {
             val before = rosters[i - 1].devices.toSet()
             val now = rosters[i].devices.toSet()
-            now.filter { it !in before }.forEach { out.add(RosterChange(it, true, rosters[i].createdAt)) }
-            before.filter { it !in now }.forEach { out.add(RosterChange(it, false, rosters[i].createdAt)) }
+            now.filter { it !in before }.forEach { out.add(RosterChange(it, true, rosters[i].createdAt, rosters[i].id, self = rosters[i].signer == it)) }
+            before.filter { it !in now }.forEach { out.add(RosterChange(it, false, rosters[i].createdAt, rosters[i].id)) }
         }
         return out
     }
@@ -150,34 +204,54 @@ class Chain(val account: String, val rosters: List<Roster>, /** The end of the a
          * ignored whatever its id; after its end, valid steps with the lower id winning for now.
          * PINNED is the head this client last accepted for ACCOUNT: an anchor whose `head` is an
          * ancestor of it is not followed back (PINNED is kept).
+         *
+         * §5.7 (belfry-sh 1440e79): a JOIN (a roster signed by a device that is not in its prev: prev's devices
+         * in their order + the signer last, a letterbox and a device the chain never had, dated not before its
+         * prev) is a valid step only on the anchored path, and in the pinned path only up to SEEN_ANCHORED (the
+         * furthest roster this client saw anchored; null = the root); never in the tail. A normal roster signed by
+         * a device that added itself is invalid, on the path and in the tail, until a roster after its join carries
+         * `["endorse", it]` signed by a device of the roster before that join.
          */
-        fun of(account: String, anchors: List<Event>, rosterEvents: List<Event>, pinned: String? = null): Chain? {
+        fun of(account: String, anchors: List<Event>, rosterEvents: List<Event>, pinned: String? = null, seenAnchored: String? = null): Chain? {
             val (rootId, anchorHead) = Anchor.read(anchors, account) ?: return null
             val all = rosterEvents.mapNotNull { Roster.parse(it) }.filter { it.account == account }.associateBy { it.id }
             val root = all[rootId] ?: return null
             if (root.n != 1 || root.prev != null || root.signer !in root.devices) return null
 
-            var path = pathTo(anchorHead ?: rootId, root, all) ?: listOf(root)
-            val anchoredEnd = path.last().id
+            var walk = pathTo(anchorHead ?: rootId, root, all, null) ?: Walk(root)
+            val anchoredEnd = walk.path.last().id
             // no going back: an anchor naming an ancestor of the head I pinned keeps the pinned head
-            if (pinned != null && pinned != path.last().id) {
-                val p = pathTo(pinned, root, all)
-                if (p != null && p.size > path.size && p.subList(0, path.size).map { it.id } == path.map { it.id }) path = p
+            if (pinned != null && pinned != anchoredEnd) {
+                val p = pathTo(pinned, root, all, seenAnchored ?: rootId)
+                val size = walk.path.size
+                if (p != null && p.path.size > size && p.path.subList(0, size).map { it.id } == walk.path.map { it.id }) walk = p
             }
-            val out = ArrayList(path)
-            val seenLb = path.map { it.lb }.toHashSet()
             val byPrev = all.values.filter { it.prev != null }.groupBy { it.prev!! }
-            while (out.size < 100_000) {
-                val cur = out.last()
-                val next = byPrev[cur.id].orEmpty().filter { validAfter(cur, it, seenLb) }.minByOrNull { it.id.lowercase() } ?: break
-                out.add(next)
-                seenLb.add(next.lb)
+            while (walk.path.size < 100_000) {
+                val cur = walk.path.last()
+                val kids = byPrev[cur.id].orEmpty()
+                if (kids.isEmpty()) break
+                val limited = waiting(walk.path)
+                val next = kids.filter { follows(cur, it, walk.lbs) && it.signer !in limited }.minByOrNull { it.id.lowercase() } ?: break
+                walk.add(next)
             }
-            return Chain(account, out, anchoredEnd)
+            return Chain(account, walk.path, anchoredEnd)
         }
 
-        /** The valid path root → TARGET, or null when TARGET isn't a valid descendant of the root. */
-        private fun pathTo(target: String, root: Roster, all: Map<String, Roster>): List<Roster>? {
+        /** A path being walked: its rosters, the letterboxes and the devices it ever had. */
+        private class Walk(root: Roster) {
+            val path = arrayListOf(root)
+            val lbs = hashSetOf(root.lb)
+            val had = HashSet(root.devices)
+            fun add(r: Roster) { path.add(r); lbs.add(r.lb); had.addAll(r.devices) }
+        }
+
+        /**
+         * The valid path root → TARGET, or null when TARGET isn't a valid descendant of the root. JOINS_UNTIL
+         * null: a join is accepted anywhere on the way (the anchored path); else only up to that roster (a
+         * pinned path: what this client saw anchored).
+         */
+        private fun pathTo(target: String, root: Roster, all: Map<String, Roster>, joinsUntil: String?): Walk? {
             val back = ArrayList<Roster>()
             var cur = all[target] ?: return null
             val seen = HashSet<String>()
@@ -187,20 +261,47 @@ class Chain(val account: String, val rosters: List<Roster>, /** The end of the a
                 if (cur.id == root.id) break
                 cur = all[cur.prev ?: return null] ?: return null
             }
-            val path = back.reversed()
-            val lbs = hashSetOf(root.lb)
-            for (k in 1 until path.size) {
-                if (!validAfter(path[k - 1], path[k], lbs)) return null
-                lbs.add(path[k].lb)
+            val way = back.reversed()
+            val limit = if (joinsUntil == null) way.size else way.indexOfFirst { it.id == joinsUntil }.let { if (it < 0) 1 else it + 1 }
+            val w = Walk(root)
+            for (k in 1 until way.size) {
+                val r = way[k]
+                val prev = w.path.last()
+                if (follows(prev, r, w.lbs)) {
+                    if (r.signer in waiting(w.path)) return null // §5.7: a device that added itself changes nothing until endorsed
+                } else if (!(k < limit && joins(prev, r, w.lbs, w.had))) return null
+                w.add(r)
             }
-            return path
+            return w
         }
 
-        private fun validAfter(prev: Roster, r: Roster, earlierLbs: Set<String>): Boolean {
+        /** §3.3 "Roster n": signed by a device of the roster before. */
+        private fun follows(prev: Roster, r: Roster, earlierLbs: Set<String>): Boolean {
             if (r.n != prev.n + 1 || r.account != prev.account) return false
             if (r.signer !in prev.devices) return false
             val missing = prev.devices.any { it !in r.devices }
             return if (missing) r.lb !in earlierLbs else r.lb == prev.lb
+        }
+
+        /** §5.7: a device that signed in adds itself (only the anchor makes it count: the callers see to that). */
+        private fun joins(prev: Roster, r: Roster, earlierLbs: Set<String>, had: Set<String>): Boolean =
+            r.n == prev.n + 1 && r.account == prev.account && r.signer !in prev.devices && r.signer !in had &&
+                r.devices == prev.devices + r.signer && r.lb !in earlierLbs && r.createdAt >= prev.createdAt
+
+        /**
+         * §5.7: the devices of PATH that added themselves and that no later roster endorses, each with the devices
+         * of the roster before its join (who may endorse it). An endorsement is a roster's `["endorse", device]`
+         * tag signed by one of those. A device that left the head waits for nothing.
+         */
+        internal fun waiting(path: List<Roster>): Map<String, List<String>> {
+            val w = LinkedHashMap<String, List<String>>()
+            for (i in 1 until path.size) {
+                val before = path[i - 1]; val r = path[i]
+                if (r.signer !in before.devices) { w[r.signer] = before.devices; continue }
+                for (d in r.endorses) if (w[d]?.contains(r.signer) == true) w.remove(d)
+                w.keys.filter { it !in r.devices }.forEach { w.remove(it) }
+            }
+            return w
         }
     }
 }

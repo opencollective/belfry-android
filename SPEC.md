@@ -2731,3 +2731,55 @@ typing wraps (kind 21059, never to oneself). Readers ignore it and every wrap ta
 given twice is still silent). Vectors: `vectors/sealed.json` → `silent` (10 kinds of wrap, 12 tag lists, 4 real
 wraps; `tools/sealed_silent_vectors.py`, read by `NotesTest`). This replaces 19.66's known limit once the belfry
 honours the tag; wraps made by older apps still push.
+
+### 19.68 Sealed: a device that signed in adds itself, the READING side (2026-11-23; Xavier via the lead; contract collective-belfry docs/sealed.md §5.7 at belfry-sh 1440e79; canvas Messages v8 note n-e2e-self-added, board messages/encryption-waiting-device)
+
+Android reads such chains; it does not yet add itself (the writing side waits behind belfry.json
+`"sealed": {"self_join": true}`; until then a new Android device asks as in §5.2). Vectors:
+`vectors/sealed.json` → `join` (`tools/sealed_join_vectors.py`; chains, follow, requests, older_keys, handover,
+confirm, endorsement), read whole by `SealedVectorsTest.join`.
+
+- **A join** is a roster signed by a device that is not in its prev. Valid only when: n = prev's + 1; its devices are
+  prev's in their order plus the signer last; its `lb` is a letterbox the chain never had; its signer is in no
+  earlier roster of the path; its `created_at` is not before its prev's; and it lies on the anchored path
+  (`Chain.of`: accepted in the path to the anchor's head, in a pinned path only up to the roster this client saw
+  anchored, never in the provisional tail). A stored pin with a join past its anchored head is cut back to before
+  that join (`Follow`, event `moved`).
+- **Until endorsed, a device that added itself changes nothing**: a normal roster it signs is invalid on the path
+  and in the tail while no roster after its join carries `["endorse", <it>]` signed by a device of the roster before
+  that join (`Chain.unendorsed`, `Chain.endorsers`). Only the tag endorses. `endorse` tags are a roster's last tags,
+  after `ready` (`Roster.template(endorse =)`).
+- **"It was me"** on a joiner's notice sends the 8563 as before AND publishes roster n+1 = same devices, same lb,
+  one `endorse` tag per joiner confirmed, with its anchor (`SealedEngine.addedWasMe`; owed until it is on the
+  anchored path, tried again at each upkeep). Only a device that was in the roster before the join can.
+- **Trust after a switch**: a joiner is not trusted by its join; it is when a device trusted here endorses it
+  (`Follow.trustStep`), or when the person allows it on this device.
+- **In the head, a letterbox behind** (`SealedEngine.behind`, `waitingFor`; `Chain.behind`): this device is in the
+  head, lacks the head letterbox's secret, holds the one before, and everything since was brought by devices that
+  added themselves. It stays `IN_HEAD`: Remove, the added notice, 8563, session checks, answering requests and
+  writing all work (it seals to the head letterbox by its public key); it asks (8562) for the secret; only reading
+  the newer messages waits. `SealState.waitingFor` holds the session name(s): "N messages are waiting for ‹session
+  name›" on top of Messages, "Waiting for ‹session name›" above the composer of sealed conversations while any wrap
+  waits (a locked wrap does not say which conversation it is for, so the line is not per message as on the board).
+  A missing secret that came from a removal is still the old waiting state.
+- **First sight**: notices and the 3-a-day count date a join from when THIS device first saw it
+  (`joinSeen` in the engine's state), never from the roster's own date. A device that follows a join for the first
+  time reads its wraps again from 0, also those an older build settled as "not for me" (`SealedEngine.onJoin` →
+  `Session.rereadWraps(joined)` → `DirectMessages.forgetSeen`). `SealedEngine.checkJoiners` (after my chain moved,
+  at each poll and upkeep) reads `/api/me/sessions` fresh and removes at once a joiner that is not a live chat
+  session; `SealState.removedJoinerAt` says so until OK.
+- **Hand-overs**: a joiner's 8561 is taken (the giver is a device of the chain); one that arrives before its roster
+  is kept (at most 50) and tried again when my chain moves. Nobody hands a device its key chain because that device
+  sent an 8561 (the hand-back is §5.4's only).
+- **A joiner's 8562**: dated at or after its own join roster counts (`>=`; any other device's must be strictly
+  newer). While the joiner is not endorsed and nobody answered for it here, the earlier letterboxes go without a
+  prompt only under §5.2 step 2's conditions (`Follow.olderKeysWithoutPrompt`: the session list read for this
+  request, the request not older than the session, pinned / anchored / trusted, fewer than 3 OTHER devices let in
+  within 24 h); otherwise the Allow card, and Allow gives them. A giver gives what it holds: a device a letterbox
+  behind answers a joiner too. A rotation (Remove, a session gone) gives such a joiner the new secret only.
+- **8563**: a confirmation signed by a device whose own added notice is still open on this device does not count
+  yet (kept, judged again; `Sealing.acceptConfirm(unanswered =)`).
+- Not built: the writing side (a device adding itself, its "Earlier messages arrive…" line, boards
+  messages/encryption-self-added-*); "Remove also offers the devices added since" (an unendorsed joiner cannot add
+  any, so there is nothing to offer yet). Wording of every new string (`SealedText.waitingFor`,
+  `waitingForMessages`, `WAITING_FOR_TEXT`, `removedJoinerTitle`, `REMOVED_JOINER_TEXT`) waits for Xavier.

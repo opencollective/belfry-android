@@ -268,6 +268,10 @@ fun ConversationScreen(conv: String) {
                 onReply = if (DmThreadRules.canReply(d, lockedHere)) ({ m -> nav.go(Routes.dmThread(conv, m.rid)) }) else null,
             )
         }
+        // an older device, a letterbox behind (messages/encryption-waiting-device): the newer messages wait for the
+        // device that added itself; a locked wrap does not say which conversation it is for, so the line shows in
+        // every sealed conversation while any waits. The composer stays.
+        if (seal != null && sealState.waitingFor.isNotEmpty() && !lockedHere && maxOf(dms.lockedCount, sealState.demoWaiting) > 0) WaitingForLine(sealState)
         if (seal != null && sealState.waitingKeys && !lockedHere) {
             // allowed, the key not here yet (canvas v96): clears by itself when it arrives
             // "Asked 9:40 PM · waiting for one of your devices" / "Open ‹device›. Nothing to approve here." (Messages v5)

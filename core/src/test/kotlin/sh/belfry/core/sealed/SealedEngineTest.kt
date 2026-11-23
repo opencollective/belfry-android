@@ -1113,6 +1113,176 @@ class SealedEngineTest {
         assertEquals(toPhone, relay.to(alicePhone.pubkey).size, "let in without a fresh start: no hand-back")
     }
 
+    // ---- sealed.md §5.7, the reading side: a device that signed in added itself ----------------------------
+
+    /**
+     * What the writing side will do (not built here): DEVICE signs roster n+1 itself (the head's devices + itself
+     * last, a new letterbox) and the account anchors it. Returns the roster.
+     */
+    private fun joinsItself(d: LocalSigner, pair: Pair<String, String> = KeyChain.newLetterbox(), at: Long = now): Event {
+        val chain = Chain.of(alice.pubkey, relay.events.filter { it.kind == 30078 }, relay.events.filter { it.kind == Roster.KIND })!!
+        val r = d.signNow(Roster.template(alice.pubkey, chain.head.n + 1, chain.head.id, pair.first, chain.devices + d.pubkey, false, at))
+        relay.add(r)
+        val standing = relay.events.first { it.kind == 30078 && it.pubkey == alice.pubkey && it.tag("d") == Anchor.D }
+        relay.add(alice.signNow(Anchor.template(chain.root.id, r.id, maxOf(now, standing.createdAt + 1))))
+        return r
+    }
+
+    /** An older device after a join: in the head, a letterbox behind. It keeps everything; only reading the newer messages waits. */
+    @Test fun aLetterboxBehindKeepsEverything() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 5
+        assertTrue(phone.addedNotices().isEmpty())
+        now += 5
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        val pair = KeyChain.newLetterbox()
+        val told = HashSet<String>(); phone.onJoin = { told.addAll(it) }
+        val join = joinsItself(tab, pair)
+        val chain = assertNotNull(phone.refresh(alice.pubkey))
+        assertEquals(join.id, chain.head.id, "the join is followed")
+        assertEquals(listOf(tab.pubkey), chain.unendorsed)
+        assertEquals(setOf(pair.first), told, "wraps are read again from 0 for the new letterbox")
+        assertNull(phone.keys.secretFor(chain.head.lb))
+        assertEquals(SealedEngine.Mine.IN_HEAD, phone.mine)
+        assertTrue(phone.behind); assertEquals(listOf(tab.pubkey), phone.waitingFor)
+        assertTrue(phone.inHeadNow(), "never the locked state of a device outside the head")
+        assertTrue(phone.canRemove(tab.pubkey))
+        assertEquals(listOf(tab.pubkey), phone.addedNotices().map { it.device })
+        // writing: it seals to the head letterbox by its public key
+        val plan = assertIs<SealedEngine.Plan.Seal>(phone.plan(conv(alice.pubkey, bob.pubkey), listOf(bob.pubkey)))
+        assertEquals(pair.first, plan.heads[alice.pubkey])
+        // a restart: still in the head, and it asks for the secret
+        val again = engine(alice, alicePhone); again.start("Pixel 8", "phone")
+        assertEquals(SealedEngine.Mine.IN_HEAD, again.mine)
+        assertTrue(again.behind)
+        assertTrue(relay.events.any { it.kind == Sealing.REQUEST && it.pubkey == alicePhone.pubkey })
+        // the joiner hands the new secret: taken, nothing handed back
+        val before = relay.to(tab.pubkey).size
+        Sealing.keysFor(tab, alice.pubkey, alicePhone.pubkey, KeyChain(mapOf(pair)), now).forEach { assertTrue(phone.onDeviceWrap(it)) }
+        assertNotNull(phone.keys.secretFor(pair.first))
+        assertFalse(phone.behind)
+        assertEquals(before, relay.to(tab.pubkey).size, "its 8561 is no reason to hand it the whole chain")
+        // Remove: a roster without it and a new letterbox
+        now += 5
+        phone.remove(tab.pubkey)
+        val after = assertNotNull(phone.refresh(alice.pubkey))
+        assertFalse(tab.pubkey in after.devices)
+        assertTrue(after.unendorsed.isEmpty())
+    }
+
+    /** §5.7 "Arrivals out of order": the joiner's hand-over before its roster is kept and taken when the chain moves. */
+    @Test fun aJoinersHandoverBeforeItsRosterIsKept() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 10
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        val pair = KeyChain.newLetterbox()
+        Sealing.keysFor(tab, alice.pubkey, alicePhone.pubkey, KeyChain(mapOf(pair)), now).forEach { assertFalse(phone.onDeviceWrap(it)) }
+        assertEquals(1, phone.pendingKeysCount)
+        assertNull(phone.keys.secretFor(pair.first))
+        joinsItself(tab, pair)
+        phone.refresh(alice.pubkey)
+        assertEquals(0, phone.pendingKeysCount)
+        assertNotNull(phone.keys.secretFor(pair.first), "taken once its giver is a device of my chain")
+        assertFalse(phone.behind)
+    }
+
+    /** §5.7 "Older keys": a joiner's 8562 is answered without a prompt only under step 2's conditions; otherwise the card. */
+    @Test fun aJoinersOlderKeys() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 90_000 // the laptop's own addition is more than a day old
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        joinsItself(tab)
+        phone.refresh(alice.pubkey)
+        assertTrue(phone.behind)
+        // its request, dated in the second of its own join (>=): the phone gives what it holds, a letterbox behind
+        val req = tab.signNow(Sealing.request(alice.pubkey, tab.pubkey, null, now))
+        assertEquals(SealedEngine.OnRequest.Allowed, phone.onRequest(req))
+        val given = relay.to(tab.pubkey)
+        assertTrue(given.isNotEmpty())
+        val h = assertNotNull(Sealing.openKeys(given.last(), tab))
+        assertTrue(h.keys.isNotEmpty() && phone.chainOf(alice.pubkey)!!.root.lb in h.keys.keys, "the earlier letterboxes")
+    }
+
+    @Test fun aJoinersOlderKeysNeedTheCardPastTheLimit() = runBlocking<Unit> {
+        val (phone, _, _) = world() // the laptop was let in today
+        autoAdd(phone, LocalSigner.random(), "One"); autoAdd(phone, LocalSigner.random(), "Two")
+        now += 10
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        joinsItself(tab)
+        phone.refresh(alice.pubkey)
+        val before = relay.to(tab.pubkey).size
+        val req = tab.signNow(Sealing.request(alice.pubkey, tab.pubkey, null, now))
+        val ask = assertIs<SealedEngine.OnRequest.Ask>(phone.onRequest(req), "three other devices were let in within 24 h")
+        assertEquals(tab.pubkey, ask.device)
+        assertEquals(before, relay.to(tab.pubkey).size, "nothing handed over")
+        // Allow on the card: the keys, by the person's word
+        phone.allow(tab.pubkey)
+        assertTrue(relay.to(tab.pubkey).size > before)
+    }
+
+    /** §5.7 "The joiner on first sight": a device that added itself and is no live chat session is removed at once. */
+    @Test fun aJoinerWithoutASessionIsRemoved() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 10
+        val ghost = LocalSigner.random() // no session
+        joinsItself(ghost)
+        assertTrue(ghost.pubkey in assertNotNull(phone.refresh(alice.pubkey)).devices)
+        phone.checkJoiners()
+        val after = assertNotNull(phone.refresh(alice.pubkey))
+        assertFalse(ghost.pubkey in after.devices)
+        assertEquals(ghost.pubkey, phone.removedJoiner?.device)
+        phone.removedJoinerSeen()
+        assertNull(phone.removedJoiner)
+        // one with a live chat session stays
+        now += 10
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        joinsItself(tab)
+        phone.refresh(alice.pubkey); phone.checkJoiners()
+        assertTrue(tab.pubkey in phone.refresh(alice.pubkey)!!.devices)
+    }
+
+    /** §5.7 "It was me" endorses: the 8563 AND roster n+1 = same devices, same lb, one endorse tag, signed by the tapped device. */
+    @Test fun itWasMeEndorsesAJoiner() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 5
+        assertTrue(phone.addedNotices().isEmpty())
+        now += 5
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        val join = joinsItself(tab)
+        val joined = assertNotNull(phone.refresh(alice.pubkey))
+        assertEquals(listOf(tab.pubkey), joined.unendorsed)
+        val sealedBefore = sealedToAlice().size
+        now += 5
+        phone.addedWasMe(tab.pubkey)
+        assertTrue(phone.addedNotices().isEmpty())
+        assertEquals(sealedBefore + 1, sealedToAlice().size, "the 8563")
+        val chain = assertNotNull(phone.refresh(alice.pubkey))
+        assertEquals(join.id, chain.head.prev)
+        assertEquals(alicePhone.pubkey, chain.head.signer)
+        assertEquals(listOf(tab.pubkey), chain.head.endorses)
+        assertEquals(joined.devices, chain.devices); assertEquals(joined.head.lb, chain.head.lb)
+        assertTrue(chain.unendorsed.isEmpty(), "from then on a device like the others")
+        assertEquals(chain.head.id, chain.anchored)
+        // tapped again, or the upkeep: no second roster
+        phone.upkeep()
+        assertEquals(chain.head.id, phone.refresh(alice.pubkey)!!.head.id)
+    }
+
+    /** §5.7: the notice of a join is dated from when THIS device first saw it, never by the roster's own date. */
+    @Test fun aBackdatedJoinStillShows() = runBlocking<Unit> {
+        val (phone, _, _) = world()
+        now += 100
+        assertTrue(phone.addedNotices().isEmpty()) // since = now
+        val head = phone.chainOf(alice.pubkey)!!.head
+        now += 100
+        val tab = LocalSigner.random(); server.live(alice.pubkey, tab.pubkey, "Belfry on iPhone")
+        joinsItself(tab, at = head.createdAt) // dated as early as validity allows: before this device first looked
+        phone.refresh(alice.pubkey)
+        val n = phone.addedNotices()
+        assertEquals(listOf(tab.pubkey), n.map { it.device })
+        assertEquals(now, n[0].at)
+    }
+
     /** Review of start-fresh: a device already in the head (its keys on the way) never starts fresh. */
     @Test fun noStartFreshOnceAllowed() = runBlocking<Unit> {
         server.live(alice.pubkey, alicePhone.pubkey, "Pixel 8")

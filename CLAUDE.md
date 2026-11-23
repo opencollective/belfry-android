@@ -274,6 +274,13 @@ minSdk 26, JDK 17.
 - Silent wraps (SPEC 19.67; sealed.md §4): a wrap that addresses only its own sender carries `["silent","1"]` (no push):
   `GiftWrap.wrap(silent =)` / `Sealing.seal(silent =)`, set by the callers named in the SPEC. A new place that wraps to
   myself or to one of my devices must pass it; a wrap to anyone else never does. Vectors `sealed.json` → `silent`.
+- Sealed, a device that added itself, reading side (SPEC 19.68; sealed.md §5.7): `Chain.of` follows a join only where
+  seen on the anchored path and refuses an unendorsed joiner's rosters (`["endorse", device]`, `Chain.unendorsed`); an older
+  device that lacks the joiner's secret is "a letterbox behind" (`SealedEngine.behind` / `waitingFor`): still `IN_HEAD`,
+  everything works, only newer messages wait (`WaitingForLine`). `addedWasMe` also publishes the endorsement roster.
+  Never date a join by its roster (`joinSeen`), never hand a joiner older keys outside `Follow.olderKeysWithoutPrompt`.
+  Vectors `sealed.json` → `join` (`tools/sealed_join_vectors.py`; generators' order in `tools/README.md`). The WRITING
+  side (a device adding itself) is not built.
 
 ## UI rules (the owner's, not negotiable)
 
