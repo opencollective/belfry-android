@@ -522,15 +522,30 @@ private fun HeldLine(d: Dm, dms: DmSnapshot, world: World, onCancel: (suspend ()
     val enc3 = DmSnapshot.enc3Hold(d)
     val session = LocalSession.current
     val again = rememberBusy()
+    val tryAgain = !alreadySent && enc3 != null && sh.belfry.core.enc.EncText.canTryAgain(enc3)
+    if (tryAgain) {
+        // format 3: the words on their own lines, Try again · Cancel under them (never squeezed into the words' row)
+        Column(Modifier.padding(top = 3.dp, end = 2.dp).widthIn(max = 300.dp).testTag("dm-held-line"), horizontalAlignment = Alignment.End) {
+            Text(text, fontSize = 12.sp, lineHeight = 16.sp, color = c.muted)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (again.busy) Spinner(size = 12.dp) else Text(
+                    sh.belfry.core.enc.EncText.TRY_AGAIN, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                    modifier = Modifier.clickable(role = Role.Button) { again.run { session.retryHeldDms() } }.padding(horizontal = 2.dp, vertical = 2.dp).testTag("dm-held-try-again"),
+                )
+                if (onCancel != null) {
+                    Text(" · ", fontSize = 12.sp, color = c.muted)
+                    Text(
+                        "Cancel", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                        modifier = Modifier.clickable(enabled = !busy.busy, role = Role.Button) { busy.run { if (!onCancel()) alreadySent = true } }
+                            .padding(horizontal = 2.dp, vertical = 2.dp).testTag("dm-cancel-held"),
+                    )
+                }
+            }
+        }
+        return
+    }
     Row(Modifier.padding(top = 3.dp, end = 2.dp).testTag("dm-held-line"), verticalAlignment = Alignment.CenterVertically) {
         Text(text, fontSize = 12.sp, lineHeight = 16.sp, color = c.muted, modifier = Modifier.widthIn(max = 280.dp))
-        if (!alreadySent && enc3 != null && sh.belfry.core.enc.EncText.canTryAgain(enc3)) {
-            Text(" · ", fontSize = 12.sp, color = c.muted)
-            if (again.busy) Spinner(size = 12.dp) else Text(
-                sh.belfry.core.enc.EncText.TRY_AGAIN, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
-                modifier = Modifier.clickable(role = Role.Button) { again.run { session.retryHeldDms() } }.padding(horizontal = 2.dp, vertical = 2.dp).testTag("dm-held-try-again"),
-            )
-        }
         if (!alreadySent && onCancel != null) {
             Text(" · ", fontSize = 12.sp, color = c.muted)
             Text(
