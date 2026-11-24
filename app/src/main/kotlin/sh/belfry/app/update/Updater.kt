@@ -66,6 +66,8 @@ object Updater {
     private val _available = MutableStateFlow<Release?>(null)
     /** A newer version than this one, when there is one. */
     val available: StateFlow<Release?> = _available
+    /** Tests: a newer release to show (the bar, the rows) without asking GitHub. */
+    internal fun showForTest(r: Release?) { _available.value = r }
     private val _asking = MutableStateFlow<Ask?>(null)
     val asking: StateFlow<Ask?> = _asking
     private val _state = MutableStateFlow<State>(State.Idle)

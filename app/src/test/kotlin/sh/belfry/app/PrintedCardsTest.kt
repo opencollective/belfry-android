@@ -346,20 +346,13 @@ class PrintedCardsTest : DemoShots() {
         down = false
         compose.onNodeWithTag("card-recheck").performClick()
         waitText("✓ Available")
-        // the summary by e-mail: Weekly unless Monthly is picked; the choice is said, not only coloured
-        compose.onNodeWithText("Summary by e-mail").performScrollTo().assertExists()
-        compose.onNodeWithTag("card-summary-weekly").assertIsSelected()
-        compose.onNodeWithTag("card-summary-monthly").assertIsNotSelected()
-        compose.onNodeWithText("What was said, once a week. Change it any time.").assertExists()
-        compose.onNodeWithTag("card-summary-monthly").performScrollTo().performClick()
-        compose.onNodeWithTag("card-summary-monthly").assertIsSelected()
-        compose.onNodeWithTag("card-summary-weekly").assertIsNotSelected()
-        compose.onNodeWithText("What was said, once a month. Change it any time.").assertExists()
+        // no summary by e-mail on the start form (Xavier, Cards v80): it's in the topic's settings
+        assertTrue(compose.onAllNodesWithText("Summary by e-mail").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithTag("card-summary").fetchSemanticsNodes().isEmpty())
         compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
         compose.onNodeWithTag("card-start").performClick()
         compose.waitUntil(10_000) { sent != null }
-        assertEquals("monthly", sent!!.summary)
-        assertEquals("""{"title":"Tool library","about":"","hashtag":"drills","summary":"monthly"}""", Cards.claimBody(CardKind.TOPIC, sent!!).toString())
+        assertEquals("""{"title":"Tool library","about":"","hashtag":"drills"}""", Cards.claimBody(CardKind.TOPIC, sent!!).toString())
         assertEquals("drills", Cards.hashtagSlug(sent!!.hashtag))
         assertEquals("Tool library", sent!!.title)
     }

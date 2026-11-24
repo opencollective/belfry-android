@@ -386,42 +386,10 @@ fun CardStartContent(
             Spacer(Modifier.height(8.dp))
             Text(Cards.codeHint(community), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted)
         }
-        if (kind == CardKind.TOPIC) {
-            Spacer(Modifier.height(14.dp))
-            SummaryChoice(Cards.summaryOf(form.summary), onSummary)
-        }
         ErrorBox(error)
         Spacer(Modifier.height(18.dp))
         BusyButton(Cards.startButton(kind), onClick = onStart, enabled = ready, modifier = Modifier.fillMaxWidth().testTag("card-start"))
     }
-}
-
-/**
- * "Summary by e-mail": Weekly | Monthly (canvas cards/claim-channel; topic cards only). Material's
- * segmented buttons: the choice carries a check mark and a heavier label, never a colour alone.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SummaryChoice(summary: String, onSummary: (String) -> Unit) {
-    val c = Belfry.colors
-    Text(Cards.SUMMARY_LABEL, fontSize = 13.sp, color = c.muted)
-    Spacer(Modifier.height(6.dp))
-    val options = listOf(Cards.WEEKLY to "Weekly", Cards.MONTHLY to "Monthly")
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().testTag("card-summary")) {
-        options.forEachIndexed { i, (value, label) ->
-            SegmentedButton(
-                selected = summary == value, onClick = { onSummary(value) },
-                shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = c.surface, activeContentColor = c.text, activeBorderColor = c.text,
-                    inactiveContainerColor = c.bg, inactiveContentColor = c.text, inactiveBorderColor = c.line,
-                ),
-                modifier = Modifier.testTag("card-summary-$value"),
-            ) { Text(label, fontSize = 15.sp, fontWeight = if (summary == value) FontWeight.SemiBold else FontWeight.Normal) }
-        }
-    }
-    Spacer(Modifier.height(6.dp))
-    Text(Cards.summaryHint(summary), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted)
 }
 
 /** cards/confirm-code (the code only, as the web shipped it): six boxes, the sixth digit sends. */

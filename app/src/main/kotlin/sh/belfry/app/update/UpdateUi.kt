@@ -1,7 +1,17 @@
 package sh.belfry.app.update
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,15 +94,17 @@ fun UpdateAskContent(again: Boolean, onSetting: () -> Unit, onWeb: () -> Unit) {
 
 /** A slim line at the top of Home when a newer version is out: Update, or close it for this version. */
 @Composable
-fun UpdateBar() {
+fun UpdateBar(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val r by Updater.available.collectAsState()
     val state by Updater.state.collectAsState()
-    var hidden by remember { mutableStateOf(Updater.hiddenFor(context)) }
+    val hidden = UpdateBarState.hidden(context)
     val release = r ?: return
     if (hidden == release.version && state == Updater.State.Idle) return
     val c = Belfry.colors
-    Column(Modifier.fillMaxWidth().background(c.surface).testTag("update-bar")) {
+    // edge to edge: the bar is the top of the window, so it starts below the status bar and the
+    // camera cutout (Xavier on a Pixel, 2026-11-24); the screen under it is told (consumeWindowInsets)
+    Column(modifier.fillMaxWidth().background(c.surface).windowInsetsPadding(UpdateInsets.top).testTag("update-bar")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             val line = when (val s = state) {
                 Updater.State.Downloading -> UpdateText.downloading(release.version)
@@ -103,9 +115,49 @@ fun UpdateBar() {
             Text(line, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
             Spacer(Modifier.width(10.dp))
             BusyButton(UpdateText.button(state), onClick = { Updater.tap(context, release) }, small = true, enabled = state !is Updater.State.Downloading && state !is Updater.State.Installing, modifier = Modifier.testTag("update-button"))
-            IconAction(BelfryIcons.Close, "Not now", { Updater.hide(context, release.version); hidden = release.version })
+            IconAction(BelfryIcons.Close, "Not now", { Updater.hide(context, release.version); UpdateBarState.hiddenNow.value = release.version })
         }
         Hairline()
+    }
+}
+
+/** The top of the window a bar drawn there must keep clear of: the status bar and a display cutout. */
+object UpdateInsets {
+    val top: WindowInsets
+        @Composable get() = WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+}
+
+/**
+ * [UpdateBar] at the top of the window and CONTENT under it. The bar keeps clear of the status bar and
+ * the cutout; when it shows, the content is told that space is taken, so its own top bar doesn't pad again.
+ */
+@Composable
+fun UnderUpdateBar(content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize()) {
+        val bar = updateBarShown()
+        UpdateBar()
+        val top = UpdateInsets.top
+        Box(Modifier.weight(1f).then(if (bar) Modifier.consumeWindowInsets(top) else Modifier)) { content() }
+    }
+}
+
+/** Whether [UpdateBar] shows now (so the screen under it knows the top is taken). */
+@Composable
+fun updateBarShown(): Boolean {
+    val context = LocalContext.current
+    val r by Updater.available.collectAsState()
+    val state by Updater.state.collectAsState()
+    val release = r ?: return false
+    return !(UpdateBarState.hidden(context) == release.version && state == Updater.State.Idle)
+}
+
+/** The version whose bar was closed (✕), shared by the bar and the screen under it, so both change at once. */
+object UpdateBarState {
+    internal val hiddenNow = mutableStateOf<String?>(null)
+    private var read = false
+    fun hidden(context: android.content.Context): String? {
+        if (!read) { read = true; if (hiddenNow.value == null) hiddenNow.value = Updater.hiddenFor(context) }
+        return hiddenNow.value
     }
 }
 
