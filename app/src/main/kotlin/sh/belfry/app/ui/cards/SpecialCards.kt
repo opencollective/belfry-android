@@ -259,7 +259,9 @@ internal fun InboxCardView(groupId: String, m: Message, card: Special.InboxCard,
     }
 
     MailFrame(modifier.testTag("inbox-card"), strong = true) {
-        MailLabel(BelfryIcons.Inbox, "E-mail received · " + ChatFormat.time(world, m.at))
+        // SPEC 19.88 (encrypted/group-email): in a private group the belfry encrypted it on arrival: just "By e-mail"
+        val byMail = sh.belfry.app.ui.nav.LocalSession.current.enc3View?.groupPrivate(groupId) == true
+        MailLabel(BelfryIcons.Inbox, "E-mail received · " + ChatFormat.time(world, m.at) + if (byMail) " · " + sh.belfry.core.model.GroupEncText.BY_EMAIL else "")
         Text(who, fontSize = 13.sp, lineHeight = 18.sp, color = c.muted)
         // docs/one-shape.md 4: who else it was for, on its own line, only when there is a Cc
         val cc = sh.belfry.core.model.MailInbox.people(m.ev.tags, "cc")

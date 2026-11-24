@@ -89,7 +89,18 @@ data class ConvKey(
     val made: MadeKey? = null,
     /** SPEC 19.85 (§7.5): a received people key's rumor as it came (it holds k: vault only), handed on as is in a key pack. */
     val rumor: sh.belfry.core.nostr.Event? = null,
+    /** SPEC 19.88 (§18.4): a group key's entry set as its maker claims it (`set` in my entry); [lists] holds it only while the entries seen add up. */
+    val claimed: String = "",
+    /**
+     * SPEC 19.88: a group key this device made whose envelopes aren't confirmed out yet: the devices with an entry and the
+     * envelopes' `lists` hash, so they are made again (same K, fresh dates) before the next message under it. Empty once out.
+     */
+    val entries: List<String> = emptyList(),
+    val envLists: String = "",
 ) {
+    /** SPEC 19.88: a group key of mine whose envelopes still go first. */
+    val envPending: Boolean get() = group && entries.isNotEmpty()
+
     fun held(): HeldKey = HeldKey(pub, secret, conv, mine, lists, at, group, service)
 
     /** Never in a log or a string: the secret stays out of toString. */
@@ -108,6 +119,9 @@ data class ConvKey(
             put("per", buildJsonArray { made.per.forEach { p -> add(buildJsonObject { put("account", JsonPrimitive(p.account)); put("devices", buildJsonArray { p.devices.forEach { add(JsonPrimitive(it)) } }) }) } })
         })
         if (rumor != null) put("rumor", rumor.toJson())
+        if (claimed.isNotEmpty()) put("claimed", JsonPrimitive(claimed))
+        if (entries.isNotEmpty()) put("entries", buildJsonArray { entries.forEach { add(JsonPrimitive(it)) } })
+        if (envLists.isNotEmpty()) put("env_lists", JsonPrimitive(envLists))
     }
 
     internal companion object {
@@ -124,7 +138,10 @@ data class ConvKey(
             return ConvKey(K, k, conv, o.s("maker") ?: "", o["at"].long() ?: 0, b("mine"), b("service"), b("group"), o.s("lists") ?: "",
                 o["people"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(),
                 o["unconfirmed"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(), made,
-                o["rumor"].obj()?.let { sh.belfry.core.nostr.Event.fromJson(it) })
+                o["rumor"].obj()?.let { sh.belfry.core.nostr.Event.fromJson(it) },
+                o.s("claimed")?.takeIf(Hex::isKey) ?: "",
+                o["entries"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(),
+                o.s("env_lists")?.takeIf(Hex::isKey) ?: "")
         }
     }
 }

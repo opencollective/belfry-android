@@ -231,7 +231,7 @@ private fun FileRow(d: Dm) {
 }
 
 /** Hands the decrypted file to the phone's viewer through this app's private cache (FileProvider). */
-private suspend fun openInViewer(context: Context, bytes: ByteArray, name: String, mime: String): Boolean {
+internal suspend fun openInViewer(context: Context, bytes: ByteArray, name: String, mime: String): Boolean {
     val uri = withContext(Dispatchers.IO) {
         val dir = File(context.cacheDir, "open").apply { mkdirs() }
         dir.listFiles()?.forEach { if (System.currentTimeMillis() - it.lastModified() > 3_600_000) it.delete() }

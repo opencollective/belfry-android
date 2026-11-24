@@ -209,6 +209,7 @@ class EventsService internal constructor(private val s: Session) {
      * Throws [ActionException]; code `named`: the meeting is made, someone could not be added.
      */
     suspend fun createMeeting(channel: String, m: MeetingForm, announce: Boolean = false): String {
+        s.refuseExtras(channel) // SPEC 19.88: not in a private group yet
         val d = EventLinks.newD(s.now())
         s.send(Meetings.create(channel, m, d, s.me, s.community.groupsRelay, s.community.mainRelay))
         // ANNOUNCE: its URL is sent in the channel it was made from (a card there), at once

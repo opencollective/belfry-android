@@ -186,11 +186,11 @@ internal fun ColumnScope.WhoContent(who: WhoCanRead, world: World, mailName: Str
     Spacer(Modifier.height(12.dp))
 }
 
-private fun addedDay(world: World, at: Long): String =
+internal fun addedDay(world: World, at: Long): String =
     java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.ENGLISH).format(java.time.Instant.ofEpochSecond(at).atZone(world.ctx.zone))
 
 @Composable
-private fun WhoHead(text: String, end: String? = null) {
+internal fun WhoHead(text: String, end: String? = null) {
     val c = Belfry.colors
     Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 6.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.muted, modifier = Modifier.weight(1f))
@@ -199,12 +199,12 @@ private fun WhoHead(text: String, end: String? = null) {
 }
 
 @Composable
-private fun WhoCard(content: @Composable ColumnScope.() -> Unit) {
+internal fun WhoCard(content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Belfry.colors.surface), content = content)
 }
 
 @Composable
-private fun WhoRow(title: String?, sub: String? = null, end: String? = null, mark: String? = null, tag: String, lead: (@Composable () -> Unit)? = null, trailing: (@Composable () -> Unit)? = null) {
+internal fun WhoRow(title: String?, sub: String? = null, end: String? = null, mark: String? = null, tag: String, lead: (@Composable () -> Unit)? = null, trailing: (@Composable () -> Unit)? = null) {
     val c = Belfry.colors
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp).testTag(tag), verticalAlignment = Alignment.CenterVertically) {
         if (lead != null) { lead(); Spacer(Modifier.width(12.dp)) }

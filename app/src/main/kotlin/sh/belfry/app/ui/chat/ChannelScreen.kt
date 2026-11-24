@@ -184,7 +184,9 @@ fun ChannelScreen(
     // changes (World.feedKey): a message arriving in another channel redraws nothing here.
     val feedWorld = rememberFeedWorld(world, groupId)
     val feedNow = now - now % 60
-    val rows = remember(feedWorld, groupId, chat.topic, openRoots) { feedWorld.feedRowsWithPreviews(groupId, chat.topic, openRoots) }
+    // format 3, a private group (SPEC 19.88): who joined, was removed, can read from here or no longer can
+    val encLines = remember(feedWorld, groupId) { sh.belfry.app.ui.people.groupFeedLines(session, feedWorld, groupId) }
+    val rows = remember(feedWorld, groupId, chat.topic, openRoots, encLines) { feedWorld.feedRowsWithPreviews(groupId, chat.topic, openRoots, encLines) }
     val threads = feedWorld.threadsOf(groupId)
     val reversed = rows.asReversed()
     val list = rememberLazyListState()
@@ -278,7 +280,17 @@ fun ChannelScreen(
             },
             // nothing at the top right but the bell (search is a row of the pull-down)
             actions = { if (g != null && !guestReading && !world.isLocked(groupId)) ChannelBell(groupId, g.name) },
-            titleMark = if (g != null && world.failedSettings(groupId).isNotEmpty()) ({ SettingsFailedMark(groupId) }) else null,
+            titleMark = run {
+                val failed = g != null && world.failedSettings(groupId).isNotEmpty()
+                // SPEC 19.88: a private group's lock (encrypted/group) opens Who can read this
+                val lock = g != null && session.enc3View?.groupPrivate(groupId) == true
+                if (!failed && !lock) null else ({
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (lock) sh.belfry.app.ui.people.GroupLock(groupId)
+                        if (failed) SettingsFailedMark(groupId)
+                    }
+                })
+            },
             titleLoading = g != null && rememberNameLoading(g.named),
         )
         if (g != null && g.archived) ArchivedBar(g)
@@ -347,14 +359,21 @@ fun ChannelScreen(
         // a recording that runs, or one that was not posted (the web's RecordingBar)
         RecordingBar(groupId)
         SaveAccountBar(session)
+        // SPEC 19.88: a private group's messages that wait here (opening, or no copy for this device)
+        sh.belfry.app.ui.people.GroupWaitingLine(groupId)
+        val privateHere = session.privateNow(groupId)
+        // §25: a guest's session can't take part in a private group; one I was removed from reads only
+        val privateGuest = privateHere && !guestReading && (guestInfo != null || world.amGuest)
+        val removedHere = g != null && g.isPrivate && world.me !in g.members && world.me !in g.admins && !guestReading
         if (guestTopic) sh.belfry.app.ui.people.GuestTopicComposer(groupId) else if (guestReading) GuestBar(groupId)
-        val readOnly = guestReading || (g != null && world.readOnlyClosed(g)) || world.isLocked(groupId)
+        else if (privateGuest) sh.belfry.app.ui.people.PrivateGuestBar() else if (removedHere) sh.belfry.app.ui.people.RemovedFromGroupBar()
+        val readOnly = guestReading || privateGuest || removedHere || (g != null && world.readOnlyClosed(g)) || world.isLocked(groupId)
         val editing = chat.editing
         // Posts (SPEC 19.60): with Messages and Threads off, the composer's plain send is replaced
         // by the kinds that are on (#proposals, #events, #bookings: web 2026-11-11)
         val page = world.webPage(g)
         val accepts = page?.accepts ?: sh.belfry.core.model.ChannelPosts.ALL
-        val kinds = if (sh.belfry.core.model.ChannelPosts.plainSend(accepts)) emptyList()
+        val kinds = if (sh.belfry.core.model.ChannelPosts.plainSend(accepts) || privateHere) emptyList() // §26: not in a private group yet
             else listOf(sh.belfry.core.model.PostKind.EVENT, sh.belfry.core.model.PostKind.PROPOSAL).filter { it in accepts }
         val only = kinds.singleOrNull()?.key
         val isPub = page?.on == true && page.visibility == "public"
@@ -500,6 +519,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
             is FeedItem.MailThread -> MailThreadRow(item.t) { openThread(item.t.id) }
             is FeedItem.Preview -> ActivityPreviewRow(groupId, item.p, now)
             is FeedItem.Answer -> sh.belfry.app.ui.cards.AnswerLine(item)
+            is FeedItem.EncLine -> sh.belfry.app.ui.people.GroupLineRow(groupId, item.line)
             is FeedItem.Activity -> {
                 val key = item.key
                 val open = chat.openThreads.containsKey(key)
@@ -575,16 +595,19 @@ fun PlusSheetContent(groupId: String, admin: Boolean, composer: ComposerState, o
         fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.muted,
         modifier = Modifier.padding(start = 4.dp, top = 16.dp, bottom = 6.dp).testTag("plus-create-in"),
     )
+    // §26 (SPEC 19.88): events, meetings and proposals can't be made in a private group yet: said, not offered
+    val noExtras = session.privateNow(groupId)
+    val no = sh.belfry.core.model.GroupEncText.NO_EXTRAS
     ActionGroup {
-        ActionRow("Event", onClick = { onClose(); go(Routes.createEvent(groupId)) }, icon = BelfryIcons.Calendar, modifier = Modifier.testTag("plus-event"))
+        ActionRow("Event", onClick = { onClose(); go(Routes.createEvent(groupId)) }, icon = BelfryIcons.Calendar, sub = if (noExtras) no else null, enabled = !noExtras, modifier = Modifier.testTag("plus-event"))
         // a meeting makes accounts and puts members in a chat: not for guests (as the web)
         if (!world.amGuest) {
-            ActionRow("Meeting", onClick = { onClose(); go(Routes.createMeeting(groupId)) }, icon = BelfryIcons.Users, sub = "Members only: a topic, people, a time", modifier = Modifier.testTag("plus-meeting"))
+            ActionRow("Meeting", onClick = { onClose(); go(Routes.createMeeting(groupId)) }, icon = BelfryIcons.Users, sub = if (noExtras) no else "Members only: a topic, people, a time", enabled = !noExtras, modifier = Modifier.testTag("plus-meeting"))
         }
         if (onTodo != null) {
             ActionRow("To-do", onClick = { onClose(); onTodo() }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("plus-todo"))
         }
-        ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = "A text to discuss and vote on", modifier = Modifier.testTag("plus-proposal"))
+        ActionRow("Proposal", onClick = { onClose(); go(Routes.createProposal(groupId)) }, icon = BelfryIcons.Proposal, sub = if (noExtras) no else "A text to discuss and vote on", enabled = !noExtras, modifier = Modifier.testTag("plus-proposal"))
     }
 }
 

@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import sh.belfry.app.ui.cards.EventCards
 import sh.belfry.app.ui.cards.SpecialCard
 import sh.belfry.app.ui.kit.Avatar
@@ -198,7 +199,23 @@ fun MessageRow(
             if (thread != null && thread.count > 0 && onToggleThread != null) {
                 ThreadLine(groupId, m.id, thread, threadOpen, onToggleThread)
             }
-            if (pending != null) {
+            val held = pending?.let { sh.belfry.app.ui.people.heldOf(it) }
+            if (pending != null && held != null) {
+                // format 3, a private group (SPEC 19.88): held with words, never sent in clear; Try again (or, too many devices: Delete)
+                val busy = rememberBusy()
+                val gone = held.reason == sh.belfry.core.enc.HoldReason.TOO_MANY
+                Row(Modifier.padding(top = 2.dp).testTag("enc3-group-held"), verticalAlignment = Alignment.CenterVertically) {
+                    Text(sh.belfry.app.ui.people.heldWords(held, world) + " · ", fontSize = 13.sp, color = c.text, modifier = Modifier.weight(1f, fill = false), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (gone) Text(
+                        sh.belfry.core.model.GroupEncText.TELL_STEWARD + " · ", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                        modifier = Modifier.clickable(role = Role.Button) { nav.go(Routes.channelInfo(groupId)) }.testTag("enc3-group-steward"),
+                    )
+                    Text(
+                        if (busy.busy) "…" else if (gone) "Delete" else sh.belfry.core.enc.EncText.TRY_AGAIN, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                        modifier = Modifier.clickable(enabled = !busy.busy, role = Role.Button) { busy.run { if (gone) session.discard(pending.localId) else session.retry(pending.localId) } }.testTag("enc3-group-try"),
+                    )
+                }
+            } else if (pending != null) {
                 if (pending.status == OutboxStatus.FAILED) {
                     val busy = rememberBusy()
                     Row(Modifier.padding(top = 2.dp)) {
@@ -317,6 +334,7 @@ internal fun replyPreview(text: String): String =
 @Composable
 private fun MediaView(media: Media, session: Session, chat: ChatState, pictures: List<String> = emptyList()) {
     val c = Belfry.colors
+    if (media.sealed != null) { SealedMediaView(media, session, chat); return }
     // a recording plays here (web 2026-11-12); one still on this device only (not sent yet) is a file row
     if (media.mime.startsWith("audio/") && media.url.startsWith("https://") && !media.url.startsWith(Session.LOCAL_BLOB)) {
         AudioRow(media)
@@ -369,7 +387,7 @@ fun MessageMedia(m: Message, chat: ChatState) = MediaList(m.media, chat)
 fun MediaList(media: List<Media>, chat: ChatState) {
     if (media.isEmpty()) return
     val session = LocalSession.current
-    val pictures = if (media.size > 1) media.filter { it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
+    val pictures = if (media.size > 1) media.filter { it.sealed == null && it.isImage && it.url.startsWith("https://") && !it.url.startsWith(Session.LOCAL_BLOB) }.map { it.url } else emptyList()
     if (pictures.size >= 2) {
         MediaGrid(media.filter { it.isImage && it.url in pictures }, chat, pictures)
         for (x in media) if (!(x.isImage && x.url in pictures)) MediaView(x, session, chat, pictures)
@@ -405,6 +423,60 @@ private fun MediaGrid(images: List<Media>, chat: ChatState, urls: List<String>) 
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * SPEC 19.88 (§23, §26): a private group's file, encrypted before its upload: downloaded and decrypted on the device. A
+ * picture shows here; a video, a recording or a PDF opens in the phone's viewer; anything else is handed on as a download.
+ */
+@Composable
+private fun SealedMediaView(media: Media, session: Session, chat: ChatState) {
+    val c = Belfry.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var failed by remember(media.url) { mutableStateOf(false) }
+    if (media.mime.startsWith("image/") && !failed) {
+        var image by remember(media.url) { mutableStateOf<ImageBitmap?>(null) }
+        val network = LocalNetworkImages.current
+        LaunchedEffect(media.url, network) {
+            if (!network && !media.url.startsWith(Session.LOCAL_BLOB)) return@LaunchedEffect
+            val bytes = try { session.sealedMedia(media) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
+            val bm = withContext(Dispatchers.IO) { bytes?.let(Photos::decodeBytes) }
+            if (bm == null) failed = true else image = bm
+        }
+        val w = media.w ?: 0
+        val h = media.h ?: 0
+        val ratio = if (w > 0 && h > 0) (w.toFloat() / h).coerceIn(0.6f, 2.4f) else 4f / 3f
+        PhotoBox(ratio, media.name, onClick = { image?.let { chat.viewer = ViewerImage(null, it, media.name) } }) {
+            image?.let { Image(it, contentDescription = media.name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+        }
+        return
+    }
+    var busy by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    val name = media.name ?: "File"
+    Row(
+        Modifier.padding(top = 4.dp).widthIn(max = 320.dp).fillMaxWidth().clip(shape).border(1.dp, c.line, shape)
+            .clickable(enabled = !busy, role = Role.Button, onClickLabel = "Open $name") {
+                busy = true; failed = false
+                scope.launch {
+                    val bytes = try { session.sealedMedia(media) } catch (e: Exception) { null }
+                    val mime = if (sh.belfry.core.model.SealedMedia.opensHere(media.mime)) media.mime else "application/octet-stream"
+                    failed = bytes == null || !sh.belfry.app.ui.people.openInViewer(context, bytes, name, mime)
+                    busy = false
+                }
+            }
+            .padding(10.dp).testTag("enc3-group-file"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (busy) sh.belfry.app.ui.kit.Spinner(size = 16.dp) else Icon(BelfryIcons.Lock, contentDescription = null, tint = c.muted, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(name, fontSize = 14.sp, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+        if (failed) {
+            Spacer(Modifier.width(8.dp))
+            Text(sh.belfry.core.dm.DmFiles.UNREADABLE, fontSize = 12.sp, color = c.muted, maxLines = 1)
         }
     }
 }

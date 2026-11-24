@@ -197,6 +197,7 @@ class ModelVectorsTest {
                             assertEquals(x["last"].sOrNull(), item.last.id, name)
                         }
                         is FeedItem.Preview -> throw AssertionError("$name: World.feed never holds previews")
+                        is FeedItem.EncLine -> throw AssertionError("$name: World.feed never holds format-3 lines")
                     }
                     assertEquals(x["at"].long(), item.at, name)
                 }

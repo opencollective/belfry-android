@@ -355,7 +355,10 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         // its events arriving later clear the mark: web groupstate.ts)
         for (id in ctx.groupsAbsent.keys) if (Presence.mayBeAbsent(id) && id !in newestMeta && map[id]?.pending != true) gone.add(id)
         // a Private group I'm not in is in no list, card, count or search (SPEC 19.59): left out here
-        val hidden = map.values.filter { GroupJoin.hides(it.isPrivate, me, it.members, it.admins, it.reading) }.mapTo(HashSet()) { it.id }
+        // … but one I was removed from stays, read only, with its "removed you" line (SPEC 19.88, encrypted/group-removed-self)
+        val removedMe = HashMap<String, Boolean>()
+        for (e in sorted) if ((e.kind == 9000 || e.kind == 9001) && e.hasTag("p", me)) e.t("h")?.let { removedMe[it] = e.kind == 9001 }
+        val hidden = map.values.filter { GroupJoin.hides(it.isPrivate, me, it.members, it.admins, it.reading) && removedMe[it.id] != true }.mapTo(HashSet()) { it.id }
         val all = map.values.filter { it.id !in gone && it.id !in hidden }
             .sortedWith(compareBy<G> { if (it.id == "general") 0 else 1 }.thenByDescending { it.lastActivity })
             .map {
@@ -469,7 +472,13 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
             val url = f["url"] ?: continue
             if (!url.startsWith("http:") && !url.startsWith("https:")) continue
             val dim = (f["dim"] ?: "").split("x")
-            media.add(Media(url, f["m"] ?: "", f["alt"], dimOf(dim.getOrNull(0)), dimOf(dim.getOrNull(1))))
+            // §23 (SPEC 19.88): a private group's file, encrypted before its upload: what opens it travels in the rumor
+            val sealed = if (f["encryption-algorithm"] == sh.belfry.core.dm.DmFiles.ALGORITHM) {
+                val k = f["decryption-key"]; val n = f["decryption-nonce"]; val x = f["x"]; val ox = f["ox"]
+                if (k != null && n != null && x != null && ox != null) SealedMedia(k, n, x, ox) else null
+            } else null
+            if (f["encryption-algorithm"] != null && sealed == null) continue // encrypted but nothing to open it with: never shown as a plain file
+            media.add(Media(url, f["m"] ?: "", f["alt"], dimOf(dim.getOrNull(0)), dimOf(dim.getOrNull(1)), sealed))
         }
         var text = src.content
         for (m in media) text = text.replace(m.url, "")

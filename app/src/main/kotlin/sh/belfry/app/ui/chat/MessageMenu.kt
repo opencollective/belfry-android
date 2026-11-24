@@ -228,7 +228,8 @@ fun MessageMenuContent(groupId: String, m: Message, chat: ChatState, onReply: ((
             }
             // #requests (web 2026-11-11): a member turns a request into a proposal in #proposals
             if (propose) {
-                ActionRow("Turn into a proposal", onClick = { close(); nav.go(Routes.createProposal("proposals", from = m.id, fromChannel = groupId)) }, icon = BelfryIcons.Proposal, modifier = Modifier.testTag("menu-propose"))
+                // SPEC 19.88: never from a private group (its text would go out in clear)
+                if (!sh.belfry.app.ui.nav.LocalSession.current.privateNow(groupId)) ActionRow("Turn into a proposal", onClick = { close(); nav.go(Routes.createProposal("proposals", from = m.id, fromChannel = groupId)) }, icon = BelfryIcons.Proposal, modifier = Modifier.testTag("menu-propose"))
             }
             if (site != null) {
                 BusyRow("Make this the website", onClick = { session.publishWebsite(site.value, m.id); close() }, icon = BelfryIcons.Globe)

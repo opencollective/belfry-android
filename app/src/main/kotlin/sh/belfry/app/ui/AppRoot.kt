@@ -281,11 +281,13 @@ private fun EventLinkOpener(state: AppState) {
 private fun PushOpener(state: AppState) {
     val open = state.pushOpen.collectAsState().value ?: return
     val nav = LocalNav.current
+    val session = sh.belfry.app.ui.nav.LocalSession.current
     LaunchedEffect(open) {
         state.forgetPushOpen()
         when (open) {
-            is PushOpen.Channel -> nav.openChannel(open.channel, open.message)
-            is PushOpen.Thread -> { nav.openChannel(open.channel); nav.go(Routes.thread(open.channel, open.root)) }
+            // SPEC 19.88: a private group's push names its outer 8572: the message it carried, once opened here
+            is PushOpen.Channel -> nav.openChannel(open.channel, open.message?.let { session.messageIdFor(it) })
+            is PushOpen.Thread -> { nav.openChannel(open.channel); nav.go(Routes.thread(open.channel, session.messageIdFor(open.root))) }
             PushOpen.Dms -> nav.go(Routes.MESSAGES)
             PushOpen.Home -> {}
         }

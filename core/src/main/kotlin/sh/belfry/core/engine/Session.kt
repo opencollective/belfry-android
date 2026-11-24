@@ -342,7 +342,7 @@ class Session(
     /** Tests and screenshots only (SPEC 19.84): a made-up format-3 view ([DemoEnc3View]); the demo itself stays format 1. */
     @Volatile var demoEnc3View: Enc3View? = null
 
-    private val realEnc3View: Enc3View? by lazy { enc3?.let { e -> RealEnc3View(e, { encFormat.state().format == 3 }, { sessions() }) } }
+    private val realEnc3View: Enc3View? by lazy { enc3?.let { e -> RealEnc3View(e, { encFormat.state().format == 3 }, { sessions() }, { enc3Groups }, { privateNow(it) }) } }
 
     /** What the format-3 conversation screens read (SPEC 19.84): the lock, Who can read this; null in the demo and for a guest. */
     val enc3View: Enc3View? get() = demoEnc3View ?: realEnc3View
@@ -375,6 +375,53 @@ class Session(
             override fun later(block: suspend () -> Unit) = launchSafely(block)
         })
     }
+
+    // ---- format 3, part 7 (SPEC 19.88): private groups ------------------------------------------------------
+
+    /** Private groups on this device (null wherever [enc3] is: the demo, a guest's session, no device key). */
+    val enc3Groups: Enc3Groups? by lazy {
+        val e = enc3 ?: return@lazy null
+        Enc3Groups(e, object : Enc3GroupPorts {
+            override fun groupsKey(): String? = community.groupsKey ?: groupsKey
+            override fun belfryKey(): String? = community.belfryPubkey
+            override fun connection(): Int? = groupsRelay?.takeIf { it.isUp }?.socketsMade
+            override suspend fun query(filter: JsonObject, pageMs: Long): sh.belfry.core.sealed.SealedEngine.Answer? {
+                val r = groupsRelay ?: return null
+                return Paging.all { f -> r.queryKnown(listOf(f), pageMs) }(filter).takeIf { it.complete || it.events.isNotEmpty() }
+            }
+            override fun addEvents(events: List<Event>) = addToLog(events)
+            override fun privateMeta(h: String): Boolean = _world.value.group(h)?.let { it.isPod && it.closed && it.isPrivate } == true
+            override fun members(h: String): Set<String>? = _world.value.group(h)?.members
+            override fun isGuest(account: String): Boolean = _world.value.isGuest(account)
+            override fun opened(rumors: List<Event>) = addToLog(rumors)
+            override fun later(block: suspend () -> Unit) = launchSafely(block)
+            override fun nowMs(): Long = System.currentTimeMillis()
+        })
+    }
+
+    /**
+     * SPEC 19.88 (the web's `groupWriteMode` → `privateNow`): GROUP_ID is a private group in format 3 here (encrypted,
+     * or held until it can be): no events, meetings, proposals or tickets made from it, no typing, a guest can't post.
+     * Tests set [demoEnc3View] (its `groupPrivate`).
+     */
+    fun privateNow(groupId: String): Boolean {
+        demoEnc3View?.let { return it.groupPrivate(groupId) }
+        if (localOnly) return false
+        val g = _world.value.group(groupId)
+        val privateMeta = g != null && g.isPod && g.closed && g.isPrivate
+        val ever = enc3?.everEncrypted(Enc3.groupConv(groupId)) == true
+        val f = sh.belfry.core.enc.EncWrites.Facts(localOnly, _guest.value != null, encWriteFormat())
+        val w = sh.belfry.core.enc.EncWrites.group(f, ever, privateMeta, g != null, false)
+        return w is sh.belfry.core.enc.EncWrite.V3 || (w is sh.belfry.core.enc.EncWrite.Hold && privateMeta)
+    }
+
+    /** §26: creating events, meetings, proposals and tickets is not offered in a private group yet. */
+    internal fun refuseExtras(groupId: String) {
+        if (privateNow(groupId)) throw ActionException("private", sh.belfry.core.model.GroupEncText.NO_EXTRAS)
+    }
+
+    /** A push names a private group's outer 8572: the message it carried, once opened here. */
+    fun messageIdFor(id: String): String = enc3Groups?.rumorFor(id) ?: id
 
     private val demoEnc3 = MutableStateFlow(sh.belfry.core.enc.Enc3DeviceState())
     private val noRemoved = MutableStateFlow<sh.belfry.core.enc.RemovedHere?>(null)
@@ -609,8 +656,8 @@ class Session(
         fun decide(f: sh.belfry.core.enc.EncWrites.Facts) = sh.belfry.core.enc.EncWrites.group(f, ever, privateMeta, g != null, clearKind)
         var w = decide(encFacts(false))
         if (w is sh.belfry.core.enc.EncWrite.Hold && w.reason == sh.belfry.core.enc.HoldReason.FORMAT) w = decide(encFacts(true))
-        if (w is sh.belfry.core.enc.EncWrite.V3) w = if (e == null || g == null) sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.NOT_LISTED)
-            else e.groupReady(g.members, { w0.isGuest(it) })
+        // SPEC 19.88: the members from a 39002 read on this connection (≤ 3 s), their lists read whole, then the plan
+        if (w is sh.belfry.core.enc.EncWrite.V3) w = enc3Groups?.ready(groupId) ?: sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.NOT_LISTED)
         w
     }
 
@@ -892,7 +939,7 @@ class Session(
     @Volatile private var started = false
     @Volatile private var stopped = false
 
-    private val typingEngine = SessionTyping(scope, signer.pubkey, signer, clock, { if (localOnly) clock().toDouble() else System.currentTimeMillis() / 1000.0 }, { relay(it) }, { _world.value }, { !reading && !localOnly && !stopped }, { c -> sealed?.sealedSince?.containsKey(c) == true || encryptedHere(c) })
+    private val typingEngine = SessionTyping(scope, signer.pubkey, signer, clock, { if (localOnly) clock().toDouble() else System.currentTimeMillis() / 1000.0 }, { relay(it) }, { _world.value }, { !reading && !localOnly && !stopped }, { c -> if (c.startsWith("g:")) privateNow(c.removePrefix("g:")) else sealed?.sealedSince?.containsKey(c) == true || encryptedHere(c) })
 
     /** Who is typing where (docs/typing.md; SPEC 19.51): for the line above the composer and the DM list. */
     val typing: StateFlow<sh.belfry.core.typing.TypingState> get() = typingEngine.state
@@ -933,6 +980,8 @@ class Session(
     @Volatile private var groupsFullAsked = false
 
     private val uploaded = HashMap<String, String>() // blobKey → URL, so a retry does not upload twice
+    /** SPEC 19.88: a private group's file, encrypted and uploaded once: its URL and what opens it (a retry reuses both). */
+    private val sealedUploads = HashMap<String, Pair<String, DmFiles.Sealed>>()
     private val demoFollows = HashMap<String, String>()
 
     init {
@@ -986,6 +1035,12 @@ class Session(
     /** The next snapshot; what PREV worked out for the channels nothing arrived in is taken over (see [World]). */
     private fun buildWorld(prev: World? = null, box: List<OutboxItem> = store.outbox()): World {
         val events = synchronized(logLock) { ArrayList(log) }
+        // §17.2 (SPEC 19.88): a signed event in a private group after its first key, outside §16.9's clear list, never counts
+        val g = enc3Groups
+        if (g != null && encFormat.state().format == 3) {
+            val first = g.firstKeys(enc3?.encGroups().orEmpty())
+            if (first.isNotEmpty()) return World(events.filterNot { g.refuses(it, first) }, box, ctx(), prev)
+        }
         return World(events, box, ctx(), prev)
     }
 
@@ -994,6 +1049,36 @@ class Session(
         val w = synchronized(rebuildLock) { buildWorld(_world.value, box).also { _world.value = it } }
         countOutbox(box)
         askWhoisAbout(w)
+        privateGroupsMoved(w)
+    }
+
+    /** SPEC 19.88: the private groups I'm in (their 8571 / 8572 are asked on the groups relay by `#h`). */
+    private fun myPrivateGroups(w: World): List<String> =
+        if (enc3Groups == null) emptyList() else w.groups.filter { it.isPod && it.closed && it.isPrivate && me in it.members }.map { it.id }.sorted()
+
+    @Volatile private var privateSubscribed: List<String> = emptyList()
+
+    /** The set changed: the live subscription again, and a group new here read from its start once. */
+    private fun privateGroupsMoved(w: World) {
+        if (!started || localOnly || enc3Groups == null) return
+        val now = myPrivateGroups(w)
+        if (now == privateSubscribed) return
+        privateSubscribed = now
+        enc3Groups?.poke() // messages of a group that just became known as private are judged now
+        val r = groupsRelay ?: return
+        if (r.isUp) r.subscribe(SUB, filters(Target.GROUPS))
+        val seen = store.get(K_ENC_GROUPS_SEEN)?.split(',')?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+        val fresh = now - seen
+        if (fresh.isEmpty()) return
+        launchSafely {
+            for (h in fresh) {
+                val got = Paging.all { f -> r.queryKnown(listOf(f), 10_000) }(Filters.of(kinds = listOf(sh.belfry.core.enc.Enc.KEY, sh.belfry.core.enc.Enc.MSG), tags = mapOf("h" to listOf(h))))
+                if (!got.complete) continue
+                addToLog(got.events)
+                seen.add(h)
+                store.set(K_ENC_GROUPS_SEEN, seen.joinToString(","))
+            }
+        }
     }
 
     // ---- who is who (whois.py): the register says member / agent / guest ------------------------------
@@ -1082,6 +1167,8 @@ class Session(
         if (device != null) for (w in fresh) if (w.kind == 1059 && w.hasTag("p", device)) launchSafely { sealed?.onDeviceWrap(w) }
         // format 3: device lists kept (regular events, never pruned) and this device's place on mine looked at again
         enc3?.let { e -> if (e.offer(fresh)) launchSafely { e.check() } }
+        // format 3, private groups (SPEC 19.88): their envelopes and messages judged; new lists may settle waits
+        enc3Groups?.let { g -> if (!g.offer(fresh) && fresh.any { it.kind == sh.belfry.core.enc.Enc.LIST }) g.poke() }
         markDirty()
         if (fresh.any { it.kind == 1059 || it.kind == 4 || it.kind == sh.belfry.core.enc.Enc.MSG }) launchSafely { dm.process(); resubscribeIfSealedGrew(); encPartners() }
     }
@@ -1240,6 +1327,8 @@ class Session(
             val d = enc3Devices // SPEC 19.85: its hooks on Enc3 before the first offer
             e.offer(synchronized(logLock) { log.filter { it.kind == sh.belfry.core.enc.Enc.LIST || it.kind == sh.belfry.core.enc.Enc.KEY || it.kind in sh.belfry.core.enc.Enc.PACK..sh.belfry.core.enc.Enc.ANSWER } })
             e.setFormat3(encFormat.state().format == 3)
+            // SPEC 19.88: the private groups' envelopes and messages kept in the store, judged again
+            enc3Groups?.offer(synchronized(logLock) { log.filter { (it.kind == sh.belfry.core.enc.Enc.KEY || it.kind == sh.belfry.core.enc.Enc.MSG) && it.sig.isNotEmpty() && it.tags.any { t -> t.isNotEmpty() && t[0] == "h" } } })
             launchSafely { encPartners() }
             d?.refresh()
             launchSafely { d?.readNames() }
@@ -1254,6 +1343,7 @@ class Session(
                     if (_status.value.online && System.currentTimeMillis() - removedLookMs > 5 * 60_000L) lookRemoved(force = true)
                     // format 3: held messages decided again (a person's device came, my list arrived…)
                     try { if (_status.value.online && dm.hasHeld()) dm.process() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
+                    enc3Groups?.poke() // SPEC 19.88: group messages waiting on lists judged again
                 }
             }
         }
@@ -1506,7 +1596,12 @@ class Session(
             // catch up from the newest event of the last answer given after NIP-42, never from the
             // log's newest (a public answer before AUTH would move it past what was never asked)
             val mark = store.get(K_GROUPS_MARK)?.toLongOrNull() ?: 0L
-            return GroupFilters.of(KINDS_GROUPS, if (localOnly) latest { it.kind in kinds } else mark, full)
+            val enc = privateSubscribed.takeIf { it.isNotEmpty() && enc3Groups != null }?.let { ids ->
+                // SPEC 19.88 (§6): my private groups' envelopes and messages, ordinary catch-up (§17.11)
+                val since = maxOf(0, latest { (it.kind == sh.belfry.core.enc.Enc.KEY || it.kind == sh.belfry.core.enc.Enc.MSG) && it.sig.isNotEmpty() && it.tag("h") != null } - 3600)
+                listOf(Filters.of(kinds = listOf(sh.belfry.core.enc.Enc.KEY, sh.belfry.core.enc.Enc.MSG), since = since, limit = 2000, tags = mapOf("h" to ids)))
+            }.orEmpty()
+            return GroupFilters.of(KINDS_GROUPS, if (localOnly) latest { it.kind in kinds } else mark, full) + enc
         }
         val kinds = KINDS_MAIN.toSet()
         val since = maxOf(0, latest { it.kind in kinds } - 3600)
@@ -1817,12 +1912,29 @@ class Session(
             if (localOnly) return SendOutcome.Ok(ev)
             return publish(item.target, ev, step)
         }
+        // format 3, a private group (SPEC 19.88): decided before anything is uploaded or signed; never clear when it holds
+        val gh = if (item.target == Target.GROUPS && !localOnly) item.tags.firstOrNull { it.size >= 2 && it[0] == "h" }?.get(1) else null
+        var plan: sh.belfry.core.enc.EncPlan.Group? = null
+        if (gh != null) when (val w = encWriteGroup(gh, item.kind, item.tags)) {
+            is sh.belfry.core.enc.EncWrite.V3 -> plan = w.plan as? sh.belfry.core.enc.EncPlan.Group ?: return SendOutcome.Error(heldError(sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.GROUP_UNKNOWN)))
+            is sh.belfry.core.enc.EncWrite.Hold -> return SendOutcome.Error(heldError(w))
+            else -> {}
+        }
         var content = item.content
         val tags = ArrayList<Tag>(item.tags)
         for (a in item.attachments) {
             val bytes = store.blob(a.blobKey) ?: continue
             step(SendState.STEP_UPLOAD)
+            // §23: in a private group the file is encrypted first (AES-256-GCM as a kind 15's); the rumor's imeta opens it
+            var sealedFile: DmFiles.Sealed? = null
             val url = if (localOnly) LOCAL_BLOB + a.blobKey else try {
+                if (plan != null) {
+                    val (u, sf) = synchronized(uploaded) { sealedUploads[a.blobKey] } ?: DmFiles.seal(bytes).let { sf ->
+                        api().upload(signer, sf.ciphertext, a.name, "application/octet-stream") { sent, total -> step(SendState.uploading(sent, total)) } to sf
+                    }.also { u -> synchronized(uploaded) { sealedUploads[a.blobKey] = u } }
+                    sealedFile = sf
+                    u
+                } else
                 synchronized(uploaded) { uploaded[a.blobKey] } ?: api().upload(signer, bytes, a.name, a.mime) { sent, total -> step(SendState.uploading(sent, total)) }.also { u -> synchronized(uploaded) { uploaded[a.blobKey] = u } }
             } catch (e: SignerTimeout) {
                 setStatus { it.copy(signerTrouble = true) }
@@ -1833,12 +1945,15 @@ class Session(
                 return SendOutcome.Error(if (said.startsWith("upload failed")) said else "upload failed" + (said.takeIf { it.isNotEmpty() }?.let { " ($it)" } ?: ""))
             }
             val imeta = arrayListOf("imeta", "url $url", "m ${a.mime}", "size ${a.size}")
-            if (!localOnly) imeta.add("x ${sha256Hex(bytes)}")
+            val sf = sealedFile
+            if (sf != null) imeta.addAll(listOf("x ${sf.x}", "ox ${sf.ox}", "encryption-algorithm ${DmFiles.ALGORITHM}", "decryption-key ${sf.key}", "decryption-nonce ${sf.nonce}"))
+            else if (!localOnly) imeta.add("x ${sha256Hex(bytes)}")
             if (a.width != null && a.height != null) imeta.add("dim ${a.width}x${a.height}")
             imeta.add("alt ${a.name}")
             tags.add(imeta)
             content = if (content.isNotEmpty()) content + "\n" + url else url
         }
+        if (plan != null && gh != null) return sendGroupEncrypted(item, gh, plan, EventTemplate(item.kind, content, tags, item.createdAt), signedNow, step)
         step(SendState.STEP_SIGN)
         val ev = try {
             signer.sign(EventTemplate(item.kind, content, tags, item.createdAt)).also { setStatus { s -> if (s.signerTrouble) s.copy(signerTrouble = false) else s } }
@@ -1851,6 +1966,53 @@ class Session(
         signedNow[item.localId] = ev
         if (localOnly) return SendOutcome.Ok(ev)
         return publish(item.target, ev, step)
+    }
+
+    /** SPEC 19.88: a held group write's error: `held: enc3:<REASON>[:<who>]` is tried again; too many devices is refused for good (never clear). */
+    private fun heldError(h: sh.belfry.core.enc.EncWrite.Hold): String =
+        if (h.reason == sh.belfry.core.enc.HoldReason.TOO_MANY) "invalid: " + HELD_PREFIX + "TOO_MANY"
+        else "held: " + HELD_PREFIX + h.reason.name + (h.who?.let { ":$it" } ?: "")
+
+    /**
+     * SPEC 19.88 (§5, §6, §16.1): TPL of the private group H encrypted for PLAN ([Enc3Groups.seal]): the key's envelopes
+     * (signed by my account through the signer, outer 8571 with h) published BEFORE the message, then the 8572 (my account
+     * through the signer, h, d = K, p per mention; its seal by this device). Its rumor goes into the log as the group's event.
+     */
+    private suspend fun sendGroupEncrypted(item: OutboxItem, h: String, plan: sh.belfry.core.enc.EncPlan.Group, tpl: EventTemplate, signedNow: MutableMap<String, Event>, step: (String) -> Unit): SendOutcome {
+        val g = enc3Groups ?: return SendOutcome.Error(heldError(sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.NOT_LISTED)))
+        val mentions = Mentions.tags(tpl.content).mapNotNull { it.getOrNull(1) }
+        val sealed = try { g.seal(h, tpl, plan, mentions) } catch (e: sh.belfry.core.enc.EncException) { return SendOutcome.Error("invalid: " + (e.message ?: "the message can't be encrypted")) }
+        step(SendState.STEP_SIGN)
+        suspend fun sign(t: EventTemplate): Event? = try {
+            signer.sign(t).also { setStatus { s -> if (s.signerTrouble) s.copy(signerTrouble = false) else s } }
+        } catch (e: SignerTimeout) {
+            setStatus { it.copy(signerTrouble = true) }
+            null
+        }
+        try {
+            for (b in sealed.before) {
+                val env = sign(b) ?: return SendOutcome.Error("timeout: the signer did not answer")
+                val out = publish(Target.GROUPS, env, step)
+                if (out is SendOutcome.Error && Outbox.classify(out.message) != ErrorClass.DUPLICATE) {
+                    // a refused envelope never lets the message go; the next try makes them again (same K)
+                    return if (Outbox.classify(out.message) == ErrorClass.FAILED) SendOutcome.Error("waiting: the group's key goes first (" + out.message.take(60) + ")") else out
+                }
+                addToLog(listOf(env))
+            }
+            if (sealed.before.isNotEmpty()) g.envelopesOut(sealed.key)
+            val outer = sign(sealed.message) ?: return SendOutcome.Error("timeout: the signer did not answer")
+            signedNow[item.localId] = outer
+            val out = publish(Target.GROUPS, outer, step)
+            if (out is SendOutcome.Ok || (out is SendOutcome.Error && Outbox.classify(out.message) == ErrorClass.DUPLICATE)) {
+                g.sent(outer, sealed.rumor)
+                addToLog(listOf(sealed.rumor.copy(sig = "")))
+            }
+            return out
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return SendOutcome.Error(e.message?.takeIf { it.startsWith("timeout") } ?: "timeout: the signer refused")
+        }
     }
 
     /**
@@ -1899,6 +2061,21 @@ class Session(
         } catch (e: Exception) { null } ?: return@withContext null
         val plain = DmFiles.open(f.tags, got) ?: return@withContext null
         store.putBlob("dmf:$ox", plain)
+        plain
+    }
+
+    /**
+     * SPEC 19.88 (§23): a private group's file, decrypted (null: "This file can't be opened"): downloaded once, checked
+     * (x, GCM, ox) and kept on the device by its ox.
+     */
+    suspend fun sealedMedia(m: sh.belfry.core.model.Media): ByteArray? = withContext(Dispatchers.IO) {
+        val s = m.sealed ?: return@withContext null
+        store.blob("gf:${s.ox}")?.let { return@withContext it }
+        val got = try {
+            if (m.url.startsWith(LOCAL_BLOB)) store.blob(m.url.removePrefix(LOCAL_BLOB)) else fetchCapped(m.url, DmFiles.MAX.toLong() + 1024)
+        } catch (e: Exception) { null } ?: return@withContext null
+        val plain = DmFiles.open(s.tags(), got) ?: return@withContext null
+        store.putBlob("gf:${s.ox}", plain)
         plain
     }
 
@@ -2029,6 +2206,12 @@ class Session(
         guard()
         val d = Buttons.press(m.id, m.pubkey, groupId, button.id)
         val at = enqueueLock.withLock { Outbox.nextCreatedAt(lastCreatedAt, clock()).also { lastCreatedAt = it } }
+        // format 3, a private group (SPEC 19.88, §24): the press encrypted into the group, never in clear
+        if (!localOnly) when (val w = encWriteGroup(groupId, d.kind, d.tags)) {
+            is sh.belfry.core.enc.EncWrite.V3 -> return@withContext pressEncrypted(groupId, m, button, EventTemplate(d.kind, d.content, d.tags + listOf(Actions.CLIENT_TAG), at), w)
+            is sh.belfry.core.enc.EncWrite.Hold -> throw ActionException("not_sent", sh.belfry.core.enc.EncText.held(w, { _world.value.displayName(it) }, group = true))
+            else -> {}
+        }
         val ev = try {
             withTimeout(PUBLISH_TIMEOUT_MS) { signer.sign(EventTemplate(d.kind, d.content, d.tags + listOf(Actions.CLIENT_TAG), at)) }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -2055,6 +2238,55 @@ class Session(
             }
         }
         ev
+    }
+
+    /**
+     * §24 in a private group: the press (TPL) encrypted into the group like any of its events (envelopes first), and for
+     * a `belfry:` button a second rumor as a people-conversation message to the groups key (a service key: its own
+     * device): L belfry/action, l, h, `["e", press, "", "press"]`, `["p", groups key]` only, the button, `["k", kind]`,
+     * the message rumor as its content with no `decryption-key` / `decryption-nonce` in any imeta. The answer comes back
+     * into the group from the groups key; its key is never adopted (a service key's).
+     */
+    private suspend fun pressEncrypted(groupId: String, m: Message, button: MessageButton, tpl: EventTemplate, w: sh.belfry.core.enc.EncWrite.V3): Event {
+        val g = enc3Groups ?: throw ActionException("not_sent", Buttons.NOT_SENT)
+        val e3 = enc3 ?: throw ActionException("not_sent", Buttons.NOT_SENT)
+        val plan = w.plan as? sh.belfry.core.enc.EncPlan.Group ?: throw ActionException("not_sent", Buttons.NOT_SENT)
+        val gk = community.groupsKey ?: groupsKey
+        // the copy is checked first: nothing goes when it can't
+        val copyPlan = if (button.belfry) {
+            if (gk == null) throw ActionException("not_sent", Buttons.NOT_SENT)
+            when (val pw = e3.peopleReady(Enc3.peopleConv(listOf(gk, me), me), listOf(gk))) {
+                is sh.belfry.core.enc.EncWrite.V3 -> pw.plan as? sh.belfry.core.enc.EncPlan.People ?: throw ActionException("not_sent", Buttons.NOT_SENT)
+                is sh.belfry.core.enc.EncWrite.Hold -> throw ActionException("not_sent", sh.belfry.core.enc.EncText.held(pw, { _world.value.displayName(it) }))
+                else -> throw ActionException("not_sent", Buttons.NOT_SENT)
+            }
+        } else null
+        val sealed = try { g.seal(groupId, tpl, plan) } catch (e: sh.belfry.core.enc.EncException) { throw ActionException("not_sent", Buttons.NOT_SENT) }
+        suspend fun signed(t: EventTemplate): Event = try {
+            withTimeout(PUBLISH_TIMEOUT_MS) { signer.sign(t) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (e is kotlinx.coroutines.TimeoutCancellationException) throw ActionException("not_sent", Buttons.NOT_SENT) else throw e
+        } catch (e: Exception) {
+            throw ActionException("not_sent", Buttons.NOT_SENT)
+        }
+        suspend fun out(target: Target, ev: Event) {
+            val o = publish(target, ev)
+            if (o is SendOutcome.Error && Outbox.classify(o.message) != ErrorClass.DUPLICATE) throw ActionException("not_sent", Buttons.NOT_SENT)
+        }
+        for (b in sealed.before) { val env = signed(b); out(Target.GROUPS, env); addToLog(listOf(env)) }
+        if (sealed.before.isNotEmpty()) g.envelopesOut(sealed.key)
+        val outer = signed(sealed.message)
+        out(Target.GROUPS, outer)
+        g.sent(outer, sealed.rumor)
+        val press = sealed.rumor.copy(sig = "")
+        addToLog(listOf(press))
+        if (copyPlan != null && gk != null) {
+            val copy = Buttons.pressCopy(press.id, groupId, button, m.ev, gk, me, tpl.createdAt)
+            val enc = try { e3.encryptPeople(copy, copyPlan, self = false) } catch (e: sh.belfry.core.enc.EncException) { throw ActionException("not_sent", Buttons.NOT_SENT) }
+            for (env in enc.envelopes) { out(Target.MAIN, env); e3.envelopeSent(env.id) }
+            for (x in enc.messages) out(Target.MAIN, x)
+        }
+        return press
     }
 
     /** A reply in the thread under ROOT (a channel message). */
@@ -2109,6 +2341,7 @@ class Session(
 
     /** A new event posted in CHANNEL; returns its coordinate (`world.calEvent(coord)`). */
     suspend fun createEvent(n: NewEvent, channel: String): String {
+        refuseExtras(channel)
         val (coord, drafts) = Actions.createEvent(n, channel, me, community.groupsRelay, community.mainRelay)
         send(drafts)
         return coord
@@ -2120,6 +2353,7 @@ class Session(
 
     /** A new proposal under PARENT; returns its chat's id. */
     suspend fun createProposal(n: NewProposal, parent: String): String {
+        refuseExtras(parent)
         val (id, drafts) = Actions.createProposal(n, parent, me, community.groupsRelay, community.mainRelay, clock())
         send(drafts)
         return id
@@ -2797,6 +3031,10 @@ class Session(
         const val K_GROUPS_MARK = "groups-mark"
         const val K_NAME_DUE = "welcome-name-due"
         const val K_GROUPS_SEEN = "groups-seen"
+        /** SPEC 19.88: an outbox item's error while format 3 holds a group write (`held: enc3:<REASON>[:who]`). */
+        const val HELD_PREFIX = "enc3:"
+        /** SPEC 19.88: private groups whose 8571 / 8572 were read from their start once. */
+        const val K_ENC_GROUPS_SEEN = "enc-groups-seen"
         const val K_ADMINS = "extra-admins"
         const val K_ABSENT = "groups-absent"
         const val K_MAIL_ADDRESSES = "mail-addresses"

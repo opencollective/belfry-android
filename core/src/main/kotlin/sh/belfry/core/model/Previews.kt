@@ -127,12 +127,13 @@ fun World.taskDue(groupId: String, taskId: String): Long? =
  * The channel's feed with its activity previews woven in (no topic: previews show only in the
  * whole feed). A card message whose event or proposal is known becomes its preview.
  */
-fun World.feedRowsWithPreviews(groupId: String, topic: String? = null, openThreads: Set<String> = emptySet()): List<FeedRow> {
+fun World.feedRowsWithPreviews(groupId: String, topic: String? = null, openThreads: Set<String> = emptySet(), extra: List<FeedItem> = emptyList()): List<FeedRow> {
     if (topic != null) return feedRows(groupId, topic, openThreads)
     val pv = previews(groupId).list
-    if (pv.isEmpty()) return feedRows(groupId, topic, openThreads)
+    if (pv.isEmpty() && extra.isEmpty()) return feedRows(groupId, topic, openThreads)
     val cards = pv.mapTo(HashSet()) { it.key }
-    val items = feed(groupId, topic).filter { !(it is FeedItem.Msg && it.m.id in cards) } + pv.map { FeedItem.Preview(it) }
+    // EXTRA: lines the session adds (a private group's joined / removed / can-read lines, SPEC 19.88)
+    val items = feed(groupId, topic).filter { !(it is FeedItem.Msg && it.m.id in cards) } + pv.map { FeedItem.Preview(it) } + extra
     val sorted = items.withIndex().sortedWith(
         compareBy<IndexedValue<FeedItem>> { it.value.at }.thenBy { if (it.value is FeedItem.Msg) 0 else 1 }.thenBy { it.index },
     ).map { it.value }

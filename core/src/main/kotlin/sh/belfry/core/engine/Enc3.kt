@@ -155,7 +155,7 @@ class Enc3(
         return Devices.of(account, b, g, chain(account))
     }
 
-    private fun chainOnly(a: String): Chain? = (devices(a) as? Devices.Listed)?.chain
+    internal fun chainOnly(a: String): Chain? = (devices(a) as? Devices.Listed)?.chain
 
     /** §17.7 / §18.5 for part 5: forks, a newer signed list that isn't valid (both hold), gaps (an older list missing: never blocks). */
     fun warnings(account: String): ListWarnings? = chainOnly(account)?.let { ListWarnings(it.fork, it.invalidAbove, it.gaps) }
@@ -342,6 +342,9 @@ class Enc3(
     fun everEncrypted(conv: String): Boolean = synchronized(keys) { conv in convs }
     fun firstKeyAt(conv: String): Long? = synchronized(keys) { convs[conv] }
 
+    /** SPEC 19.88: the groups ever seen encrypted here (their ids). */
+    fun encGroups(): List<String> = synchronized(keys) { convs.keys.filter { it.startsWith("g:") }.map { it.removePrefix("g:") } }
+
     /** §17.7: an envelope for my account had an entry for KEY, never on my lists (part 3 reports it). */
     fun strangeEntry(key: String) {
         if (!strange.add(key)) return
@@ -465,8 +468,8 @@ class Enc3(
     private val dAsked = ConcurrentHashMap<String, Long>()
     /** New keys were taken (or an alias's state changed): the session reads the messages waiting for them again. */
     @Volatile var onKeys: (() -> Unit)? = null
-    private val secret: ByteArray get() = sh.belfry.core.crypto.Hex.decode(device.secretHex)
-    private fun nowS(): Long = ports.nowMs() / 1000
+    internal val secret: ByteArray get() = sh.belfry.core.crypto.Hex.decode(device.secretHex)
+    internal fun nowS(): Long = ports.nowMs() / 1000
 
     /** Envelopes among EVENTS kept for [takeEnvelopes]; true when one was new. */
     private fun offerEnvelopes(events: List<Event>): Boolean {
@@ -685,7 +688,7 @@ class Enc3(
         replaceKey(k.copy(unconfirmed = k.unconfirmed - id))
     }
 
-    private fun replaceKey(k: ConvKey) {
+    internal fun replaceKey(k: ConvKey) {
         synchronized(keys) { if (k.pub in keys) keys[k.pub] = k else return }
         persist()
     }

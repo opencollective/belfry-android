@@ -89,7 +89,22 @@ data class Group(
     val icon: String get() = when (type) { ChannelType.EVENT -> "📅"; ChannelType.POD -> "⬡"; ChannelType.PROPOSAL -> "📝"; else -> "#" }
 }
 
-data class Media(val url: String, val mime: String, val name: String? = null, val w: Int? = null, val h: Int? = null) {
+/** SPEC 19.88 (§23): what opens a private group's file (AES-256-GCM, as a kind 15's: vectors/dm-files.json). */
+data class SealedMedia(val key: String, val nonce: String, val x: String, val ox: String) {
+    /** As [sh.belfry.core.dm.DmFiles.open] reads them. */
+    fun tags(): List<sh.belfry.core.nostr.Tag> = listOf(
+        listOf("encryption-algorithm", sh.belfry.core.dm.DmFiles.ALGORITHM), listOf("decryption-key", key), listOf("decryption-nonce", nonce), listOf("x", x), listOf("ox", ox),
+    )
+
+    /** §26: opened in the app only as a picture, a video, a recording or a PDF; anything else is handed on as a download. */
+    companion object {
+        fun opensHere(mime: String): Boolean = mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/") || mime == "application/pdf"
+    }
+
+    override fun toString(): String = "SealedMedia($ox)"
+}
+
+data class Media(val url: String, val mime: String, val name: String? = null, val w: Int? = null, val h: Int? = null, val sealed: SealedMedia? = null) {
     /** A picture shown in the message ([Pictures]: by type, else by the URL's extension). */
     val isImage get() = Pictures.isPicture(mime, url) || Pictures.isPicture(mime, name)
 }
@@ -223,6 +238,11 @@ sealed interface FeedItem {
     data class Preview(val p: ActivityPreview) : FeedItem {
         override val at get() = p.at
         override val key get() = p.key
+    }
+    /** A private group in format 3 (SPEC 19.88): who joined, was removed, can read from here or no longer can. */
+    data class EncLine(val line: GroupLine) : FeedItem {
+        override val at get() = line.at
+        override val key get() = "enc:" + line.kind.name + ":" + line.who + ":" + line.at
     }
     /** In an event's chat: someone's answer to the event, at its time ("Lina Moreau is going"; one shape). */
     data class Answer(val pubkey: String, val status: Rsvp, override val at: Long) : FeedItem {

@@ -126,6 +126,23 @@ object Buttons {
         listOf(listOf("L", NS), listOf("l", button, NS), listOf("e", messageId), listOf("p", author), listOf("h", groupId)),
     )
 
+    /**
+     * §24 (SPEC 19.88): the second rumor of a press in a private group, to the groups key GROUPS_KEY as a people
+     * conversation: L belfry/action, l, h, `["e", <press id>, "", "press"]`, `["p", groups key]` only, the button,
+     * `["k", <the message's kind>]`; content = the message rumor MESSAGE as JSON (as opened), with `decryption-key` and
+     * `decryption-nonce` removed from every imeta (the belfry never learns file keys).
+     */
+    fun pressCopy(pressId: String, groupId: String, button: MessageButton, message: Event, groupsKey: String, me: String, at: Long): Event {
+        val trimmed = message.copy(tags = message.tags.map { t ->
+            if (t.isNotEmpty() && t[0] == "imeta") t.filterIndexed { i, p -> i == 0 || !(p.startsWith("decryption-key ") || p.startsWith("decryption-nonce ")) } else t
+        })
+        val tags = listOf(
+            listOf("L", NS), listOf("l", button.id, NS), listOf("h", groupId), listOf("e", pressId, "", "press"), listOf("p", groupsKey),
+            listOf("button", button.id, button.label, button.style, button.action), listOf("k", message.kind.toString()),
+        )
+        return sh.belfry.core.enc.Enc.withId(Event("", me, at, 1985, tags, sh.belfry.core.enc.EncJson.rumorJson(trimmed)))
+    }
+
     /** The button a press names, else null. */
     fun pressedId(e: Event): String? = e.tags.firstOrNull { it.size >= 3 && it[0] == "l" && it[2] == NS }?.get(1)
 

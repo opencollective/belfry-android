@@ -73,12 +73,15 @@ fun CreateSheet(shell: ShellState, onDismiss: () -> Unit) {
         ActionGroup {
             // Navigation v2 (nav2/channel): a message is a new conversation in Messages; a group is the ＋ on GROUPS
             ActionRow("Message", onClick = { onDismiss(); nav.go(Routes.NEW_CONVERSATION) }, icon = Icons.Outlined.ChatBubbleOutline, sub = "To a member, or anyone by e-mail", modifier = Modifier.testTag("create-message"))
+            // §26 (SPEC 19.88): not in a private group yet
+            val noExtras = sh.belfry.app.ui.nav.LocalSession.current.privateNow(channel)
+            val no = sh.belfry.core.model.GroupEncText.NO_EXTRAS
             if (!world.amGuest) {
-                ActionRow("Meeting", onClick = { onDismiss(); nav.go(Routes.createMeeting(channel)) }, icon = BelfryIcons.Users, sub = "A topic, people, a time", modifier = Modifier.testTag("create-meeting"))
+                ActionRow("Meeting", onClick = { onDismiss(); nav.go(Routes.createMeeting(channel)) }, icon = BelfryIcons.Users, sub = if (noExtras) no else "A topic, people, a time", enabled = !noExtras, modifier = Modifier.testTag("create-meeting"))
             }
-            ActionRow("Event", onClick = { onDismiss(); nav.go(Routes.createEvent(channel)) }, icon = BelfryIcons.Calendar, sub = "With tickets, open to members or to all", modifier = Modifier.testTag("create-event"))
+            ActionRow("Event", onClick = { onDismiss(); nav.go(Routes.createEvent(channel)) }, icon = BelfryIcons.Calendar, sub = if (noExtras) no else "With tickets, open to members or to all", enabled = !noExtras, modifier = Modifier.testTag("create-event"))
             ActionRow("To-do", onClick = { todo = true }, icon = MoreIcons.Todo, sub = "Something to get done, on the channel's list", modifier = Modifier.testTag("create-todo"))
-            ActionRow("Proposal", onClick = { onDismiss(); nav.go(Routes.createProposal(channel)) }, icon = BelfryIcons.Proposal, sub = "Discuss it, then vote", modifier = Modifier.testTag("create-proposal"))
+            ActionRow("Proposal", onClick = { onDismiss(); nav.go(Routes.createProposal(channel)) }, icon = BelfryIcons.Proposal, sub = if (noExtras) no else "Discuss it, then vote", enabled = !noExtras, modifier = Modifier.testTag("create-proposal"))
         }
         Spacer(Modifier.height(8.dp))
     }

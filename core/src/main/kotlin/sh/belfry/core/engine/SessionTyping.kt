@@ -166,6 +166,7 @@ internal class SessionTyping(
         if (!canSend()) return false
         val g = place.group
         if (g != null && world().isArchived(g)) return false
+        if (g != null && isSealed("g:$g")) return false // SPEC 19.88: no typing in a private group in format 3
         if (place.conv != null && Typing.recipients(place.conv, me).isEmpty()) return false
         if (place.conv != null && isSealed(place.conv)) return false
         return true

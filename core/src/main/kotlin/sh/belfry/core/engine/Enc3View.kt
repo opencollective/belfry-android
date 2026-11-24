@@ -27,6 +27,20 @@ interface Enc3View {
 
     /** My own sessions (`/me/sessions`): their names. Empty when the belfry can't say. */
     suspend fun sessions(): List<SessionInfo>
+
+    // ---- private groups (SPEC 19.88) ----
+
+    /** H is a private group in format 3 here (the lock in its header, its lines, its rules). */
+    fun groupPrivate(h: String): Boolean = false
+
+    /** "Can't check who can read this": H's newest key's entries don't add up to its set. */
+    fun groupCantCheck(h: String): Boolean = false
+
+    /** H's key changes (who can read from a key on, who no longer can), among CANDIDATES. */
+    fun groupChanges(h: String, candidates: Collection<String>): List<KeyChange> = emptyList()
+
+    /** H's messages waiting here: opening, and with no entry for this device. */
+    fun groupWaiting(h: String): Pair<Int, Int> = 0 to 0
 }
 
 /** My current list: DEVICES (this one is HERE), READERS (my agent), ADDED = when each first appeared on my lists. */
@@ -114,7 +128,17 @@ object WhoText {
 }
 
 /** The real view over this session's [Enc3] (null in the demo and for a guest's session). */
-internal class RealEnc3View(private val e: Enc3, private val format: () -> Boolean, private val mySessions: suspend () -> List<SessionInfo>) : Enc3View {
+internal class RealEnc3View(
+    private val e: Enc3,
+    private val format: () -> Boolean,
+    private val mySessions: suspend () -> List<SessionInfo>,
+    private val groups: () -> Enc3Groups? = { null },
+    private val privateNow: (String) -> Boolean = { false },
+) : Enc3View {
+    override fun groupPrivate(h: String): Boolean = groups() != null && privateNow(h)
+    override fun groupCantCheck(h: String): Boolean = groups()?.cantCheck(h) == true
+    override fun groupChanges(h: String, candidates: Collection<String>): List<KeyChange> = groups()?.keyChanges(h, candidates) ?: emptyList()
+    override fun groupWaiting(h: String): Pair<Int, Int> = groups()?.waiting(h) ?: (0 to 0)
     override val format3: Boolean get() = format()
     override fun encrypted(conv: String): Boolean = e.everEncrypted(conv)
     override fun firstKeyAt(conv: String): Long? = e.firstKeyAt(conv)
@@ -143,7 +167,16 @@ class DemoEnc3View(
     val myDevices: MyDevices? = null,
     val mySessions: List<SessionInfo> = emptyList(),
     override val format3: Boolean = true,
+    /** SPEC 19.88: private groups drawn as format 3, the ones that can't be checked, their key changes and waits. */
+    val privateGroups: Set<String> = emptySet(),
+    val cantCheck: Set<String> = emptySet(),
+    val changes: Map<String, List<KeyChange>> = emptyMap(),
+    val waiting: Map<String, Pair<Int, Int>> = emptyMap(),
 ) : Enc3View {
+    override fun groupPrivate(h: String): Boolean = h in privateGroups
+    override fun groupCantCheck(h: String): Boolean = h in cantCheck
+    override fun groupChanges(h: String, candidates: Collection<String>): List<KeyChange> = changes[h].orEmpty()
+    override fun groupWaiting(h: String): Pair<Int, Int> = waiting[h] ?: (0 to 0)
     override fun encrypted(conv: String): Boolean = conv in encryptedConvs
     override fun firstKeyAt(conv: String): Long? = encryptedConvs[conv]
     override fun count(account: String): Int? = counts[account]
