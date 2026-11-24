@@ -105,7 +105,8 @@ internal fun ColumnScope.GroupWhoBody(groupId: String) {
     var sessions by remember { mutableStateOf<List<SessionInfo>>(emptyList()) }
     LaunchedEffect(Unit) { sessions = view.sessions() }
     val g = world.group(groupId)
-    val members = g?.members.orEmpty()
+    // the belfry's own keys (the groups key posts e-mail and answers here) are senders, not people of the group
+    val members = g?.members.orEmpty() - setOfNotNull(world.ctx.groupsKey, world.ctx.belfryKey)
     val others = members.filter { it != world.me }.sortedBy { world.displayName(it).lowercase() }.map { GroupMember(it, view.count(it)) }
     val who = GroupWho(
         name = g?.name ?: "", people = (members + world.me).size, cant = view.groupCantCheck(groupId),

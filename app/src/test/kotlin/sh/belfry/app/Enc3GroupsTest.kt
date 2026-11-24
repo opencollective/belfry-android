@@ -162,6 +162,15 @@ class Enc3GroupsTest : DemoShots() {
         assertEquals(sh.belfry.core.preview.PreviewMode.PLAIN, session.previewModeForGroup(Demo.GENERAL))
     }
 
+    @Test fun theGroupsKeyIsNoPersonInWhoCanReadThis() {
+        Enc3GroupsFixture.install(session)
+        Enc3GroupsFixture.mail(session)
+        show { ChannelScreen(g, onMenu = {}) }
+        compose.onNodeWithContentDescription(GroupEncText.LOCK).performClick()
+        waitForText("Only the devices of these 4 people can read Surprise party.")
+        assertEquals(2, count("enc3-group-other"))
+    }
+
     @Test fun messagesWaitingHereSayOpeningAndCantBeReadWithAsk() {
         Enc3GroupsFixture.install(session, waiting = 2 to 1)
         Enc3GroupsFixture.talk(session)
