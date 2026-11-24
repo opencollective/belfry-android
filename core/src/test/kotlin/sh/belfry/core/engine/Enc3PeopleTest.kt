@@ -560,6 +560,16 @@ class Enc3PeopleTest {
         assertEquals(0, a.signer.calls)
     }
 
+    @Test fun theBelfryKeyIsAPersonOfAMailOnlyWhenItGoesAsFormat3() = runBlocking<Unit> {
+        // the lead's review of P3: a mail that goes the version-1 way keeps today's tags exactly
+        val (a, _) = devices(listOf(aliceList))
+        assertEquals(listOf(listOf("p", belfry)), a.dm.belfryPerson(), "format 3: one more person")
+        a.format = 1
+        assertEquals(emptyList(), a.dm.belfryPerson(), "format 1: today's tags")
+        a.format = null
+        assertEquals(emptyList(), a.dm.belfryPerson(), "format never seen: today's tags")
+    }
+
     @Test fun mailInIsOpenedAndItsKeyNeverSentWith() = runBlocking<Unit> {
         val (a, _) = devices(listOf(aliceList))
         // the belfry key, as a sender (service: its own device), makes a key for {belfry, Alice}

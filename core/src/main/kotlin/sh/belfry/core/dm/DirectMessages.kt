@@ -1078,7 +1078,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         // format 3 first (SPEC 19.82 / 19.83): the session's decision; V1 = the ways below, exactly as before
         if (!host.localOnly && conv != null) {
             when (val w = host.encWrite(decisionConv(rumor, conv))) {
-                EncWrite.V1 -> {}
+                EncWrite.V1 -> if (namesBelfry(rumor)) throw DmException("This e-mail was prepared for encrypted sending. Write it again.")
                 EncWrite.Clear -> { oldWay(rumor, to, self); return true } // no lock: never encrypted, a guest or over 100 devices
                 is EncWrite.Hold -> {
                     // a reaction or a take-back has no bubble to wait in: not sent, said at once
@@ -1217,7 +1217,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             if (!host.localOnly) {
                 val w = try { host.encWrite(decisionConv(h.rumor, h.conv)) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { continue }
                 when (w) {
-                    EncWrite.V1 -> {}
+                    EncWrite.V1 -> if (namesBelfry(h.rumor)) { update(rid) { it.copy(heldWhy = null, failed = "This e-mail was prepared for encrypted sending. Write it again.") }; synchronized(lock) { held.remove(rid) }; continue }
                     EncWrite.Clear -> {
                         try { oldWay(h.rumor, h.to, h.self) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { continue }
                         synchronized(lock) { held.remove(rid) }
@@ -1420,13 +1420,23 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
 
     /**
      * E-mail out on format 3 (SPEC 19.83; §10): the belfry key is one more person of that one message (`["p", belfry]`, so
-     * the rumor's people are the key's). Added whenever this device doesn't know the belfry as format 1 (a held mail may
-     * go on 3); a version-1 mail with it goes to the bridge as before (the bridge reads `rcpt-to`).
+     * the rumor's people are the key's). Added ONLY when the mail will be written as format 3 (the lead's review of P3):
+     * the write decision for mail says V3, or holds on a device that knows the belfry as format 3 (a held mail can then
+     * only go as format 3: §17.13, one way). A mail that goes the version-1 way keeps today's tags exactly; [deliver]
+     * refuses a version-1 mail that carries the belfry key (never sent to the bridge with an extra `p`).
      */
-    private fun belfryPerson(): List<List<String>> {
+    internal suspend fun belfryPerson(): List<List<String>> {
         if (host.localOnly) return emptyList()
         val b = host.belfryKey() ?: return emptyList()
-        return if (host.enc3 != null && host.format3Since() != null) listOf(listOf("p", b)) else emptyList()
+        if (host.enc3 == null || host.format3Since() == null) return emptyList()
+        val w = try { host.encWrite("m:") } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { return emptyList() }
+        return if (w is EncWrite.V3 || w is EncWrite.Hold) listOf(listOf("p", b)) else emptyList()
+    }
+
+    /** A mail rumor that names the belfry key as a person (format 3 only). */
+    private fun namesBelfry(rumor: Event): Boolean {
+        val b = host.belfryKey() ?: return false
+        return rumor.kind == 1301 && rumor.tags.any { it.size >= 2 && it[0] == "p" && it[1] == b }
     }
 
     @Volatile private var lastAt = 0L
