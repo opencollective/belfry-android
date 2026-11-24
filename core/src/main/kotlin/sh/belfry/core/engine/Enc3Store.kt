@@ -31,7 +31,7 @@ class EncFormatCache(private val vault: Vault?, domain: String) {
         memory[name]?.let { return it } // no vault, or the vault refused the last write
         val o = parseJsonOrNull(vault?.get(name) ?: return EncFormatState()) as? JsonObject ?: return EncFormatState()
         val f = o["format"].long()?.toInt()?.takeIf { it == 1 || it == 3 }
-        return EncFormatState(f, (o["seen"] as? JsonPrimitive)?.content == "true", o["read_at"].long() ?: 0)
+        return EncFormatState(f, (o["seen"] as? JsonPrimitive)?.content == "true", o["read_at"].long() ?: 0, o["since3"].long() ?: 0)
     }
 
     /** A successful read of belfry.json said DOC (`Community.encrypted`) at NOW. Returns the state after it. */
@@ -52,6 +52,7 @@ class EncFormatCache(private val vault: Vault?, domain: String) {
                 s.format?.let { put("format", JsonPrimitive(it)) }
                 put("seen", JsonPrimitive(s.seen))
                 put("read_at", JsonPrimitive(s.readAt))
+                if (s.since3 > 0) put("since3", JsonPrimitive(s.since3))
             }.toString())
         } catch (e: Exception) { /* the Keystore said no: this run only (a 3 stays a 3 in memory below) */ memory[name] = s }
     }
@@ -79,6 +80,13 @@ data class ConvKey(
     val group: Boolean = false,
     val lists: String = "",
     val people: List<String> = emptyList(),
+    /**
+     * SPEC 19.83: a key this device made whose envelopes the outbox hasn't confirmed out yet (their event ids). A
+     * message under it waits until they are; one that isn't queued any more is made again from [made] (same K).
+     */
+    val unconfirmed: List<String> = emptyList(),
+    /** What makes this key's envelopes again with fresh dates (a key this device made): its rumor and receivers. */
+    val made: MadeKey? = null,
 ) {
     fun held(): HeldKey = HeldKey(pub, secret, conv, mine, lists, at, group, service)
 
@@ -92,6 +100,11 @@ data class ConvKey(
         if (group) put("group", JsonPrimitive(true))
         put("lists", JsonPrimitive(lists))
         if (people.isNotEmpty()) put("people", buildJsonArray { people.forEach { add(JsonPrimitive(it)) } })
+        if (unconfirmed.isNotEmpty()) put("unconfirmed", buildJsonArray { unconfirmed.forEach { add(JsonPrimitive(it)) } })
+        if (made != null) put("made", buildJsonObject {
+            put("rumor", made.rumor.toJson())
+            put("per", buildJsonArray { made.per.forEach { p -> add(buildJsonObject { put("account", JsonPrimitive(p.account)); put("devices", buildJsonArray { p.devices.forEach { add(JsonPrimitive(it)) } }) }) } })
+        })
     }
 
     internal companion object {
@@ -100,10 +113,21 @@ data class ConvKey(
             val k = o.s("k")?.takeIf(Hex::isKey) ?: return null
             val conv = o.s("conv")?.takeIf { it.isNotEmpty() } ?: return null
             fun b(n: String) = (o[n] as? JsonPrimitive)?.content == "true"
+            val made = o["made"].obj()?.let { m ->
+                val r = m["rumor"].obj()?.let { sh.belfry.core.nostr.Event.fromJson(it) } ?: return@let null
+                val per = m["per"].arr()?.mapNotNull { el -> el.obj()?.let { p -> p.s("account")?.takeIf(Hex::isKey)?.let { a -> sh.belfry.core.enc.EnvelopeFor(a, p["devices"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList()) } } } ?: return@let null
+                MadeKey(r, per)
+            }
             return ConvKey(K, k, conv, o.s("maker") ?: "", o["at"].long() ?: 0, b("mine"), b("service"), b("group"), o.s("lists") ?: "",
-                o["people"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList())
+                o["people"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(),
+                o["unconfirmed"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(), made)
         }
     }
+}
+
+/** A key's rumor (it holds k: kept only in the vault) and who gets an entry: its envelopes made again (SPEC 19.83). */
+data class MadeKey(val rumor: sh.belfry.core.nostr.Event, val per: List<sh.belfry.core.enc.EnvelopeFor>) {
+    override fun toString(): String = "MadeKey(${per.size} people)"
 }
 
 /**

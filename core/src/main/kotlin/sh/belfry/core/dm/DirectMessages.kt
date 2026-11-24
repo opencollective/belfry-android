@@ -12,6 +12,13 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import sh.belfry.core.crypto.B64
 import sh.belfry.core.crypto.Hex
+import sh.belfry.core.enc.Devices
+import sh.belfry.core.enc.Enc
+import sh.belfry.core.enc.EncPlan
+import sh.belfry.core.enc.EncRules
+import sh.belfry.core.enc.EncText
+import sh.belfry.core.enc.EncWrite
+import sh.belfry.core.engine.Enc3
 import sh.belfry.core.read.ReadState
 import sh.belfry.core.mail.KnownMail
 import sh.belfry.core.mail.MailPart
@@ -104,6 +111,16 @@ data class Dm(
     val group: String? = null,
     /** A reply (docs/one-shape.md 3): the rumor id of the message whose thread it is in. */
     val root: String? = null,
+    /** Format 3 (SPEC 19.83): opened from a kind 8572, or sent as one. */
+    val enc: Boolean = false,
+    /** Format 3 (§17.2): came unencrypted after its conversation's first key: shown "Not encrypted", never acting. */
+    val clear: Boolean = false,
+    /** Came unencrypted the old way (NIP-17 or NIP-04): judged again when a key of its conversation arrives (§17.2). */
+    val plain: Boolean = false,
+    /** Format 3 (§9): a placeholder for an 8572 whose key is here but that can't be opened yet ("Opening this message…"). */
+    val opening: Boolean = false,
+    /** Format 3 (§17.5): people of the conversation with no device, who won't get this message of mine. */
+    val notTo: List<String> = emptyList(),
 ) {
     val isMail: Boolean get() = kind == 1301
     val isFile: Boolean get() = kind == DmFiles.KIND
@@ -141,6 +158,11 @@ data class Dm(
         if (file != null) put("file", file.toJson())
         if (group != null) put("group", JsonPrimitive(group))
         if (root != null) put("root", JsonPrimitive(root))
+        if (enc) put("enc", JsonPrimitive(true))
+        if (clear) put("clear", JsonPrimitive(true))
+        if (plain) put("plain", JsonPrimitive(true))
+        if (opening) put("opening", JsonPrimitive(true))
+        if (notTo.isNotEmpty()) put("notTo", JsonArray(notTo.map { JsonPrimitive(it) }))
     }
 
     companion object {
@@ -174,6 +196,11 @@ data class Dm(
                 file = o["file"].obj()?.let(DmFileRef::fromJson),
                 group = o.s("group"),
                 root = o.s("root"),
+                enc = o["enc"].bool() ?: false,
+                clear = o["clear"].bool() ?: false,
+                plain = o["plain"].bool() ?: false,
+                opening = o["opening"].bool() ?: false,
+                notTo = o["notTo"].arr()?.mapNotNull { it.str() } ?: emptyList(),
             )
         }
     }
@@ -226,24 +253,25 @@ data class DmFileRef(val url: String, val tags: List<List<String>>, val localBlo
  * `["k", "14"]`; taking it back = a wrapped kind 5 rumor naming it (`e`, `["k","7"]`). Readers key
  * on `e`, one per person per emoji. Never on e-mail threads.
  */
-data class DmReaction(val rid: String, val target: String, val from: String, val emoji: String, val at: Long) {
+data class DmReaction(val rid: String, val target: String, val from: String, val emoji: String, val at: Long, val plain: Boolean = false) {
     fun toJson(): JsonObject = buildJsonObject {
         put("rid", JsonPrimitive(rid)); put("target", JsonPrimitive(target)); put("from", JsonPrimitive(from))
         put("emoji", JsonPrimitive(emoji)); put("at", JsonPrimitive(at))
+        if (plain) put("plain", JsonPrimitive(true))
     }
 
     companion object {
         fun fromJson(o: JsonObject): DmReaction? {
-            return DmReaction(o.s("rid") ?: return null, o.s("target") ?: return null, o.s("from") ?: return null, o.s("emoji") ?: return null, o["at"].long() ?: 0)
+            return DmReaction(o.s("rid") ?: return null, o.s("target") ?: return null, o.s("from") ?: return null, o.s("emoji") ?: return null, o["at"].long() ?: 0, o["plain"].bool() ?: false)
         }
 
         /**
          * Reads a kind 7 (a reaction) or kind 5 (one taken back: only by its author) rumor into
          * REACTS (by reaction id) and GONE (taken back: id → author; a kind 5 may come first).
          */
-        fun apply(reacts: MutableMap<String, DmReaction>, gone: MutableMap<String, String>, r: Event) {
+        fun apply(reacts: MutableMap<String, DmReaction>, gone: MutableMap<String, String>, r: Event, plain: Boolean = false) {
             if (r.kind == 7) {
-                val x = of(r) ?: return
+                val x = (of(r) ?: return).copy(plain = plain)
                 if (gone[x.rid] == x.from) return
                 reacts[x.rid] = x
                 return
@@ -297,6 +325,10 @@ class DmSnapshot(
      * not here): no conversation shows them, so Messages says how many are waiting and their push stays.
      */
     val lockedCount: Int = 0,
+    /** Format 3 (§9): messages for me whose key isn't here yet (fetching, or offline): "Opening". */
+    val openingCount: Int = 0,
+    /** Format 3 (§9): messages for me whose envelopes have no copy for this device: "Can't be read on this device". */
+    val unreadableCount: Int = 0,
 ) {
     private val reactsByTarget: Map<String, List<DmReaction>> by lazy { reactions.groupBy { it.target } }
 
@@ -395,11 +427,12 @@ class DmSnapshot(
     }
 
     /** The line under a message of mine that is not out, or an e-mail's delivery state; null = nothing to say. */
-    fun stateLine(d: Dm): String? {
+    fun stateLine(d: Dm, name: (String) -> String = { "They" }): String? {
         if (!d.mine) return null
         if (d.failed != null) return "Not sent: ${d.failed}"
         val held = d.heldSince
         if (held != null) return when {
+            enc3Hold(d) != null -> sh.belfry.core.enc.EncText.held(enc3Hold(d)!!, name) // format 3's held words (SPEC 19.83)
             d.heldWhy == "too_long" -> HELD_TOO_LONG
             d.heldWhy == DirectMessages.LOCKED -> sh.belfry.core.model.SealedText.WRITE_LATER
             d.heldWhy == DirectMessages.NOTES_CHAIN -> "Sending…" // a note waiting for my chain (SPEC 19.66)
@@ -423,6 +456,16 @@ class DmSnapshot(
         const val HELD_LONG = "Not sent yet: this device can't reach the belfry to check how to lock it."
         const val HELD_TOO_LONG = "Not sent: the message is too long to lock. Shorten it and send again."
         fun heldDevice(name: String) = "Not sent yet: $name's new device isn't ready."
+
+        /** [Dm.heldWhy] of a message format 3 holds: `enc3:<reason>[:<who>]` (SPEC 19.83). */
+        fun enc3Why(h: sh.belfry.core.enc.EncWrite.Hold): String = "enc3:" + h.reason.name + (h.who?.let { ":$it" } ?: "")
+
+        /** The hold of a message format 3 holds, or null. */
+        fun enc3Hold(d: Dm): sh.belfry.core.enc.EncWrite.Hold? {
+            val w = d.heldWhy?.takeIf { it.startsWith("enc3:") }?.split(":") ?: return null
+            val r = sh.belfry.core.enc.HoldReason.entries.firstOrNull { it.name == w.getOrNull(1) } ?: return null
+            return sh.belfry.core.enc.EncWrite.Hold(r, w.getOrNull(2)?.takeIf { it.isNotEmpty() })
+        }
         fun empty(me: String = ""): DmSnapshot = DmSnapshot(emptyList(), emptyMap(), ReadState.EMPTY, me)
     }
 }
@@ -473,6 +516,18 @@ interface DmHost {
     suspend fun uploadSealed(bytes: ByteArray, progress: (Long, Long) -> Unit): String = throw java.io.IOException("upload failed (no storage)")
     /** The send trace: the message's id changed (a file's local id → its rumor's). */
     fun renamed(from: String, to: String) {}
+
+    // ---- format 3 (SPEC 19.83) ----
+    /** Format 3 on this device (null: the demo, a guest's session, no device key). */
+    val enc3: sh.belfry.core.engine.Enc3? get() = null
+    /** What a write in CONV (`n:…`, or `m:` for e-mail out) does now: the session's decision (SPEC 19.82). V1: as before. */
+    suspend fun encWrite(conv: String): sh.belfry.core.enc.EncWrite = sh.belfry.core.enc.EncWrite.V1
+    /** Queues a people 8572 of message RID under key K (it waits for K's envelopes: [sh.belfry.core.engine.Enc3.unconfirmed]). */
+    suspend fun enqueueEnc(event: Event, dm: String, key: String): String = enqueueSigned(Target.MAIN, event, dm)
+    /** Takes an item out of the outbox (a format-3 copy rebuilt with fresh dates). */
+    suspend fun dropOutbox(localId: String) {}
+    /** Since when (seconds) this device knows the belfry as format 3; null: it doesn't. */
+    fun format3Since(): Long? = null
 }
 
 /** A file picked to send in a direct message. */
@@ -604,6 +659,41 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private val sealedRumors = LinkedHashMap<String, Event>()
 
     private class Held(val rumor: Event, val to: List<String>, val self: Boolean, val conv: String)
+
+    /**
+     * Format 3 (SPEC 19.83): 8572s for me judged again later (their key or the author's lists not here yet; never marked
+     * seen on that), by id, kept across restarts (catch-up is ordinary since, §17.11), at most [MAX_KEPT3]; and what
+     * each one shows meanwhile: [K3_OPENING] (no key here yet), [K3_UNREADABLE] (no copy for this device), [K3_PLACED]
+     * (its key is here: a placeholder in its conversation).
+     */
+    private val kept3 = LinkedHashMap<String, Event>()
+    private val kept3State = HashMap<String, Int>()
+    private var kept3Written: List<String>? = null
+    /** Format 3: my messages on their way (rid → what makes their copies again with fresh dates), until every copy is out. */
+    private val encOut = LinkedHashMap<String, Held>()
+    /** Format 3: the key K a message's copies are under (files: their copies are queued by the session). */
+    private val encKeys = java.util.concurrent.ConcurrentHashMap<String, String>()
+    /** How often a message's copies were made again after a refusal in this run (once by itself; Retry always). */
+    private val rebuilt = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    private fun capKept3() {
+        val over = kept3.size - MAX_KEPT3
+        if (over > 0) kept3.keys.take(over).forEach { kept3.remove(it); kept3State.remove(it); items.remove("p:$it") }
+    }
+
+    private fun heldJson(m: Map<String, Held>): String = buildJsonObject {
+        for ((rid, h) in m) put(rid, buildJsonObject {
+            put("rumor", h.rumor.toJson()); put("to", JsonArray(h.to.map { JsonPrimitive(it) })); put("self", JsonPrimitive(h.self)); put("conv", JsonPrimitive(h.conv))
+        })
+    }.toString()
+
+    private fun heldFrom(json: String?, into: MutableMap<String, Held>) {
+        parseJsonOrNull(json ?: "").obj()?.forEach { (rid, v) ->
+            val o = v.obj() ?: return@forEach
+            val r = o["rumor"].obj()?.let { Event.fromJson(it) } ?: return@forEach
+            into[rid] = Held(r, o["to"].arr()?.mapNotNull { it.str() } ?: emptyList(), o["self"].bool() ?: true, o.s("conv") ?: return@forEach)
+        }
+    }
     private class QueuedSeal(val rumor: Event, val recipient: String, val lb: String)
 
     private val _snapshot = MutableStateFlow(DmSnapshot.empty(host.me))
@@ -642,7 +732,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         parseJsonOrNull(store.get(K_SEALED_RUMORS) ?: "").arr()?.forEach { el -> el.obj()?.let { Event.fromJson(it) }?.let { sealedRumors[it.id] = it } }
         parseJsonOrNull(store.get(K_LOCKED) ?: "").obj()?.forEach { (id, v) -> v.long()?.let { locked[id] = it } }
         capLocked()
+        parseJsonOrNull(store.get(K_KEPT3) ?: "").arr()?.forEach { el -> el.obj()?.let { Event.fromJson(it) }?.let { kept3[it.id] = it } }
+        heldFrom(store.get(K_ENCOUT), encOut)
         backlog.addAll(kept.values) // tried again at each start
+        backlog.addAll(kept3.values)
         // a message marked pending whose wraps are gone from the outbox is out
         val waiting = host.outbox().mapNotNull { it.dm }.toSet()
         for ((rid, d) in items.toList()) if (d.pending && rid !in waiting) items[rid] = d.copy(pending = false)
@@ -663,6 +756,9 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 val lockedIds = locked.keys.toList()
                 if (lockedIds != lockedWritten) { store.set(K_LOCKED, buildJsonObject { for ((id, t) in locked) put(id, JsonPrimitive(t)) }.toString()); lockedWritten = lockedIds }
                 store.set(K_SEALED_RUMORS, JsonArray(sealedRumors.values.map { it.toJson() }).toString())
+                val kept3Ids = kept3.keys.toList()
+                if (kept3Ids != kept3Written) { store.set(K_KEPT3, JsonArray(kept3.values.map { it.toJson() }).toString()); kept3Written = kept3Ids }
+                store.set(K_ENCOUT, heldJson(encOut))
                 store.set(K_REFUSED, buildJsonObject {
                     for ((rid, h) in refused) put(rid, buildJsonObject {
                         put("rumor", h.rumor.toJson()); put("to", JsonArray(h.to.map { JsonPrimitive(it) })); put("self", JsonPrimitive(h.self)); put("conv", JsonPrimitive(h.conv))
@@ -677,7 +773,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                     for ((wid, q) in sealQ) put(wid, buildJsonObject { put("rumor", q.rumor.toJson()); put("to", JsonPrimitive(q.recipient)); put("lb", JsonPrimitive(q.lb)) })
                 }.toString())
             }
-            DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now(), reacts.values.toList(), locked.size)
+            DmSnapshot(items.values.toList(), HashMap(reports), readState, host.me, host.now(), reacts.values.toList(), locked.size,
+                openingCount = kept3State.values.count { it == K3_OPENING }, unreadableCount = kept3State.values.count { it == K3_UNREADABLE })
         }
         _snapshot.value = snap
     }
@@ -692,6 +789,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 if (e.id in seen) continue
                 val mine = when (e.kind) {
                     1059 -> e.hasTag("p", me)
+                    Enc.MSG -> e.hasTag("p", me) && e.tags.none { it.isNotEmpty() && it[0] == "h" } // format 3, people (SPEC 19.83)
                     4 -> e.pubkey == me || e.hasTag("p", me)
                     else -> false
                 }
@@ -702,12 +800,19 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
 
     /** Decrypts what is waiting. Stops when the signer does not answer (the rest waits for the next call). */
     suspend fun process() = busy.withLock {
+        // format 3: what waits for its key or the author's lists is judged again at each pass (cheap: a lookup)
+        synchronized(lock) { for (w in kept3.values) if (backlog.none { it.id == w.id }) backlog.add(w) }
         val todo = synchronized(lock) { backlog.sortedByDescending { it.createdAt } }
         // held messages and wraps the engine accepted later are looked at even when nothing new came
         if (todo.isEmpty() && synchronized(lock) { held.isEmpty() } && host.sealed?.later.isNullOrEmpty()) return@withLock
         var changed = false
         val eng = host.sealed
         for (e in todo) {
+            if (e.kind == Enc.MSG) {
+                takeEnc3(e)
+                changed = true
+                continue
+            }
             if (e.kind == 1059 && sh.belfry.core.sealed.Sealing.isSealed(e)) {
                 // sealed (§4): never the signer; kept until the engine can open and accept it
                 if (eng == null) continue
@@ -765,14 +870,82 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
                 DmReader.convOf(r, host.me, host.bridgeKey()).let { eng.markSealed(it) } // its conversation is sealed too
                 changed = true
             }
-            if (held.isNotEmpty()) { retryHeld(); changed = true }
             eng.flushState() // once per pass, not per wrap
         }
+        if (synchronized(lock) { held.isNotEmpty() }) { retryHeld(); changed = true }
+        if (rejudgeClear()) changed = true
         if (changed) {
             rethread()
             publish()
         }
     }
+
+    /**
+     * A people 8572 for me (SPEC 19.83; §6, §9): opened and accepted by format 3, its rumor handed on exactly as an opened
+     * sealed rumor is (14, 15, 1301 as messages; 7 and 5 as reactions; nothing else); kept and judged again on a wait
+     * (never marked seen), dropped on a refusal. Without a format-3 runtime here (a guest's session) it is left alone.
+     */
+    private suspend fun takeEnc3(e: Event) {
+        val e3 = host.enc3
+        if (e3 == null) { synchronized(lock) { backlog.removeAll { it.id == e.id } }; return }
+        val got = try { e3.open(e) } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { Enc3.Opened3.Wait(false, null) }
+        when (got) {
+            is Enc3.Opened3.Ok -> {
+                try { takeEnc3Rumor(got.rumor) } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
+                synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept3.remove(e.id); kept3State.remove(e.id); items.remove("p:" + e.id) }
+            }
+            is Enc3.Opened3.Wait -> synchronized(lock) {
+                backlog.removeAll { it.id == e.id }
+                kept3[e.id] = e
+                kept3State[e.id] = when { got.unreadable -> K3_UNREADABLE; got.conv != null -> K3_PLACED; else -> K3_OPENING }
+                // its conversation is known (its key is here): "Opening this message…" there until it opens
+                if (got.conv != null && "p:" + e.id !in items) items["p:" + e.id] = Dm("p:" + e.id, got.conv, "", false, e.createdAt, 14, "", opening = true)
+                capKept3()
+            }
+            Enc3.Opened3.Drop -> synchronized(lock) { seen.add(e.id); backlog.removeAll { it.id == e.id }; kept3.remove(e.id); kept3State.remove(e.id); items.remove("p:" + e.id) }
+        }
+    }
+
+    private suspend fun takeEnc3Rumor(rumor: Event) {
+        if (rumor.kind == 7 || rumor.kind == 5) { synchronized(lock) { reactionRumor(rumor) }; return }
+        if (rumor.kind != 14 && rumor.kind != DmFiles.KIND && rumor.kind != 1301) return
+        // e-mail in (§10): the belfry key is the sender (service); its mail is placed like the bridge's
+        val b = host.belfryKey()
+        val bridge = if (b != null && rumor.kind == 1301 && rumor.pubkey == b) b else host.bridgeKey()
+        val d = readRumor(rumor, bridge)?.copy(enc = true) ?: return
+        synchronized(lock) {
+            val old = items[d.rid]
+            items[d.rid] = d.copy(mine = d.mine || old?.mine == true, pending = old?.pending ?: false, failed = old?.failed, notTo = old?.notTo ?: emptyList(),
+                heldSince = old?.heldSince, heldWhy = old?.heldWhy)
+        }
+    }
+
+    /**
+     * §17.2: messages that came unencrypted, dated after the first key of their conversation known here, are marked
+     * "Not encrypted"; unencrypted reactions there stop counting. Run at each pass (keys may have arrived). True: changed.
+     */
+    private fun rejudgeClear(): Boolean {
+        val e3 = host.enc3 ?: return false
+        var changed = false
+        synchronized(lock) {
+            for ((rid, d) in items.toList()) if (d.plain && !d.clear && !d.isMail && EncRules.clearAfterKey(e3.firstKeyAt(d.conv), d.at)) { items[rid] = d.copy(clear = true); changed = true }
+            for ((id, r) in reacts.toList()) {
+                if (!r.plain) continue
+                val t = items[r.target] ?: continue
+                if (EncRules.clearAfterKey(e3.firstKeyAt(t.conv), r.at)) { reacts.remove(id); changed = true }
+            }
+        }
+        return changed
+    }
+
+    /** Format 3: keys arrived (an envelope, a pack): clear ones judged again, and what waited for them read again. */
+    suspend fun keysArrived() {
+        if (rejudgeClear()) publish()
+        process()
+    }
+
+    /** Messages held on this device (format 3 tries them again when lists change). */
+    fun hasHeld(): Boolean = synchronized(lock) { held.isNotEmpty() }
 
     /** A sealed rumor the engine accepted: a message, a reaction, or a shared history (§8). */
     private suspend fun takeSealed(rumor: Event, sealPubkey: String?) {
@@ -829,36 +1002,44 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     private suspend fun readWrap(wrap: Event): Dm? {
         val opened = GiftWrap.unwrap(wrap, host.signer) ?: return null
         val rumor = opened.rumor
+        val conv = DmReader.convOf(rumor, host.me, host.bridgeKey())
+        // format 3 (SPEC 19.83): on a belfry this device knows as format 3, an account with a device list writes format
+        // 3; its plain NIP-17 dated from then on is dropped (older history stays readable, §12)
+        val since3 = host.format3Since()
+        if (since3 != null && rumor.createdAt >= since3 && host.enc3?.devices(rumor.pubkey) is Devices.Listed) return null
         // an old-style rumor in a conversation this device saw sealed (§6, 294c94f (8))
-        val since = host.sealed?.sealedSince?.get(DmReader.convOf(rumor, host.me, host.bridgeKey()))
+        val since = host.sealed?.sealedSince?.get(conv)
         val late = since != null && rumor.createdAt > since
+        // §17.2: after its conversation's first key, an unencrypted event never acts and shows "Not encrypted"
+        val clear = rumor.kind != 1301 && EncRules.clearAfterKey(host.enc3?.firstKeyAt(conv), rumor.createdAt)
         if (rumor.kind == 7 || rumor.kind == 5) {
-            if (!late) synchronized(lock) { reactionRumor(rumor) } // after sealing: ignored
+            if (!late && !clear) synchronized(lock) { reactionRumor(rumor, plain = true) } // after sealing or a key: ignored
             return null
         }
         if (synchronized(lock) { rumor.id in items }) return null // never replaces a message held here
         val d = readRumor(rumor) ?: return null
-        return if (late && d.kind == 14) d.copy(notSealed = true) else d
+        return d.copy(plain = true, clear = clear, notSealed = late && d.kind == 14)
     }
 
-    private suspend fun readRumor(rumor: Event): Dm? {
+    private suspend fun readRumor(rumor: Event, bridge: String? = host.bridgeKey()): Dm? {
         var raw: String? = rumor.content
         val x = rumor.tag("x")
         if (rumor.kind == 1301 && rumor.content.isEmpty() && !x.isNullOrEmpty()) {
             val l = LargeMail(rumor.tag("url") ?: "${host.blossom}/$x", rumor.tag("decryption-key") ?: "", rumor.tag("decryption-nonce") ?: "")
             raw = try { DmReader.decryptLarge(host.fetchBytes(l.url), l) } catch (e: Exception) { null }
         }
-        return DmReader.fromRumor(rumor, host.me, host.bridgeKey(), host.blossom, known(), raw)
+        return DmReader.fromRumor(rumor, host.me, bridge, host.blossom, known(), raw)
     }
 
     /** Holds the lock. */
-    private fun reactionRumor(r: Event) = DmReaction.apply(reacts, gone, r)
+    private fun reactionRumor(r: Event, plain: Boolean = false) = DmReaction.apply(reacts, gone, r, plain)
 
     private suspend fun readOld(e: Event): Dm {
         val me = host.me
         val peer = if (e.pubkey == me) e.tag("p") ?: me else e.pubkey
         val text = host.signer.nip04Decrypt(peer, e.content)
-        return Dm(e.id, "n:$peer", e.pubkey, e.pubkey == me, e.createdAt, 4, text)
+        return Dm(e.id, "n:$peer", e.pubkey, e.pubkey == me, e.createdAt, 4, text, plain = true,
+            clear = EncRules.clearAfterKey(host.enc3?.firstKeyAt("n:$peer"), e.createdAt))
     }
 
     private fun known(): List<KnownMail> = synchronized(lock) { items.values.filter { it.isMail }.map { KnownMail(it.messageId, it.conv) } }
@@ -894,6 +1075,23 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
      * (the device couldn't tell yet; tried again at the first complete answer).
      */
     private suspend fun deliver(rumor: Event, to: List<String>, self: Boolean = true, conv: String? = null): Boolean {
+        // format 3 first (SPEC 19.82 / 19.83): the session's decision; V1 = the ways below, exactly as before
+        if (!host.localOnly && conv != null) {
+            when (val w = host.encWrite(decisionConv(rumor, conv))) {
+                EncWrite.V1 -> {}
+                EncWrite.Clear -> { oldWay(rumor, to, self); return true } // no lock: never encrypted, a guest or over 100 devices
+                is EncWrite.Hold -> {
+                    // a reaction or a take-back has no bubble to wait in: not sent, said at once
+                    if (rumor.kind == 7 || rumor.kind == 5) throw DmException(EncText.held(w, ::nameOf))
+                    hold(rumor, to, self, conv, DmSnapshot.enc3Why(w)); return false
+                }
+                is EncWrite.V3 -> {
+                    val plan = w.plan as? EncPlan.People
+                    if (plan == null) { hold(rumor, to, self, conv, DmSnapshot.enc3Why(EncWrite.Hold(sh.belfry.core.enc.HoldReason.NOT_LISTED))); return false }
+                    deliverEnc(rumor, to, self, conv, plan); return true
+                }
+            }
+        }
         val eng = host.sealed
         if (eng != null && !host.localOnly) {
             if (rumor.kind == 1301) {
@@ -935,6 +1133,61 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
 
     private val heldWhyNow = HashMap<String, String?>()
 
+    private fun nameOf(pk: String): String = host.realName(pk).ifEmpty { "They" }
+
+    /** The conversation the format-3 decision is asked for: an e-mail (to an address, or as a shared inbox) is `m:`. */
+    private fun decisionConv(rumor: Event, conv: String): String = if (rumor.kind == 1301 || conv.startsWith("channel:")) "m:" else conv
+
+    /**
+     * Format 3 (SPEC 19.83): RUMOR encrypted for PLAN and queued: the key's envelopes first (when it is new, or its
+     * unconfirmed ones aren't live any more), then one 8572 per person (they wait for those envelopes in the outbox).
+     * Kept (what makes its copies again) until every copy is out.
+     */
+    private suspend fun deliverEnc(rumor: Event, to: List<String>, self: Boolean, conv: String, plan: EncPlan.People) {
+        val e3 = host.enc3 ?: throw DmException(EncText.NOT_SET_UP)
+        host.preparing(rumor.id)
+        val live = host.outbox().filter { it.status == OutboxStatus.QUEUED }.mapNotNull { it.signed?.id }.toSet()
+        val out = try { e3.encryptPeople(rumor, plan, self) { it in live } } catch (e: sh.belfry.core.enc.EncException) {
+            host.notPrepared(rumor.id)
+            throw DmException(if (e.message?.contains("too long") == true) DmSnapshot.HELD_TOO_LONG else "The message could not be prepared. Try again.")
+        }
+        synchronized(lock) { encOut[rumor.id] = Held(rumor, to, self, conv); encKeys[rumor.id] = out.key }
+        for (env in out.envelopes) host.enqueueSigned(Target.MAIN, env, null)
+        for (m in out.messages) host.enqueueEnc(m, rumor.id, out.key)
+        update(rumor.id) { it.copy(enc = true, notTo = out.missing) }
+    }
+
+    /** The key a message's format-3 copies are under (the session queues a file's). */
+    fun encKeyOf(rid: String): String? = encKeys[rid]
+
+    /** "Try again" on a held message: held messages decided again now. */
+    suspend fun retryHeldNow() {
+        busy.withLock { retryHeld() }
+        publish()
+    }
+
+    /**
+     * Format 3: message RID's copies made again from its kept rumor (fresh dates: the relay refuses a date more than 5
+     * minutes off, §18.1). Its queued copies go; its key's envelopes stay (other messages may need them).
+     */
+    private suspend fun rebuildEnc(rid: String): Boolean {
+        val h = synchronized(lock) { encOut.remove(rid) } ?: return false
+        for (o in host.outbox().filter { it.dm == rid && it.kind == Enc.MSG }) host.dropOutbox(o.localId)
+        update(rid) { it.copy(failed = null, pending = true) }
+        publish()
+        try {
+            if (!deliver(h.rumor, h.to, h.self, h.conv)) {
+                val why = synchronized(lock) { heldWhyNow.remove(rid) }
+                update(rid) { it.copy(heldSince = host.now(), heldWhy = why) }
+            }
+        } catch (e: Exception) {
+            synchronized(lock) { refused[rid] = h }
+            update(rid) { it.copy(pending = false, failed = (e as? DmException)?.message ?: "It could not be prepared.") }
+        }
+        publish()
+        return true
+    }
+
     /** A mail sealed by the device to the belfry's mail key (§7), the self-copy to my head. */
     private suspend fun mailSealed(rumor: Event, to: List<String>, self: Boolean, plan: sh.belfry.core.sealed.SealedEngine.Plan.Seal) {
         val eng = host.sealed ?: return
@@ -957,9 +1210,40 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
 
     /** Held messages: decided at the first complete answer; queued before the held copy goes (64a07fa). */
     private suspend fun retryHeld() {
-        val eng = host.sealed ?: return
+        val eng = host.sealed
         for ((rid, h) in synchronized(lock) { held.toList() }) {
             if (synchronized(lock) { items[rid]?.heldWhy } == "too_long") continue // never: Cancel only
+            // format 3 first (SPEC 19.83): decided again now; never the version-1 or the clear way once it says V3 or Hold
+            if (!host.localOnly) {
+                val w = try { host.encWrite(decisionConv(h.rumor, h.conv)) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { continue }
+                when (w) {
+                    EncWrite.V1 -> {}
+                    EncWrite.Clear -> {
+                        try { oldWay(h.rumor, h.to, h.self) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { continue }
+                        synchronized(lock) { held.remove(rid) }
+                        update(rid) { it.copy(heldSince = null, heldWhy = null) }
+                        continue
+                    }
+                    is EncWrite.Hold -> { update(rid) { it.copy(heldWhy = DmSnapshot.enc3Why(w)) }; continue }
+                    is EncWrite.V3 -> {
+                        val plan = w.plan as? EncPlan.People ?: continue
+                        try { deliverEnc(h.rumor, h.to, h.self, h.conv, plan) } catch (e: DmException) {
+                            if (e.message == DmSnapshot.HELD_TOO_LONG) update(rid) { it.copy(heldWhy = "too_long") }
+                            continue
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { continue }
+                        synchronized(lock) { held.remove(rid) }
+                        update(rid) { it.copy(heldSince = null, heldWhy = null) }
+                        continue
+                    }
+                }
+            }
+            if (eng == null) {
+                // nothing to seal with here (no device key): the old way, as a message sent now would go
+                try { oldWay(h.rumor, h.to, h.self) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { continue }
+                synchronized(lock) { held.remove(rid) }
+                update(rid) { it.copy(heldSince = null, heldWhy = null) }
+                continue
+            }
             // a held mail is decided exactly like a direct one: only my own chain matters (§7; N1)
             val who = if (h.rumor.kind == 1301) emptyList() else h.to.filter { it != host.me }
             val plan = try { eng.plan(h.conv, who) } catch (e: Exception) { continue }
@@ -1110,13 +1394,16 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         )
         val target = if (fresh) MailThreads.mailThreadOf(to, subj) else conv
         val emailId = UUID.randomUUID().toString()
-        val rumor = GiftWrap.rumor(1301, me, listOf(listOf("email-id", emailId), listOf("mail-from", myAddress), listOf("rcpt-to", to), listOf("subject", subj)), built.raw, host.now())
+        val rumor = GiftWrap.rumor(1301, me, listOf(listOf("email-id", emailId), listOf("mail-from", myAddress), listOf("rcpt-to", to), listOf("subject", subj)) + belfryPerson(), built.raw, host.now())
         val refs = if (before != null) listOfNotNull(before.references, before.messageId).joinToString(" ").ifEmpty { null } else null
         set(Dm(rumor.id, target, me, true, rumor.createdAt, 1301, text, subject = subj, emailId = emailId, raw = built.raw, messageId = built.messageId, references = refs, inReplyTo = before?.messageId, verified = true, pending = true))
         synchronized(lock) { reports[emailId] = Report(Report.QUEUED, "Waiting for the connection…") }
         publish()
         try {
-            if (!deliver(rumor, listOf(bridge), conv = target)) update(rumor.id) { it.copy(heldSince = host.now()) }
+            if (!deliver(rumor, listOf(bridge), conv = target)) {
+                val why = synchronized(lock) { heldWhyNow.remove(rumor.id) }
+                update(rumor.id) { it.copy(heldSince = host.now(), heldWhy = why) }
+            }
         } catch (e: Exception) {
             synchronized(lock) { refused[rumor.id] = Held(rumor, listOf(bridge), true, target) }
             val why = if (e is DmException) e.message ?: "It could not be prepared." else if (e is SignerTimeout) "Your signer did not answer." else "It could not be prepared."
@@ -1129,6 +1416,17 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         }
         publish()
         return target
+    }
+
+    /**
+     * E-mail out on format 3 (SPEC 19.83; §10): the belfry key is one more person of that one message (`["p", belfry]`, so
+     * the rumor's people are the key's). Added whenever this device doesn't know the belfry as format 1 (a held mail may
+     * go on 3); a version-1 mail with it goes to the bridge as before (the bridge reads `rcpt-to`).
+     */
+    private fun belfryPerson(): List<List<String>> {
+        if (host.localOnly) return emptyList()
+        val b = host.belfryKey() ?: return emptyList()
+        return if (host.enc3 != null && host.format3Since() != null) listOf(listOf("p", b)) else emptyList()
     }
 
     @Volatile private var lastAt = 0L
@@ -1193,7 +1491,16 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         // a sealed conversation: the file's message is sealed by the device like a kind 14 (§4, §6), decided
         // before the upload; never the old way into it. Waiting (can't tell yet / their device not ready) retries.
         val conv = synchronized(lock) { items[item.localId]?.conv } ?: MailThreads.nostrConv(me, others, me)
-        val eng = if (host.localOnly) null else host.sealed
+        // format 3 (SPEC 19.83): decided before any upload; held = the outbox tries again (never uploaded or sent in clear)
+        var plan3: EncPlan.People? = null
+        var clear = false
+        if (!host.localOnly) when (val w = host.encWrite(conv)) {
+            EncWrite.V1 -> {}
+            EncWrite.Clear -> clear = true
+            is EncWrite.Hold -> throw FileWaits("waiting: " + EncText.held(w, ::nameOf))
+            is EncWrite.V3 -> plan3 = w.plan as? EncPlan.People ?: throw FileWaits("waiting: " + EncText.NOT_SET_UP)
+        }
+        val eng = if (host.localOnly || plan3 != null || clear) null else host.sealed
         val plan = eng?.plan(conv, others)
         when (plan) {
             is sh.belfry.core.sealed.SealedEngine.Plan.Refuse ->
@@ -1211,7 +1518,16 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         )
         val rumor = GiftWrap.rumor(DmFiles.KIND, me, tags, url, item.createdAt)
         step("waiting for the server")
-        val wraps = if (plan is sh.belfry.core.sealed.SealedEngine.Plan.Seal && eng != null) {
+        val wraps = if (plan3 != null) {
+            // format 3: the key's envelopes (when needed) and one 8572 per person, sealed by this device (the session
+            // queues the copies behind the envelopes: [encKeyOf])
+            val e3 = host.enc3 ?: throw FileWaits("waiting: " + EncText.NOT_SET_UP)
+            val live = host.outbox().filter { it.status == OutboxStatus.QUEUED }.mapNotNull { it.signed?.id }.toSet()
+            val out = try { e3.encryptPeople(rumor, plan3) { it in live } } catch (e: sh.belfry.core.enc.EncException) { throw IllegalStateException("invalid: the file's message can't be encrypted") }
+            synchronized(lock) { encOut[rumor.id] = Held(rumor, others, true, conv); encKeys[rumor.id] = out.key }
+            update(item.localId) { it.copy(enc = true, notTo = out.missing) }
+            out.envelopes + out.messages
+        } else if (plan is sh.belfry.core.sealed.SealedEngine.Plan.Seal && eng != null) {
             val qs = eng.seal(rumor, plan)
             synchronized(lock) {
                 for (q in qs) sealQ[q.wrap.id] = QueuedSeal(q.rumor, q.recipient, q.lb)
@@ -1273,7 +1589,7 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         val emailId = UUID.randomUUID().toString()
         val rcpts = (listOf(to) + cc).map { it.trim().lowercase() }.filter { it.contains('@') }.distinct().take(sh.belfry.core.model.OneShape.MAX_RECIPIENTS)
         val tags = listOf(listOf("email-id", emailId), listOf("mail-from", from)) + rcpts.map { listOf("rcpt-to", it) } +
-            listOf(listOf("subject", subject), listOf("e", cardId)) + listOfNotNull(draftId?.let { listOf("draft", it) })
+            listOf(listOf("subject", subject), listOf("e", cardId)) + listOfNotNull(draftId?.let { listOf("draft", it) }) + belfryPerson()
         val rumor = GiftWrap.rumor(1301, me, tags, built.raw, host.now())
         synchronized(lock) { reports[emailId] = Report(Report.QUEUED, "Sending…"); channelSends.add(emailId) }
         publish()
@@ -1283,7 +1599,12 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
             return emailId
         }
         try {
-            deliver(rumor, listOf(bridge), self = false, conv = "channel:$channel")
+            if (!deliver(rumor, listOf(bridge), self = false, conv = "channel:$channel")) {
+                // format 3 held it (it goes when it can): the card says why meanwhile
+                val why = synchronized(lock) { heldWhyNow.remove(rumor.id) }
+                val h = why?.let { DmSnapshot.enc3Hold(Dm(rumor.id, "", me, true, 0, 1301, "", heldWhy = it)) }
+                if (h != null) synchronized(lock) { reports[emailId] = Report(Report.QUEUED, EncText.held(h, ::nameOf)) }
+            }
         } catch (e: Exception) {
             synchronized(lock) { reports[emailId] = Report(Report.FAILED, "It could not be prepared."); channelSends.remove(emailId) }
             publish()
@@ -1335,6 +1656,10 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
 
     /** Puts a refused message back in the outbox. */
     suspend fun retry(rid: String) {
+        // format 3: a refused copy is made again with fresh dates (its key's envelopes kept)
+        if (synchronized(lock) { rid in encOut } && host.outbox().filter { it.dm == rid }.let { q -> q.isEmpty() || q.any { it.status == OutboxStatus.FAILED } }) {
+            if (rebuildEnc(rid)) return
+        }
         val queued = host.outbox().filter { it.dm == rid }
         val again = synchronized(lock) { refused.remove(rid) }
         if (queued.isEmpty() && again != null) {
@@ -1361,6 +1686,8 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     fun onSent(item: OutboxItem) {
         item.signed?.let { w -> synchronized(lock) { sealQ.remove(w.id) } }
         val rid = item.dm ?: return
+        // format 3: every copy out, nothing to make again
+        if (host.outbox().none { it.dm == rid && it.localId != item.localId }) synchronized(lock) { if (encOut.remove(rid) != null) encKeys.remove(rid) }
         val me = host.me
         val d = synchronized(lock) { items[rid] } ?: return
         // out once no wrap for someone else waits any more (my own copy may follow later)
@@ -1381,6 +1708,13 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
     /** The engine tells: the relay refused this outbox item for good. */
     fun onFailed(item: OutboxItem) {
         val rid = item.dm ?: return
+        // format 3 (§18.1): a copy refused for good (its date too old after a long wait, most often): made again once by
+        // itself with fresh dates; after that it says Not sent, and Retry makes it again
+        if (item.kind == Enc.MSG && synchronized(lock) { rid in encOut } && (rebuilt[rid] ?: 0) < 1) {
+            rebuilt[rid] = (rebuilt[rid] ?: 0) + 1
+            host.later(0) { rebuildEnc(rid) }
+            return
+        }
         val me = host.me
         val d = synchronized(lock) { items[rid] } ?: return
         // my own copy failing says nothing, except in Notes to myself, where it is the only wrap
@@ -1493,6 +1827,12 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
         const val K_SEALQ = "dm-sealed-queue"
         const val K_SEALED_RUMORS = "dm-sealed-rumors"
         const val K_REFUSED = "dm-refused"
+        const val K_KEPT3 = "dm-enc3-kept"
+        const val K_ENCOUT = "dm-enc3-out"
+        const val MAX_KEPT3 = 500
+        private const val K3_OPENING = 0
+        private const val K3_UNREADABLE = 1
+        private const val K3_PLACED = 2
         private val ADDRESS = Regex("^([^@\\s]+)@([^@\\s]+\\.[^@\\s]+)$")
     }
 }

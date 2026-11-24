@@ -737,7 +737,7 @@ fun SharedWhyContent(name: String, onClose: () -> Unit) {
 
 /** canvas v89: open lock + "Not sealed" after the time of a message that came the old way. */
 @Composable
-internal fun NotSealedMark(onClick: () -> Unit) {
+internal fun NotSealedMark(onClick: () -> Unit, label: String = SealedText.NOT_SEALED) {
     val c = Belfry.colors
     Row(
         Modifier.padding(start = 8.dp).clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 2.dp, vertical = 1.dp).testTag("seal-not-sealed"),
@@ -745,19 +745,19 @@ internal fun NotSealedMark(onClick: () -> Unit) {
     ) {
         Icon(BelfryIcons.Unlock, contentDescription = null, tint = c.muted, modifier = Modifier.size(11.dp))
         Spacer(Modifier.width(3.dp))
-        Text(SealedText.NOT_SEALED, fontSize = 11.sp, color = c.muted)
+        Text(label, fontSize = 11.sp, color = c.muted)
     }
 }
 
 @Composable
-internal fun NotSealedSheet(onClose: () -> Unit) {
-    BelfrySheet(onDismiss = onClose) { NotSealedContent(onClose) }
+internal fun NotSealedSheet(why: String = SealedText.NOT_SEALED_WHY, onClose: () -> Unit) {
+    BelfrySheet(onDismiss = onClose) { NotSealedContent(onClose, why) }
 }
 
 @Composable
-fun NotSealedContent(onClose: () -> Unit) {
+fun NotSealedContent(onClose: () -> Unit, why: String = SealedText.NOT_SEALED_WHY) {
     Column(Modifier.fillMaxWidth().testTag("seal-not-sealed-why")) {
-        Text(SealedText.NOT_SEALED_WHY, fontSize = 16.sp, lineHeight = 22.sp, color = Belfry.colors.text)
+        Text(why, fontSize = 16.sp, lineHeight = 22.sp, color = Belfry.colors.text)
         Spacer(Modifier.height(16.dp))
         BusyButton("OK", onClick = { onClose() }, modifier = Modifier.fillMaxWidth())
     }
@@ -898,5 +898,23 @@ internal fun Enc3SetupLine(st: sh.belfry.core.engine.Enc3State) {
             Spacer(Modifier.width(8.dp))
             sh.belfry.app.ui.kit.BusyButton(sh.belfry.core.enc.EncText.TRY_AGAIN, { session.enc3TryAgain() }, kind = sh.belfry.app.ui.kit.ButtonKind.Ghost, small = true, modifier = Modifier.testTag("enc3-try-again"))
         }
+    }
+}
+
+/**
+ * Format 3 (SPEC 19.83; docs/encrypted.md §9) in Messages: how many messages are opening (their key isn't here yet) or
+ * can't be read on this device (no copy for it). A plain line: part 5 adds Ask for them. No colour carries it (e-ink).
+ */
+@Composable
+internal fun Enc3CountLine(text: String, tag: String) {
+    val c = Belfry.colors
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).clip(RoundedCornerShape(12.dp))
+            .background(c.surface).padding(horizontal = 14.dp, vertical = 10.dp).testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(text, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
     }
 }

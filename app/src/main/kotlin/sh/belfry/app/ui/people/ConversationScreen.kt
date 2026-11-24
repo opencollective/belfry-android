@@ -161,6 +161,7 @@ fun ConversationScreen(conv: String) {
     }
     var why by remember(conv) { mutableStateOf<SharedBlock?>(null) }
     var notSealedOpen by remember(conv) { mutableStateOf(false) }
+    var notEncryptedOpen by remember(conv) { mutableStateOf(false) }
     var plusOpen by remember(conv) { mutableStateOf(false) }
     var recording by remember(conv) { mutableStateOf(false) }
 
@@ -231,9 +232,9 @@ fun ConversationScreen(conv: String) {
                             val replies = dms.replies(conv, r.rid).size
                             val openReplies = if (replies > 0) ({ nav.go(Routes.dmThread(conv, r.rid)) }) else null
                             if (shared) {
-                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies) }
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies) }
                             } else {
-                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies)
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies)
                             }
                         }
                         is DmGroup -> FilesBubble(r, dms, world, group = peers.size > 1, onMenu = { rid, emojiOnly -> acting = rid to emojiOnly }) {
@@ -253,6 +254,7 @@ fun ConversationScreen(conv: String) {
         }
         why?.let { b -> SharedWhySheet(b, world) { why = null } }
         if (notSealedOpen) NotSealedSheet { notSealedOpen = false }
+        if (notEncryptedOpen) NotSealedSheet(sh.belfry.core.enc.EncText.NOT_ENCRYPTED_WHY) { notEncryptedOpen = false }
         Hairline()
         if (newMail) {
             BelfryTextField(
@@ -281,7 +283,7 @@ fun ConversationScreen(conv: String) {
                 sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),
             )
-        } else Composer(
+        } else Composer( // format 3 (SPEC 19.83): no link previews in an encrypted conversation, ever (none exist here: keep it so)
             composer,
             placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else if (toSelf) sh.belfry.core.model.Notes.PLACEHOLDER else "Message",
             onSend = { text, files, _, _ ->
@@ -352,11 +354,11 @@ internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu
                 .alpha(if (waiting) 0.55f else 1f) // faded while it waits (canvas v98)
                 .clip(shape)
                 .background(if (d.mine) c.surface2 else c.surface)
-                .combinedClickable(onClickLabel = null, onLongClickLabel = "Message actions", onLongClick = { onMenu(false) }, onClick = {})
+                .combinedClickable(onClickLabel = null, onLongClickLabel = "Message actions", onLongClick = { if (!d.opening) onMenu(false) }, onClick = {})
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .testTag("dm-bubble"),
         ) {
-            if (!d.mine && !d.isMail && group) {
+            if (!d.mine && !d.isMail && group && !d.opening) {
                 Text(world.displayName(d.from), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             }
             // the header names the conversation and its subject: each mail doesn't repeat them
@@ -365,7 +367,10 @@ internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu
                 val name = d.fromName?.takeIf { it.isNotEmpty() }
                 Text(name ?: d.from, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
             }
-            if (d.text.isNotEmpty()) {
+            if (d.opening) {
+                // format 3 (§9): its key is here, the author's lists are coming (or offline)
+                Text(sh.belfry.core.enc.EncText.OPENING, fontSize = 15.sp, color = c.muted, modifier = Modifier.testTag("dm-opening"))
+            } else if (d.text.isNotEmpty()) {
                 MarkdownText(d.text, rich = false, color = if (d.pending) c.muted else c.text)
             } else if (d.attachments.isEmpty()) {
                 Text("(empty)", fontSize = 15.sp, color = c.muted)
@@ -374,7 +379,7 @@ internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu
             Row(Modifier.padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(ChatFormat.time(world, d.at), fontSize = 11.sp, color = c.muted)
                 // canvas v89: arrived the old way after the conversation was sealed
-                if (notSealed != null) NotSealedMark(notSealed)
+                if (notSealed != null) NotSealedMark(notSealed, if (d.clear) sh.belfry.core.enc.EncText.NOT_ENCRYPTED else sh.belfry.core.model.SealedText.NOT_SEALED)
                 if (d.isMail && !d.mine) {
                     Spacer(Modifier.width(8.dp))
                     if (d.verified == true) {
@@ -388,7 +393,7 @@ internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu
                 // a held message says so under the bubble (canvas v98), not here
                 // a direct message not out yet: Sending… → Still sending… · <step> → Not sent yet · Retry (SPEC 19.50)
                 val sendLine = if (!waiting && d.mine && d.pending && d.failed == null && !d.isMail) sh.belfry.app.ui.chat.rememberSendLine(d.rid, 0) else null
-                val line = if (waiting) null else sendLine?.text ?: dms.stateLine(d) ?: if (d.mine && d.isMail) "Sent" else null
+                val line = if (waiting) null else sendLine?.text ?: dms.stateLine(d) { world.displayName(it) } ?: if (d.mine && d.isMail) "Sent" else null
                 if (line != null) {
                     Spacer(Modifier.width(8.dp))
                     Text(line, fontSize = 11.sp, color = if (d.failed != null) c.danger else c.muted, modifier = Modifier.weight(1f, fill = false))
@@ -418,6 +423,11 @@ internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu
             }
         }
         if (waiting) HeldLine(d, dms, world, onCancelHeld)
+        // format 3 (§17.5): sent for the others; these people have no device
+        if (d.mine && d.notTo.isNotEmpty() && !waiting) Text(
+            sh.belfry.core.enc.EncText.wontGet(d.notTo.map { world.displayName(it) }), fontSize = 12.sp, color = c.muted,
+            modifier = Modifier.padding(top = 3.dp, end = 2.dp).testTag("dm-wont-get"),
+        )
         if (chips.isNotEmpty()) DmReactionChips(d, chips, onAdd = { onMenu(true) })
         if (replies > 0 && onReplies != null) RepliesLink(replies, onReplies)
     }
@@ -507,9 +517,20 @@ private fun HeldLine(d: Dm, dms: DmSnapshot, world: World, onCancel: (suspend ()
     if (alreadySent) LaunchedEffect(Unit) { kotlinx.coroutines.delay(2_000); alreadySent = false }
     val why = d.heldWhy
     val who = if (why != null && why.startsWith("device:")) why.removePrefix("device:") else null
-    val text = if (alreadySent) "Already sent" else dms.stateLine(d) ?: DmSnapshot.heldDevice(if (who != null) world.displayName(who) else "Their")
+    val text = if (alreadySent) "Already sent" else dms.stateLine(d) { world.displayName(it) } ?: DmSnapshot.heldDevice(if (who != null) world.displayName(who) else "Their")
+    // format 3 (SPEC 19.83): the text stays here; Try again decides it again now
+    val enc3 = DmSnapshot.enc3Hold(d)
+    val session = LocalSession.current
+    val again = rememberBusy()
     Row(Modifier.padding(top = 3.dp, end = 2.dp).testTag("dm-held-line"), verticalAlignment = Alignment.CenterVertically) {
         Text(text, fontSize = 12.sp, lineHeight = 16.sp, color = c.muted, modifier = Modifier.widthIn(max = 280.dp))
+        if (!alreadySent && enc3 != null && sh.belfry.core.enc.EncText.canTryAgain(enc3)) {
+            Text(" · ", fontSize = 12.sp, color = c.muted)
+            if (again.busy) Spinner(size = 12.dp) else Text(
+                sh.belfry.core.enc.EncText.TRY_AGAIN, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                modifier = Modifier.clickable(role = Role.Button) { again.run { session.retryHeldDms() } }.padding(horizontal = 2.dp, vertical = 2.dp).testTag("dm-held-try-again"),
+            )
+        }
         if (!alreadySent && onCancel != null) {
             Text(" · ", fontSize = 12.sp, color = c.muted)
             Text(

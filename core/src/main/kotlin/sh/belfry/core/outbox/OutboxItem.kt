@@ -88,6 +88,11 @@ data class OutboxItem(
      * when it is signed. With no device key it fails.
      */
     val byDevice: Boolean = false,
+    /**
+     * Format 3 (SPEC 19.83): a people 8572 under the conversation key K (public): it goes only once K's envelopes are
+     * confirmed out ([sh.belfry.core.engine.Enc3.unconfirmed]); the session makes lost ones again first.
+     */
+    val encKey: String? = null,
 ) {
     /** The item as it shows in the log before it is signed: id = localId, no signature. */
     fun asEvent(me: String): Event = signed ?: Event(localId, me, createdAt, kind, tags, content, "")
@@ -109,6 +114,7 @@ data class OutboxItem(
         if (body != null) put("body", JsonPrimitive(body))
         if (notListedAt != 0L) put("not_listed_at", JsonPrimitive(notListedAt))
         if (byDevice) put("by_device", JsonPrimitive(true))
+        if (encKey != null) put("enc_key", JsonPrimitive(encKey))
     }
 
     companion object {
@@ -129,6 +135,7 @@ data class OutboxItem(
             body = o.s("body"),
             notListedAt = o["not_listed_at"].long() ?: 0,
             byDevice = (o["by_device"] as? JsonPrimitive)?.content == "true",
+            encKey = o.s("enc_key"),
         )
     }
 }

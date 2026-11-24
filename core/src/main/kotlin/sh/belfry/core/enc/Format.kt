@@ -5,16 +5,20 @@ package sh.belfry.core.enc
  * access.ts after bdd3b8b / 95df933 / 515400d). Pure; kept device-wide per belfry by `EncFormatCache`.
  *
  * FORMAT: 1, 3 or null (never read); 3 is kept for good (one way). SEEN: an `encrypted` object was in a
- * successful read of its belfry.json once. READ_AT: the last successful read that said 1 or 3 (seconds).
+ * successful read of its belfry.json once. READ_AT: the last successful read that said 1 or 3 (seconds). SINCE3: the
+ * first read that said 3 (seconds; 0 when a 3 was kept before it was recorded).
  */
-data class EncFormatState(val format: Int? = null, val seen: Boolean = false, val readAt: Long = 0) {
+data class EncFormatState(val format: Int? = null, val seen: Boolean = false, val readAt: Long = 0, val since3: Long = 0) {
+    /** Since when (seconds) this device knows the belfry as format 3 (SPEC 19.83: plain NIP-17 from a listed account is dropped from then); null: not 3. */
+    val format3Since: Long? get() = if (format != 3) null else since3.takeIf { it > 0 } ?: readAt
+
     /**
      * After a SUCCESSFUL read of belfry.json whose `encrypted` field was DOC ([Doc]) at NOW. An explicit 1 or 3
      * decides (3 for good); no object at all decides 1 only for a belfry that never showed one; an object with
      * another format decides nothing.
      */
     fun after(doc: String, now: Long): EncFormatState = when (doc) {
-        DOC_3 -> copy(format = 3, seen = true, readAt = now)
+        DOC_3 -> copy(format = 3, seen = true, readAt = now, since3 = if (format == 3 && since3 > 0) since3 else now)
         DOC_1 -> copy(format = if (format == 3) 3 else 1, seen = true, readAt = now)
         DOC_OTHER -> copy(seen = true)
         DOC_NONE -> if (seen) this else copy(format = if (format == 3) 3 else 1, readAt = now)

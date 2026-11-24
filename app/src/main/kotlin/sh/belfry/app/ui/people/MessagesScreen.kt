@@ -121,6 +121,9 @@ fun MessagesScreen(
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 6.dp)) {
             // format 3 (SPEC 19.82): this device not on its list after 60 s, or the twenty-first (part 4 draws the final screens)
             if (enc3.line != null) item(key = "enc3-setup") { Enc3SetupLine(enc3) }
+            // format 3 (SPEC 19.83, §9): messages whose key isn't here yet, or that have no copy for this device (part 5 adds Ask)
+            if (dms.unreadableCount > 0) item(key = "enc3-unreadable") { Enc3CountLine(sh.belfry.core.enc.EncText.unreadable(dms.unreadableCount), "enc3-unreadable") }
+            if (dms.openingCount > 0) item(key = "enc3-opening") { Enc3CountLine(sh.belfry.core.enc.EncText.opening(dms.openingCount), "enc3-opening") }
             // a device of mine added without a prompt here (canvas v183): on top, until answered
             if (seal.added.isNotEmpty() || seal.removedJoinerAt > 0L) item(key = "seal-added") { AddedDeviceCards() }
             // a new device (canvas messages/encryption-new-device): earlier messages are locked here; and

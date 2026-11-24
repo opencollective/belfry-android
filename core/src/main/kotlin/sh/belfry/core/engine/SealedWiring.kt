@@ -133,6 +133,8 @@ internal class SessionSealedPorts(
     private val revokeSession: suspend (String) -> Unit,
     private val keys: SealedKeyStore,
     private val state: Pair<() -> String?, (String) -> Unit> = { null } to { _ -> },
+    /** False on format 3 (SPEC 19.83; §12): version 1 is read only, nothing of it is published or signed any more. */
+    private val v1Writes: () -> Boolean = { true },
 ) : SealedPorts {
     override fun loadState(): String? = state.first()
     override fun saveState(json: String) = state.second(json)
@@ -142,11 +144,15 @@ internal class SessionSealedPorts(
     }
 
     override suspend fun publish(e: Event): Boolean {
+        if (!v1Writes()) return false // format 3: never a roster, anchor, request, hand-over, confirmation or wrap of version 1
         val r = relay() ?: return false
         return try { r.publish(e); true } catch (x: Exception) { false }
     }
 
-    override suspend fun signAsAccount(t: EventTemplate): Event = signAccount(t)
+    override suspend fun signAsAccount(t: EventTemplate): Event {
+        if (!v1Writes()) throw java.io.IOException("version 1 writes nothing on format 3")
+        return signAccount(t)
+    }
 
     override suspend fun sessions(): List<SessionRow>? = try { listSessions().map { it.toRow() } } catch (e: Exception) { null }
 

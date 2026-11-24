@@ -12,6 +12,8 @@ import sh.belfry.core.enc.EncPlan
 import sh.belfry.core.enc.EncRules
 import sh.belfry.core.enc.EncText
 import sh.belfry.core.enc.EncWrite
+import sh.belfry.core.enc.EnvelopeFor
+import sh.belfry.core.enc.KeyPerson
 import sh.belfry.core.enc.HeldKey
 import sh.belfry.core.enc.HoldReason
 import sh.belfry.core.enc.ListChange
@@ -121,6 +123,9 @@ class Enc3(
         var fresh = false
         for (e in events) if (e.kind == Enc.LIST && lists.putIfAbsent(e.id, e) == null) fresh = true
         if (fresh) listsVersion++
+        // SPEC 19.83: envelopes for my account; new ones (or new lists a waiting one may need) are judged
+        val envFresh = offerEnvelopes(events)
+        if (envFresh || (fresh && waitingEnvelopes)) ports.later { if (takeEnvelopes()) onKeys?.invoke() }
         return fresh
     }
 
@@ -413,7 +418,248 @@ class Enc3(
         return EncWrite.V3(EncPlan.Group(devices, lines, EncKeys.deviceSet(devices)))
     }
 
+
+    // ---- people conversations: reading (SPEC 19.83; §5, §6, §17.12, §20, §21) ----------------------
+
+    /** Envelopes (8571) for my account, by id (at most [MAX_ENVELOPES]), and those judged for good. */
+    private val envs = LinkedHashMap<String, Event>()
+    private val envSeen = HashSet<String>()
+    /** alias → a complete `#d` read found envelopes and none has an entry for this device ("can't be read"). */
+    private val noEntry = ConcurrentHashMap<String, Boolean>()
+    private val dAsked = ConcurrentHashMap<String, Long>()
+    /** New keys were taken (or an alias's state changed): the session reads the messages waiting for them again. */
+    @Volatile var onKeys: (() -> Unit)? = null
+    private val secret: ByteArray get() = sh.belfry.core.crypto.Hex.decode(device.secretHex)
+    private fun nowS(): Long = ports.nowMs() / 1000
+
+    /** Envelopes among EVENTS kept for [takeEnvelopes]; true when one was new. */
+    private fun offerEnvelopes(events: List<Event>): Boolean {
+        var fresh = false
+        synchronized(envs) {
+            for (e in events) {
+                if (e.kind != Enc.KEY || !e.hasTag("p", me) || e.tags.any { it.isNotEmpty() && it[0] == "h" } || e.id in envSeen) continue
+                if (envs.putIfAbsent(e.id, e) == null) fresh = true
+            }
+            val over = envs.size - MAX_ENVELOPES
+            if (over > 0) envs.keys.take(over).forEach { envs.remove(it) } // the oldest offered go (read again by #d when needed)
+        }
+        return fresh
+    }
+
+    private val waitingEnvelopes: Boolean get() = synchronized(envs) { envs.keys.any { it !in envSeen } }
+
+    /**
+     * Envelopes for my account: my entry opened, its key rumor judged (§5, §16.2, §20, §28), held when accepted (declared
+     * once, §17.12). A bad envelope or one with no entry for this device is set aside, never blocking (§17.12); a key
+     * whose lists aren't here yet waits (its people's lists asked). True when a key was added.
+     */
+    fun takeEnvelopes(): Boolean {
+        val todo = synchronized(envs) { envs.values.filter { it.id !in envSeen } }
+        if (todo.isEmpty()) return false
+        val sk = secret
+        var added = false
+        fun done(e: Event) = synchronized(envs) { envSeen.add(e.id); envs.remove(e.id) }
+        for (e in todo) {
+            val o = try { EncKeys.openPeopleEnvelope(sk, e) } catch (x: Exception) { done(e); continue }
+            checkEntries(e)
+            if (o == null) { done(e); continue }
+            val r = o.rumor
+            val K = Enc.one(r, "K")
+            if (K == null || Enc.one(e, "d") != EncKeys.alias(K, me)) { done(e); continue }
+            val people = Enc.values(r, "p")
+            when (EncKeys.acceptKeyRumor(r, me, ::devices, nowS())) {
+                sh.belfry.core.enc.Verdict.WAIT -> { want(people); continue } // judged again when the lists come
+                sh.belfry.core.enc.Verdict.NO -> { done(e); continue }
+                sh.belfry.core.enc.Verdict.OK -> {}
+            }
+            done(e)
+            // mine (§17.8): made by a device on the list the key names for MY account
+            val named = r.tags.firstOrNull { it.size >= 3 && it[0] == "list" && it[1] == me }?.get(2)
+            val mine = named != null && chainOnly(me)?.listById(named)?.devices?.contains(r.pubkey) == true
+            val lists = EncKeys.peopleLists(r.tags.filter { it.size >= 3 && it[0] == "list" }.map { it[1] to it[2] })
+            val b = ports.belfryKey()
+            val g = ports.groupsKey()
+            val service = (b != null && r.pubkey == b) || (!g.isNullOrEmpty() && r.pubkey == g)
+            val accounts = people.distinct().sorted()
+            if (putKey(ConvKey(K, r.content, peopleConv(accounts, me), r.pubkey, r.createdAt, mine, service, false, lists, accounts))) added = true
+        }
+        return added
+    }
+
+    /** §17.7 + the review's P2.5: an envelope for my account with an entry for a key never on my lists (whole chain only). */
+    private fun checkEntries(env: Event) {
+        val c = chainOnly(me) ?: return
+        if (c.gaps) return
+        val map = sh.belfry.core.enc.EncJson.parse(env.content) as? JsonObject ?: return
+        val ever = c.lists.flatMap { it.devices + it.readers }.toSet()
+        for (k in map.keys) if (Enc.isKey(k) && k !in ever) strangeEntry(k)
+    }
+
+    /** What opening one people 8572 gave (§6, §9). */
+    sealed interface Opened3 {
+        /** Accepted: RUMOR (its id computed) in the people conversation CONV, under KEY. */
+        data class Ok(val rumor: Event, val conv: String, val key: ConvKey) : Opened3
+        /**
+         * Kept and judged again (never marked seen): its key isn't here yet ("Opening") or, after a complete read of its
+         * envelopes, none has an entry for this device (UNREADABLE: "Can't be read on this device"); CONV when its key is
+         * here (the author's lists are what it waits for).
+         */
+        data class Wait(val unreadable: Boolean, val conv: String?) : Opened3
+        /** Refused for good: dropped (a copy that doesn't open with its key, a signer who isn't the author's device…). */
+        data object Drop : Opened3
+    }
+
+    /**
+     * An 8572 for me (§6): its key by its `d` (my alias of K), taken from the envelopes here or asked by `#d` (once a
+     * minute, whatever came live: a forged empty answer never stops it); opened; the seal's signer judged at the outer
+     * date (§18.2, §21); the rumor's people equal the key's. A wait is never a drop: a signer on no list of the author
+     * is dropped only after a complete read of the author's whole chain on this connection still lists it nowhere.
+     */
+    suspend fun open(e: Event): Opened3 {
+        if (e.kind != Enc.MSG || Enc.one(e, "p") != me || e.tags.any { it.isNotEmpty() && it[0] == "h" }) return Opened3.Drop
+        val d = sh.belfry.core.enc.EncMessages.named(e)?.takeIf { Enc.isKey(it) } ?: return Opened3.Drop
+        var key = keyByAlias(d)
+        if (key == null && takeEnvelopes()) { key = keyByAlias(d); onKeys?.invoke() }
+        if (key == null) {
+            askEnvelopes(d)
+            return Opened3.Wait(noEntry[d] == true, null)
+        }
+        val o = try { sh.belfry.core.enc.EncMessages.openPeopleMessage(key.secret, e) } catch (x: Exception) { return Opened3.Drop }
+        val author = o.rumor.pubkey
+        val people = EncKeys.peopleId(key.people.ifEmpty { listOf(me) })
+        return when (sh.belfry.core.enc.EncMessages.acceptPeopleMessage(e, o.seal, o.rumor, people, devices(author))) {
+            sh.belfry.core.enc.Verdict.OK -> { noteEncrypted(key.conv, key.at); Opened3.Ok(o.rumor, key.conv, key) }
+            sh.belfry.core.enc.Verdict.NO -> Opened3.Drop
+            sh.belfry.core.enc.Verdict.WAIT -> {
+                val c = chainOnly(author)
+                if (c != null && !c.gaps && readHere(author) && c.lists.none { o.seal.pubkey in it.devices }) Opened3.Drop
+                else { want(listOf(author)); Opened3.Wait(false, key.conv) }
+            }
+        }
+    }
+
+    /** ALIAS's envelopes asked by `#p` + `#d` (at most once a minute): each one tried (a junk one never blocks), capped. */
+    private fun askEnvelopes(alias: String) {
+        val now = ports.nowMs()
+        if (dAsked[alias]?.let { now - it < 60_000 } == true) return
+        dAsked[alias] = now
+        if (ports.belfryKey() == null) return
+        ports.later {
+            val got = ports.query(Filters.of(kinds = listOf(Enc.KEY), limit = MAX_PER_ALIAS, tags = mapOf("p" to listOf(me), "d" to listOf(alias))), 5_000) ?: return@later
+            val mineNow = got.events.filter { it.kind == Enc.KEY && Enc.one(it, "d") == alias }.take(MAX_PER_ALIAS)
+            if (mineNow.isNotEmpty()) ports.addEvents(mineNow)
+            offerEnvelopes(mineNow)
+            // N5: "can't be read" only when envelopes were found and none has an entry for this device
+            val sk = secret
+            val entry = mineNow.any { env -> try { EncKeys.openPeopleEnvelope(sk, env) != null } catch (x: Exception) { false } }
+            val was = noEntry[alias] == true
+            val unreadable = got.complete && mineNow.isNotEmpty() && !entry
+            if (unreadable) noEntry[alias] = true else noEntry.remove(alias)
+            if (takeEnvelopes() || was != unreadable) onKeys?.invoke()
+        }
+    }
+
+    // ---- people conversations: writing (SPEC 19.83; §5, §6, §16.1, §17.5, §17.8, §18.1) -----------
+
+    /** What one people message becomes: its key's envelopes (first) and one 8572 per person, under the key KEY. */
+    data class Encrypted(val envelopes: List<Event>, val messages: List<Event>, val key: String, val missing: List<String>)
+
+    private val encrypting = Any()
+
+    /**
+     * RUMOR encrypted for PLAN ([peopleReady]'s): the key is the newest of mine made for exactly the plan's lists, under
+     * 30 days, not future-dated, never a service key ([EncKeys.pickKey]); else a new one, kept (with what makes its
+     * envelopes again) BEFORE anything is queued, its envelopes for every device of every person (readers too). A key
+     * whose envelopes aren't confirmed and aren't live in the outbox (LIVE) gets them again with fresh dates (same K).
+     * Then one copy per person who has a device (mine silent; none for me when not SELF), each sealed by this DEVICE.
+     * Throws [sh.belfry.core.enc.EncException] (too long) before any key is made.
+     */
+    fun encryptPeople(rumor: Event, plan: EncPlan.People, self: Boolean = true, live: (String) -> Boolean = { false }): Encrypted = synchronized(encrypting) {
+        val r = Enc.withId(rumor)
+        if (sh.belfry.core.enc.EncJson.rumorJson(r).toByteArray(Charsets.UTF_8).size > Enc.MAX_RUMOR) throw sh.belfry.core.enc.EncException("the message is too long to encrypt")
+        val accounts = plan.per.map { it.account }.distinct().sorted()
+        if (EncKeys.peopleOf(r) != EncKeys.peopleId(accounts)) throw sh.belfry.core.enc.EncException("the message is not for these people")
+        val conv = peopleConv(accounts, me)
+        val now = nowS()
+        val sk = secret
+        val envelopes = ArrayList<Event>()
+        var ck: ConvKey? = EncKeys.pickKey(held(), conv, plan.lists, now)?.let { this.key(it.pub) }
+        if (ck == null) {
+            val kp = EncKeys.newKey()
+            val kr = EncKeys.keyRumor(device.pubkey, kp.secret, plan.per.map { KeyPerson(it.account, it.list) }, now)
+            val per = plan.per.filter { it.devices.isNotEmpty() }.map { EnvelopeFor(it.account, it.devices) }
+            val made = EncKeys.peopleEnvelopes(sk, kr, per)
+            val k = ConvKey(kp.pub, kp.secret, conv, device.pubkey, kr.createdAt, mine = true, lists = plan.lists, people = accounts, unconfirmed = made.map { it.id }, made = MadeKey(kr, per))
+            putKey(k)
+            ck = k
+            envelopes += made
+        } else if (ck.unconfirmed.any { !live(it) }) {
+            envelopes += rebuildEnvelopes(ck.pub)
+        }
+        val K = ck.pub
+        val to = accounts.filter { it !in plan.missing && (self || it != me) }
+        val messages = sh.belfry.core.enc.EncMessages.peopleMessage(sk, r, K, to, me)
+        noteEncrypted(conv, ck.at)
+        Encrypted(envelopes, messages, K, plan.missing)
+    }
+
+    /** The envelopes of key K not confirmed out yet (event ids). */
+    fun unconfirmed(K: String): List<String> = key(K)?.unconfirmed ?: emptyList()
+
+    /** Key K's envelopes made again with fresh dates (same K, same receivers) and kept as its unconfirmed ones. */
+    fun rebuildEnvelopes(K: String): List<Event> {
+        val k = key(K) ?: return emptyList()
+        val m = k.made ?: return emptyList()
+        val fresh = EncKeys.peopleEnvelopes(secret, m.rumor, m.per)
+        replaceKey(k.copy(unconfirmed = fresh.map { it.id }))
+        return fresh
+    }
+
+    /** Whether a people 8572 under a key may go now ([envelopesFirst]). */
+    sealed interface EnvGate {
+        data object Go : EnvGate
+        /** Not yet: its key's envelopes go first. DROP: outbox items to take out (refused ones), QUEUE: envelopes made again. */
+        data class Wait(val drop: List<String>, val queue: List<Event>) : EnvGate
+        /** Its key's envelopes were refused too often in this run: the copy says Not sent. */
+        data object Refuse : EnvGate
+    }
+
+    private val envRebuilds = ConcurrentHashMap<String, Int>()
+
+    /**
+     * §5 "publishes its envelopes before the first message that uses it" (SPEC 19.83): a copy under K goes only once K's
+     * envelopes are confirmed out. Those not queued any more in OUTBOX (refused, lost) are made again with fresh dates
+     * (same K) and handed back to queue; the copy waits. At most [MAX_ENV_REBUILDS] times a run, then Refuse.
+     */
+    fun envelopesFirst(K: String, outbox: List<sh.belfry.core.outbox.OutboxItem>): EnvGate {
+        val pending = unconfirmed(K)
+        if (pending.isEmpty()) return EnvGate.Go
+        val live = outbox.filter { it.status == sh.belfry.core.outbox.OutboxStatus.QUEUED }.mapNotNull { it.signed?.id }.toSet()
+        if (pending.all { it in live }) return EnvGate.Wait(emptyList(), emptyList())
+        val n = (envRebuilds[K] ?: 0) + 1
+        if (n > MAX_ENV_REBUILDS) return EnvGate.Refuse
+        envRebuilds[K] = n
+        val drop = outbox.filter { it.kind == Enc.KEY && it.signed?.id in pending }.map { it.localId }
+        return EnvGate.Wait(drop, rebuildEnvelopes(K))
+    }
+
+    /** The outbox says envelope ID is out. */
+    fun envelopeSent(id: String) {
+        val k = synchronized(keys) { keys.values.firstOrNull { id in it.unconfirmed } } ?: return
+        replaceKey(k.copy(unconfirmed = k.unconfirmed - id))
+    }
+
+    private fun replaceKey(k: ConvKey) {
+        synchronized(keys) { if (k.pub in keys) keys[k.pub] = k else return }
+        persist()
+    }
+
     companion object {
+        const val MAX_ENVELOPES = 2_000
+        /** Envelopes tried under one alias at most (§17.12: junk never blocks, and never without end). */
+        const val MAX_PER_ALIAS = 50
+        /** A key's envelopes made again at most this often in a run before its copies say Not sent. */
+        const val MAX_ENV_REBUILDS = 5
         const val LISTED_WITHIN_MS = 60_000L
         const val READS_D = "belfry:device:reads"
         private const val N_READS = "said-reads"

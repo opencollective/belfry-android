@@ -7,7 +7,7 @@ package sh.belfry.core.enc
 enum class HoldReason {
     /** The belfry's format is unknown here, or a 1 read more than 5 minutes ago (re-read first). */
     FORMAT,
-    /** E-mail out on format 3: waits for the mail server's format-3 build. */
+    /** E-mail out on format 3 before the mail server's format-3 build (no longer used: SPEC 19.83 sends it). */
     MAIL,
     /** A guest in a conversation that was encrypted (§25); a guest's session in a private group. */
     GUEST,
@@ -82,7 +82,9 @@ object EncWrites {
         if (!mail && !people) return EncWrite.V1
         val enc = people && ever
         if (f.format == null && !enc) return EncWrite.Hold(HoldReason.FORMAT)
-        if (mail) return if (f.format == 3) EncWrite.Hold(HoldReason.MAIL) else EncWrite.V1
+        // e-mail out on format 3 (SPEC 19.83; §10, the lead 2026-11-24: live on the server): an 8572 with the belfry key
+        // as one more person of that message; a guest's session runs no format 3 at all (§25)
+        if (mail) return if (f.format == 3) (if (f.guestSession) EncWrite.Hold(HoldReason.GUEST) else EncWrite.V3()) else EncWrite.V1
         if (f.format == 3 || enc) {
             if (f.guestSession || guestIn) return if (enc) EncWrite.Hold(HoldReason.GUEST) else EncWrite.Clear
             return EncWrite.V3()
@@ -129,4 +131,27 @@ object EncText {
     }
 
     private const val COULD_NOT_CHECK = "Not sent: couldn’t check who can read this conversation"
+
+    // ---- SPEC 19.83: people conversations (wording not final: part 4 / 5 draw the screens) ----
+    /** §9: a message whose key is here but that can't be opened yet (the author's lists are coming). */
+    const val OPENING = "Opening this message…"
+    /** §17.2: an unencrypted message after its conversation's first key (it never acts). */
+    const val NOT_ENCRYPTED = "Not encrypted"
+    const val NOT_ENCRYPTED_WHY = "This message came without encryption after this conversation was encrypted. It may come from an old app, or not from this person’s own app. Reactions and deletions sent this way don’t count."
+
+    /** §9 in Messages: N messages whose key isn't here yet. */
+    fun opening(n: Int): String = if (n == 1) "Opening 1 encrypted message…" else "Opening $n encrypted messages…"
+
+    /** §9 in Messages: N messages with no copy for this device (part 5 adds Ask for them). */
+    fun unreadable(n: Int): String = if (n == 1) "1 message can’t be read on this device" else "$n messages can’t be read on this device"
+
+    /** §17.5: in a conversation with others, the people with no device. */
+    fun wontGet(names: List<String>): String = when (names.size) {
+        0 -> ""
+        1 -> "${names[0]} won’t get this"
+        else -> names.dropLast(1).joinToString(", ") + " and " + names.last() + " won’t get this"
+    }
+
+    /** A held message's Try again: every reason but twenty devices (removing one is the way). */
+    fun canTryAgain(h: EncWrite.Hold): Boolean = h.reason != HoldReason.FULL
 }

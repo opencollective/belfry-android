@@ -347,7 +347,17 @@ minSdk 26, JDK 17.
   `groupReady`, the key store (`EncKeyStore` in the vault per slot, wiped at sign-out; `putKey` declares once), the
   reads marker. Null in the demo, for a guest's session and without a device key. A device-signed event goes through
   the outbox as `OutboxItem.byDevice` (signed at sending by the device key, never the signer). The set-up line is
-  `Enc3SetupLine` in Messages (only when the cached format is 3). Not wired into `DirectMessages` yet (part 3).
+  `Enc3SetupLine` in Messages (only when the cached format is 3).
+- Format 3, part 3 (SPEC 19.83): people conversations. Reading: `Enc3.offer` keeps envelopes (8571 to me), `takeEnvelopes`
+  judges them, `Enc3.open(8572)` → `Opened3.Ok / Wait / Drop`; `DirectMessages.takeEnc3` hands the rumor on like a sealed one
+  (`Dm.enc`), keeps waits (`dm-enc3-kept`, never seen), shows `Dm.opening` placeholders and the Messages counts. Writing:
+  `deliver` asks `host.encWrite` FIRST; V3 → `Enc3.encryptPeople` (pick or make the key, kept with `unconfirmed` + `MadeKey`
+  before queueing), envelopes queued alone, copies with `OutboxItem.encKey`, gated in `Session.sendOne` by
+  `Enc3.envelopesFirst` (lost envelopes made again, same K). Holds: `heldWhy = enc3:<REASON>[:who]`, `DmSnapshot.enc3Hold`,
+  Try again. E-mail out = an 8572 with `["p", belfry]` (the belfry key as one more person); 7679 reports unchanged. On
+  format 3 `SessionSealedPorts(v1Writes)` publishes nothing of version 1. §17.2 `Dm.clear` / `plain` (re-judged when keys come);
+  plain NIP-17 from a listed account dropped from `EncFormatState.since3`. Typing off in encrypted conversations
+  (`Session.encryptedHere`). Tests `Enc3PeopleTest`. Never send anything of a people conversation around `encWrite`.
 
 ## UI rules (the owner's, not negotiable)
 

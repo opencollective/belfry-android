@@ -3343,3 +3343,82 @@ format 1 (SPEC 19.64–19.68) and the demo are unchanged.
   `["d","belfry:device:reads"]`, `["v","3"]`, content "", to the community relay through the outbox as an
   `OutboxItem.byDevice` item: signed at sending by the device key (dated then), never by the signer;
   the signer being down does not hold it back. Sent once (a note in the key store).
+
+### 19.83 Encrypted conversations, format 3: people conversations, reading and writing (2026-11-24; collective-belfry docs/encrypted.md §1, §4–§6, §9, §10, §12, §13, §16–§21, §25–§28; the web's `src/core/enc/runtime.ts` and `dm.ts` on branch enc-v3)
+
+Part 3 of format 3 on Android: private messages, group messages between people and Notes to myself (one person) are
+read in both formats always and written in format 3 when SPEC 19.82's decision says V3. Private groups are part 7;
+the screens of parts 4–6 (Who can read this, Ask for earlier messages, the device cards) are not here.
+
+- **Reading.** The community relay's live subscription has `{kinds:[8571, 8572], "#p":[me], since: last seen − 1 h,
+  limit 300}` (ordinary catch-up, §17.11), and once per authenticated connection the same filter is read whole, paged
+  (`Session.enc3CatchUp`). Envelopes for my account (8571, no `h`) are kept in `Enc3` (at most 2000) and judged by
+  `takeEnvelopes`: my device's entry opened (a bad one, or one with no entry for this device, is set aside and never
+  blocks, §17.12), the envelope's `d` must be the alias of its K for me, the key rumor judged by
+  `EncKeys.acceptKeyRumor` with the three-way `Devices` (wait = the people's lists asked, judged again when they come;
+  never marked done), accepted keys declared once (§17.12) with: conversation `n:<others>` from its `p` tags, maker,
+  date, mine (maker on the list the rumor names for my account, §17.8), service (made by the belfry key or the groups
+  key), lists, people. A people 8572 (`DirectMessages.offer` takes those with `["p", me]` and no `h`) is opened by
+  `Enc3.open`: its key by `d`; not held → the envelopes here, then `{kinds:[8571], "#p":[me], "#d":[alias]}` read (once a
+  minute per alias whatever came live, at most 50 tried); `EncMessages.openPeopleMessage`, then `acceptPeopleMessage`
+  (outer date, grace, readers never as the owner, the rumor's people = the key's). OK: the rumor goes to the existing
+  pipeline exactly as an opened sealed rumor (14, 15 with its file, 1301; 7 / 5 as reactions; any other kind ignored),
+  the item marked `Dm.enc`; a NIP-17 copy never replaces it. WAIT: kept (store `dm-enc3-kept`, at most 500, across
+  restarts), judged again at every pass and when keys arrive (`Enc3.onKeys` → `DirectMessages.keysArrived`), never
+  marked seen; a signer on no list of the author is dropped only after a complete read of the author's whole chain on
+  this connection. NO: dropped (seen). What a waiting one shows (§9): its key here → a placeholder in its conversation
+  ("Opening this message…", `Dm.opening`, no menu); no key yet → counted (`DmSnapshot.openingCount`, a line in
+  Messages); a complete `#d` read found envelopes and none has an entry for this device → "Can't be read on this
+  device" (`unreadableCount`, a line in Messages; part 5 adds Ask). Without a format-3 runtime (a guest's session) an
+  8572 is left alone, not seen.
+- **Version 1 and NIP-17 keep being read** (§12), with two rules: on a belfry this device knows as format 3
+  (`EncFormatState.since3`, the first read that said 3), a plain NIP-17 rumor dated from then on whose author has a
+  device list is dropped (that account writes format 3; older history stays). And §17.2: an unencrypted message (NIP-17
+  or NIP-04, not e-mail) dated after its conversation's first key known here shows "Not encrypted" (`Dm.clear`, the
+  mark and a sheet) and an unencrypted reaction or take-back there never acts; both are judged again whenever keys
+  arrive (`Dm.plain` / `DmReaction.plain`). "Ever encrypted" = a key of the conversation held, or a message opened under
+  one (`Enc3.noteEncrypted`, kept in the key store). An envelope without my entry can't name its conversation (the
+  alias hides it), so it doesn't count there.
+- **Writing.** `DirectMessages.deliver` asks the session first (`DmHost.encWrite` = `Session.encWriteDm`, SPEC 19.82):
+  V1 → the ways of before, unchanged; Clear → NIP-17; Hold → the message stays on the device with its text
+  (`heldWhy = enc3:<REASON>[:<who>]`, `DmSnapshot.enc3Hold`, the words of `EncText.held`, Try again =
+  `Session.retryHeldDms`, Cancel as before; a reaction is refused at once with the words); V3 → `Enc3.encryptPeople`:
+  size checked first (40 000), the key = `EncKeys.pickKey` (mine, made for exactly the plan's lists, < 30 days, not
+  future-dated, never a service key) or a new one (`newKey`, `keyRumor` with each person's list id,
+  `peopleEnvelopes` for every device and reader of every person, split at 60 000 bytes), kept in the vault with its
+  unconfirmed envelope ids and what makes them again (`ConvKey.unconfirmed`, `MadeKey`) BEFORE anything is queued;
+  then `EncMessages.peopleMessage`: one 8572 per person who has a device (mine with `["silent","1"]`), each under its
+  own one-time key, the seal signed by the DEVICE key locally. Nothing of it goes through the signer. Held messages
+  are decided again at each pass and every 5 s / 30 s while held (`hasHeld`).
+- **Order and resending (§5, §18.1).** Envelopes are queued on their own (no `dm`, lane `k:8571:<alias>`), the copies
+  with `OutboxItem.encKey` = K. `Session.sendOne` lets a copy go only once K's envelopes are confirmed out
+  (`Enc3.envelopesFirst`: confirmed by `Session.sent` → `envelopeSent`); one that isn't queued any more (refused for
+  good, lost) is made again from `MadeKey` with fresh dates (same K) and queued first, at most 5 times a run, then the
+  copy fails ("could not be stored"). A refused envelope leaves the outbox. A copy refused for good (its date, after a
+  long wait) makes the message's copies again once by itself (`dm-enc3-out` keeps the rumor until every copy is out);
+  after that it says Not sent and Retry makes them again.
+- **"‹name› won't get this"** (§17.5): in a conversation with others, a person whose list has no device gets no copy;
+  my message carries `Dm.notTo` and the line under it (`EncText.wontGet`). Alone with such a person: Hold(NO_DEVICE).
+- **No version 1 on format 3** (§12): with the device's cached format 3, `SessionSealedPorts` publishes and signs
+  nothing (`v1Writes`): no roster, anchor, request (8562), hand-over (8561), confirmation (8563), name record or
+  letterbox wrap; `sealedStart`, the upkeep and the 2-minute poll do nothing of version 1. Reading version 1 goes on.
+  On format 1 everything is as before.
+- **E-mail (§10; the lead, 2026-11-24).** Out: on format 3 an e-mail (to an address, or as a shared inbox) is an 8572
+  of the people conversation {me, belfry key}: the rumor gets `["p", <belfry key>]` (added whenever this device knows
+  the belfry as format 3), the belfry key is one more person (SERVICE: its own key is its device and its envelope's
+  entry), my copy silent; no gift wrap to the bridge. `EncWrites` sends `m:` on format 3 (V3; a guest's session holds:
+  GUEST); `Session.encWriteDm` plans it with the belfry key (none known → NO_LIST). The mail server opens it as an app
+  does (docs/encrypted.md §27). Reports stay kind 7679 to the account key, read as before. In: an 8572 by the belfry key
+  in {belfry key, me}, opened like any (its key `service`, never sent with); its 1301 is placed like the bridge's (the
+  belfry key counts as the bridge for it), "By e-mail" as today.
+- **No typing indicators** in a conversation seen encrypted or, on format 3, in any people conversation (neither sent
+  nor shown). No link previews exist in conversations (a guard comment where the composer is).
+- **Push** needs nothing: the belfry announces a person's 8572 as a `dm` payload like a 1059, `["silent","1"]`
+  respected (server side), and the app shows any `dm` payload the same way.
+- **Demo** keeps format 1 (`localOnly`: the decision is V1, nothing is subscribed or opened).
+- Tests: `Enc3PeopleTest` (fake relay, two devices, the belfry as mail server): every reading verdict, junk envelopes,
+  no entry, a list arriving late, a new device of the author, a stranger dropped, a reader as owner refused, plain
+  NIP-17 from a listed account dropped on 3 only, clear after the key never acting; key reuse, new key on a list change
+  and after 30 days, envelopes first and made again, the silent copy, device-signed seals and no signer, the holds
+  with their words and Try again, never clear once encrypted, format 1 unchanged, mail out to the belfry key and mail
+  in, the version-1 ports silent on format 3. The sealed v1 tests are unchanged.
