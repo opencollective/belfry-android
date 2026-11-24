@@ -399,13 +399,15 @@ class Session(
         private set
     @Volatile var demoRemovals = 0
         private set
+    @Volatile var demoAsks = 0
+        private set
 
     /** CONV (a people conversation) was seen encrypted here: the earlier-messages line may stand above its history. */
     fun encConvHere(conv: String): Boolean = enc3?.everEncrypted(conv) == true || (localOnly && conv in demoEncConvs)
 
     /** "Ask for them" (§7.3): an 8574 signed by this device; again only after 24 h or a new device of mine. */
     suspend fun enc3Ask() = withContext(Dispatchers.Default) {
-        if (localOnly) { demoEnc3.value = demoEnc3.value.copy(askedAt = now()); return@withContext }
+        if (localOnly) { demoAsks++; demoEnc3.value = demoEnc3.value.copy(askedAt = now()); return@withContext }
         guard()
         enc3Devices?.ask()
         Unit

@@ -3511,6 +3511,8 @@ cards) keep showing, and on format 3 they never do.
   `bunker_pubkey` (its `/me/sessions` row) or else `client_pubkey`, and `by` = this device's pubkey
   (`BelfryApi.revokeDevice`; a 404 = "This belfry can’t do that yet."); then the answer "removed"; "‹name› was removed."
   A reader (part 6, the first screen): `POST /agents {pubkey, reads: false}` (`BelfryApi.agentReads`).
+  The same Remove (asks first, same words) is the trash icon on each other device of mine and my agent in Who can read
+  this (SPEC 19.84's sheet / panel; `WhoContent(onRemove)` → `Session.enc3RemoveFirst`); never on This device.
 - **Warnings** (§17.7): a device added and removed again while this device was away ("‹name› was added and removed while
   you were away · Yesterday 23:20 to 23:48 · If you didn’t add it, someone used a code sent to your e-mail: change your
   e-mail password." OK only, kept); two different lists of my devices or a newer signed list that isn't valid (fork /

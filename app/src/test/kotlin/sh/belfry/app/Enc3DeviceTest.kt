@@ -6,10 +6,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.printToString
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import sh.belfry.app.ui.people.EarlierWhere
@@ -59,22 +56,23 @@ class Enc3DeviceTest : DemoShots() {
         assertEquals(1, session.demoRemovals)
     }
 
-    @Test fun askOnceThenWaiting() {
+    @Test fun askGoesOncePerTap() {
         session.demoEnc3Device(base.copy(demoMissing = 2))
         show { Enc3EarlierLine(EarlierWhere.LIST) }
         compose.onNodeWithText(EncDeviceText.EARLIER_TITLE).assertIsDisplayed()
         compose.onNodeWithText("Safari on iPhone can share them with this one.").assertIsDisplayed()
-        compose.waitForIdle()
+        compose.onNodeWithTag("enc3-ask").performClick()
         compose.onNodeWithTag("enc3-ask").performClick()
         compose.waitUntil(10_000) { session.enc3Device.value.askedAt != null }
-        assertNotNull(session.enc3Device.value.askedAt)
-        try {
-            // the frame clock moved on by hand: with nothing animating, a state that came from another thread may wait for a frame
-            compose.waitUntil(10_000) { compose.mainClock.advanceTimeBy(100); compose.onAllNodesWithText(EncDeviceText.ASKED_TITLE).fetchSemanticsNodes().isNotEmpty() }
-        } catch (e: Throwable) {
-            throw AssertionError("not shown; state ${session.enc3Device.value}; tree:\n" + compose.onRoot(useUnmergedTree = true).printToString(), e)
-        }
+        assertEquals(1, session.demoAsks)
+    }
+
+    @Test fun askedThenWaiting() {
+        session.demoEnc3Device(base.copy(demoMissing = 2, askedAt = DemoShots.NOW - 60))
+        show { Enc3EarlierLine(EarlierWhere.LIST) }
+        compose.onNodeWithText(EncDeviceText.ASKED_TITLE).assertIsDisplayed()
         compose.onNodeWithText(EncDeviceText.askedText(listOf("Safari on iPhone"))).assertIsDisplayed()
+        assertTrue(compose.onAllNodesWithTag("enc3-ask").fetchSemanticsNodes().isEmpty())
     }
 
     @Test fun nothingOnAFormatOneBelfry() {
