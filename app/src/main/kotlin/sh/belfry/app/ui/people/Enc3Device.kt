@@ -200,6 +200,16 @@ private fun GoneCard(card: DeviceCard) {
 
 enum class EarlierWhere { LIST, THREAD }
 
+/** A device's icon from the name its session gave itself (a guess for the eye only; the name says it in words). */
+private fun deviceIcon(name: String?): ImageVector {
+    val n = name.orEmpty()
+    return when {
+        listOf("Mac", "Windows", "Linux", "Laptop", "Desktop").any { n.contains(it, ignoreCase = true) } -> BelfryIcons.Computer
+        listOf("iPad", "Tablet", "Tab").any { n.contains(it, ignoreCase = true) } -> BelfryIcons.Tablet
+        else -> BelfryIcons.Phone
+    }
+}
+
 /**
  * A new device (encrypted/new-list, new-thread, new-asked, new-arrived, transition, lost-all, lost-all-thread): one line at
  * the bottom of Messages (LIST) and above an encrypted conversation's history (THREAD). It can't know which conversation a
@@ -280,7 +290,7 @@ fun Enc3FirstScreenContent(rows: List<FirstRow>, zone: ZoneId, onRemove: suspend
                 rows.forEachIndexed { i, r ->
                     if (i > 0) androidx.compose.material3.HorizontalDivider(color = c.bg)
                     Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 10.dp).testTag("enc3-first-row"), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(if (r.reader) BelfryIcons.User else BelfryIcons.Phone, contentDescription = null, tint = c.text, modifier = Modifier.size(22.dp))
+                        Icon(if (r.reader) BelfryIcons.User else deviceIcon(r.name), contentDescription = null, tint = c.text, modifier = Modifier.size(22.dp))
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             val name = if (r.reader) world.face(r.device).name else r.name ?: EncDeviceText.NEW_DEVICE

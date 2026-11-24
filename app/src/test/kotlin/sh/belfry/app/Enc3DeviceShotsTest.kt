@@ -4,6 +4,7 @@ import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performScrollToNode
 import org.junit.Test
 import org.robolectric.annotation.Config
@@ -34,6 +35,13 @@ class Enc3DeviceShotsTest : DemoShots() {
 
     private fun state(st: Enc3DeviceState) = session.demoEnc3Device(st)
 
+    /** A conversation as format 3 draws it (part 4's view installed: no version-1 lines), scrolled to its top. */
+    private fun threadShot(name: String) {
+        session.demoEncConvs = setOf(conv)
+        Enc3Fixture.install(session, mapOf(conv to DemoShots.NOW - 30 * 86_400))
+        demoShot(name, act = { compose.onNode(hasScrollToNodeAction()).performScrollToIndex(0) }) { ConversationScreen(conv) }
+    }
+
     private fun bottomOfMessages(tag: String = "enc3-earlier") {
         compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag(tag))
     }
@@ -44,23 +52,23 @@ class Enc3DeviceShotsTest : DemoShots() {
     }
 
     @Test fun newThread() {
-        state(base.copy(demoMissing = 4)); session.demoEncConvs = setOf(conv)
-        demoShot("enc3-new-thread") { ConversationScreen(conv) }
+        state(base.copy(demoMissing = 4))
+        threadShot("enc3-new-thread")
     }
 
     @Test fun newAsked() {
-        state(base.copy(demoMissing = 4, askedAt = DemoShots.NOW - 60)); session.demoEncConvs = setOf(conv)
-        demoShot("enc3-new-asked") { ConversationScreen(conv) }
+        state(base.copy(demoMissing = 4, askedAt = DemoShots.NOW - 60))
+        threadShot("enc3-new-asked")
     }
 
     @Test fun newArrived() {
-        state(base.copy(sharedBy = iphone)); session.demoEncConvs = setOf(conv)
-        demoShot("enc3-new-arrived") { ConversationScreen(conv) }
+        state(base.copy(sharedBy = iphone))
+        threadShot("enc3-new-arrived")
     }
 
     @Test fun transition() {
-        state(base.copy(older = listOf(iphone), demoV1Missing = 3, since3 = DemoShots.NOW - 86_400)); session.demoEncConvs = setOf(conv)
-        demoShot("enc3-transition") { ConversationScreen(conv) }
+        state(base.copy(older = listOf(iphone), demoV1Missing = 3, since3 = DemoShots.NOW - 86_400))
+        threadShot("enc3-transition")
     }
 
     @Test fun lostAll() {
@@ -69,8 +77,8 @@ class Enc3DeviceShotsTest : DemoShots() {
     }
 
     @Test fun lostAllThread() {
-        state(base.copy(older = emptyList(), demoMissing = 4)); session.demoEncConvs = setOf(conv)
-        demoShot("enc3-lost-all-thread") { ConversationScreen(conv) }
+        state(base.copy(older = emptyList(), demoMissing = 4))
+        threadShot("enc3-lost-all-thread")
     }
 
     @Test fun card() {
@@ -135,6 +143,12 @@ class Enc3DeviceShotsTest : DemoShots() {
 
     @Test fun removedDevice() = demoShot("enc3-removed-device") {
         RemovedDeviceScreen(RemovedHere(DemoShots.NOW - 120, "Safari on iPhone"), DemoShots.NOW, LocalWorld.current.ctx.zone) {}
+    }
+
+    /** Part 4's Who can read this with part 5's trash icon on my other devices and my agent (SPEC 19.85). */
+    @Test fun whoCanReadTrash() {
+        Enc3Fixture.install(session, mapOf(conv to DemoShots.NOW - 30 * 86_400), agent = Demo.lena.pubkey)
+        demoScreenShot("enc3-who-trash") { sh.belfry.app.ui.people.WhoCanReadSheet(conv) {} }
     }
 
     @Test fun signoutOnly() = demoScreenShot("enc3-signout-only") { Enc3OnlyDeviceDialog(onAdd = {}, onAnyway = {}, onDismiss = {}) }
