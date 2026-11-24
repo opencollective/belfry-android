@@ -483,6 +483,17 @@ class SealedEngine(
     /** Saved for good before anything that depends on it is published (the review's 15). */
     private fun saveKeys(): Boolean = ports.saveKeys(keys.toMap())
 
+    /**
+     * Format 3 (SPEC 19.85; docs/encrypted.md §16.3): version-1 letterbox secrets that came in a key pack from an older
+     * device of mine. Each checked against its letterbox key; one held already is never replaced. Kept on disk, then the
+     * wraps waiting for them are read again. Returns how many were new.
+     */
+    fun takeV1Secrets(secrets: Map<String, String>): Int {
+        val added = keys.merge(secrets)
+        if (added > 0) { saveKeys(); onKeys?.invoke() }
+        return added
+    }
+
     /** An anchor's date: after the standing one (replaceable: the same second keeps the lower id; §3.2, 14a505a). */
     private fun anchorTime(): Long = maxOf(clock(), (anchors[account]?.createdAt ?: 0L) + 1)
 

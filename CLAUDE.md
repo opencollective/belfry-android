@@ -358,6 +358,18 @@ minSdk 26, JDK 17.
   format 3 `SessionSealedPorts(v1Writes)` publishes nothing of version 1. §17.2 `Dm.clear` / `plain` (re-judged when keys come);
   plain NIP-17 from a listed account dropped from `EncFormatState.since3`. Typing off in encrypted conversations
   (`Session.encryptedHere`). Tests `Enc3PeopleTest`. Never send anything of a people conversation around `encWrite`.
+- Format 3, part 5 (SPEC 19.85): a new device, the card, the warnings, the first screen, the removed device. Rules and words
+  `core/enc/Device.kt` (`EncDevice`, `EncDeviceText`, `Enc3DeviceState`); runtime `core/engine/Enc3Devices.kt`
+  (`Session.enc3Devices`; hooked on `Enc3.onDeviceEvents` / `onCheck`; notes in the key store via `Enc3.note`). Asks, answers
+  and pack seals are signed by the DEVICE key and queued signed. Packs are taken only with a whole chain from an older device
+  of my current list, kept `mine = false`, never replacing a K; v1 secrets → `SealedEngine.takeV1Secrets`. Share / Remove /
+  Ask / first screen through `Session.enc3Share / enc3Remove / enc3Ask / enc3RemoveFirst` (revoke with `by` =
+  device key, `BelfryApi.revokeDevice`). The wipe: `Enc3Devices.checkRemoved` → `Session.enc3Removed` → `AppState.watchRemoved`
+  (signOut without revoking) → `RemovedDeviceScreen` over `AppRoot`; ONLY on `removed: true` AND absent from my current list
+  read whole here (`EncDevice.shouldWipe`): never weaken that. UI `ui/people/Enc3Device.kt` (`Enc3DeviceCards` on top of
+  Messages, `Enc3EarlierLine` at its bottom and above an encrypted conversation, `Enc3FirstScreenHost`, `Enc3OnlyDeviceDialog`
+  in Me). On format 3 (`Enc3DeviceState.on`) the v1 Allow / waiting / Start fresh screens never show. Demo: format 1; tests set
+  `Session.demoEnc3Device`. Tests `Enc3DevicesTest`, `Enc3DeviceTest`, `Enc3DeviceShotsTest`. Readers' cards: part 6.
 
 ## UI rules (the owner's, not negotiable)
 

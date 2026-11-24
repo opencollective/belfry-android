@@ -77,6 +77,13 @@ fun AppRoot(state: AppState) {
         // A guest link being opened (SPEC 19.26): one loading screen over everything, from the link
         // until the channel can be drawn in full; nothing under it shows in between.
         opening?.let { o -> Over { OpeningScreen(o.channelName) } }
+        // format 3 (SPEC 19.85, encrypted/removed-device): this account was wiped here; one screen says by whom and when
+        val removed by state.removedDevice.collectAsState()
+        removed?.let { r ->
+            Over {
+                sh.belfry.app.ui.people.RemovedDeviceScreen(r, System.currentTimeMillis() / 1000, java.time.ZoneId.systemDefault()) { state.removedSeen() }
+            }
+        }
         sh.belfry.app.update.UpdateSheetHost() // Update's sheet before Android's install setting
     }
 }
@@ -181,6 +188,7 @@ private fun SignedIn(state: AppState, session: Session) {
                 GuestJoinHost(onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) })
                 sh.belfry.app.ui.people.SealAskHost()
                 sh.belfry.app.ui.people.FreshElsewhereHost()
+                sh.belfry.app.ui.people.Enc3FirstScreenHost() // format 3 (SPEC 19.85, encrypted/first-screen)
                 OpenAfterSignIn(state)
                 JoinOffer(state)
                 sh.belfry.app.ui.printed.CardHost(state) // a printed card's address (SPEC 19.72)

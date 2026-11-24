@@ -134,7 +134,10 @@ fun ConversationScreen(conv: String) {
     LaunchedEffect(conv, seal != null) { if (seal != null) session.sealedOpened(conv) }
     // a device not yet allowed (canvas v84): messages from before the conversation was sealed read
     // as usual, then one amber block in place of the rest; no composer
-    val lockedHere = seal != null && conv in sealState.locked
+    // format 3 (SPEC 19.85): the version-1 locked block, waiting lines and Start fresh never show on a format-3 belfry
+    val enc3Dev = rememberEnc3Device()
+    val v1Ui = !enc3Dev.on
+    val lockedHere = v1Ui && seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
     val rows: List<Any> = remember(inline, seal, until) {
         val shown = DmGroups.collapse(inline.filter { it.at < until })
@@ -213,6 +216,8 @@ fun ConversationScreen(conv: String) {
             }
         } else {
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = state, contentPadding = PaddingValues(bottom = 10.dp + sh.belfry.app.ui.chat.TYPING_ROOM)) {
+                // format 3, part 5 (encrypted/new-thread, new-asked, new-arrived, transition, lost-all-thread): above the history
+                if (enc3Dev.on && session.encConvHere(conv)) item(key = "enc3-earlier") { Enc3EarlierLine(EarlierWhere.THREAD) }
                 itemsIndexed(rows, key = { _, r ->
                     when (r) {
                         is Dm -> r.rid
@@ -273,8 +278,8 @@ fun ConversationScreen(conv: String) {
         // an older device, a letterbox behind (messages/encryption-waiting-device): the newer messages wait for the
         // device that added itself; a locked wrap does not say which conversation it is for, so the line shows in
         // every sealed conversation while any waits. The composer stays.
-        if (seal != null && sealState.waitingFor.isNotEmpty() && !lockedHere && maxOf(dms.lockedCount, sealState.demoWaiting) > 0) WaitingForLine(sealState)
-        if (seal != null && sealState.waitingKeys && !lockedHere) {
+        if (v1Ui && seal != null && sealState.waitingFor.isNotEmpty() && !lockedHere && maxOf(dms.lockedCount, sealState.demoWaiting) > 0) WaitingForLine(sealState)
+        if (v1Ui && seal != null && sealState.waitingKeys && !lockedHere) {
             // allowed, the key not here yet (canvas v96): clears by itself when it arrives
             // "Asked 9:40 PM · waiting for one of your devices" / "Open ‹device›. Nothing to approve here." (Messages v5)
             WaitingKeysLines(sealState, Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-waiting-keys"))

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -281,6 +282,29 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     @Volatile private var picked: InviteLink? = null
     private var watcher: Job? = null
 
+    // ---- format 3, part 5 (SPEC 19.85; docs/encrypted.md §16.6, §26): this device was removed by another of mine ----
+    private var removedWatch: Job? = null
+    private val _removedDevice = MutableStateFlow<sh.belfry.core.enc.RemovedHere?>(null)
+    /** Set once this account was wiped because another of my devices removed this one: the screen encrypted/removed-device. */
+    val removedDevice: StateFlow<sh.belfry.core.enc.RemovedHere?> = _removedDevice
+    /** "Sign in again" on that screen. */
+    fun removedSeen() { _removedDevice.value = null }
+
+    /**
+     * The session said removed (the belfry's word AND this device absent from my current list, read whole: [Session.enc3Removed]):
+     * this account is signed out here without revoking (the belfry ended it), its store, keys and drafts deleted
+     * ([Onboarding.signOut]); then the screen says so.
+     */
+    private fun watchRemoved(s: Session) {
+        removedWatch?.cancel()
+        removedWatch = scope.launch {
+            val r = s.enc3Removed.first { it != null } ?: return@launch
+            if (_session.value !== s) return@launch
+            _removedDevice.value = r
+            signOut(revoke = false)
+        }
+    }
+
     /** Which accounts have something new (a notification came while another was open); the app's push code tells. */
     @Volatile var unreadAccounts: (() -> Set<String>)? = null
     @Volatile var clearUnread: ((String) -> Unit)? = null
@@ -438,6 +462,7 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
             refreshAccounts()
         }
         watch(s)
+        watchRemoved(s)
         try { onSignedIn?.invoke(s) } catch (e: Exception) { }
         // (the vault decrypts with the Keystore: not on the main thread)
         scope.launch {

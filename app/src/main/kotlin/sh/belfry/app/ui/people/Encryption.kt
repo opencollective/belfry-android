@@ -535,6 +535,7 @@ fun UnlockStepsContent(canStartFresh: Boolean = false, onNoOther: () -> Unit = {
 fun SealAskHost() {
     val session = LocalSession.current
     val st by session.encryption.state.collectAsState()
+    if (rememberEnc3Device().on) return // format 3 (SPEC 19.85): no version-1 Allow
     val ask = st.asks.firstOrNull() ?: return
     var gone by remember(ask.id) { mutableStateOf(false) }
     if (gone) return
@@ -812,6 +813,7 @@ fun FreshElsewhereHost() {
         return
     }
     val f = st.freshElsewhere ?: return
+    if (rememberEnc3Device().on) return // format 3 (SPEC 19.85): no version-1 Start fresh
     FreshElsewhereDialog(f, session.now(), LocalWorld.current.ctx.zone, onSignOut = { done = session.encryption.signOutOthers() }, onMine = { session.encryption.freshElsewhereMine() })
 }
 

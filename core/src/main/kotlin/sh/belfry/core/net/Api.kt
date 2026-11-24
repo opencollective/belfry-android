@@ -591,6 +591,41 @@ class BelfryApi(val community: Community, private val http: OkHttpClient) {
         if (!a.ok) fail(a, emptyMap(), "Not ended. Try again.")
     }
 
+    /**
+     * Format 3 (SPEC 19.85; docs/encrypted.md §16.6): another of my devices revoked: by its BUNKER key when its session row
+     * is known, else by its CLIENT key; BY = this device's key (the belfry names it to the removed device). False on a 404
+     * (an older belfry without it).
+     */
+    suspend fun revokeDevice(signer: Signer, bunker: String?, client: String, by: String): Boolean {
+        val a = signed(signer, "$base/me/sessions/revoke", "POST", buildJsonObject {
+            if (bunker != null) put("bunker_pubkey", JsonPrimitive(bunker)) else put("client_pubkey", JsonPrimitive(client))
+            put("by", JsonPrimitive(by))
+        })
+        if (a.status == 404) return false
+        if (!a.ok) fail(a, emptyMap(), "That did not work. Try again.")
+        return true
+    }
+
+    /** §11: my agent may read my encrypted conversations (or not any more). False on a 404 (an older belfry). */
+    suspend fun agentReads(signer: Signer, pubkey: String, reads: Boolean): Boolean {
+        val a = signed(signer, "$base/agents", "POST", buildJsonObject { put("pubkey", JsonPrimitive(pubkey)); put("reads", JsonPrimitive(reads)) })
+        if (a.status == 404) return false
+        if (!a.ok) fail(a, AGENT_ERRORS, "That did not work. Try again.")
+        return true
+    }
+
+    /**
+     * §16.6: was this device removed? `GET <api>/sessions/removed`, NIP-98 signed by the DEVICE key itself (a revoked
+     * session can't sign through the signer). Null: no answer (offline, a 404 from an older belfry, an error, odd JSON).
+     */
+    suspend fun sessionsRemoved(device: sh.belfry.core.nostr.LocalSigner): sh.belfry.core.enc.RemovedAnswer? {
+        val url = "$base/sessions/removed"
+        val auth = try { Nip98.headerNow(device, url, "GET") } catch (e: Exception) { return null }
+        val a = try { send(build(url, "GET", null, auth)) } catch (e: ApiException) { return null }
+        if (!a.ok) return null
+        return sh.belfry.core.enc.RemovedAnswer.parse(a.body)
+    }
+
     /** Admins: make the site a message links to (an nsite ref) the community's website. */
     suspend fun publishWebsite(signer: Signer, ref: String, messageId: String) {
         val a = signed(signer, "$base/website/publish", "POST", buildJsonObject {

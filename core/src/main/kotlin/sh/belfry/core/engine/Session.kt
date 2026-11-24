@@ -339,6 +339,125 @@ class Session(
     /** "Try again" on the set-up line: my list read again. */
     suspend fun enc3TryAgain() = withContext(Dispatchers.Default) { enc3?.tryAgain(); Unit }
 
+    // ---- format 3, part 5 (SPEC 19.85): a new device, the card on my other devices, the removed device --------------
+
+    /** Part 5 on this device (null wherever [enc3] is: the demo, a guest's session, no device key). */
+    val enc3Devices: Enc3Devices? by lazy {
+        val e = enc3 ?: return@lazy null
+        Enc3Devices(e, object : Enc3DevicePorts {
+            override suspend fun sessions(): List<SessionInfo>? = try { api().sessions(signer) } catch (x: Exception) { null }
+            override suspend fun revoke(device: String, bunker: String?, by: String) {
+                guard()
+                if (!call { it.revokeDevice(signer, bunker, device, by) }) throw ActionException("not_yet", sh.belfry.core.enc.EncDeviceText.NOT_YET)
+            }
+            override suspend fun agentReads(agent: String, reads: Boolean) {
+                guard()
+                if (!call { it.agentReads(signer, agent, reads) }) throw ActionException("not_yet", sh.belfry.core.enc.EncDeviceText.NOT_YET)
+            }
+            override suspend fun enqueueSigned(e: Event) { this@Session.enqueueSigned(Target.MAIN, e) }
+            override suspend fun removedAnswer(): sh.belfry.core.enc.RemovedAnswer? =
+                if (!_status.value.online) null else try { api().sessionsRemoved(e.device) } catch (x: Exception) { null }
+            override fun v1Secrets(): Map<String, String> = sealed?.keys?.toMap() ?: emptyMap()
+            override fun takeV1(secrets: Map<String, String>) { sealed?.takeV1Secrets(secrets) }
+            override fun missing(): Int = dm.snapshot.value.let { it.unreadableCount + it.lockedCount }
+            override fun since3(): Long = encFormat.state().since3
+            override fun later(block: suspend () -> Unit) = launchSafely(block)
+        })
+    }
+
+    private val demoEnc3 = MutableStateFlow(sh.belfry.core.enc.Enc3DeviceState())
+    private val noRemoved = MutableStateFlow<sh.belfry.core.enc.RemovedHere?>(null)
+
+    /** What the screens show of part 5 (the demo: what a test set with [demoEnc3Device]). */
+    val enc3Device: StateFlow<sh.belfry.core.enc.Enc3DeviceState> get() = enc3Devices?.state ?: demoEnc3
+
+    /** §16.6 + §26: this device was removed by another of mine (both conditions met); the app wipes this account. */
+    val enc3Removed: StateFlow<sh.belfry.core.enc.RemovedHere?> get() = enc3Devices?.removed ?: noRemoved
+
+    /** Tests and screenshots only: the demo's part-5 state (the demo stays format 1: there is no runtime). */
+    fun demoEnc3Device(st: sh.belfry.core.enc.Enc3DeviceState) { if (localOnly) demoEnc3.value = st }
+
+    /** The demo's "removed" answer (tests: the wipe and its screen). */
+    fun demoEnc3Removed(r: sh.belfry.core.enc.RemovedHere?) { if (localOnly) noRemoved.value = r }
+
+    /** The demo's conversations shown as encrypted here (tests). */
+    @Volatile var demoEncConvs: Set<String> = emptySet()
+
+    /** Demo counters for the behaviour tests: Share and Remove reached the session this often. */
+    @Volatile var demoShares = 0
+        private set
+    @Volatile var demoRemovals = 0
+        private set
+
+    /** CONV (a people conversation) was seen encrypted here: the earlier-messages line may stand above its history. */
+    fun encConvHere(conv: String): Boolean = enc3?.everEncrypted(conv) == true || (localOnly && conv in demoEncConvs)
+
+    /** "Ask for them" (§7.3): an 8574 signed by this device; again only after 24 h or a new device of mine. */
+    suspend fun enc3Ask() = withContext(Dispatchers.Default) {
+        if (localOnly) { demoEnc3.value = demoEnc3.value.copy(askedAt = now()); return@withContext }
+        guard()
+        enc3Devices?.ask()
+        Unit
+    }
+
+    /** Share earlier messages with the card's device (§7.5): key packs, then the answer. PROGRESS: packs queued of all. */
+    suspend fun enc3Share(card: sh.belfry.core.enc.DeviceCard, progress: (Int, Int) -> Unit = { _, _ -> }) = withContext(Dispatchers.Default) {
+        if (localOnly) {
+            demoShares++
+            for (i in 1..3) { kotlinx.coroutines.delay(150); progress(i, 3) }
+            val st = demoEnc3.value
+            demoEnc3.value = st.copy(cards = st.cards.filter { it.device != card.device }, notices = st.notices + sh.belfry.core.enc.EncDeviceText.shared(card.name))
+            return@withContext
+        }
+        guard()
+        (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).share(card, progress)
+    }
+
+    /** Remove the card's device (§7.6), after the person confirmed: its session revoked (by = this device), then the answer. */
+    suspend fun enc3Remove(card: sh.belfry.core.enc.DeviceCard) = withContext(Dispatchers.Default) {
+        if (localOnly) {
+            demoRemovals++
+            val st = demoEnc3.value
+            demoEnc3.value = st.copy(cards = st.cards.filter { it.device != card.device }, notices = st.notices + sh.belfry.core.enc.EncDeviceText.removed(card.name))
+            return@withContext
+        }
+        (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).remove(card)
+    }
+
+    /** Remove on the first screen (§18.3). */
+    suspend fun enc3RemoveFirst(row: sh.belfry.core.enc.FirstRow) = withContext(Dispatchers.Default) {
+        if (localOnly) {
+            demoRemovals++
+            demoEnc3.value = demoEnc3.value.let { it.copy(firstScreen = it.firstScreen.filter { r -> r.device != row.device }) }
+            return@withContext
+        }
+        (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).removeFirst(row)
+    }
+
+    fun enc3GoneOk(device: String) {
+        if (localOnly) demoEnc3.value = demoEnc3.value.let { it.copy(cards = it.cards.filter { c -> c.device != device }) } else enc3Devices?.goneOk(device)
+    }
+
+    fun enc3NoticeSeen(text: String) {
+        if (localOnly) demoEnc3.value = demoEnc3.value.let { it.copy(notices = it.notices - text) } else enc3Devices?.noticeSeen(text)
+    }
+
+    fun enc3LostOk() { if (localOnly) demoEnc3.value = demoEnc3.value.copy(lostOk = true) else enc3Devices?.lostOk() }
+
+    fun enc3FirstScreenOk() { if (localOnly) demoEnc3.value = demoEnc3.value.copy(firstScreen = emptyList()) else enc3Devices?.firstScreenOk() }
+
+    /** My devices' names again (the cards, the earlier line, the first screen). */
+    suspend fun enc3Names() = withContext(Dispatchers.Default) { enc3Devices?.readNames(); Unit }
+
+    @Volatile private var removedLookMs = 0L
+
+    /** §16.6: asked of the belfry when the app starts, comes to the front, every 5 minutes, and when a relay refuses me. */
+    private fun lookRemoved(force: Boolean = false) {
+        val d = enc3Devices ?: return
+        removedLookMs = System.currentTimeMillis()
+        launchSafely { d.checkRemoved(force) }
+    }
+
     /** The format a write uses now ([sh.belfry.core.enc.EncFormatState.writeFormat]); in the demo 1. */
     fun encWriteFormat(): Int? = if (localOnly) 1 else encFormat.state().writeFormat(clock())
 
@@ -545,6 +664,12 @@ class Session(
         val got = Paging.all { f -> r.queryKnown(listOf(f), 8_000) }(Filters.of(kinds = kinds, since = since, tags = mapOf("p" to listOf(me))))
         addToLog(got.events)
         dm.process()
+        // SPEC 19.85: asks and answers of my account and packs for me, whole (few, and an answer settles a card for good)
+        if (enc3Devices != null) {
+            val dev = Paging.all { f -> r.queryKnown(listOf(f), 8_000) }(Filters.of(kinds = listOf(sh.belfry.core.enc.Enc.PACK, sh.belfry.core.enc.Enc.ASK, sh.belfry.core.enc.Enc.ANSWER), tags = mapOf("p" to listOf(me))))
+            addToLog(dev.events)
+            enc3Devices?.offer(dev.events)
+        }
     }
 
     /** Starts (or retries, after a late AUTH) the sealed side; then the upkeep. Never throws. */
@@ -1009,14 +1134,19 @@ class Session(
             r.onEose = { sub -> if (sub == SUB) { reopens[t.ordinal] = 0; refusals[t.ordinal] = 0; incoming.trySend(Incoming.Eose(t, r.isAuthenticated || r.authSigner == null || localOnly)) } }
             r.onClosed = { sub, reason ->
                 if (t == Target.GROUPS) noteRefusal(reason)
+                if (reason.startsWith("auth-required") || reason.startsWith("restricted")) lookRemoved() // SPEC 19.85
                 if (sub == SUB) reopen(t, reason)
             }
-            r.onAuthRefused = { reason -> if (t == Target.GROUPS) noteRefusal(reason) }
+            r.onAuthRefused = { reason ->
+                if (t == Target.GROUPS) noteRefusal(reason)
+                lookRemoved() // a relay refused my session: was this device removed? (SPEC 19.85)
+            }
             r.onAuthenticated = {
                 // sealed: first device / request again when AUTH lands late (64a07fa); chains before the flush
                 if (t == Target.MAIN) sealed?.trace("auth (session)")
                 if (t == Target.MAIN && sealed != null) launchSafely { sealedStart(); requestFlush() } else requestFlush()
                 if (t == Target.MAIN && enc3 != null) launchSafely { enc3CatchUp() }
+                if (t == Target.MAIN) lookRemoved(force = true) // SPEC 19.85: my list can be read whole now
             }
             r.onConnected = { requestFlush() }
             r.onDisconnect = {
@@ -1041,14 +1171,21 @@ class Session(
         // first 70 s (the 60 s of §3) and every 30 s after
         enc3?.let { e ->
             e.onKeys = { launchSafely { dm.keysArrived() } }
-            e.offer(synchronized(logLock) { log.filter { it.kind == sh.belfry.core.enc.Enc.LIST || it.kind == sh.belfry.core.enc.Enc.KEY } })
+            val d = enc3Devices // SPEC 19.85: its hooks on Enc3 before the first offer
+            e.offer(synchronized(logLock) { log.filter { it.kind == sh.belfry.core.enc.Enc.LIST || it.kind == sh.belfry.core.enc.Enc.KEY || it.kind in sh.belfry.core.enc.Enc.PACK..sh.belfry.core.enc.Enc.ANSWER } })
             e.setFormat3(encFormat.state().format == 3)
             launchSafely { encPartners() }
+            d?.refresh()
+            launchSafely { d?.readNames() }
+            lookRemoved(force = true) // the app starts
             jobs += scope.launch(Dispatchers.Default) {
                 var n = 0
                 while (isActive) {
                     delay(if (n++ < 14) 5_000L else 30_000L)
                     try { if (_status.value.online) e.tick() else e.check() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
+                    // SPEC 19.85: asked again (24 h, a new device of mine), packs waiting for whole lists; removed? every 5 minutes
+                    try { if (_status.value.online) d?.tick() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
+                    if (_status.value.online && System.currentTimeMillis() - removedLookMs > 5 * 60_000L) lookRemoved(force = true)
                     // format 3: held messages decided again (a person's device came, my list arrived…)
                     try { if (_status.value.online && dm.hasHeld()) dm.process() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
                 }
@@ -1135,6 +1272,7 @@ class Session(
         if (!started || stopped || localOnly) return
         if (_status.value.online) checkConnections(catchUp = true)
         launchSafely { dm.process() }
+        lookRemoved() // back in the foreground (SPEC 19.85)
         requestFlush()
     }
 
@@ -1328,6 +1466,8 @@ class Session(
         ) + enc3?.filters().orEmpty() + listOfNotNull(
             // format 3, people (SPEC 19.83; §6, §18.1): envelopes and messages for me, ordinary catch-up (§17.11)
             enc3?.let { Filters.of(kinds = listOf(sh.belfry.core.enc.Enc.KEY, sh.belfry.core.enc.Enc.MSG), since = maxOf(0, latest { it.kind == sh.belfry.core.enc.Enc.KEY || it.kind == sh.belfry.core.enc.Enc.MSG } - 3600), limit = 300, tags = mapOf("p" to listOf(me))) },
+            // SPEC 19.85: packs to me, asks and answers of my account (live; the catch-up reads them whole)
+            enc3?.let { Filters.of(kinds = listOf(sh.belfry.core.enc.Enc.PACK, sh.belfry.core.enc.Enc.ASK, sh.belfry.core.enc.Enc.ANSWER), limit = 300, tags = mapOf("p" to listOf(me))) },
         ) + listOf(
             Filters.of(kinds = listOf(4), since = old, limit = 500, tags = mapOf("p" to listOf(me))),
             Filters.of(kinds = listOf(4), authors = listOf(me), since = old, limit = 500),

@@ -87,6 +87,8 @@ data class ConvKey(
     val unconfirmed: List<String> = emptyList(),
     /** What makes this key's envelopes again with fresh dates (a key this device made): its rumor and receivers. */
     val made: MadeKey? = null,
+    /** SPEC 19.85 (§7.5): a received people key's rumor as it came (it holds k: vault only), handed on as is in a key pack. */
+    val rumor: sh.belfry.core.nostr.Event? = null,
 ) {
     fun held(): HeldKey = HeldKey(pub, secret, conv, mine, lists, at, group, service)
 
@@ -105,6 +107,7 @@ data class ConvKey(
             put("rumor", made.rumor.toJson())
             put("per", buildJsonArray { made.per.forEach { p -> add(buildJsonObject { put("account", JsonPrimitive(p.account)); put("devices", buildJsonArray { p.devices.forEach { add(JsonPrimitive(it)) } }) }) } })
         })
+        if (rumor != null) put("rumor", rumor.toJson())
     }
 
     internal companion object {
@@ -120,7 +123,8 @@ data class ConvKey(
             }
             return ConvKey(K, k, conv, o.s("maker") ?: "", o["at"].long() ?: 0, b("mine"), b("service"), b("group"), o.s("lists") ?: "",
                 o["people"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(),
-                o["unconfirmed"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(), made)
+                o["unconfirmed"].arr()?.mapNotNull { it.str()?.takeIf(Hex::isKey) } ?: emptyList(), made,
+                o["rumor"].obj()?.let { sh.belfry.core.nostr.Event.fromJson(it) })
         }
     }
 }

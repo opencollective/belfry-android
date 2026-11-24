@@ -103,6 +103,8 @@ fun MessagesScreen(
     val now = session.now()
     val seal by session.encryption.state.collectAsState()
     val enc3 by session.enc3State.collectAsState()
+    // format 3, part 5 (SPEC 19.85): on a format-3 belfry the version-1 Allow / waiting / Start fresh screens never show
+    val dev = rememberEnc3Device()
     Column(Modifier.fillMaxSize().background(c.bg)) {
         // the address small under the title; a tap copies it (home/messages, Home canvas v4)
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -121,16 +123,20 @@ fun MessagesScreen(
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 6.dp)) {
             // format 3 (SPEC 19.82): this device not on its list after 60 s, or the twenty-first (part 4 draws the final screens)
             if (enc3.line != null) item(key = "enc3-setup") { Enc3SetupLine(enc3) }
+            // part 5: the warnings, the card of each device added to my list, the lines said once (on top, until answered)
+            if (dev.on) item(key = "enc3-cards") { Enc3DeviceCards() }
             // format 3 (SPEC 19.83, §9): messages whose key isn't here yet, or that have no copy for this device (part 5 adds Ask)
-            if (dms.unreadableCount > 0) item(key = "enc3-unreadable") { Enc3CountLine(sh.belfry.core.enc.EncText.unreadable(dms.unreadableCount), "enc3-unreadable") }
+            if (dms.unreadableCount > 0 && !dev.on) item(key = "enc3-unreadable") { Enc3CountLine(sh.belfry.core.enc.EncText.unreadable(dms.unreadableCount), "enc3-unreadable") }
             if (dms.openingCount > 0) item(key = "enc3-opening") { Enc3CountLine(sh.belfry.core.enc.EncText.opening(dms.openingCount), "enc3-opening") }
             // a device of mine added without a prompt here (canvas v183): on top, until answered
-            if (seal.added.isNotEmpty() || seal.removedJoinerAt > 0L) item(key = "seal-added") { AddedDeviceCards() }
+            if (!dev.on && (seal.added.isNotEmpty() || seal.removedJoinerAt > 0L)) item(key = "seal-added") { AddedDeviceCards() }
             // a new device (canvas messages/encryption-new-device): earlier messages are locked here; and
             // sealed messages that came but can't be opened here show in no conversation, so the banner
             // says how many wait (Xavier's mail to himself on a phone not yet allowed, 2026-11-22)
             val waitingN = maxOf(dms.lockedCount, seal.demoWaiting)
-            if (seal.waitingFor.isNotEmpty() && !seal.earlierLocked) {
+            if (dev.on) {
+                // format 3: version-1 messages this device never had are the same Ask (encrypted/transition), at the bottom
+            } else if (seal.waitingFor.isNotEmpty() && !seal.earlierLocked) {
                 // an older device, a letterbox behind (canvas Messages v8 messages/encryption-waiting-device, sealed.md
                 // §5.7): nothing is locked; the newer messages wait for the device that added itself
                 if (waitingN > 0) item(key = "seal-waiting-for") { WaitingForLine(seal, waitingN) }
@@ -147,6 +153,8 @@ fun MessagesScreen(
                 if (r.notes) NotesRow(r, dms, world, now, sealed = seal.seal(r.conv) != null, locked = r.conv in seal.locked) { nav.go(Routes.conversation(r.conv)) }
                 else if (t != null) ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) }
             }
+            // part 5 (encrypted/new-list, new-asked, transition, lost-all): where the oldest conversations are
+            if (dev.on) item(key = "enc3-earlier") { Enc3EarlierLine(EarlierWhere.LIST) }
             if (rows.none { !it.notes }) {
                 item(key = "empty") {
                     EmptyState(

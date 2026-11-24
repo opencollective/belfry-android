@@ -123,6 +123,9 @@ class Enc3(
         var fresh = false
         for (e in events) if (e.kind == Enc.LIST && lists.putIfAbsent(e.id, e) == null) fresh = true
         if (fresh) listsVersion++
+        // SPEC 19.85: packs to this device, asks and answers of my account (part 5's Enc3Devices)
+        val dev = events.filter { it.kind == Enc.PACK || it.kind == Enc.ASK || it.kind == Enc.ANSWER }
+        if (dev.isNotEmpty()) onDeviceEvents?.invoke(dev)
         // SPEC 19.83: envelopes for my account; new ones (or new lists a waiting one may need) are judged
         val envFresh = offerEnvelopes(events)
         if (envFresh || (fresh && waitingEnvelopes)) ports.later { if (takeEnvelopes()) onKeys?.invoke() }
@@ -234,7 +237,15 @@ class Enc3(
         val w = warnings(me)
         _state.value = Enc3State(h, format3, w?.holds == true, strange.size)
         if (h == Here.YES) sayReadsOnce()
+        onCheck?.invoke()
     }
+
+    /** SPEC 19.85: part 5's hooks (Enc3Devices): device events seen (8573–8575), and every state check. */
+    @Volatile var onDeviceEvents: ((List<Event>) -> Unit)? = null
+    @Volatile var onCheck: (() -> Unit)? = null
+
+    /** The cached format is 3 now. */
+    val isFormat3: Boolean get() = format3
 
     /** The periodic look (the session calls it): my sessions counted when twenty devices are listed without this one. */
     suspend fun tick() {
@@ -282,6 +293,8 @@ class Enc3(
             for (k in l.keys) hold(k)
             convs.putAll(l.convs)
             notes.putAll(l.notes)
+            // SPEC 19.85 (§17.7): the entries for keys never on my lists stay seen across restarts
+            notes[N_STRANGE]?.split(',')?.filter { Enc.isKey(it) }?.let { strange.addAll(it) }
         }
     }
 
@@ -330,15 +343,38 @@ class Enc3(
     fun firstKeyAt(conv: String): Long? = synchronized(keys) { convs[conv] }
 
     /** §17.7: an envelope for my account had an entry for KEY, never on my lists (part 3 reports it). */
-    fun strangeEntry(key: String) { if (strange.add(key)) check() }
+    fun strangeEntry(key: String) {
+        if (!strange.add(key)) return
+        setNote(N_STRANGE, synchronized(strange) { strange.sorted().take(50).joinToString(",") })
+        check()
+    }
 
-    private fun note(n: String): String? = synchronized(keys) { notes[n] }
-    private fun setNote(n: String, v: String) { synchronized(keys) { notes[n] = v }; persist() }
+    /** §17.7: the strange entries seen (kept for good, per account). */
+    val strangeCount: Int get() = strange.size
+
+    internal fun note(n: String): String? = synchronized(keys) { notes[n] }
+    internal fun setNote(n: String, v: String) { synchronized(keys) { notes[n] = v }; persist() }
+
+    /** Every key held (Share hands them on in key packs, SPEC 19.85). */
+    fun allKeys(): List<ConvKey> = synchronized(keys) { keys.values.toList() }
+
+    /**
+     * SPEC 19.85 (§7.5 "plus the envelopes on the relays"): every envelope for my account read whole now and judged;
+     * true when the read completed.
+     */
+    suspend fun readMyEnvelopes(pageMs: Long = 8_000): Boolean {
+        val got = ports.query(Filters.of(kinds = listOf(Enc.KEY), tags = mapOf("p" to listOf(me))), pageMs) ?: return false
+        val mine = got.events.filter { it.kind == Enc.KEY }
+        if (mine.isNotEmpty()) { ports.addEvents(mine); offerEnvelopes(mine) }
+        if (takeEnvelopes()) onKeys?.invoke()
+        return got.complete
+    }
 
     /** Sign-out: the keys go with the session; a late write is refused. */
     fun wipe() {
         keyStore?.wipe()
         synchronized(keys) { keys.clear(); byAlias.clear(); convs.clear(); notes.clear() }
+        strange.clear()
     }
 
     // ---- before a send: the checks that hold (part 3 / part 7 encrypt) -----------------------------
@@ -481,7 +517,7 @@ class Enc3(
             val g = ports.groupsKey()
             val service = (b != null && r.pubkey == b) || (!g.isNullOrEmpty() && r.pubkey == g)
             val accounts = people.distinct().sorted()
-            if (putKey(ConvKey(K, r.content, peopleConv(accounts, me), r.pubkey, r.createdAt, mine, service, false, lists, accounts))) added = true
+            if (putKey(ConvKey(K, r.content, peopleConv(accounts, me), r.pubkey, r.createdAt, mine, service, false, lists, accounts, rumor = r))) added = true
         }
         return added
     }
@@ -663,6 +699,7 @@ class Enc3(
         const val LISTED_WITHIN_MS = 60_000L
         const val READS_D = "belfry:device:reads"
         private const val N_READS = "said-reads"
+        private const val N_STRANGE = "strange-entries"
 
         /** A people conversation's id here (`n:` + the others sorted; `n:<me>` alone) from its accounts. */
         fun peopleConv(accounts: Collection<String>, me: String): String {

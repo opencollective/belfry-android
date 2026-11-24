@@ -3422,3 +3422,90 @@ the screens of parts 4–6 (Who can read this, Ask for earlier messages, the dev
   and after 30 days, envelopes first and made again, the silent copy, device-signed seals and no signer, the holds
   with their words and Try again, never clear once encrypted, format 1 unchanged, mail out to the belfry key and mail
   in, the version-1 ports silent on format 3. The sealed v1 tests are unchanged.
+
+### 19.85 Encrypted conversations, format 3: a new device, the card on my other devices, the warnings, the first screen, the removed device (2026-11-24; collective-belfry docs/encrypted.md §7, §11, §12, §16.3, §16.6, §16.12, §17.6, §17.7, §18.3, §20, §26, §28; the web's `src/core/enc/runtime.ts`, `src/ui/EarlierLine.tsx`, `App.tsx`, `Sealed.tsx` on branch enc-v3; Encrypted canvas encrypted/new-*, transition, card*, laptop-card, removed-device, signout-only, lost-all*, edge-added-removed, edge-two-lists, first-screen)
+
+Part 5 of format 3 on Android. Pure rules and every word: `core/enc/Device.kt` (`EncDevice`, `EncDeviceText`,
+`Enc3DeviceState`); the runtime: `core/engine/Enc3Devices.kt` (`Session.enc3Devices`, beside `Enc3`; null wherever `Enc3`
+is: the demo, a guest's session, no device key). Its notes live in the account's key store (`Enc3.note`), wiped with it.
+Nothing of this shows on a belfry this device doesn't know as format 3 (`Enc3DeviceState.on`); there the version-1 Allow,
+waiting and Start fresh screens (`SealAskHost`, `FreshElsewhereHost`, the locked block, the waiting lines, the v1 device
+cards) keep showing, and on format 3 they never do.
+
+- **Signed by the device key** (never the signer): the ask (8574), the answers (8575), the seal inside each key pack, and the
+  NIP-98 of `GET /api/v1/sessions/removed`. A pack's outer 8573 is signed by a one-time key. All go through the outbox as
+  signed events to the community relay (`Session.enqueueSigned`). The community relay's live subscription adds
+  `{kinds:[8573, 8574, 8575], "#p":[me], limit 300}`; each authenticated connection reads them whole (`enc3CatchUp`).
+- **A new device** (§7.2–§7.3, §16.12): the line "Earlier messages are on your other devices · Ask for them" at the bottom
+  of Messages and above the history of a conversation seen encrypted here (`Session.encConvHere`), when messages for me
+  can't be opened here (`DmSnapshot.unreadableCount` + version-1 `lockedCount`) and this device is on my list. In Messages
+  it names my older devices (`EncDevice.older`: on my current list, listed before this one) by their own names from
+  `/me/sessions` ("Safari on iPhone and Safari on Mac can share them with this one"; any unnamed → "Your other devices").
+  Only version-1 messages missing (encrypted/transition): "Messages from before ‹the day this device first read format 3›
+  were encrypted the old way. ‹names› can share them." Ask = `EncPacks.ask` (`["p", account]`, content ""), once
+  (`EncDevice.mayAsk`); after that "Asked your other devices · Earlier messages arrive here when ‹names, or› is next open
+  · Your devices"; asked again by itself (the 30 s look) after 24 h or when another device of mine appears on my list,
+  while messages are still missing. When a pack opened, a quiet line above the history: "Earlier messages shared by
+  ‹name›". None of my devices listed before this one (lost every device, §8 / encrypted/lost-all): "Earlier messages can’t
+  be recovered · None of the devices that could read them is signed in any more. New messages work as usual." — in
+  Messages with OK (said once, kept), in a conversation without.
+- **Key packs taken** (§7.5, §16.3, §17.6, §18.3): an 8573 with `["d", this device]`, `["p", me]`, opened by
+  `EncPacks.openPack` only when my chain has no gaps (my whole chain read first; with gaps the pack waits, never judged) and
+  only from a device on my current list listed before this one (never a reader, never a younger or unlisted device).
+  People keys (`ConvKey.rumor` kept), group keys (`group`, maker = the sharing device) are kept with `mine = false`: they
+  read, never send (§17.8, §19). A K held already is never replaced (`putKey` declares once). Version-1 letterbox secrets
+  (`["v1", lb]` rumors) go to `SealedEngine.takeV1Secrets` (checked against lb, never replacing). Then the messages
+  waiting are read again.
+- **The card on my other devices** (§7.4, §6.4, §17.6, §17.7, §17.9; `EncDevice.cards`): for each list of mine after the
+  first one this device saw (`firstN`), every device added that is still on my current list and was listed after this
+  device, not answered: "‹its own name› was added · Today 9:40 · Share your earlier messages with it? If this wasn’t you,
+  remove it." with Share earlier messages (the button) and Remove this device; no Not now. Answered once for every device
+  and conversation: an 8575 counts (`EncDevice.answers`) only when signed by a device on my current list listed before the
+  device it is about, no list missing, never a reader; an `e` answer is about the device whose ask it names. A card shown
+  here that another device answered leaves one line ("Safari on Mac shared earlier messages with Chrome on Android").
+  Readers' cards (an agent given access, §17.9) are computed (`DeviceCard.reader`) and drawn by part 6.
+- **Share** (§7.5; `Enc3Devices.share`): only from a device listed before the new one; online (the envelopes for my
+  account are read whole first: what this device can open, `Enc3.readMyEnvelopes`); every key held (`Enc3.allKeys`): people
+  keys as their rumor (as received, or as made here; else rebuilt from k and the people), group keys as `["K"]["h"]` rumors,
+  every version-1 letterbox secret as a `["v1", lb]` rumor; `EncPacks.packs` (≤ 40 000 bytes each, seal by this device) to
+  the new device, queued in order with progress ("Sharing earlier messages… n of m"); then the answer "shared"
+  (`["device", d]`, or `["e", ask]` when its ask was seen). "Earlier messages shared with ‹name›".
+- **Remove** (§7.6, §16.6): asks first ("Remove ‹name›? · It’s signed out at once and can’t read new messages. If you didn’t
+  add it, someone used a code sent to your e-mail: change your e-mail password."), then `POST /me/sessions/revoke` with
+  `bunker_pubkey` (its `/me/sessions` row) or else `client_pubkey`, and `by` = this device's pubkey
+  (`BelfryApi.revokeDevice`; a 404 = "This belfry can’t do that yet."); then the answer "removed"; "‹name› was removed."
+  A reader (part 6, the first screen): `POST /agents {pubkey, reads: false}` (`BelfryApi.agentReads`).
+- **Warnings** (§17.7): a device added and removed again while this device was away ("‹name› was added and removed while
+  you were away · Yesterday 23:20 to 23:48 · If you didn’t add it, someone used a code sent to your e-mail: change your
+  e-mail password." OK only, kept); two different lists of my devices or a newer signed list that isn't valid (fork /
+  invalidAbove: "Your belfry gave out two different lists of your devices", kept for good once seen); an envelope for my
+  account with an entry for a key never on my lists ("A device that was never on your list got your messages"; the keys
+  kept in the key store across restarts). Both with Your devices (Me › Sessions).
+- **The first screen** (§18.3; encrypted/first-screen): once per device, on the first list of mine it is on, the other
+  devices and readers already on it, each with "Added ‹day›" (its first list) or "Your agent · access given ‹day›" and
+  Remove (asks first), then Continue. A full-screen dialog over the app (`Enc3FirstScreenHost` in `AppRoot`).
+- **The removed device** (§16.6, §26): `GET <api>/sessions/removed` signed by the device key (`BelfryApi.sessionsRemoved`;
+  `{removed, at, by_name}` read strictly) when the session starts, back in the foreground (`Session.wake`), every 5 minutes,
+  and when a relay refuses my session (AUTH refused, or a CLOSED `auth-required:` / `restricted:`); at most every 30 s.
+  Wiped ONLY when the answer is `removed: true` AND this device is absent from my current list read whole on the
+  connection there is now (`EncDevice.shouldWipe`); never on one condition, never without an answer (offline), never
+  without a list. Then `Session.enc3Removed` → `AppState.watchRemoved`: this account is signed out without revoking
+  (`Onboarding.signOut(revoke = false)`: its session, store with drafts and outbox, version-1 and format-3 keys deleted)
+  and one screen shows (`RemovedDeviceScreen`): "This device was removed · ‹by_name, or Another of your devices› removed it
+  today at 9:52. Your messages were deleted from this device. They’re still on your other devices. · Sign in again".
+- **Signing out of the only device** (encrypted/signout-only): on format 3, this device alone on my list and holding keys
+  (`EncDevice.onlyDevice`): "This is your only device · If you sign out, your earlier encrypted messages can’t be read
+  anywhere, ever. New messages still reach you when you sign in again." Add another device first (Link a phone or
+  tablet) · Sign out anyway · Cancel, before it happens (`Enc3OnlyDeviceDialog` in Me).
+- **Words**: the web's where it shipped words different from a board (Remove's text, "‹name› was removed."); the boards'
+  for what the web didn't ship (the transition sentence, the first screen as a screen with Remove on each row, the time
+  range of added-and-removed). The fork / strange texts point at "your devices" (Android has no Me › Devices yet).
+- **Demo**: stays format 1 (no runtime); tests set a state by hand (`Session.demoEnc3Device`, `demoEncConvs`,
+  `demoShares` / `demoRemovals`).
+- Tests: `Enc3DevicesTest` (core: asks once / 24 h / a new sibling and asked again by the look; answers only from older
+  listed non-reader devices, an `e` answer about its asker, answered once for all with the line on a third device;
+  added-and-removed; packs built with people, group and version-1 keys and opened, never replacing a held key, refused
+  from a younger or unlisted device and kept while my chain has gaps; Remove revokes with `by` then answers; the wipe
+  needing both conditions and never offline; the removed answer read strictly; the first screen once; the warnings kept
+  across restarts; the only device), `Enc3DeviceTest` (Robolectric: Share once per tap, Remove asks first, Ask once,
+  nothing on format 1), `Enc3DeviceShotsTest` (pictures, by hand).
