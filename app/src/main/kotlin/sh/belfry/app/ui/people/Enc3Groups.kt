@@ -258,7 +258,7 @@ fun PrivateGuestBar() {
 fun RemovedFromGroupBar() {
     val c = Belfry.colors
     Hairline()
-    Text(GroupEncText.small(GroupLine(GroupLine.Kind.REMOVED, LocalWorld.current.me, null, 0), LocalWorld.current.me), fontSize = 14.sp, lineHeight = 20.sp, color = c.muted,
+    Text(GroupEncText.REMOVED_BAR, fontSize = 14.sp, lineHeight = 20.sp, color = c.muted,
         modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp).testTag("enc3-group-removed-bar"))
 }
 

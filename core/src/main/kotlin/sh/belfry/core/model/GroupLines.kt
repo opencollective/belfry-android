@@ -46,6 +46,8 @@ object GroupEncText {
     const val GETS_LATER = "Gets new messages once signed in"
     const val LOCK = "Encrypted: see who can read this group"
     const val OK = "OK"
+    /** Where the composer was, in a group I was removed from (the line in the feed says the rest). */
+    const val REMOVED_BAR = "You’re no longer a member of this group."
     const val MAIL_NOTE = "E-mail to this group reaches the belfry’s mail server unencrypted and is encrypted as soon as it arrives. Once here, the belfry can’t read it."
 
     fun lead(n: Int, name: String): String = "Only the devices of these $n people can read $name. Someone who joins later can’t read what was said before."

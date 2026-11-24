@@ -204,16 +204,20 @@ fun MessageRow(
                 // format 3, a private group (SPEC 19.88): held with words, never sent in clear; Try again (or, too many devices: Delete)
                 val busy = rememberBusy()
                 val gone = held.reason == sh.belfry.core.enc.HoldReason.TOO_MANY
-                Row(Modifier.padding(top = 2.dp).testTag("enc3-group-held"), verticalAlignment = Alignment.CenterVertically) {
-                    Text(sh.belfry.app.ui.people.heldWords(held, world) + " · ", fontSize = 13.sp, color = c.text, modifier = Modifier.weight(1f, fill = false), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (gone) Text(
-                        sh.belfry.core.model.GroupEncText.TELL_STEWARD + " · ", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text,
-                        modifier = Modifier.clickable(role = Role.Button) { nav.go(Routes.channelInfo(groupId)) }.testTag("enc3-group-steward"),
-                    )
-                    Text(
-                        if (busy.busy) "…" else if (gone) "Delete" else sh.belfry.core.enc.EncText.TRY_AGAIN, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text,
-                        modifier = Modifier.clickable(enabled = !busy.busy, role = Role.Button) { busy.run { if (gone) session.discard(pending.localId) else session.retry(pending.localId) } }.testTag("enc3-group-try"),
-                    )
+                // the words on their own lines, the actions under them (a long reason never squeezes them)
+                Column(Modifier.padding(top = 2.dp).testTag("enc3-group-held")) {
+                    Text(sh.belfry.app.ui.people.heldWords(held, world), fontSize = 13.sp, color = c.text)
+                    Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (gone) Text(
+                            sh.belfry.core.model.GroupEncText.TELL_STEWARD, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                            modifier = Modifier.clickable(role = Role.Button) { nav.go(Routes.channelInfo(groupId)) }.testTag("enc3-group-steward"),
+                        )
+                        if (gone) Text(" · ", fontSize = 13.sp, color = c.muted)
+                        Text(
+                            if (busy.busy) "…" else if (gone) "Delete" else sh.belfry.core.enc.EncText.TRY_AGAIN, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                            modifier = Modifier.clickable(enabled = !busy.busy, role = Role.Button) { busy.run { if (gone) session.discard(pending.localId) else session.retry(pending.localId) } }.testTag("enc3-group-try"),
+                        )
+                    }
                 }
             } else if (pending != null) {
                 if (pending.status == OutboxStatus.FAILED) {

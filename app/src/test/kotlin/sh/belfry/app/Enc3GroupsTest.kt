@@ -143,7 +143,7 @@ class Enc3GroupsTest : DemoShots() {
         Enc3GroupsFixture.held(session, "General assembly on Sunday", "invalid: enc3:TOO_MANY")
         show { ChannelScreen(g, onMenu = {}) }
         waitForText(GroupEncText.TOO_BIG)
-        compose.onNodeWithText(GroupEncText.TELL_STEWARD + " · ").assertExists()
+        compose.onNodeWithText(GroupEncText.TELL_STEWARD).assertExists()
         compose.onNodeWithTag("enc3-group-try").performClick()
         compose.waitUntil(5_000) { session.store.outbox().none { it.localId == "local-held" } }
     }
