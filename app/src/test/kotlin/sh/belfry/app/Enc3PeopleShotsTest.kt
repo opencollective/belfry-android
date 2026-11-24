@@ -40,9 +40,9 @@ class Enc3PeopleShotsTest : DemoShots() {
                 for (d in items) Bubble(d, dms, world, group = true, onMenu = {}, notSealed = if (d.clear) ({}) else null, onCancelHeld = { true })
             }
         }
-        compose.onNodeWithTag("dm-opening").assertExists()
-        compose.onNodeWithText(EncText.NOT_ENCRYPTED).assertExists()
-        compose.onNodeWithTag("dm-wont-get").assertExists()
-        compose.onNodeWithTag("dm-held-try-again").assertExists()
+        compose.onNodeWithTag("dm-opening", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(EncText.NOT_ENCRYPTED, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("dm-wont-get", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("dm-held-try-again", useUnmergedTree = true).assertExists()
     }
 }
