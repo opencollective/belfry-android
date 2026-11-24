@@ -90,6 +90,9 @@ android {
                 // AppNotIdleException that froze every later test until the job's 45 minutes ran
                 // out, CI 2026-11-18 / 19) can then fail that class alone, never the rest
                 it.forkEvery = 1
+                // Xavier, 2026-11-24: no full screenshot suite. The classes that only take pictures
+                // (*ShotsTest) run only when asked: -Pshots (CI's manual run with a test filter)
+                if (!project.hasProperty("shots")) it.exclude("**/*ShotsTest*")
                 it.testLogging {
                     exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
                     events("failed")

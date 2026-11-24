@@ -12,12 +12,18 @@ don't guess. What is done and what is not: [PARITY.md](PARITY.md). What the serv
 
 The dev box has no Android SDK and little memory: **never run Gradle there**. Push and let GitHub
 Actions build; poll `gh run view <id> --json status,conclusion,jobs` every 4–5 minutes (never
-`gh run watch`), then `gh run view <id> --log-failed` or `gh run download <id> -n screenshots`. Two jobs:
+`gh run watch`), then `gh run view <id> --log-failed`. Two jobs:
 
 - `core`: `./gradlew :core:test` (JVM unit tests, the shared vectors).
-- `app`: `:app:assembleDebug`, `:app:lintDebug`, `:app:recordRoborazziDebug` (Robolectric +
-  Roborazzi render the screens in demo mode → artifact `screenshots`; the debug APK is an
-  artifact too).
+- `app`: `:app:assembleDebug`, `:app:lintDebug`, `:app:assembleMinified`, `:app:testDebugUnitTest`
+  (Robolectric behaviour tests in demo mode, **no screenshots**; the debug APK is an artifact).
+- **No full screenshot suite** (Xavier, 2026-11-24: "Stop this full screenshot… It takes too long").
+  The `*ShotsTest` classes, which only take pictures, are left out of every run unless Gradle gets
+  `-Pshots`. When a reviewer or Xavier needs to see screens a change touches: run CI by hand with a
+  filter, `gh workflow run ci.yml --ref <branch> -f shots='*InviteSheet*'` (a `--tests` pattern;
+  one pattern per run), then `gh run download <id> -n screenshots`.
+  A new screen may still get a screenshot test (for that use); nobody runs them all.
+  belfry.sh/android/screenshots is no longer kept up to date.
 
 Toolchain (pinned, known to work together): Gradle 8.11.1 (wrapper jar checked against
 gradle.org's sha256), AGP 8.7.3, Kotlin 2.0.21, Compose BOM 2024.12.01, compileSdk/targetSdk 35,

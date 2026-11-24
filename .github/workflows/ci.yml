@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      shots:
+        description: "Screenshots of these tests only (a Gradle --tests filter, e.g. *InviteSheet* or *PrintedCards*); empty = none"
+        required: false
+        default: ""
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -39,7 +44,7 @@ jobs:
           if-no-files-found: ignore
 
   app:
-    name: app (build, lint, screenshots)
+    name: app (build, lint, tests)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -108,8 +113,16 @@ jobs:
         run: ./gradlew :app:lintDebug --stacktrace
       - name: Build the minified APK (R8 with the keep rules; a check, and something to try on a phone)
         run: ./gradlew :app:assembleMinified --stacktrace
-      - name: Screenshots (Robolectric + Roborazzi, demo mode)
-        run: ./gradlew :app:recordRoborazziDebug --stacktrace
+      # Xavier, 2026-11-24: no full screenshot suite. The app's tests run without recording pictures
+      # (the *ShotsTest classes, which only take pictures, are left out by app/build.gradle.kts).
+      - name: App tests (Robolectric, demo mode; no screenshots)
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+      # Pictures only of the screens a change touches, when someone asks: a manual run with a filter.
+      - name: Screenshots of the tests asked for
+        if: github.event_name == 'workflow_dispatch' && inputs.shots != ''
+        env:
+          SHOTS: ${{ inputs.shots }}
+        run: ./gradlew :app:recordRoborazziDebug -Pshots --tests "$SHOTS" --stacktrace
       - name: Upload the app's test report when a test failed
         if: failure()
         uses: actions/upload-artifact@v4
@@ -118,7 +131,7 @@ jobs:
           path: app/build/reports/tests/
           if-no-files-found: ignore
       - name: Upload screenshots
-        if: always()
+        if: github.event_name == 'workflow_dispatch' && inputs.shots != ''
         uses: actions/upload-artifact@v4
         with:
           name: screenshots
