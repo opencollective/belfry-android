@@ -406,45 +406,46 @@ class Session(
     fun encConvHere(conv: String): Boolean = enc3?.everEncrypted(conv) == true || (localOnly && conv in demoEncConvs)
 
     /** "Ask for them" (§7.3): an 8574 signed by this device; again only after 24 h or a new device of mine. */
-    suspend fun enc3Ask() = withContext(Dispatchers.Default) {
-        if (localOnly) { demoAsks++; demoEnc3.value = demoEnc3.value.copy(askedAt = now()); return@withContext }
-        guard()
-        enc3Devices?.ask()
-        Unit
+    suspend fun enc3Ask() {
+        // the demo's state changes on the caller's thread (a screen's): tests resume composition where it was written
+        if (localOnly) { demoAsks++; demoEnc3.value = demoEnc3.value.copy(askedAt = now()); return }
+        withContext(Dispatchers.Default) { guard(); enc3Devices?.ask() }
     }
 
     /** Share earlier messages with the card's device (§7.5): key packs, then the answer. PROGRESS: packs queued of all. */
-    suspend fun enc3Share(card: sh.belfry.core.enc.DeviceCard, progress: (Int, Int) -> Unit = { _, _ -> }) = withContext(Dispatchers.Default) {
+    suspend fun enc3Share(card: sh.belfry.core.enc.DeviceCard, progress: (Int, Int) -> Unit = { _, _ -> }) {
         if (localOnly) {
             demoShares++
             for (i in 1..3) { kotlinx.coroutines.delay(150); progress(i, 3) }
             val st = demoEnc3.value
             demoEnc3.value = st.copy(cards = st.cards.filter { it.device != card.device }, notices = st.notices + sh.belfry.core.enc.EncDeviceText.shared(card.name))
-            return@withContext
+            return
         }
-        guard()
-        (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).share(card, progress)
+        withContext(Dispatchers.Default) {
+            guard()
+            (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).share(card, progress)
+        }
     }
 
     /** Remove the card's device (§7.6), after the person confirmed: its session revoked (by = this device), then the answer. */
-    suspend fun enc3Remove(card: sh.belfry.core.enc.DeviceCard) = withContext(Dispatchers.Default) {
+    suspend fun enc3Remove(card: sh.belfry.core.enc.DeviceCard) {
         if (localOnly) {
             demoRemovals++
             val st = demoEnc3.value
             demoEnc3.value = st.copy(cards = st.cards.filter { it.device != card.device }, notices = st.notices + sh.belfry.core.enc.EncDeviceText.removed(card.name))
-            return@withContext
+            return
         }
-        (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).remove(card)
+        withContext(Dispatchers.Default) { (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).remove(card) }
     }
 
     /** Remove on the first screen (§18.3). */
-    suspend fun enc3RemoveFirst(row: sh.belfry.core.enc.FirstRow) = withContext(Dispatchers.Default) {
+    suspend fun enc3RemoveFirst(row: sh.belfry.core.enc.FirstRow) {
         if (localOnly) {
             demoRemovals++
             demoEnc3.value = demoEnc3.value.let { it.copy(firstScreen = it.firstScreen.filter { r -> r.device != row.device }) }
-            return@withContext
+            return
         }
-        (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).removeFirst(row)
+        withContext(Dispatchers.Default) { (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).removeFirst(row) }
     }
 
     fun enc3GoneOk(device: String) {
