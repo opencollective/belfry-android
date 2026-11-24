@@ -1183,6 +1183,7 @@ class Session(
     fun start() {
         if (started || stopped) return
         started = true
+        if (!localOnly) launchSafely { _format3Here.value = encFormat.state().format == 3 } // the vault: off the main thread
         launchSafely { dm.process() }
         if (localOnly) {
             setStatus { it.copy(access = AccessState.IN) }
@@ -1591,7 +1592,20 @@ class Session(
     private fun encRead(doc: String) {
         val st = encFormat.record(doc, clock())
         enc3?.setFormat3(st.format == 3)
+        _format3Here.value = !localOnly && st.format == 3
     }
+
+    private val _format3Here = MutableStateFlow(false)
+    /**
+     * This device knows the belfry as format 3 (its cached format, SPEC 19.82; 3 for good). The ONE switch for every
+     * version-1 lock screen (the locked banner, the locked thread, waiting lines, Allow, Start fresh, the Notes lock):
+     * none of them shows while it is true, whether the format-3 runtime is up yet or not (the web showed v1's
+     * "Messages are locked on this device" on belfry.sh while its format-3 runtime ran, 2026-11-24). Read from the
+     * cache when the session starts, then from each read of belfry.json. Tests: [demoFormat3Here].
+     */
+    val format3Here: StateFlow<Boolean> get() = _format3Here
+    /** Tests and screenshots only. */
+    fun demoFormat3Here(on: Boolean) { _format3Here.value = on }
 
     // ---- drafts (unsent text per channel / thread, on this device) -----------------------------------
 

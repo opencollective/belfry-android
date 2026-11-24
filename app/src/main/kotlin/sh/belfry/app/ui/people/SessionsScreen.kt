@@ -170,7 +170,9 @@ fun SessionsContent(
 fun DevicesScreen() {
     // format 3 (SPEC 19.86, encrypted/devices): every device on my list; format 1 keeps the screens below
     val dev by LocalSession.current.enc3Device.collectAsState()
-    if (dev.on) Enc3DevicesScreen() else DevicesScreenV1()
+    val f3here by LocalSession.current.format3Here.collectAsState()
+    // a format-3 belfry never shows the version-1 device screen, runtime up or not: without a runtime, the sessions
+    if (dev.on) Enc3DevicesScreen() else if (f3here) SessionsScreen() else DevicesScreenV1()
 }
 
 @Composable

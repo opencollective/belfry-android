@@ -814,7 +814,8 @@ fun FreshElsewhereHost() {
         FreshDoneDialog(d, onShowHow = { done = null; nav.go(Routes.UNLOCK_STEPS) }, onDone = { done = null })
         return
     }
-    if (f3.on) return // format 3 (SPEC 19.85): no version-1 Start fresh
+    val f3here by session.format3Here.collectAsState()
+    if (f3.on || f3here) return // format 3 (SPEC 19.85): no version-1 Start fresh, runtime up or not
     val f = st.freshElsewhere ?: return
     FreshElsewhereDialog(f, session.now(), LocalWorld.current.ctx.zone, onSignOut = { done = session.encryption.signOutOthers() }, onMine = { session.encryption.freshElsewhereMine() })
 }
