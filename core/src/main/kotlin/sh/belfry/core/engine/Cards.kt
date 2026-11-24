@@ -10,10 +10,8 @@ import sh.belfry.core.model.CardForm
 import sh.belfry.core.model.CardInfo
 import sh.belfry.core.model.CardKind
 import sh.belfry.core.model.Cards
-import sh.belfry.core.model.Draft
 import sh.belfry.core.model.HashtagState
 import sh.belfry.core.net.CardsApi
-import sh.belfry.core.outbox.Target
 import sh.belfry.core.nostr.parseJsonOrNull
 import sh.belfry.core.nostr.s
 
@@ -122,7 +120,9 @@ class CardsService internal constructor(private val s: Session) {
         }
         // the first line in it, as the groups key writes it (docs/cards.md §2.2 step 4): never the card's id
         val name = s.world.value.realName(s.me)
-        s.send(Draft(Target.GROUPS, 9, "$name started this ${kind.word} from a printed card", listOf(listOf("h", group), listOf("p", s.me), listOf("card", "1"))))
+        // signed by the demo's groups key, as the belfry writes it (with `by`), so it reads as the card's line (SPEC 19.89)
+        val line = Demo.groups.signNow(sh.belfry.core.nostr.EventTemplate(9, "$name started this ${kind.word} from a printed card", listOf(listOf("h", group), listOf("p", s.me), listOf("card", "1"), listOf("by", s.me)), s.now()))
+        s.addLocalEvents(listOf(line))
         s.store.set(K_DEMO, buildJsonObject { for ((k, v) in demoClaimed() + (id to group)) put(k, JsonPrimitive(v)) }.toString())
         return group
     }
