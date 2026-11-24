@@ -66,7 +66,7 @@ class PreviewSendTest {
     private fun sh.belfry.core.model.World.allRepliesOf(group: String): List<Message> =
         messages(group).flatMap { threadReplies(group, it.id) }
 
-    @Test fun aChannelMessageCarriesThePreviewAndItsPlainPicture() = runBlocking {
+    @Test fun aChannelMessageCarriesThePreviewAndItsPlainPicture() = runBlocking<Unit> {
         val s = demo()
         val p = assertNotNull(s.linkPreviews.build(DemoPreviews.PICTURE, PreviewMode.PLAIN, encoder))
         assertEquals("How a street tool library lends 400 drills a year", p.title)
@@ -85,7 +85,7 @@ class PreviewSendTest {
         s.stop()
     }
 
-    @Test fun aThreadReply() = runBlocking {
+    @Test fun aThreadReply() = runBlocking<Unit> {
         val s = demo()
         s.postMessage(Demo.GENERAL, "Ideas for the tool library?")
         val root = posted(s, Demo.GENERAL, "Ideas for the tool library?")
@@ -100,7 +100,7 @@ class PreviewSendTest {
         s.stop()
     }
 
-    @Test fun anEditKeepsThePreviewAsItWas() = runBlocking {
+    @Test fun anEditKeepsThePreviewAsItWas() = runBlocking<Unit> {
         val s = demo()
         val p = s.linkPreviews.build(DemoPreviews.PICTURE, PreviewMode.PLAIN, encoder)!!
         val built = s.linkPreviews.built.get()
@@ -118,7 +118,7 @@ class PreviewSendTest {
         s.stop()
     }
 
-    @Test fun previewNoneAndOneAtMost() = runBlocking {
+    @Test fun previewNoneAndOneAtMost() = runBlocking<Unit> {
         val s = demo()
         s.postMessage(Demo.GENERAL, "No box ${DemoPreviews.PICTURE}", preview = listOf(LinkPreviews.NO_PREVIEW))
         val m = posted(s, Demo.GENERAL, "No box ${DemoPreviews.PICTURE}")
@@ -132,7 +132,7 @@ class PreviewSendTest {
         s.stop()
     }
 
-    @Test fun nothingUsableAndAPageThatNeverAnswers() = runBlocking {
+    @Test fun nothingUsableAndAPageThatNeverAnswers() = runBlocking<Unit> {
         val s = demo()
         assertNull(s.linkPreviews.build(DemoPreviews.NOTHING, PreviewMode.PLAIN, encoder))
         assertNull(s.linkPreviews.build("https://unknown.example/page", PreviewMode.PLAIN, encoder))
@@ -154,7 +154,7 @@ class PreviewSendTest {
         s.stop()
     }
 
-    @Test fun aDirectMessageCarriesItInsideTheRumorWithAnEncryptedPicture() = runBlocking {
+    @Test fun aDirectMessageCarriesItInsideTheRumorWithAnEncryptedPicture() = runBlocking<Unit> {
         val s = Session(Community.defaults("example.org"), MemoryStore(), LocalSigner.random(), OkHttpClient(), scope, true, { 1_800_000_000L }, null, ZoneOffset.UTC)
         s.start()
         val conv = "n:" + LocalSigner.random().pubkey
@@ -182,7 +182,7 @@ class PreviewSendTest {
         s.stop()
     }
 
-    @Test fun offlineNothingIsBuilt() = runBlocking {
+    @Test fun offlineNothingIsBuilt() = runBlocking<Unit> {
         val s = Session(Community.defaults("example.org"), MemoryStore(), LocalSigner.random(), OkHttpClient(), scope, false, { 1_800_000_000L }, null, ZoneOffset.UTC)
         var asked = 0
         s.linkPreviews.net = object : PreviewNet {
@@ -195,7 +195,7 @@ class PreviewSendTest {
         s.stop()
     }
 
-    @Test fun aReaderNeverFetchesFromElsewhere() = runBlocking {
+    @Test fun aReaderNeverFetchesFromElsewhere() = runBlocking<Unit> {
         val s = Session(Community.defaults("example.org"), MemoryStore(), LocalSigner.random(), OkHttpClient(), scope, false, { 1_800_000_000L }, null, ZoneOffset.UTC)
         val elsewhere = PreviewPicture("https://toolshare.example/og.jpg", "image/jpeg", 1, 1, "0".repeat(64))
         assertNull(s.linkPreviews.picture(elsewhere))

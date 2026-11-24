@@ -53,14 +53,14 @@ class SafeFetchTest {
         "mixed.example" to listOf("93.184.215.14", "192.168.1.10"), "six.example" to listOf("fd00::1"),
     ))
 
-    @Test fun aPlainPage() = runBlocking {
+    @Test fun aPlainPage() = runBlocking<Unit> {
         val net = FakeNet(mapOf("https://a.example/x" to html(page)))
         val r = assertIs<SafeFetch.Result.Ok>(SafeFetch(net, dns).page("https://a.example/x"))
         assertEquals("https://a.example/x", r.got.finalUrl)
         assertEquals(listOf(public), net.asked.single().second, "asked of exactly the address that was checked")
     }
 
-    @Test fun refusedBeforeAnythingIsAsked() = runBlocking {
+    @Test fun refusedBeforeAnythingIsAsked() = runBlocking<Unit> {
         val net = FakeNet(emptyMap())
         val f = SafeFetch(net, dns)
         for ((url, why) in listOf(
@@ -75,7 +75,7 @@ class SafeFetchTest {
         assertTrue("10.0.0.5" !in dns.asked, "an IP literal is never even looked up")
     }
 
-    @Test fun redirectsAreCheckedEachTimeAndAtMostThree() = runBlocking {
+    @Test fun redirectsAreCheckedEachTimeAndAtMostThree() = runBlocking<Unit> {
         val net = FakeNet(mapOf(
             "https://a.example/1" to redirect("https://b.example/2", 301),
             "https://b.example/2" to redirect("/3", 307), // relative: against the hop it came from
@@ -104,7 +104,7 @@ class SafeFetchTest {
         assertEquals(SafeFetch.Why.STATUS, (SafeFetch(FakeNet(mapOf("https://a.example/r" to NetAnswer(302))), dns).page("https://a.example/r") as SafeFetch.Result.Refused).why)
     }
 
-    @Test fun onlyHtmlAndOnly200() = runBlocking {
+    @Test fun onlyHtmlAndOnly200() = runBlocking<Unit> {
         for (type in listOf("application/json", "text/plain", "image/png", null, "application/xhtml+xml")) {
             val n = FakeNet(mapOf("https://a.example/x" to NetAnswer(200, contentType = type, body = page.toByteArray())))
             assertEquals(SafeFetch.Why.TYPE, (SafeFetch(n, dns).page("https://a.example/x") as SafeFetch.Result.Refused).why, "$type")
@@ -116,7 +116,7 @@ class SafeFetchTest {
         }
     }
 
-    @Test fun aLongPageIsReadToItsFirst512kB() = runBlocking {
+    @Test fun aLongPageIsReadToItsFirst512kB() = runBlocking<Unit> {
         val big = "<title>Big</title>" + "x".repeat(700_000) + "<meta property=\"og:title\" content=\"Too far\">"
         val n = FakeNet(mapOf("https://a.example/x" to html(big)))
         val r = assertIs<SafeFetch.Result.Ok>(SafeFetch(n, dns).page("https://a.example/x"))
@@ -135,7 +135,7 @@ class SafeFetchTest {
         assertIs<SafeFetch.Result.Ok>(SafeFetch(quick, dns).page("https://a.example/1"))
     }
 
-    @Test fun picturesBySizeAndFirstBytes() = runBlocking {
+    @Test fun picturesBySizeAndFirstBytes() = runBlocking<Unit> {
         val png = DemoPreviews.picture
         suspend fun one(a: NetAnswer) = SafeFetch(FakeNet(mapOf("https://a.example/p" to a)), dns).picture("https://a.example/p")
         assertIs<SafeFetch.Result.Ok>(one(NetAnswer(200, contentType = "application/octet-stream", body = png)), "the type by the bytes, not the header")
@@ -164,7 +164,7 @@ class SafeFetchTest {
         return PreviewBuilder(SafeFetch(net, dns), encoder, up.up, "https://blossom.belfry.example", keyNonce = kn)
     }
 
-    @Test fun aPlainPicture() = runBlocking {
+    @Test fun aPlainPicture() = runBlocking<Unit> {
         val up = Uploads()
         val enc = jpeg(40_000)
         var given: String? = null
@@ -179,7 +179,7 @@ class SafeFetchTest {
         assertEquals(listOf("imeta", "url ${pic.url}", "m image/jpeg", "dim 1200x630", "x ${pic.x}", "purpose preview"), pic.imeta())
     }
 
-    @Test fun anEncryptedPicture() = runBlocking {
+    @Test fun anEncryptedPicture() = runBlocking<Unit> {
         val up = Uploads()
         val enc = jpeg(50_000)
         val p = builder({ _, _ -> enc }, up, { "c3".repeat(32) to "d4".repeat(12) }).build("https://a.example/s", PreviewMode.ENCRYPTED)!!
@@ -195,7 +195,7 @@ class SafeFetchTest {
         assertNull(pic.copy(x = sha256Hex(ct.copyOf().also { it[5] = (it[5] + 1).toByte() })).open(ct.copyOf().also { it[5] = (it[5] + 1).toByte() }), "and GCM")
     }
 
-    @Test fun whatTheEncoderGivesIsCheckedAgain() = runBlocking {
+    @Test fun whatTheEncoderGivesIsCheckedAgain() = runBlocking<Unit> {
         for ((name, e) in listOf(
             "over 300 kB" to jpeg(LinkPreviews.PICTURE_OUT_MAX + 1),
             "over 1200 px" to jpeg(10_000, 1600, 900),
@@ -212,7 +212,7 @@ class SafeFetchTest {
         assertNotNull(builder({ _, _ -> jpeg(LinkPreviews.PICTURE_OUT_MAX, 1200, 1200) }, Uploads()).build("https://a.example/s", PreviewMode.PLAIN)!!.picture)
     }
 
-    @Test fun aPictureThatFailsLeavesThePreview() = runBlocking {
+    @Test fun aPictureThatFailsLeavesThePreview() = runBlocking<Unit> {
         val noPic = mapOf("https://a.example/s" to html(og)) // the picture's address answers 404
         assertNull(builder({ _, _ -> jpeg(1000) }, Uploads(), pages = noPic).build("https://a.example/s", PreviewMode.PLAIN)!!.picture)
         val inside = mapOf("https://a.example/s" to html(og.replace("/og.png", "https://inside.example/og.png")))
@@ -225,7 +225,7 @@ class SafeFetchTest {
         assertNull(PreviewBuilder(SafeFetch(net, dns), { _, _ -> jpeg(1000) }, failing, "https://blossom.belfry.example").build("https://a.example/s", PreviewMode.PLAIN)!!.picture)
     }
 
-    @Test fun nothingUsableIsNoPreview() = runBlocking {
+    @Test fun nothingUsableIsNoPreview() = runBlocking<Unit> {
         val pages = mapOf("https://a.example/s" to html("<meta property=\"og:image\" content=\"/og.png\"><body>Hi</body>"), "https://a.example/og.png" to NetAnswer(200, body = DemoPreviews.picture))
         val up = Uploads()
         assertNull(builder({ _, _ -> jpeg(1000) }, up, pages = pages).build("https://a.example/s", PreviewMode.PLAIN))
@@ -233,7 +233,7 @@ class SafeFetchTest {
         assertNull(builder(null, Uploads(), pages = mapOf("https://a.example/s" to NetAnswer(500))).build("https://a.example/s", PreviewMode.PLAIN))
     }
 
-    @Test fun theLinkStaysAsWritten() = runBlocking {
+    @Test fun theLinkStaysAsWritten() = runBlocking<Unit> {
         val pages = mapOf("https://a.example/s" to redirect("https://b.example/final"), "https://b.example/final" to html(og), "https://b.example/og.png" to NetAnswer(200, body = DemoPreviews.picture))
         val p = builder({ _, _ -> jpeg(1000) }, Uploads(), pages = pages).build("https://a.example/s", PreviewMode.PLAIN)!!
         assertEquals("https://a.example/s", p.url, "the tag carries the link as written, not where it ended")
