@@ -133,7 +133,9 @@ fun ConversationScreen(conv: String) {
     val openNotice = rememberNoticeOpener(conv)
     // format 3 (SPEC 19.84): the lock next to the name opens Who can read this; on a format-3 belfry the v1 lock never shows
     val enc3 = session.enc3View
-    val format3 = enc3?.format3 == true
+    // the one switch for version-1 lock screens (Session.format3Here): never on a format-3 belfry, runtime up or not
+    val f3here by session.format3Here.collectAsState()
+    val format3 = enc3?.format3 == true || f3here
     val enc3Lock = enc3?.locks(conv, mail, newMail) == true
     val firstEnc = if (enc3 != null && !mail) enc3.firstKeyAt(conv) else null
     var whoOpen by remember(conv) { mutableStateOf(false) }
@@ -144,7 +146,7 @@ fun ConversationScreen(conv: String) {
     // as usual, then one amber block in place of the rest; no composer
     // format 3 (SPEC 19.85): the version-1 locked block, waiting lines and Start fresh never show on a format-3 belfry
     val enc3Dev by rememberEnc3Device()
-    val v1Ui = !enc3Dev.on
+    val v1Ui = !enc3Dev.on && !f3here
     val lockedHere = v1Ui && seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
     // format 3 (SPEC 19.86): version 1's "Shared by" history lines never show on a format-3 belfry (format 1 keeps them)
@@ -305,7 +307,7 @@ fun ConversationScreen(conv: String) {
                 sh.belfry.core.model.SealedText.WRITE_LATER, fontSize = 14.sp, color = c.muted,
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 16.dp).testTag("seal-write-later"),
             )
-        } else Composer( // format 3 (SPEC 19.83): no link previews in an encrypted conversation, ever (none exist here: keep it so)
+        } else Composer( // link previews (SPEC 19.87): built here, the picture encrypted like the conversation's files, inside the rumor
             composer,
             placeholder = if (mail && !newMail && seal != null) "Reply by e-mail" else if (mail) "Write an e-mail" else if (toSelf) sh.belfry.core.model.Notes.PLACEHOLDER else "Message",
             onSend = { text, files, _, _ ->
@@ -315,7 +317,7 @@ fun ConversationScreen(conv: String) {
                     return@Composer
                 }
                 if (newMail && subject.isBlank()) throw ActionException("subject", "Give it a subject: it names the thread.")
-                val target = session.sendDm(conv, text, if (newMail) subject.trim() else null)
+                val target = session.sendDm(conv, text, if (newMail) subject.trim() else null, preview = if (mail) emptyList() else composer.previewTags(world.ctx.domain, session.community.blossom))
                 subject = ""
                 if (target != conv) {
                     // A new e-mail became its thread: show it in this screen's place.
@@ -325,6 +327,7 @@ fun ConversationScreen(conv: String) {
             },
             modifier = Modifier.navigationBarsPadding(),
             photos = !mail,
+            linkPreview = if (mail) null else sh.belfry.core.engine.LinkPreviewService.modeForDm(),
             onPlus = if (!mail) ({ plusOpen = true }) else null,
             typingPlace = if (mail || toSelf) null else sh.belfry.core.typing.TypingPlace.dm(conv),
         )
@@ -453,6 +456,8 @@ internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu
                 }
             }
         }
+        // og-dm: the sender's preview of the first outside link, under the bubble (SPEC 19.87)
+        if (!d.opening) sh.belfry.app.ui.chat.DmLinkPreview(d, Modifier.widthIn(max = 320.dp))
         if (waiting) HeldLine(d, dms, world, onCancelHeld)
         // format 3 (§17.5): sent for the others; these people have no device
         if (d.mine && d.notTo.isNotEmpty() && !waiting) Text(

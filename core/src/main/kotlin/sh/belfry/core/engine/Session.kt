@@ -415,6 +415,13 @@ class Session(
         return w is sh.belfry.core.enc.EncWrite.V3 || (w is sh.belfry.core.enc.EncWrite.Hold && privateMeta)
     }
 
+    /**
+     * SPEC 19.87 + 19.88 (the lead: the preview picture always follows the message): how a link preview's picture is
+     * stored for a message of GROUP_ID: encrypted like that group's files whenever its messages are written format 3.
+     */
+    fun previewModeForGroup(groupId: String): sh.belfry.core.preview.PreviewMode =
+        LinkPreviewService.modeForGroup(_world.value, groupId, groupFilesEncrypted = privateNow(groupId))
+
     /** §26: creating events, meetings, proposals and tickets is not offered in a private group yet. */
     internal fun refuseExtras(groupId: String) {
         if (privateNow(groupId)) throw ActionException("private", sh.belfry.core.model.GroupEncText.NO_EXTRAS)
@@ -1271,6 +1278,7 @@ class Session(
     fun start() {
         if (started || stopped) return
         started = true
+        if (!localOnly) launchSafely { _format3Here.value = encFormat.state().format == 3 } // the vault: off the main thread
         launchSafely { dm.process() }
         if (localOnly) {
             setStatus { it.copy(access = AccessState.IN) }
@@ -1687,7 +1695,20 @@ class Session(
     private fun encRead(doc: String) {
         val st = encFormat.record(doc, clock())
         enc3?.setFormat3(st.format == 3)
+        _format3Here.value = !localOnly && st.format == 3
     }
+
+    private val _format3Here = MutableStateFlow(false)
+    /**
+     * This device knows the belfry as format 3 (its cached format, SPEC 19.82; 3 for good). The ONE switch for every
+     * version-1 lock screen (the locked banner, the locked thread, waiting lines, Allow, Start fresh, the Notes lock):
+     * none of them shows while it is true, whether the format-3 runtime is up yet or not (the web showed v1's
+     * "Messages are locked on this device" on belfry.sh while its format-3 runtime ran, 2026-11-24). Read from the
+     * cache when the session starts, then from each read of belfry.json. Tests: [demoFormat3Here].
+     */
+    val format3Here: StateFlow<Boolean> get() = _format3Here
+    /** Tests and screenshots only. */
+    fun demoFormat3Here(on: Boolean) { _format3Here.value = on }
 
     // ---- drafts (unsent text per channel / thread, on this device) -----------------------------------
 
@@ -2182,11 +2203,15 @@ class Session(
      * Posts a message. PICKED are the people picked with @ in the composer (name → pubkey): each
      * "@Name" becomes a mention. ANNOUNCE only counts from a channel admin. Returns the local id.
      */
-    suspend fun postMessage(groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList()): String {
+    suspend fun postMessage(
+        groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList(),
+        /** The link preview's tags (SPEC 19.87: [LinkPreview.tags] or `["preview","none"]`), from the composer. */
+        preview: List<Tag> = emptyList(),
+    ): String {
         val d = Actions.postMessage(groupId, Mentions.substitute(text, picked).trim(), topic, announce)
         // an event's URL in the text: its `a` tag too, so every client shows the card
         val a = _world.value.eventTagsFor(d.content, community.mainRelay) { events.knownCoord(it) }
-        return send(d.copy(tags = d.tags + a), files)
+        return send(d.copy(tags = d.tags + a + LinkPreviewService.onSend(preview)), files)
     }
 
     /**
@@ -2291,8 +2316,8 @@ class Session(
     }
 
     /** A reply in the thread under ROOT (a channel message). */
-    suspend fun replyInThread(groupId: String, root: Event, text: String, files: List<NewAttachment> = emptyList(), picked: List<Pair<String, String>> = emptyList()): String =
-        send(Actions.postThreadReply(groupId, root, Mentions.substitute(text, picked).trim()), files)
+    suspend fun replyInThread(groupId: String, root: Event, text: String, files: List<NewAttachment> = emptyList(), picked: List<Pair<String, String>> = emptyList(), preview: List<Tag> = emptyList()): String =
+        send(Actions.postThreadReply(groupId, root, Mentions.substitute(text, picked).trim()).let { d -> d.copy(tags = d.tags + LinkPreviewService.onSend(preview)) }, files)
 
     /** Edits my own message or reply (kind 1010); its photos and files are kept. */
     suspend fun editMessage(groupId: String, m: Message, text: String, picked: List<Pair<String, String>> = emptyList()): String =
@@ -2416,7 +2441,7 @@ class Session(
     /** A conversation's sealed messages, for Share history (§8). */
     fun sealedRumors(conv: String): List<sh.belfry.core.nostr.Event> = dm.sealedRumorsOf(conv)
 
-    suspend fun sendDm(conv: String, text: String, subject: String? = null, root: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject, root = root) } }
+    suspend fun sendDm(conv: String, text: String, subject: String? = null, root: String? = null, preview: List<Tag> = emptyList()): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject, root = root, preview = LinkPreviewService.onSend(preview)) } }
 
     /** When this phone last sent a DM or e-mail (ms): a "dm" push right after it is my own copy (SPEC 19.19). */
     @Volatile var lastDmSentMs: Long = 0L
@@ -2661,6 +2686,12 @@ class Session(
     val mailAlias: MailAliasService by lazy { MailAliasService(this) }
     /** The printed card a group was started from, for its stewards (SPEC 19.76). */
     val groupCards: GroupCardService by lazy { GroupCardService(this) }
+
+    /** Link previews built on this device (SPEC 19.87; engine/LinkPreviewService.kt). */
+    val linkPreviews: LinkPreviewService by lazy { LinkPreviewService(this) }
+    internal val httpClient: OkHttpClient get() = http
+    internal fun previewUploadApi(): BelfryApi = api()
+    internal fun guardWrite() = guard()
 
     /** Sign in to another app with this account through the belfry (engine/RemoteApps.kt, SPEC 19.47). */
     val remoteApps: RemoteAppsService by lazy { RemoteAppsService(this) }

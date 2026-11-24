@@ -88,6 +88,10 @@ class ComposerState {
     var announce by mutableStateOf(false)
     var loadingPhotos by mutableStateOf(0)
     var error by mutableStateOf<String?>(null)
+    /** The link preview being built or built for the text's first outside link (SPEC 19.87; [ComposerLinkPreview]). */
+    var preview by mutableStateOf<ComposerPreview?>(null)
+    /** The link whose preview was closed with ✕: sent with `["preview","none"]` while the text still holds it. */
+    var previewDropped by mutableStateOf("")
     /** Opens the system photo picker (set by the composer on screen). */
     var pickPhotos: (() -> Unit)? = null
     /** Asks the field for focus (set by the composer on screen). */
@@ -100,6 +104,8 @@ class ComposerState {
         photos.clear()
         announce = false
         error = null
+        preview = null
+        previewDropped = ""
     }
 
     fun set(text: String, picks: List<Pair<String, String>> = emptyList(), channels: List<Pair<String, String>> = emptyList()) {
@@ -109,6 +115,21 @@ class ComposerState {
         pickedChannels.clear()
         pickedChannels.addAll(channels)
         error = null
+        preview = null
+        previewDropped = ""
+    }
+
+    /**
+     * The tags a message sent now carries for its preview (SPEC 19.87): `["preview","none"]` when ✕ was
+     * tapped for the link the text still holds; the built preview's tags when it is for that link; else
+     * none (still building, nothing usable, no link). Read it in `onSend` (the box is cleared after).
+     * [files]: the community's file server (never previewed).
+     */
+    fun previewTags(domain: String, files: String = ""): List<List<String>> {
+        val link = sh.belfry.core.preview.LinkPreviews.outsideLink(value.text, emptyList(), domain, files) ?: return emptyList()
+        if (link == previewDropped) return listOf(sh.belfry.core.preview.LinkPreviews.NO_PREVIEW)
+        val p = (preview as? ComposerPreview.Ready)?.preview ?: return emptyList()
+        return if (p.url == link) p.tags() else emptyList()
     }
 
     /** The text as sent: picked "#Name"s as their channel references (mentions are the session's job). */
@@ -154,6 +175,12 @@ fun Composer(
     typingPlace: sh.belfry.core.typing.TypingPlace? = null,
     /** Plain text and photos only: no @ picker (a guest in a topic reached through a card, SPEC 19.77). */
     plain: Boolean = false,
+    /**
+     * Build the preview of the text's first outside link on this device and show it above the field with ✕
+     * (SPEC 19.87), its picture stored as this place needs ([sh.belfry.core.engine.LinkPreviewService.modeFor]).
+     * The sender passes [ComposerState.previewTags] with the message. Null: no preview here (an edit, e-mail).
+     */
+    linkPreview: sh.belfry.core.preview.PreviewMode? = null,
 ) {
     val c = Belfry.colors
     val typingSession = LocalSession.current
@@ -259,6 +286,7 @@ fun Composer(
                 if (state.loadingPhotos > 0) Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) { Spinner() }
             }
         }
+        if (linkPreview != null && !plain) ComposerLinkPreview(state, linkPreview, compact)
         state.error?.let { Text(it, fontSize = 13.sp, color = c.danger, modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) }
         Row(Modifier.fillMaxWidth().padding(start = if (compact) 0.dp else 4.dp, end = if (compact) 0.dp else 8.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.Bottom) {
             if (onPlus != null) {

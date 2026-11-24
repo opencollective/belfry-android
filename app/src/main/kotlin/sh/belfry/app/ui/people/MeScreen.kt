@@ -177,7 +177,7 @@ fun MeScreen() {
             onAnyway = { signOut(); leaving = false },
             onDismiss = { leaving = false },
         )
-    } else if (leaving && !enc3Dev.on && seal.onlyDevice && guest == null) {
+    } else if (leaving && !enc3Dev.on && !session.format3Here.collectAsState().value && seal.onlyDevice && guest == null) {
         OnlyDeviceDialog(
             sh.belfry.core.model.SealedText.Leaving.SIGN_OUT,
             onLink = { leaving = false; nav.go(Routes.LINK_DEVICE) },

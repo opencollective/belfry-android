@@ -155,6 +155,13 @@ class Enc3GroupsTest : DemoShots() {
         waitForText(GroupEncText.BY_EMAIL)
     }
 
+    @Test fun aLinkPreviewsPictureIsEncryptedInAPrivateGroupPlainElsewhere() {
+        assertEquals(sh.belfry.core.preview.PreviewMode.PLAIN, session.previewModeForGroup(g)) // the demo: format 1
+        Enc3GroupsFixture.install(session)
+        assertEquals(sh.belfry.core.preview.PreviewMode.ENCRYPTED, session.previewModeForGroup(g))
+        assertEquals(sh.belfry.core.preview.PreviewMode.PLAIN, session.previewModeForGroup(Demo.GENERAL))
+    }
+
     @Test fun messagesWaitingHereSayOpeningAndCantBeReadWithAsk() {
         Enc3GroupsFixture.install(session, waiting = 2 to 1)
         Enc3GroupsFixture.talk(session)

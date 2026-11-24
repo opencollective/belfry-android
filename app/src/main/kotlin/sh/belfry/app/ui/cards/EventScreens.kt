@@ -115,6 +115,7 @@ import sh.belfry.core.model.eventPeople
 import sh.belfry.core.model.eventUrl
 import sh.belfry.core.model.eventsIn
 import sh.belfry.core.model.isHost
+import sh.belfry.core.model.showsMyTicket
 import sh.belfry.core.model.isOpen
 import sh.belfry.core.model.meetingPeople
 import sh.belfry.core.model.myState
@@ -363,7 +364,8 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         // A meeting has no ticket: its host checks people in from the list.
         val code = viewer?.ticketUrl
         if (e.meeting) return
-        if (code != null) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-ticket"))
+        // hosts never: their own event is no ticket to show (Xavier, 2026-11-24)
+        if (code != null && world.showsMyTicket(e)) BusyButton("Show my ticket", onClick = { ticketOpen = true }, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-ticket"))
         if (mayCheck && world.onEventDays(e, now)) {
             BusyButton("Check people in", onClick = { nav.go(Routes.checkIn(e.coord)) }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr, modifier = Modifier.fillMaxWidth().testTag("event-checkin"))
         }

@@ -223,6 +223,30 @@ class NotesTest {
         assertEquals(0, a.signer.calls)
     }
 
+    /** SPEC 19.87: a link preview's tags go inside the sealed rumor (and inside an old-way NIP-17 one), never on the wrap. */
+    @Test fun aLinkPreviewIsInsideTheSealedRumor() = runBlocking<Unit> {
+        val eng = engine(); eng.start("Pixel 8", "phone")
+        val a = side(eng)
+        val pic = sh.belfry.core.preview.PreviewPicture("https://files.belfry.example/" + "c".repeat(64), "image/jpeg", 1200, 630, "c".repeat(64), "d".repeat(64), "e".repeat(64), "f".repeat(24))
+        val preview = sh.belfry.core.preview.LinkPreview("https://toolshare.example/s", "Street library", "Drills for all", "ToolShare", pic).tags()
+        a.dm.send(notes, "Read https://toolshare.example/s later", preview = preview)
+        val wrap = a.host.queued.single().signed!!
+        assertTrue(wrap.tags.none { it.firstOrNull() == "preview" || it.firstOrNull() == "imeta" }, "nothing of it outside the seal")
+        assertTrue(!wrap.content.contains("toolshare"))
+        val o = opened(eng, wrap)
+        assertEquals(preview, o.rumor.tags.filter { it[0] == "preview" || it[0] == "imeta" })
+        assertEquals(0, a.signer.calls)
+        a.dm.offer(listOf(wrap)); a.dm.process()
+        assertEquals(preview, a.dm.snapshot.value.thread(notes).single().preview)
+        // the old way (an account that can't seal): the same tags in the NIP-17 rumor
+        val old = side(null)
+        val withBob = "n:${bob.pubkey}"
+        old.dm.send(withBob, "Read https://toolshare.example/s", preview = preview)
+        val mine = old.host.queued.map { it.signed!! }.single { it.tag("p") == me }
+        val rumor = GiftWrap.unwrap(mine, old.signer)!!.rumor
+        assertEquals(preview, rumor.tags.filter { it[0] == "preview" || it[0] == "imeta" })
+    }
+
     /** `ready` is still what every other conversation waits for: the rule of §6 did not move. */
     @Test fun otherConversationsStillWaitForReady() = runBlocking<Unit> {
         val eng = engine(); eng.start("Pixel 8", "phone")

@@ -102,6 +102,9 @@ fun World.eventRole(e: CalEvent, pubkey: String): EventRole = when {
     else -> EventRole.ATTENDEE
 }
 
+/** "Show my ticket" is for people who come, not for the ones who host (Xavier, 2026-11-24): its maker and its co-hosts never see it. */
+fun World.showsMyTicket(e: CalEvent): Boolean = eventRole(e, me).let { it != EventRole.HOST && it != EventRole.COHOST }
+
 /** May I check people in at E, as the relay tells it (the API's `may_check_in` wins when known). */
 fun World.mayCheckIn(e: CalEvent): Boolean {
     if (e.remote) return false

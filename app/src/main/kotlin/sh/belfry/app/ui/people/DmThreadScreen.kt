@@ -116,7 +116,8 @@ fun DmThreadScreen(conv: String, root: String) {
     val people = (peers + world.me).distinct().size
     val sealState by session.encryption.state.collectAsState()
     val seal = sealState.seal(conv)
-    val lockedHere = seal != null && conv in sealState.locked
+    // never the version-1 locked look on a format-3 belfry (Session.format3Here)
+    val lockedHere = seal != null && conv in sealState.locked && !session.format3Here.collectAsState().value
     val composer = rememberComposerState("$conv#$root")
     val state = rememberLazyListState()
     var acting by remember(conv, root) { mutableStateOf<Pair<String, Boolean>?>(null) }
@@ -188,8 +189,9 @@ fun DmThreadScreen(conv: String, root: String) {
             Composer(
                 composer,
                 placeholder = "Reply in the thread",
-                onSend = { text, _, _, _ -> session.sendDm(conv, text, root = root) },
+                onSend = { text, _, _, _ -> session.sendDm(conv, text, root = root, preview = composer.previewTags(world.ctx.domain, session.community.blossom)) },
                 modifier = Modifier.navigationBarsPadding(),
+                linkPreview = sh.belfry.core.engine.LinkPreviewService.modeForDm(),
                 photos = false,
                 typingPlace = if (sh.belfry.core.model.Notes.isNotes(conv, world.me)) null else sh.belfry.core.typing.TypingPlace.dm(conv),
             )

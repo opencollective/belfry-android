@@ -24,3 +24,6 @@ Each generator rewrites only its own section and leaves every other byte of the 
   what it was.
 
 `adts2m4a.py`: the reference for `core/audio/M4a.kt` (see CLAUDE.md, Meetings).
+
+`link_previews_vectors.py`: writes `vectors/link-previews.json` (SPEC 19.87; needs the `cryptography` package for the
+encrypted picture). `--check` compares; after a change update the sha256 pinned in `LinkPreviewsVectorsTest`.

@@ -553,6 +553,29 @@ class Enc3GroupsTest {
         assertEquals(listOf(carol.pubkey), b.gr.keyChanges(g, listOf(alice.pubkey, bob.pubkey, carol.pubkey)).last().removed)
     }
 
+    @Test fun aLinkPreviewTravelsInsideTheEncryptedRumorItsPictureSealedLikeAFile() {
+        val (a, b) = setUp()
+        // SPEC 19.87 + 19.88: the group's file decision makes the preview's picture encrypted
+        assertEquals(sh.belfry.core.preview.PreviewMode.ENCRYPTED, LinkPreviewService.modeForGroup(World(emptyList(), emptyList(), WorldContext(me = alice.pubkey)), g, groupFilesEncrypted = true))
+        val pic = DmFiles.seal("a picture".toByteArray())
+        val preview = sh.belfry.core.preview.LinkPreview(
+            "https://example.org/garden", "Seed swap", "Bring seeds", "example.org",
+            sh.belfry.core.preview.PreviewPicture("https://files.example/${pic.x}", "image/webp", 600, 315, pic.x, pic.ox, pic.key, pic.nonce),
+        )
+        val tags = listOf(listOf("h", g)) + preview.tags()
+        val imeta = tags.single { sh.belfry.core.preview.LinkPreviews.isPreviewImeta(it) }
+        assertTrue(imeta.any { it == "decryption-key ${pic.key}" } && imeta.any { it == "ox ${pic.ox}" } && imeta.any { it.startsWith("encryption-algorithm") })
+        val (_, out) = a.send("https://example.org/garden", 9, tags)
+        val msg = out.last()
+        assertTrue(msg.tags.none { it.firstOrNull() == "preview" || it.firstOrNull() == "imeta" }, "nothing of the preview outside the 8572")
+        assertFalse(msg.content.contains("Seed swap") || msg.content.contains(pic.key))
+        val got = b.receive(out).single()
+        assertEquals(preview.tags(), got.tags.filter { it.firstOrNull() == "preview" || sh.belfry.core.preview.LinkPreviews.isPreviewImeta(it) }, "the preview's tags inside the rumor")
+        // the press copy to the groups key never carries its key either
+        val copy = Buttons.pressCopy("c".repeat(64), g, MessageButton("go", "Go", "primary", "belfry:website-publish"), got, groupsKey, bob.pubkey, now())
+        assertFalse(copy.content.contains(pic.key) || copy.content.contains(pic.nonce))
+    }
+
     @Test fun lineWords() {
         val me = bob.pubkey
         val name = { k: String -> if (k == carol.pubkey) "Chloé Martin" else if (k == alice.pubkey) "Ana Silva" else "Ben" }
