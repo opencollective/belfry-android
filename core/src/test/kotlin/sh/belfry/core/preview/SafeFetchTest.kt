@@ -109,7 +109,7 @@ class SafeFetchTest {
             val n = FakeNet(mapOf("https://a.example/x" to NetAnswer(200, contentType = type, body = page.toByteArray())))
             assertEquals(SafeFetch.Why.TYPE, (SafeFetch(n, dns).page("https://a.example/x") as SafeFetch.Result.Refused).why, "$type")
         }
-        assertIs<SafeFetch.Result.Ok>(SafeFetch(FakeNet(mapOf("https://a.example/x" to html(page, "TEXT/HTML")))), dns).page("https://a.example/x"))
+        assertIs<SafeFetch.Result.Ok>(SafeFetch(FakeNet(mapOf("https://a.example/x" to html(page, "TEXT/HTML"))), dns).page("https://a.example/x"))
         for (code in listOf(204, 304, 403, 404, 500)) {
             val n = FakeNet(mapOf("https://a.example/x" to NetAnswer(code)))
             assertEquals(SafeFetch.Why.STATUS, (SafeFetch(n, dns).page("https://a.example/x") as SafeFetch.Result.Refused).why, "$code")
@@ -137,7 +137,7 @@ class SafeFetchTest {
 
     @Test fun picturesBySizeAndFirstBytes() = runBlocking {
         val png = DemoPreviews.picture
-        fun one(a: NetAnswer) = SafeFetch(FakeNet(mapOf("https://a.example/p" to a)), dns).picture("https://a.example/p")
+        suspend fun one(a: NetAnswer) = SafeFetch(FakeNet(mapOf("https://a.example/p" to a)), dns).picture("https://a.example/p")
         assertIs<SafeFetch.Result.Ok>(one(NetAnswer(200, contentType = "application/octet-stream", body = png)), "the type by the bytes, not the header")
         assertEquals(SafeFetch.Why.TYPE, (one(NetAnswer(200, contentType = "image/png", body = "<svg/>".toByteArray())) as SafeFetch.Result.Refused).why)
         val tooBig = ByteArray(LinkPreviews.PICTURE_IN_MAX + 1).also { png.copyInto(it) }
