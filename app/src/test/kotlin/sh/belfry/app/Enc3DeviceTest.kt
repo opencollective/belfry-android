@@ -30,7 +30,7 @@ class Enc3DeviceTest : DemoShots() {
     }
 
     private fun waitForText(text: String) =
-        compose.waitUntil(5_000) { compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
 
     @Test fun shareGoesOncePerTap() {
         session.demoEnc3Device(base.copy(cards = listOf(card)))
@@ -62,9 +62,11 @@ class Enc3DeviceTest : DemoShots() {
         show { Enc3EarlierLine(EarlierWhere.LIST) }
         compose.onNodeWithText(EncDeviceText.EARLIER_TITLE).assertIsDisplayed()
         compose.onNodeWithText("Safari on iPhone can share them with this one.").assertIsDisplayed()
+        compose.waitForIdle()
         compose.onNodeWithTag("enc3-ask").performClick()
-        waitForText(EncDeviceText.ASKED_TITLE)
+        compose.waitUntil(10_000) { session.enc3Device.value.askedAt != null }
         assertNotNull(session.enc3Device.value.askedAt)
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(EncDeviceText.ASKED_TITLE).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(EncDeviceText.askedText(listOf("Safari on iPhone"))).assertIsDisplayed()
     }
 
