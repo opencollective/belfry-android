@@ -20,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -212,6 +213,11 @@ fun ProfileScreen(pubkey: String, startEditing: Boolean = false, group: String? 
                 )
             }
             ErrorLine(agentError)
+        }
+        // format 3 (SPEC 19.86, encrypted/agent-access): only I, its owner, see my agent's access to my private messages
+        if (owner != null && owner == world.me) {
+            val enc3On by session.enc3Device.collectAsState()
+            if (enc3On.on) AgentAccess(pubkey)
         }
     }
     if (dropping) {

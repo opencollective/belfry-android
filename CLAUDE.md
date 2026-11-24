@@ -375,6 +375,13 @@ minSdk 26, JDK 17.
   Messages, `Enc3EarlierLine` at its bottom and above an encrypted conversation, `Enc3FirstScreenHost`, `Enc3OnlyDeviceDialog`
   in Me). On format 3 (`Enc3DeviceState.on`) the v1 Allow / waiting / Start fresh screens never show. Demo: format 1; tests set
   `Session.demoEnc3Device`. Tests `Enc3DevicesTest`, `Enc3DeviceTest`, `Enc3DeviceShotsTest`. Readers' cards: part 6.
+- Format 3, part 6 (SPEC 19.86): Me › Devices (`Routes.DEVICES` → `Enc3DevicesScreen` on format 3), One device
+  (`Routes.device(key)`), my agent's access (`AgentAccess` on my own agent's profile), the reader card (`ReaderCard` in
+  `Enc3DeviceCards`); UI `ui/people/Enc3Me.kt`. **Which devices exist and whether my agent reads come from my current list**
+  (`Enc3DeviceState.devices / readers / added / here`), never from what this device sent. Every Remove of format 3 is
+  `Enc3RemoveSheet` (card-remove's words; the agent's own); the trash calls `Session.enc3RemoveListed` (revoke with `by`, or
+  `reads: false`), never on This device. Access: `Session.enc3AgentReads` (`POST /agents {pubkey, reads}`); reader card OK
+  `Session.enc3ReaderOk`. Demo records `demoRevoked` / `demoAgentReads`. Tests `Enc3MeTest`, `Enc3MeShotsTest`.
 
 - Link previews built by the sender (SPEC 19.87; docs/link-previews-v2.md; canvas channels/og-*): ONLY the sender's device fetches
   the page, once, while composing; readers never fetch anything but the picture, and only from the belfry's Blossom. Pure rules in

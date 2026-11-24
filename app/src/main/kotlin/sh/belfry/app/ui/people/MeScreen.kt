@@ -124,7 +124,9 @@ fun MeScreen() {
             ActionRow("Messages", onClick = { nav.go(Routes.MESSAGES) }, icon = BelfryIcons.Mail, sub = "Direct messages and e-mail", chevron = true)
             ActionRow("Notifications", onClick = { nav.go(Routes.NOTIFICATIONS) }, icon = BelfryIcons.Bell, sub = "On this phone: messages, mentions, announcements", chevron = true, modifier = Modifier.testTag("me-notifications"))
             // canvas v88: wherever this device has sealed conversations (not a guest, a device key)
-            if (session.localOnly || session.sealed != null) {
+            // format 3 (SPEC 19.86): Me › Devices is the list of my devices that read my encrypted messages
+            val enc3On by session.enc3Device.collectAsState()
+            if (session.localOnly || session.sealed != null || enc3On.on) {
                 ActionRow("Devices", onClick = { nav.go(Routes.DEVICES) }, icon = BelfryIcons.Phone, sub = "Where you're signed in", chevron = true, modifier = Modifier.testTag("me-devices"))
             }
             ActionRow("Signed-in devices", onClick = { nav.go(Routes.SESSIONS) }, icon = BelfryIcons.Lock, sub = "The apps and devices signed in as you", chevron = true)

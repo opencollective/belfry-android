@@ -168,6 +168,13 @@ fun SessionsContent(
  */
 @Composable
 fun DevicesScreen() {
+    // format 3 (SPEC 19.86, encrypted/devices): every device on my list; format 1 keeps the screens below
+    val dev by LocalSession.current.enc3Device.collectAsState()
+    if (dev.on) Enc3DevicesScreen() else DevicesScreenV1()
+}
+
+@Composable
+private fun DevicesScreenV1() {
     val session = LocalSession.current
     val st by session.encryption.state.collectAsState()
     LaunchedEffect(Unit) { try { session.encryption.refresh() } catch (e: Exception) { } }

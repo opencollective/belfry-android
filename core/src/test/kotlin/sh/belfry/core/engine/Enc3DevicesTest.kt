@@ -12,6 +12,8 @@ import sh.belfry.core.enc.AnswerWord
 import sh.belfry.core.enc.Asked
 import sh.belfry.core.enc.Enc
 import sh.belfry.core.enc.EncDevice
+import sh.belfry.core.enc.EncDeviceText
+import sh.belfry.core.enc.FirstRow
 import sh.belfry.core.enc.EncKeys
 import sh.belfry.core.enc.EncLists
 import sh.belfry.core.enc.EncPacks
@@ -25,6 +27,7 @@ import sh.belfry.core.nostr.Tag
 import sh.belfry.core.sealed.SealedEngine
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -93,7 +96,8 @@ class Enc3DevicesTest {
             SessionInfo("Belfry", "Chrome on Android", "", "c".repeat(64), "", null, laptop.pubkey, true),
         )
         override suspend fun revoke(device: String, bunker: String?, by: String) { revoked += Triple(device, bunker, by) }
-        override suspend fun agentReads(agent: String, reads: Boolean) {}
+        val reads = ArrayList<Pair<String, Boolean>>()
+        override suspend fun agentReads(agent: String, reads: Boolean) { this.reads += agent to reads }
         override suspend fun enqueueSigned(e: Event) { queued += e }
         override suspend fun removedAnswer(): RemovedAnswer? = removed
         override fun v1Secrets(): Map<String, String> = v1
@@ -325,6 +329,72 @@ class Enc3DevicesTest {
         assertEquals(Triple(laptop.pubkey, "c".repeat(64), phone.pubkey), ph.dp.revoked.single())
         assertEquals("removed", Enc.one(ph.dp.queued.single(), "answer"))
         assertEquals(laptop.pubkey, Enc.one(ph.dp.queued.single(), "device"))
+    }
+
+    // ---- part 6 (SPEC 19.86): Me › Devices, my agent's access, the reader card ----------------------------
+
+    @Test fun theTrashRevokesWithByAndNeverThisDevice() {
+        val ph = Dev(phone)
+        ph.lists(l1); ph.lists(l2)
+        runBlocking { ph.d.readNames(force = true) }
+        val st = ph.d.state.value
+        assertEquals(listOf(phone.pubkey, laptop.pubkey), st.devices, "the list says which devices exist")
+        assertEquals(phone.pubkey, st.here)
+        assertEquals(l1.createdAt, st.added[phone.pubkey])
+        assertEquals(l2.createdAt, st.added[laptop.pubkey])
+        runBlocking { ph.d.removeListed(laptop.pubkey, reader = false) }
+        assertEquals(Triple(laptop.pubkey, "c".repeat(64), phone.pubkey), ph.dp.revoked.single())
+        // its card shown here is answered "removed" once
+        assertEquals("removed", Enc.one(ph.dp.queued.single(), "answer"))
+        assertTrue(ph.d.state.value.cards.isEmpty())
+        assertFailsWith<ActionException> { runBlocking { ph.d.removeListed(phone.pubkey, reader = false) } }
+        assertFailsWith<ActionException> { runBlocking { ph.d.removeFirst(FirstRow(phone.pubkey, 0)) } }
+        assertEquals(1, ph.dp.revoked.size, "This device is never revoked from here")
+    }
+
+    @Test fun myAgentsAccessFollowsTheListAndItsCard() {
+        val ph = Dev(phone)
+        ph.lists(l1)
+        assertTrue(ph.d.state.value.readers.isEmpty())
+        runBlocking { ph.d.agentReads(agent.pubkey, true) }
+        assertEquals(agent.pubkey to true, ph.dp.reads.single())
+        assertTrue(ph.d.state.value.readers.isEmpty(), "on only once the belfry lists it")
+        val lr = list(2, l1, listOf(phone.pubkey), readers = listOf(agent.pubkey))
+        ph.lists(lr)
+        val st = ph.d.state.value
+        assertEquals(listOf(agent.pubkey), st.readers)
+        val card = st.cards.single()
+        assertTrue(card.reader)
+        assertEquals(agent.pubkey, card.device)
+        // OK: answered "shared" about the reader, signed by this device; access stays on
+        runBlocking { ph.d.readerOk(card.copy(name = "Errand helper")) }
+        val ok = ph.dp.queued.single()
+        assertEquals("shared", Enc.one(ok, "answer"))
+        assertEquals(agent.pubkey, Enc.one(ok, "device"))
+        assertEquals(phone.pubkey, ok.pubkey)
+        assertTrue(ph.d.state.value.cards.isEmpty())
+        assertTrue(agent.pubkey in ph.d.state.value.sharedWith)
+        assertTrue(ph.d.state.value.notices.contains(EncDeviceText.readerOk("Errand helper")))
+        assertEquals(1, ph.dp.reads.size, "OK calls nothing")
+        // the trash on my agent: reads off
+        runBlocking { ph.d.removeListed(agent.pubkey, reader = true) }
+        assertEquals(agent.pubkey to false, ph.dp.reads.last())
+        assertTrue(ph.dp.revoked.isEmpty(), "an agent is never revoked as a session")
+        // off on the belfry's next list
+        ph.lists(list(3, lr, listOf(phone.pubkey)))
+        assertTrue(ph.d.state.value.readers.isEmpty())
+    }
+
+    @Test fun theReaderCardsRemoveTurnsAccessOff() {
+        val ph = Dev(phone)
+        ph.lists(l1)
+        ph.lists(list(2, l1, listOf(phone.pubkey), readers = listOf(agent.pubkey)))
+        val card = ph.d.state.value.cards.single()
+        runBlocking { ph.d.remove(card.copy(name = "Errand helper")) }
+        assertEquals(agent.pubkey to false, ph.dp.reads.single())
+        assertTrue(ph.dp.revoked.isEmpty())
+        assertEquals("removed", Enc.one(ph.dp.queued.single(), "answer"))
+        assertTrue(ph.d.state.value.notices.contains(EncDeviceText.agentOff("Errand helper")))
     }
 
     // ---- the first screen, the warnings, the only device (§17.7, §18.3) ---------------------------------

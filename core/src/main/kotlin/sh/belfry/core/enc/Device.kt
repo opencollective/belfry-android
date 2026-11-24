@@ -95,6 +95,17 @@ data class Enc3DeviceState(
     /** The demo only (no runtime there): messages it pretends this device can't open, format 3 / version 1. The app adds the real counts. */
     val demoMissing: Int = 0,
     val demoV1Missing: Int = 0,
+    // ---- part 6 (SPEC 19.86): Me › Devices and my agent's access read my current list from here ----
+    /** My current list's devices (this one included), or empty while this device has none. */
+    val devices: List<String> = emptyList(),
+    /** My current list's readers (my agent given access, §11): the truth for "access on". */
+    val readers: List<String> = emptyList(),
+    /** When each device or reader first appeared on my lists (Unix seconds). */
+    val added: Map<String, Long> = emptyMap(),
+    /** This device's key (its row says "This device" and has no trash icon). */
+    val here: String? = null,
+    /** The devices whose card was answered "shared" (One device: Earlier messages · Shared). */
+    val sharedWith: Set<String> = emptySet(),
 )
 
 object EncDevice {
@@ -239,7 +250,8 @@ object EncDeviceText {
     const val REMOVE_DEVICE = "Remove this device"
     const val REMOVE = "Remove"
     const val CANCEL = "Cancel"
-    const val REMOVE_TEXT = "It’s signed out at once and can’t read new messages. If you didn’t add it, someone used a code sent to your e-mail: change your e-mail password."
+    /** encrypted/card-remove exactly (the lead, 24 Nov): two lines, the second its own sentence. */
+    const val REMOVE_TEXT = "It’s signed out at once and can’t read new messages.\nIf you didn’t add it, someone used a code sent to your e-mail. Change your e-mail password."
     const val FAILED = "That did not work. Try again."
     const val NOT_YET = "This belfry can’t do that yet."
 
@@ -285,6 +297,64 @@ object EncDeviceText {
     const val ONLY_NEW = "New messages still reach you when you sign in again."
     const val ONLY_ADD = "Add another device first"
     const val ONLY_ANYWAY = "Sign out anyway"
+
+    // ---- part 6 (SPEC 19.86): my agent given access, Me › Devices, One device (the web's WhoCanRead.tsx / EarlierLine.tsx,
+    // f76fec5; the boards' words where the web shipped none) ----
+    fun readerTitle(name: String): String = "$name can now read your private messages"
+    fun readerOk(name: String): String = "$name reads your private messages from now on."
+    fun agentRemoveTitle(name: String): String = "Remove $name’s access?"
+    fun agentRemoveText(name: String): String = "$name won’t read your private messages and private groups any more. What it read before stays with it."
+    fun agentOff(name: String): String = "$name can’t read your private messages any more."
+
+    const val DEVICES = "Devices"
+    const val DEVICES_TEXT = "These devices can read your encrypted messages."
+    const val NEW = "New"
+    const val DEVICES_FOOT = "A device you remove is signed out and can’t read anything new."
+    const val AGENT_FOOT = "Removing your agent here turns its access off."
+    const val NOT_SET_UP = "This device isn’t set up for encrypted messages yet."
+    const val ADDED = "Added"
+    const val LAST_ACTIVE = "Last active"
+    const val EARLIER = "Earlier messages"
+    const val SHARED = "Shared"
+    const val NOT_SHARED = "Not shared"
+    const val HERE_NOTE = "This device. Sign out is in Me."
+    const val ONE_REMOVE_TEXT = "It’s signed out at once. Messages already on it stay there until it’s next online."
+
+    /** "Added 12 Aug · last active Today" (either part left out when unknown). */
+    fun deviceLine(added: Long?, lastActive: Long?, now: Long, zone: ZoneId): String =
+        listOfNotNull(added?.let { "Added ${dayWord(it, now, zone)}" }, lastActive?.let { "last active ${dayWord(it, now, zone)}" }).joinToString(" · ")
+
+    fun agentLine(added: Long?, now: Long, zone: ZoneId): String = AGENT + (added?.let { " · access given ${dayWord(it, now, zone)}" } ?: "")
+
+    /** New: a device (not this one) added in the last day. */
+    fun isNew(added: Long?, now: Long): Boolean = added != null && now - added in 0 until 86_400
+
+    /** "Today", "Yesterday", "12 Aug". */
+    fun dayWord(at: Long, now: Long, zone: ZoneId): String {
+        val d = Instant.ofEpochSecond(at).atZone(zone).toLocalDate()
+        val today = Instant.ofEpochSecond(now).atZone(zone).toLocalDate()
+        return when (d) { today -> "Today"; today.minusDays(1) -> "Yesterday"; else -> day(at, zone) }
+    }
+
+    /** A `/me/sessions` date (ISO text) as Unix seconds, or null. */
+    fun isoSeconds(s: String?): Long? {
+        if (s.isNullOrBlank()) return null
+        return try { java.time.OffsetDateTime.parse(s).toEpochSecond() } catch (e: Exception) {
+            try { Instant.parse(s).epochSecond } catch (e2: Exception) {
+                try { java.time.LocalDate.parse(s.take(10)).atStartOfDay(java.time.ZoneOffset.UTC).toEpochSecond() } catch (e3: Exception) { null }
+            }
+        }
+    }
+
+    // ---- my agent's access (encrypted/agent-access, -confirm, -on; the web's AgentAccess) ----
+    const val ACCESS_SECTION = "Private messages"
+    const val ACCESS = "Give access to my private messages and private groups"
+    fun accessOn(name: String): String = "$name is now one of your devices: it reads them like one."
+    const val ACCESS_WAIT = "Waiting for the belfry…"
+    const val ACCESS_OFF = "Off: it doesn’t read them."
+    fun giveTitle(name: String): String = "Give $name access?"
+    const val GIVE_TEXT = "It will read your private messages and private groups from now on, like one of your devices. You can turn this off at any time."
+    const val GIVE = "Give access"
 
     private fun list(names: List<String>, word: String): String =
         if (names.size <= 1) names.joinToString("") else names.dropLast(1).joinToString(", ") + " $word " + names.last()
