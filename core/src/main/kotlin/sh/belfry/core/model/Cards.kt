@@ -261,8 +261,8 @@ object Cards {
         put("about", JsonPrimitive(f.about.trim().take(500)))
         if (kind == CardKind.TOPIC) {
             put("hashtag", JsonPrimitive(hashtagSlug(f.hashtag)))
-            // topic cards only, never on a group card: the starter's summary by e-mail
-            put("summary", JsonPrimitive(summaryOf(f.summary)))
+            // no "summary" (Xavier, Cards v80: "remove, it's ok to keep it in the settings"): the server
+            // starts the topic's starter on weekly; it is changed in the topic's notification settings
         }
     }
 

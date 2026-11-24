@@ -346,6 +346,170 @@ class PrintedCardsTest : DemoShots() {
         down = false
         compose.onNodeWithTag("card-recheck").performClick()
         waitText("✓ Available")
+        // no summary by e-mail on the start form (Xavier, Cards v80): it's in the topic's settings
+        assertTrue(compose.onAllNodesWithText("Summary by e-mail").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithTag("card-summary").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
+        compose.onNodeWithTag("card-start").performClick()
+        compose.waitUntil(10_000) { claims.get() == 1 }
+        compose.onNodeWithTag("card-start").assertIsNotEnabled()
+        compose.onNodeWithTag("card-start").performClick()
+        compose.onNodeWithTag("card-start").performClick()
+        gate.complete(Unit)
+        compose.waitForIdle()
+        assertEquals(1, claims.get())
+        assertEquals("Sourdough starters", sent!!.title)
+        assertEquals("""{"title":"Sourdough starters","about":""}""", Cards.claimBody(CardKind.GROUP, sent!!).toString())
+    }
+
+    /** A refusal is said in the app's words and the form stays as typed; "someone was first" and "retired" have their own screens. */
+    @Test
+    fun refusalsInWordsAndTheFormKept() {
+        var answer: CardFailed? = CardFailed(CardError.NO_PASS)
+        val kept = CopyOnWriteArrayList<CardForm>()
+        val drops = AtomicInteger()
+        val joined = CopyOnWriteArrayList<String>()
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, lina, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE },
+            claim = { _, _ -> answer?.let { throw it } },
+            keepForm = { kept += it }, dropForm = { drops.incrementAndGet() },
+            preview = { CardPreview("Sourdough starters", "Swap starters.", "Ben Okafor") },
+            join = { _, group, token -> joined += "$group $token" }))
+        waitFor("card-start")
+        field("card-title").performTextInput("Sourdough starters")
+        field("card-about").performTextInput("Swap starters.")
+        // what is typed is kept on the device as it changes
+        compose.waitUntil(10_000) { kept.lastOrNull()?.about == "Swap starters." }
+        for ((code, words) in listOf(
+            CardError.NO_PASS to "Only members of this belfry can start a group while signed in. Sign out to start it as a guest with your e-mail.",
+            CardError.GUEST_NOT_SAVED to "Save your account with your e-mail first, then scan the card again.",
+            CardError.UNVERIFIED to "Confirm your e-mail address first, then scan the card again.",
+            CardError.AGENT to "An AI agent can’t start it. Use a person’s account.",
+            CardError.SIGNER to "The belfry is busy. Try again in a minute.",
+            CardError.TOO_MANY to "Too many tries for now. Try again in a few minutes.",
+            CardError.OFFLINE to "No connection. Try again.",
+            CardError.FAILED to "That did not work. Try again.",
+        )) {
+            answer = CardFailed(code)
+            compose.onNodeWithTag("card-start").performScrollTo().performClick()
+            waitText(words)
+            // the form is as it was typed, and can be sent again
+            compose.onNodeWithText("Sourdough starters").assertExists()
+            compose.onNodeWithText("Swap starters.").assertExists()
+            compose.onNodeWithTag("card-start").assertIsEnabled()
+        }
+        assertEquals(0, drops.get())
+
+        // someone was first: their group, and Join takes the card's guest link
+        answer = CardFailed(CardError.CLAIMED, group = "pod-sourdough-ab12", invite = invite)
+        compose.onNodeWithTag("card-start").performScrollTo().performClick()
+        waitFor("card-join")
+        compose.onNodeWithText("Someone just started this group").assertExists()
+        compose.onNodeWithText("Your text wasn’t used; you can join theirs.").assertExists()
+        waitFor("card-preview")
+        compose.onNodeWithText("Steward: Ben Okafor").assertExists()
+        assertEquals(1, drops.get())
+        compose.onNodeWithTag("card-join").performClick()
+        compose.waitUntil(10_000) { joined.isNotEmpty() }
+        assertEquals(listOf("pod-sourdough-ab12 $invite"), joined.toList())
+    }
+
+    @Test
+    fun aCardRetiredWhileWritingSaysSo() {
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, lina, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE }, claim = { _, _ -> throw CardFailed(CardError.RETIRED) }))
+        waitFor("card-start")
+        field("card-title").performTextInput("Sourdough starters")
+        compose.onNodeWithTag("card-start").performScrollTo().performClick()
+        waitFor("card-dead")
+        compose.onNodeWithText("This group is closed to new people").assertExists()
+        compose.onNodeWithText("The card was retired. People already in the group carry on there.").assertExists()
+        compose.onNodeWithText("Visit ${Demo.NAME}").assertExists()
+    }
+
+    /** What the belfry says of a card picks the screen: its guest link, a dead end with its reason, or the belfry's page. */
+    @Test
+    fun eachStateOfACard() {
+        val joined = CopyOnWriteArrayList<String>()
+        val drops = AtomicInteger()
+        val door = CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { CardInfo.Claimed(CardKind.TOPIC, "tool-library", "tool-library", invite) }, hashtag = { HashtagState.FREE },
+            dropForm = { drops.incrementAndGet() }, join = { kind, group, token -> joined += "${kind.word} $group $token" })
+        // a claimed card is a guest link: taken at once, nothing to tap
+        show(door)
+        compose.waitUntil(10_000) { joined.isNotEmpty() }
+        assertEquals(listOf("topic tool-library $invite"), joined.toList())
+        compose.onNodeWithTag("card-opening").assertExists()
+    }
+
+    @Test
+    fun deadEnds() {
+        val asks = AtomicInteger()
+        var failure: CardFailed? = CardFailed(CardError.OFFLINE)
+        val closed = AtomicInteger()
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { asks.incrementAndGet(); failure?.let { throw it }; CardInfo.Archived(CardKind.GROUP, "Book club") }, hashtag = { HashtagState.FREE },
+            close = { closed.incrementAndGet() }))
+        waitFor("card-again")
+        compose.onNodeWithText("No connection").assertExists()
+        compose.onNodeWithText("Belfry needs the internet to open the card. What you typed stays here.").assertExists()
+        // the belfry says "too many": its own words, never "no connection"
+        failure = CardFailed(CardError.TOO_MANY)
+        compose.onNodeWithTag("card-again").performClick()
+        waitText("Too many tries for now")
+        assertEquals(2, asks.get())
+        // Try again asks again
+        failure = null
+        compose.onNodeWithTag("card-again").performClick()
+        waitText("Book club has ended")
+        compose.onNodeWithText("The group was archived.").assertExists()
+        assertTrue(compose.onAllNodesWithTag("card-again").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag("card-close").performClick()
+        compose.waitUntil(10_000) { closed.get() == 1 }
+    }
+
+    @Test
+    fun anAddressThatIsNoCardIsNeverAsked() {
+        val asks = AtomicInteger()
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { asks.incrementAndGet(); CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE }), CardLink(Demo.DOMAIN, ""))
+        waitFor("card-dead")
+        compose.onNodeWithText("This card isn’t known here").assertExists()
+        compose.onNodeWithText("Check that you scanned a card of ${Demo.DOMAIN}.").assertExists()
+        assertEquals(0, asks.get())
+    }
+
+    /** A topic card: the topic first, the hashtag suggested from it and checked live, the next free one when taken, editable. */
+    @Test
+    fun aTopicsHashtag() {
+        val checked = CopyOnWriteArrayList<String>()
+        var down = false
+        var sent: CardForm? = null
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, lina, info = { CardInfo.Unclaimed(CardKind.TOPIC) },
+            hashtag = { h -> checked += h; if (down) HashtagState.UNKNOWN else if (h == "tool-library" || h == "tool-library-2" || h == "general") HashtagState.TAKEN else HashtagState.FREE },
+            claim = { _, f -> sent = f }), topicLink)
+        waitFor("card-start")
+        compose.onNodeWithText("Start this topic").assertExists()
+        compose.onNodeWithText("You found a new topic card. No introductions needed: people come and go and share what they know.").assertExists()
+        field("card-title").performTextInput("Tool library")
+        // suggested from the topic; taken, and -2 too: the next free one is offered and said available
+        waitText("✓ Available · suggested from the topic, you can change it")
+        compose.onNodeWithText("tool-library-3").assertExists()
+        assertEquals(listOf("tool-library", "tool-library-2", "tool-library-3", "tool-library-3"), checked.toList())
+        compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
+
+        // changed by hand to a taken one: said so, nothing else is offered, and it can't be started
+        field("card-hashtag").performTextReplacement("General")
+        waitText("Taken: try another one")
+        compose.onNodeWithText("General").assertExists()
+        compose.onNodeWithTag("card-start").assertIsNotEnabled()
+        field("card-hashtag").performTextReplacement("x")
+        waitText("Letters, digits and dashes, 2 to 30")
+        compose.onNodeWithTag("card-start").assertIsNotEnabled()
+
+        // the belfry can't check: never "available"; Try again asks again
+        down = true
+        field("card-hashtag").performTextReplacement("drills")
+        waitText("Couldn’t check just now")
+        compose.onNodeWithTag("card-start").assertIsNotEnabled()
+        down = false
+        compose.onNodeWithTag("card-recheck").performClick()
+        waitText("✓ Available")
         // the summary by e-mail: Weekly unless Monthly is picked; the choice is said, not only coloured
         compose.onNodeWithText("Summary by e-mail").performScrollTo().assertExists()
         compose.onNodeWithTag("card-summary-weekly").assertIsSelected()
@@ -358,8 +522,7 @@ class PrintedCardsTest : DemoShots() {
         compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
         compose.onNodeWithTag("card-start").performClick()
         compose.waitUntil(10_000) { sent != null }
-        assertEquals("monthly", sent!!.summary)
-        assertEquals("""{"title":"Tool library","about":"","hashtag":"drills","summary":"monthly"}""", Cards.claimBody(CardKind.TOPIC, sent!!).toString())
+        assertEquals("""{"title":"Tool library","about":"","hashtag":"drills"}""", Cards.claimBody(CardKind.TOPIC, sent!!).toString())
         assertEquals("drills", Cards.hashtagSlug(sent!!.hashtag))
         assertEquals("Tool library", sent!!.title)
     }
