@@ -91,7 +91,7 @@ class Enc3MeTest : DemoShots() {
         Enc3Fixture.install(session, emptyMap())
         session.demoEnc3Device(mine(readers = listOf(agent)))
         show { Enc3DevicesScreen() }
-        compose.onNodeWithTag("enc3-device-agent-trash").performScrollTo().performClick()
+        compose.onNodeWithContentDescription(EncDeviceText.agentRemoveTitle(agentName).removeSuffix("?")).performScrollTo().performClick()
         waitForText(EncDeviceText.agentRemoveTitle(agentName))
         compose.onNodeWithText(EncDeviceText.agentRemoveText(agentName)).assertExists()
         assertTrue(session.demoAgentReads.isEmpty())
