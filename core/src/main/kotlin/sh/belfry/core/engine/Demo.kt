@@ -261,7 +261,9 @@ object Demo {
                 if (topic) raw(groups, at + 3, 9, listOf(listOf("h", GENERAL), listOf("t", "new-topic"), listOf("channel", group), by),
                     "# New topic: #$group · $title${if (about.isNotEmpty()) " · $about" else ""}\nhttps://chat.$DOMAIN/#/c/$group")
                 else raw(groups, at + 3, 9, listOf(listOf("h", GENERAL), listOf("pod", group), by), "⬡ New group: $title${if (about.isNotEmpty()) " · $about" else ""}")
-                raw(groups, at + 4, 9, listOf(listOf("h", group), listOf("p", who.pubkey), listOf("card", "1"), by), "$whoName started this ${if (topic) "topic" else "group"} from a printed card")
+                // Belfry 9b4482b: "‹name› created the group/topic from card ‹ID›", ["card","1"] + ["card_id", ID]
+                val cardId = if (topic) CARD_TOPIC else CARD_GROUP
+                raw(groups, at + 4, 9, listOf(listOf("h", group), listOf("p", who.pubkey), listOf("card", "1"), listOf("card_id", cardId), by), "$whoName created the ${if (topic) "topic" else "group"} from card $cardId")
                 // the relay's own lists: its 39001 names the key that made the group (the groups key), never the claimer
                 lists(group, at + 5, listOf(listOf("name", name), listOf("about", desc)) + access, listOf(groups), listOf(who) + joined)
             }

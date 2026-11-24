@@ -86,7 +86,7 @@ class TownCardsTest : DemoShots() {
     /** The first line in the group: an activity line in our words; it opens the person's profile. */
     @Test fun firstLineInTheGroup() {
         demoShot("cards-group-first-line") { ChannelScreen(Demo.POD_CARD, onMenu = {}) }
-        compose.onNodeWithText("Sam Carter created the group from a printed card", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Sam Carter created the group from card K7Q2MX", useUnmergedTree = true).assertExists()
         assertEquals(1, compose.onAllNodesWithTag("card-started", useUnmergedTree = true).fetchSemanticsNodes().size)
         compose.onNodeWithTag("card-started").performClick()
         assertTrue(nav.went.toString(), Routes.profile(Demo.sam.pubkey) in nav.went)
@@ -94,7 +94,7 @@ class TownCardsTest : DemoShots() {
 
     @Test fun firstLineInTheTopic() {
         demoShot("cards-topic-first-line") { ChannelScreen(Demo.TOPIC_CARD, onMenu = {}) }
-        compose.onNodeWithText("Lena Fischer created the topic from a printed card", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Lena Fischer created the topic from card T9PC4H", useUnmergedTree = true).assertExists()
     }
 
     /** cards/steward: "The card" in the group's Settings, for its stewards and the belfry's admins. */

@@ -118,10 +118,10 @@ class CardsService internal constructor(private val s: Session) {
         } else {
             s.createPod(title, f.about.trim().take(500), Demo.GENERAL)
         }
-        // the first line in it, as the groups key writes it (docs/cards.md §2.2 step 4): never the card's id
+        // the first line in it, as the groups key writes it (docs/cards.md §2.2 step 4; Belfry 9b4482b adds ["card_id", ID])
         val name = s.world.value.realName(s.me)
         // signed by the demo's groups key, as the belfry writes it (with `by`), so it reads as the card's line (SPEC 19.89)
-        val line = Demo.groups.signNow(sh.belfry.core.nostr.EventTemplate(9, "$name started this ${kind.word} from a printed card", listOf(listOf("h", group), listOf("p", s.me), listOf("card", "1"), listOf("by", s.me)), s.now()))
+        val line = Demo.groups.signNow(sh.belfry.core.nostr.EventTemplate(9, "$name created the ${kind.word} from card $id", listOf(listOf("h", group), listOf("p", s.me), listOf("card", "1"), listOf("card_id", id), listOf("by", s.me)), s.now()))
         s.addLocalEvents(listOf(line))
         s.store.set(K_DEMO, buildJsonObject { for ((k, v) in demoClaimed() + (id to group)) put(k, JsonPrimitive(v)) }.toString())
         return group

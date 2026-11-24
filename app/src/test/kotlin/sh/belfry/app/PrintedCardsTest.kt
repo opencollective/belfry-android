@@ -89,7 +89,7 @@ class PrintedCardsTest : DemoShots() {
         compose.onNodeWithText("Welcome to Sourdough starters!", substring = true).assertExists()
         compose.onNodeWithText("You created it and you look after it. Say hi and share something to get it going.", substring = true).assertExists()
         // the first line, as the belfry writes it (the demo signs it with its groups key)
-        compose.onNodeWithText("You created the group from a printed card", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("You created the group from card K7Q2MX", useUnmergedTree = true).assertExists()
         compose.onNodeWithContentDescription("Close the welcome").performClick()
         compose.waitUntil(10_000) { dismissed == 1 }
     }

@@ -136,6 +136,17 @@ class CardAuthorsTest {
     private fun world(events: List<Event>, me: String = ana, admins: Set<String> = setOf(ana)) =
         World(base + events, emptyList(), WorldContext(me = me, domain = "example.org", communityName = "Riverside Commons", communityAdmins = admins, groupsKey = gk, zone = ZoneId.of("UTC")))
 
+    @Test fun theCardsIdComesFromItsCardIdTag() {
+        // Belfry 9b4482b: ["card","1"] stays, ["card_id", <ID>] names the card
+        val g = "1".repeat(64)
+        val line = ev(g, 10, 9, listOf("h", "pod-x"), listOf("p", "2".repeat(64)), listOf("card", "1"), listOf("card_id", "K7Q2MX"))
+        assertEquals("K7Q2MX", CardAuthors.cardIdOf(line))
+        assertEquals("K7Q2MX", CardAuthors.cardIdOf(ev(g, 11, 9, listOf("card", "1"), listOf("card_id", "k7q2mx"))))
+        assertEquals(null, CardAuthors.cardIdOf(ev(g, 12, 9, listOf("card", "1"))))
+        assertEquals(null, CardAuthors.cardIdOf(ev(g, 13, 9, listOf("card", "1"), listOf("card_id", "not an id"))))
+        assertEquals("You created the group from card K7Q2MX", CardAuthors.startedLine("You", true, CardAuthors.cardIdOf(line)))
+    }
+
     @Test fun aCardsGroupIsItsClaimers() {
         val w = world(claim("pod-sourdough-ab12", lou, "Lou Martin", t0 + 100, false, "Sourdough starters", "Swap starters") + claim("bread", dev, "Dev Patel", t0 + 200, true, "Bread", "Loaves and crumbs"))
         val g = w.group("pod-sourdough-ab12")!!

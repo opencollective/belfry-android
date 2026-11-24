@@ -97,8 +97,13 @@ object CardAuthors {
     fun stewardLine(who: String, pod: Boolean, count: Int?): String =
         "Steward: $who" + (count?.let { " · " + if (pod) (if (it == 1) "1 person" else "$it people") else following(it) } ?: "")
 
-    /** The card's id when a card line carries one (`["card", <id>]`; today's belfry writes `"1"`, the web reads both). */
-    fun cardIdOf(e: Event): String? = e.tags.firstOrNull { it.size >= 2 && it[0] == "card" && Cards.isId(it[1]) }?.get(1)
+    /**
+     * The card's id when a card line carries one: `["card_id", <ID>]` (Belfry 9b4482b, beside `["card", "1"]`), or an
+     * id in `["card", <id>]` (read in case a belfry ever writes it). Lower case read as upper case, as in a card address.
+     */
+    fun cardIdOf(e: Event): String? =
+        (e.tags.firstOrNull { it.size >= 2 && it[0] == "card_id" }?.get(1) ?: e.tags.firstOrNull { it.size >= 2 && it[0] == "card" && it[1] != "1" }?.get(1))
+            ?.uppercase()?.takeIf { Cards.isId(it) }
 
     /**
      * The first line of a group or topic started from a card, in our words (never the event's text):
