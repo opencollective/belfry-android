@@ -1037,8 +1037,9 @@ class Session(
         val events = synchronized(logLock) { ArrayList(log) }
         // §17.2 (SPEC 19.88): a signed event in a private group after its first key, outside §16.9's clear list, never counts
         val g = enc3Groups
-        if (g != null && encFormat.state().format == 3) {
-            val first = g.firstKeys(enc3?.encGroups().orEmpty())
+        val ids = if (g != null) enc3?.encGroups().orEmpty() else emptyList()
+        if (g != null && ids.isNotEmpty() && encFormat.state().format == 3) {
+            val first = g.firstKeys(ids)
             if (first.isNotEmpty()) return World(events.filterNot { g.refuses(it, first) }, box, ctx(), prev)
         }
         return World(events, box, ctx(), prev)

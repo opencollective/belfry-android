@@ -27,8 +27,16 @@ class EncFormatCache(private val vault: Vault?, domain: String) {
     /** Without a vault, or when the vault refused the last write: this object only. */
     private val memory = java.util.concurrent.ConcurrentHashMap<String, EncFormatState>()
 
+    /** The vault's value as last read or written (SPEC 19.88: asked on every snapshot and screen; the vault is read once). */
+    @Volatile private var read: EncFormatState? = null
+
     fun state(): EncFormatState {
         memory[name]?.let { return it } // no vault, or the vault refused the last write
+        read?.let { return it }
+        return readVault().also { read = it }
+    }
+
+    private fun readVault(): EncFormatState {
         val o = parseJsonOrNull(vault?.get(name) ?: return EncFormatState()) as? JsonObject ?: return EncFormatState()
         val f = o["format"].long()?.toInt()?.takeIf { it == 1 || it == 3 }
         return EncFormatState(f, (o["seen"] as? JsonPrimitive)?.content == "true", o["read_at"].long() ?: 0, o["since3"].long() ?: 0)
@@ -45,6 +53,7 @@ class EncFormatCache(private val vault: Vault?, domain: String) {
 
     private fun save(s: EncFormatState) {
         val v = vault
+        read = s
         if (v == null) { memory[name] = s; return }
         try {
             memory.remove(name)
