@@ -34,8 +34,8 @@ class Enc3DeviceShotsTest : DemoShots() {
 
     private fun state(st: Enc3DeviceState) = session.demoEnc3Device(st)
 
-    private fun bottomOfMessages() {
-        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("enc3-earlier"))
+    private fun bottomOfMessages(tag: String = "enc3-earlier") {
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag(tag))
     }
 
     @Test fun newList() {
@@ -65,7 +65,7 @@ class Enc3DeviceShotsTest : DemoShots() {
 
     @Test fun lostAll() {
         state(base.copy(older = emptyList(), demoMissing = 4)); session.demoEncConvs = setOf(conv)
-        demoShot("enc3-lost-all", act = { bottomOfMessages() }) { MessagesScreen() }
+        demoShot("enc3-lost-all", act = { bottomOfMessages("enc3-lost") }) { MessagesScreen() }
     }
 
     @Test fun lostAllThread() {
