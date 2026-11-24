@@ -460,7 +460,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         val src = x ?: e
         val media = ArrayList<Media>()
         for (t in src.tags) {
-            if (t.isEmpty() || t[0] != "imeta") continue
+            if (t.isEmpty() || t[0] != "imeta" || sh.belfry.core.preview.LinkPreviews.isPreviewImeta(t)) continue
             val f = HashMap<String, String>()
             for (p in t.drop(1)) {
                 val i = p.indexOf(' ')
@@ -496,6 +496,8 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         }
         return Message(
             ev = e, text = shown, media = media, topics = topics.toList(), edited = x?.createdAt,
+            // the preview (SPEC 19.87): the latest version that carries one (an edit may carry a new one), else the original's
+            preview = sh.belfry.core.preview.LinkPreviews.wireTags(if (x != null && x.tags.any { it.size >= 2 && it[0] == "preview" }) x.tags else e.tags),
             special = specialOf(e, legacy), author = realAuthor(e), viaDropBox = e.hasTag("client", "belfry-drop"), eventRefs = refs.take(3),
         )
     }

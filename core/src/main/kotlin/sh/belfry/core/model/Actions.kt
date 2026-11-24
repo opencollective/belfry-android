@@ -154,13 +154,17 @@ object Actions {
      */
     fun editMessage(groupId: String, m: Message, text: String): Draft {
         val typed = Topics.hashtags(m.text).toSet()
-        val imeta = m.ev.tags.filter { it.isNotEmpty() && it[0] == "imeta" }
+        // its photos; its link preview's picture stays an imeta entry but is not a photo in the text (SPEC 19.87)
+        val allImeta = m.ev.tags.filter { it.isNotEmpty() && it[0] == "imeta" }
+        val imeta = allImeta.filter { !sh.belfry.core.preview.LinkPreviews.isPreviewImeta(it) }
         val keptTopics = m.ev.tags.filter { it.size >= 2 && it[0] == "t" && it[1].isNotEmpty() && Topics.norm(it[1]) !in typed }.map { Topics.norm(it[1]) }
         val urls = imeta.mapNotNull { t -> t.firstOrNull { it.startsWith("url ") }?.substring(4) }.filter { it.isNotEmpty() }
         val topics = LinkedHashSet(keptTopics).apply { addAll(Topics.hashtags(text)) }
         return Draft(
             Target.GROUPS, World.EDIT_KIND, (listOf(text) + urls).filter { it.isNotEmpty() }.joinToString("\n"),
-            listOf(listOf("h", groupId), listOf("e", m.ev.id), listOf("k", m.ev.kind.toString())) + imeta + topics.map { listOf("t", it) } + Mentions.tags(text),
+            listOf(listOf("h", groupId), listOf("e", m.ev.id), listOf("k", m.ev.kind.toString())) + imeta + topics.map { listOf("t", it) } + Mentions.tags(text) +
+                // an edit keeps the preview as it was (the message's current one): never fetched again
+                m.preview.ifEmpty { sh.belfry.core.preview.LinkPreviews.wireTags(allImeta + m.ev.tags.filter { it.size >= 2 && it[0] == "preview" }) },
         )
     }
 

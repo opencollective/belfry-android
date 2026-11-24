@@ -3598,6 +3598,66 @@ belfry this device doesn't know as format 3 (`Enc3DeviceState.on`): there Me kee
   trash asks first then revokes, the agent's trash turns access off, One device, access asks before on and calls reads true /
   false, the state follows the list, the reader card's Remove and OK, the two leftovers), `Enc3MeShotsTest` (pictures, by hand).
 
+### 19.87 Link previews built by the sender (2026-11-24; collective-belfry docs/link-previews-v2.md at belfry-sh 6bae927; Channels canvas v11 channels/og-*; replaces the reader-side 19.80 that was reverted)
+
+- **Who fetches**: only the SENDER's device, once, while composing; readers never fetch anything for a preview but its
+  picture from the belfry's Blossom; nobody asks the belfry's `/link-preview` endpoint (that stays for web senders only).
+- **Which link**: `LinkPreviews.outsideLink` (unchanged from 19.80): the first `https://` link of the text that is not the
+  belfry's (its domain and every name under it, chat links, `References`), not the file server, not an attached file, not an
+  address ending like a picture / recording / PDF. One per message.
+- **The fetch** (`core/preview/SafeFetch.kt`, `FetchRules`): every hop `https`, port 443, no user name or password, a name
+  (no IP literal, no bare number, at least one dot, not `localhost` / `.localhost` / `.local` / `.internal` / `.arpa` /
+  `.lan` / `.onion`); the name resolved (`Resolver`) and refused unless EVERY address is public unicast (refused: 0/8, 10/8,
+  100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16, 198.18/15, 198.51.100/24,
+  203.0.113/24, 224/4 and up; `::`, `::1`, IPv4-compatible `::/96`, `100::/64`, Teredo `2001::/32`, `2001:db8::/32`,
+  `fc00::/7`, `fe80::/10`, `fec0::/10`, `ff00::/8`; `::ffff:0:0/96`, NAT64 `64:ff9b::/96` and 6to4 `2002::/16` judged by
+  the IPv4 address inside); then asked of exactly those addresses (`OkPreviewNet`: a per-call DNS that answers only that host
+  with only them, so a second lookup can't differ; no redirect followed by OkHttp, no proxy, no cookies, no cache, a generic
+  `User-Agent: Mozilla/5.0 (compatible; BelfryLinkPreview/1.0)`, no Referer); 301 / 302 / 303 / 307 / 308 followed by hand,
+  at most 3, each hop checked the same way; 5 s for the whole of one fetch; a 200 only. The page: `text/html` only, the first
+  512 kB read (the rest never). The picture: at most 5 MB (an announced or read size over it refused), PNG / JPEG / WebP /
+  GIF by the first bytes only (`PreviewImages.kind`).
+- **The page** (`PageMeta`): comments, `script`, `style`, `noscript`, `template` dropped; `og:title` → `twitter:title` →
+  `<title>`; `og:description` → `twitter:description` → `meta name=description`; site `og:site_name` → `application-name`;
+  picture `og:image` → `og:image:url` → `og:image:secure_url` → `twitter:image` → `twitter:image:src` (the first present),
+  resolved against the FINAL address, https only. A `meta` key is its `property` or its `name`; the first of a key wins.
+  Values: tags stripped, entities decoded (`Entities`), whitespace collapsed, cut to 200 / 300 / 100 Unicode code points,
+  trailing spaces trimmed. Charset: the header's, else a `charset=` in the first 1024 bytes, else UTF-8. No title and no
+  description → no preview.
+- **The picture on the device**: `PictureEncoder` (core interface; the app's `AndroidPictureEncoder`: sample-size decode,
+  over 40 Mpx refused, longest side ≤ 1200 px, on white, JPEG quality 85 → 55 then smaller, ≤ 300 kB); core checks the result
+  again (JPEG or WebP by its bytes, ≤ 1200 px, ≤ 300 kB). Uploaded to the belfry's Blossom like a channel photo (plain), or
+  AES-256-GCM encrypted first exactly like a direct message's file (`DmFiles.seal`, fresh key and nonce, ciphertext as
+  `application/octet-stream`). The URL Blossom answers must be on Blossom's origin, else no picture. Any failure of the
+  picture → the preview without it.
+- **Where it is encrypted** (`LinkPreviewService.modeFor(filesEncrypted)`): the way that conversation's FILES are. Direct
+  messages (sealed version 1, format 3, plain NIP-17): always (`modeForDm`). Channels and groups: in the clear
+  (`modeForGroup`), Private groups included until format 3 part 7 encrypts group messages: its hook is
+  `modeForGroup(world, group, groupFilesEncrypted = …)` and the preview tags then go inside the encrypted rumor.
+- **On the wire** (kind 9, 1111, 14; inside the rumor in a sealed or encrypted conversation): `["preview", url as written,
+  title, description, site]` (empty strings for what is missing) and, with a picture, `["imeta", "url …", "m image/jpeg",
+  "dim WxH", "x <sha256 of what Blossom stores>", ("ox …", "encryption-algorithm aes-gcm", "decryption-key …",
+  "decryption-nonce …",) "purpose preview"]`; `m` is the plain type. ✕ in the composer → `["preview","none"]` and nothing is
+  fetched for that link any more. At most one `preview` tag and one preview `imeta` per message (`LinkPreviewService.onSend`).
+  A preview `imeta` is never a photo of the message (`World` media, the Activity log, an edit's text). An edit (1010) keeps the
+  message's preview tags as they are (`Actions.editMessage`), never fetched again; a reader takes the latest version that
+  carries a `preview` tag, else the original's. E-mail carries none. A reading guest's composer builds none.
+- **The composer** (`ComposerLinkPreview`, `ComposerState.preview / previewDropped / previewTags`): 700 ms after the text's
+  link stops changing, "Getting a preview of the link…" with ✕, then the preview (48 dp picture, title, site) with ✕; nothing
+  usable or failed → nothing (the link stays a link). Sent while it is still being built → no tag. Offline → not built.
+- **Reading** (`LinkPreviews.read`, `LinkPreviewBox`, `DmLinkPreview` under the bubble): only from the tags; null for
+  `["preview","none"]`, no `preview` tag, a non-https link, a link the text doesn't hold (Android's choice: no box for a hidden
+  link), no title and no description. The picture only when its URL's origin is exactly Blossom's (https, port 443), its type
+  an image type, `x` 64 hex, and with any key field all four valid; downloaded without following redirects, at most 1 MB,
+  `x` checked (and decrypted, `ox` checked), the type checked by its bytes, kept in the store (`ogpic:<x>`); the sender's own
+  copy is kept at build time. A picture that fails: the box without it.
+- **Demo**: `DemoPreviews` plays the outside web (fixed pages, a generated PNG, one public address) and Blossom (local blobs).
+- Vectors `vectors/link-previews.json` (written here, `tools/link_previews_vectors.py`; sections links, html, charsets,
+  urls, addresses, pictures, tags, read; sha256 pinned in `LinkPreviewsVectorsTest`). Tests `LinkPreviewsVectorsTest`,
+  `SafeFetchTest` (fake resolver and HTTP: hops, addresses, redirects, time, type, size, the builder's picture rules),
+  `PreviewSendTest` (tags on send: channel, thread, edit, none, DM inside the rumor with an encrypted picture, offline),
+  `NotesTest.aLinkPreviewIsInsideTheSealedRumor` (sealed v1 and the old way), `Enc3PeopleTest.aLinkPreviewTravelsInsideTheEncryptedMessage`
+  (format 3); Robolectric `PreviewsV2Test`; pictures `PreviewsV2ShotsTest`.
 ### 19.89 Printed cards: the create flow, improved; the e-mail's Confirm button (2026-11-24; Xavier's approval of the Cards canvas section "Onboarding from a card, improved", v90: cards/onb-group-form, onb-topic-form, onb-code, onb-mail, onb-group-done, onb-topic-done, onb-town-group, onb-town-topic, claim-signed-in, onb-topic-signed-in, onb-confirmed-elsewhere; contract collective-belfry docs/cards.md §2.2–§2.3 at Belfry 3ef7ff5, live on the four belfries; the web's chat e965481, 25ff046, 6170a4f, 9ed56d1. Changes 19.72 and 19.73 on Android)
 
 - **The form** (onb-group-form / onb-topic-form; signed in: claim-signed-in / onb-topic-signed-in): ‹the

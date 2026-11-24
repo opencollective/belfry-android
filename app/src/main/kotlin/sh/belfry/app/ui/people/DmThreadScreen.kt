@@ -189,8 +189,9 @@ fun DmThreadScreen(conv: String, root: String) {
             Composer(
                 composer,
                 placeholder = "Reply in the thread",
-                onSend = { text, _, _, _ -> session.sendDm(conv, text, root = root) },
+                onSend = { text, _, _, _ -> session.sendDm(conv, text, root = root, preview = composer.previewTags(world.ctx.domain, session.community.blossom)) },
                 modifier = Modifier.navigationBarsPadding(),
+                linkPreview = sh.belfry.core.engine.LinkPreviewService.modeForDm(),
                 photos = false,
                 typingPlace = if (sh.belfry.core.model.Notes.isNotes(conv, world.me)) null else sh.belfry.core.typing.TypingPlace.dm(conv),
             )

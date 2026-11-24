@@ -121,6 +121,8 @@ data class Dm(
     val opening: Boolean = false,
     /** Format 3 (§17.5): people of the conversation with no device, who won't get this message of mine. */
     val notTo: List<String> = emptyList(),
+    /** Its link preview's tags as the sender attached them (SPEC 19.87; `preview` and the preview `imeta`), for [sh.belfry.core.preview.LinkPreviews.read]. */
+    val preview: List<List<String>> = emptyList(),
 ) {
     val isMail: Boolean get() = kind == 1301
     val isFile: Boolean get() = kind == DmFiles.KIND
@@ -163,6 +165,7 @@ data class Dm(
         if (plain) put("plain", JsonPrimitive(true))
         if (opening) put("opening", JsonPrimitive(true))
         if (notTo.isNotEmpty()) put("notTo", JsonArray(notTo.map { JsonPrimitive(it) }))
+        if (preview.isNotEmpty()) put("preview", JsonArray(preview.map { t -> JsonArray(t.map { JsonPrimitive(it) }) }))
     }
 
     companion object {
@@ -201,6 +204,7 @@ data class Dm(
                 plain = o["plain"].bool() ?: false,
                 opening = o["opening"].bool() ?: false,
                 notTo = o["notTo"].arr()?.mapNotNull { it.str() } ?: emptyList(),
+                preview = o["preview"].arr()?.mapNotNull { t -> t.arr()?.mapNotNull { it.str() } } ?: emptyList(),
             )
         }
     }
@@ -554,7 +558,10 @@ object DmReader {
         val rid = rumor.id.ifEmpty { rumor.computedId() }
         val conv = convOf(rumor, me, bridge)
         val mine = rumor.pubkey == me
-        if (rumor.kind == 14) return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, 14, rumor.content, group = rumor.tag("group"), root = OneShape.dmRoot(rumor.tags)?.takeIf { it != rid })
+        if (rumor.kind == 14) return Dm(
+            rid, conv, rumor.pubkey, mine, rumor.createdAt, 14, rumor.content, group = rumor.tag("group"), root = OneShape.dmRoot(rumor.tags)?.takeIf { it != rid },
+            preview = sh.belfry.core.preview.LinkPreviews.wireTags(rumor.tags),
+        )
         if (rumor.kind == DmFiles.KIND) {
             val f = DmFileRef.of(rumor) ?: return null
             return Dm(rid, conv, rumor.pubkey, mine, rumor.createdAt, DmFiles.KIND, "", file = f, group = rumor.tag("group"))
@@ -1357,14 +1364,18 @@ class DirectMessages(private val store: Store, private val host: DmHost) {
      * new e-mail, conv "m:<address>"). Returns the conversation the message is in (a new e-mail
      * becomes its subject's thread). Throws [DmException] with a message to show.
      */
-    suspend fun send(conv: String, text: String, subject: String? = null, group: String? = null, at: Long? = null, root: String? = null): String {
+    suspend fun send(
+        conv: String, text: String, subject: String? = null, group: String? = null, at: Long? = null, root: String? = null,
+        /** The link preview's tags (SPEC 19.87), inside the rumor: sealed, encrypted or wrapped with it. Not for e-mail. */
+        preview: List<List<String>> = emptyList(),
+    ): String {
         val me = host.me
         if (!MailThreads.isMail(conv)) {
             val to = MailThreads.peers(conv)
             if (to.any { !Hex.isKey(it) }) throw DmException("This is not a valid Nostr key.")
             // a reply (docs/one-shape.md 3): ["e", root, "", "root"]; wrapped and sealed like any other 14
-            val rumor = GiftWrap.rumor(14, me, sh.belfry.core.model.Notes.pTags(conv, me, to) + listOfNotNull(group?.let { listOf("group", it) }, root?.let { OneShape.dmReplyTag(it) }), text, at ?: nextAt())
-            set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true, group = group, root = root))
+            val rumor = GiftWrap.rumor(14, me, sh.belfry.core.model.Notes.pTags(conv, me, to) + listOfNotNull(group?.let { listOf("group", it) }, root?.let { OneShape.dmReplyTag(it) }) + preview, text, at ?: nextAt())
+            set(Dm(rumor.id, conv, me, true, rumor.createdAt, 14, text, pending = true, group = group, root = root, preview = sh.belfry.core.preview.LinkPreviews.wireTags(preview)))
             publish()
             try {
                 if (!deliver(rumor, to, conv = conv)) {
