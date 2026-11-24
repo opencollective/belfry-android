@@ -1,5 +1,7 @@
 package sh.belfry.app
 
+import sh.belfry.core.model.showsMyTicket
+import sh.belfry.core.model.eventRole
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -354,6 +356,16 @@ class EventsTest : DemoShots() {
             Thread.sleep(25)
         }
         error("the festival never showed")
+    }
+
+    /** "Hide 'Show my ticket' for hosts on their own event" (Xavier, 2026-11-24): its maker never gets it; someone else's event keeps it. */
+    @Test
+    fun theHostHasNoTicketToShow() {
+        val mine = aFestival()
+        assertTrue("I made it", mine.creator == world.me)
+        assertTrue("no ticket for its host", !world.showsMyTicket(mine))
+        val theirs = world.calendar.first { it.creator != world.me && !it.meeting && world.eventRole(it, world.me) == sh.belfry.core.model.EventRole.ATTENDEE }
+        assertTrue("a guest of someone else's event keeps it", world.showsMyTicket(theirs))
     }
 
     /** Mid: whole days over several days say their days (no "All day"); the empty chat is a short menu. */
