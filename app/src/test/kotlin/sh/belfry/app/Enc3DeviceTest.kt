@@ -62,7 +62,8 @@ class Enc3DeviceTest : DemoShots() {
         compose.onNodeWithText(EncDeviceText.EARLIER_TITLE).assertIsDisplayed()
         compose.onNodeWithText("Safari on iPhone can share them with this one.").assertIsDisplayed()
         compose.onNodeWithTag("enc3-ask").performClick()
-        compose.onNodeWithTag("enc3-ask").performClick()
+        // a second tap: on the busy button, or on nothing once the line says Asked
+        compose.onAllNodesWithTag("enc3-ask").fetchSemanticsNodes().takeIf { it.isNotEmpty() }?.let { compose.onNodeWithTag("enc3-ask").performClick() }
         compose.waitUntil(10_000) { session.enc3Device.value.askedAt != null }
         assertEquals(1, session.demoAsks)
     }
