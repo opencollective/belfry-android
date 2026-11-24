@@ -1,11 +1,9 @@
 package sh.belfry.app
 
-import androidx.compose.ui.test.hasScrollToNodeAction
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollTo
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import sh.belfry.app.ui.people.ConversationScreen
@@ -75,7 +73,7 @@ class Enc3MeShotsTest : DemoShots() {
 
     private fun profileAt(name: String, act: (() -> Unit)? = null) {
         demoScreenShot(name, act = {
-            compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasTestTag("enc3-agent-access"))
+            compose.onNodeWithTag("enc3-agent-access").performScrollTo()
             act?.invoke()
         }) { ProfileScreen(agent) }
     }
