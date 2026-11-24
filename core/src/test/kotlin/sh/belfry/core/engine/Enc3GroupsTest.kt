@@ -96,7 +96,7 @@ class Enc3GroupsTest {
         var groupsUp = true
         var groupsConn = 1
         var memberSet: Set<String>? = null
-        var private = setOf(g)
+        var privates = setOf(g)
         val guests = HashSet<String>()
         val opened = ArrayList<Event>()
         val e3 = Enc3(device, account.pubkey, object : Enc3Ports {
@@ -117,7 +117,7 @@ class Enc3GroupsTest {
             override fun connection(): Int? = if (groupsUp) groupsConn else null
             override suspend fun query(filter: JsonObject, pageMs: Long): SealedEngine.Answer? = if (!groupsUp) null else SealedEngine.Answer(groups.filter { matches(it, filter) }, true)
             override fun addEvents(events: List<Event>) {}
-            override fun privateMeta(h: String): Boolean = h in private
+            override fun privateMeta(h: String): Boolean = h in privates
             override fun members(h: String): Set<String>? = memberSet
             override fun isGuest(account: String): Boolean = account in guests
             override fun opened(rumors: List<Event>) { opened += rumors }
@@ -130,7 +130,7 @@ class Enc3GroupsTest {
 
         /** The session's decision (as Session.encWriteGroup): format 3, then the checks. */
         fun write(kind: Int = 9, tags: List<Tag> = listOf(listOf("h", g))): EncWrite = runBlocking {
-            val w = EncWrites.group(EncWrites.Facts(false, false, 3), e3.everEncrypted(Enc3.groupConv(g)), g in private, true, sh.belfry.core.enc.EncRules.clearInGroup(Event("", me, 0, kind, tags, ""), groupsKey))
+            val w = EncWrites.group(EncWrites.Facts(false, false, 3), e3.everEncrypted(Enc3.groupConv(g)), g in privates, true, sh.belfry.core.enc.EncRules.clearInGroup(Event("", me, 0, kind, tags, ""), groupsKey))
             if (w is EncWrite.V3) gr.ready(g) else w
         }
 
@@ -309,7 +309,7 @@ class Enc3GroupsTest {
         b.receive(out)
         // the same K declared again for another group: its messages there don't open with it
         val other = "pod-other"
-        b.private = setOf(g, other)
+        b.privates = setOf(g, other)
         val k = a.e3.key(s.key)!!
         val env = alice.signNow(EncKeys.groupEnvelopes(Hex.decode(alicePhone.secretHex), k.secret, other, listOf(bobPhone.pubkey), "").single())
         val r = Enc.withId(Event("", alice.pubkey, now(), 9, listOf(listOf("h", other)), "elsewhere"))
@@ -354,7 +354,7 @@ class Enc3GroupsTest {
         assertFalse(a.gr.refuses(join, first), "§16.9's clear list stays clear")
         assertFalse(a.gr.refuses(seen, first))
         assertFalse(a.gr.refuses(rumor, first), "an opened rumor is the group's event")
-        a.private = emptySet()
+        a.privates = emptySet()
         assertTrue(a.gr.firstKeys(listOf(g)).isEmpty(), "only a private group by its metadata")
     }
 
