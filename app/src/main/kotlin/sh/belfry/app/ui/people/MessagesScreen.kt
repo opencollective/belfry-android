@@ -102,6 +102,7 @@ fun MessagesScreen(
     val rows = dms.messagesRows
     val now = session.now()
     val seal by session.encryption.state.collectAsState()
+    val enc3 by session.enc3State.collectAsState()
     Column(Modifier.fillMaxSize().background(c.bg)) {
         // the address small under the title; a tap copies it (home/messages, Home canvas v4)
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -118,6 +119,8 @@ fun MessagesScreen(
             actions = { IconAction(BelfryIcons.Plus, "New message", { nav.go(Routes.NEW_CONVERSATION) }) },
         )
         LazyColumn(Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(), contentPadding = PaddingValues(vertical = 6.dp)) {
+            // format 3 (SPEC 19.82): this device not on its list after 60 s, or the twenty-first (part 4 draws the final screens)
+            if (enc3.line != null) item(key = "enc3-setup") { Enc3SetupLine(enc3) }
             // a device of mine added without a prompt here (canvas v183): on top, until answered
             if (seal.added.isNotEmpty() || seal.removedJoinerAt > 0L) item(key = "seal-added") { AddedDeviceCards() }
             // a new device (canvas messages/encryption-new-device): earlier messages are locked here; and

@@ -131,7 +131,7 @@ object Outbox {
             val lane = item.target.key + "/" + lane(item)
             val isDm = item.dm != null
             val held = lane in lanes || item.target in relayDown || (!isDm && item.target in relayDownForOthers) ||
-                (signerOut && item.signed == null)
+                (signerOut && item.signed == null && !item.byDevice) // a device-signed item needs no signer
             if (held) { stalled.add(item.target); continue }
             attempted.add(item.localId)
             when (val outcome = send(item)) {

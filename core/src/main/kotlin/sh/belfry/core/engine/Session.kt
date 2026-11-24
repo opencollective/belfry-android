@@ -24,6 +24,7 @@ import okhttp3.Request
 import sh.belfry.core.crypto.Hex
 import sh.belfry.core.crypto.Random
 import sh.belfry.core.crypto.sha256Hex
+import sh.belfry.core.enc.EncRules
 import sh.belfry.core.dm.DirectMessages
 import sh.belfry.core.dm.DmFiles
 import sh.belfry.core.dm.DmNewFile
@@ -294,6 +295,110 @@ class Session(
             // a note to myself written while I have no chain: the first-device path, now (SPEC 19.66)
             e.makeChain = { withContext(Dispatchers.Default) { sealedStart() } }
         }
+    }
+
+    // ---- encrypted conversations, format 3 (SPEC 19.82) -----------------------------------------------
+
+    /** This device's key: the NIP-46 client key (tests: [deviceKeyOverride]). Signs format 3's device events locally. */
+    private fun deviceKey(): LocalSigner? = (signer as? BunkerSigner)?.device ?: deviceKeyOverride
+
+    /** This belfry's `encrypted.format` as this device knows it: device-wide per belfry, outside every account slot. */
+    private val encFormat: EncFormatCache by lazy { EncFormatCache(keyVault, community.domain) }
+
+    private val enc3Keys: EncKeyStore? by lazy { keyVault?.let { EncKeyStore(it, Slots.key(EncKeyStore.V_KEYS, slot), me) } }
+
+    /**
+     * Format 3 on this device (lists, keys, the device's set-up): null in the demo, for a guest's session (§25:
+     * it runs no encryption at all) and without a device key.
+     */
+    val enc3: Enc3? by lazy {
+        val device = deviceKey()
+        if (localOnly || device == null || _guest.value != null) null
+        else Enc3(device, me, object : Enc3Ports {
+            override fun belfryKey(): String? = community.belfryPubkey
+            override fun groupsKey(): String? = community.groupsKey ?: groupsKey
+            override fun connection(): Int? = mainRelay?.takeIf { it.isUp }?.socketsMade
+            override suspend fun query(filter: JsonObject, pageMs: Long): sh.belfry.core.sealed.SealedEngine.Answer? {
+                val r = mainRelay ?: return null
+                return Paging.all { f -> r.queryKnown(listOf(f), pageMs) }(filter).takeIf { it.complete || it.events.isNotEmpty() }
+            }
+            override fun addEvents(events: List<Event>) = addToLog(events)
+            override suspend fun chatSessions(): Int? = try { api().sessions(signer).count { it.chat } } catch (e: Exception) { null }
+            override suspend fun enqueueByDevice(kind: Int, tags: List<Tag>, content: String) { this@Session.enqueueByDevice(kind, tags, content) }
+            override fun resubscribe() { mainRelay?.let { r -> if (r.isUp) r.subscribe(SUB, filters(Target.MAIN)) } }
+            override fun later(block: suspend () -> Unit) = launchSafely(block)
+            override fun nowMs(): Long = System.currentTimeMillis()
+        }, enc3Keys)
+    }
+
+    private val noEnc3 = MutableStateFlow(Enc3State())
+    /** This device's format-3 set-up for the screens (the Messages line); nothing to say in the demo or for a guest. */
+    val enc3State: StateFlow<Enc3State> get() = enc3?.state ?: noEnc3
+
+    /** "Try again" on the set-up line: my list read again. */
+    suspend fun enc3TryAgain() = withContext(Dispatchers.Default) { enc3?.tryAgain(); Unit }
+
+    /** The format a write uses now ([sh.belfry.core.enc.EncFormatState.writeFormat]); in the demo 1. */
+    fun encWriteFormat(): Int? = if (localOnly) 1 else encFormat.state().writeFormat(clock())
+
+    private suspend fun encFacts(readIfStale: Boolean): sh.belfry.core.enc.EncWrites.Facts {
+        if (readIfStale && !localOnly && encFormat.state().wantsRead(clock())) withTimeoutOrNull(3_000) { readBelfryJson() }
+        return sh.belfry.core.enc.EncWrites.Facts(localOnly, _guest.value != null, encWriteFormat())
+    }
+
+    /**
+     * What a write in the people conversation or e-mail thread CONV (`n:` / `m:`) does now (SPEC 19.82): the table
+     * ([sh.belfry.core.enc.EncWrites.people]); a format that matters and is stale is read again first (3 s), still
+     * unknown = held; V3 only once the lists are checked ([Enc3.peopleReady], which carries the plan).
+     */
+    suspend fun encWriteDm(conv: String): sh.belfry.core.enc.EncWrite = withContext(Dispatchers.Default) {
+        val e = enc3
+        val peers = sh.belfry.core.mail.MailThreads.peers(conv)
+        val w0 = _world.value
+        val guestIn = peers.any { it != me && w0.isGuest(it) }
+        val ever = e?.everEncrypted(conv) == true
+        var w = sh.belfry.core.enc.EncWrites.people(conv, encFacts(false), ever, guestIn)
+        if (w is sh.belfry.core.enc.EncWrite.Hold && w.reason == sh.belfry.core.enc.HoldReason.FORMAT) w = sh.belfry.core.enc.EncWrites.people(conv, encFacts(true), ever, guestIn)
+        if (w is sh.belfry.core.enc.EncWrite.V3) w = e?.peopleReady(conv, peers + me) ?: sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.NOT_LISTED)
+        w
+    }
+
+    /**
+     * What a write of KIND (with TAGS) in the group GROUP_ID does now (SPEC 19.82; the web's `groupWriteMode` and its
+     * guest guard): private = its metadata (a group, closed + private) or a key of it seen here; V3 once its members'
+     * lists are checked ([Enc3.groupReady]).
+     */
+    suspend fun encWriteGroup(groupId: String, kind: Int, tags: List<Tag> = emptyList()): sh.belfry.core.enc.EncWrite = withContext(Dispatchers.Default) {
+        val e = enc3
+        val w0 = _world.value
+        val g = w0.group(groupId)
+        val privateMeta = g != null && g.isPod && g.closed && g.isPrivate
+        val clearKind = EncRules.clearInGroup(Event("", me, 0, kind, tags, ""), community.groupsKey ?: groupsKey)
+        val ever = e?.everEncrypted(Enc3.groupConv(groupId)) == true
+        fun decide(f: sh.belfry.core.enc.EncWrites.Facts) = sh.belfry.core.enc.EncWrites.group(f, ever, privateMeta, g != null, clearKind)
+        var w = decide(encFacts(false))
+        if (w is sh.belfry.core.enc.EncWrite.Hold && w.reason == sh.belfry.core.enc.HoldReason.FORMAT) w = decide(encFacts(true))
+        if (w is sh.belfry.core.enc.EncWrite.V3) w = if (e == null || g == null) sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.NOT_LISTED)
+            else e.groupReady(g.members, { w0.isGuest(it) })
+        w
+    }
+
+    /** Queues an event the DEVICE key signs when it is sent (format 3's device events; [OutboxItem.byDevice]). */
+    internal suspend fun enqueueByDevice(kind: Int, tags: List<Tag>, content: String): String = withContext(Dispatchers.Default) {
+        guard()
+        val item = enqueueLock.withLock {
+            lastCreatedAt = Outbox.nextCreatedAt(lastCreatedAt, clock())
+            OutboxItem(newLocalId(), Target.MAIN, kind, content, tags, lastCreatedAt, byDevice = true).also { store.putOutbox(it) }
+        }
+        countOutbox()
+        requestFlush()
+        item.localId
+    }
+
+    /** My conversations' people: their lists on the live subscription. */
+    private fun encPartners() {
+        val e = enc3 ?: return
+        e.setPartners(dm.snapshot.value.threads.flatMap { sh.belfry.core.mail.MailThreads.peers(it.conv) })
     }
 
     /** Keys arrived: kept wraps tried again, and every wrap to me read again from 0, paged (§5.5). */
@@ -716,8 +821,10 @@ class Session(
         // a key hand-over to this device (sealed §5.5)
         val device = sealed?.device?.pubkey
         if (device != null) for (w in fresh) if (w.kind == 1059 && w.hasTag("p", device)) launchSafely { sealed?.onDeviceWrap(w) }
+        // format 3: device lists kept (regular events, never pruned) and this device's place on mine looked at again
+        enc3?.let { e -> if (e.offer(fresh)) launchSafely { e.check() } }
         markDirty()
-        if (fresh.any { it.kind == 1059 || it.kind == 4 }) launchSafely { dm.process(); resubscribeIfSealedGrew() }
+        if (fresh.any { it.kind == 1059 || it.kind == 4 }) launchSafely { dm.process(); resubscribeIfSealedGrew(); encPartners() }
     }
 
     /** Background work that stop() cancels (the review's 9: a task asleep must not write after sign-out). */
@@ -861,6 +968,20 @@ class Session(
             }
         }
         launchSafely { refreshCommunity() }
+        // format 3 (SPEC 19.82): the lists kept in the store, then my place on my list, looked at every 5 s for the
+        // first 70 s (the 60 s of §3) and every 30 s after
+        enc3?.let { e ->
+            e.offer(synchronized(logLock) { log.filter { it.kind == sh.belfry.core.enc.Enc.LIST } })
+            e.setFormat3(encFormat.state().format == 3)
+            launchSafely { encPartners() }
+            jobs += scope.launch(Dispatchers.Default) {
+                var n = 0
+                while (isActive) {
+                    delay(if (n++ < 14) 5_000L else 30_000L)
+                    try { if (_status.value.online) e.tick() else e.check() } catch (x: kotlinx.coroutines.CancellationException) { throw x } catch (x: Exception) { }
+                }
+            }
+        }
         // sealed conversations: the 6-hour upkeep (gone sessions, ready, my unanchored roster)
         if (sealed != null) jobs += scope.launch(Dispatchers.Default) {
             while (isActive) {
@@ -1033,6 +1154,7 @@ class Session(
         }
         stop()
         sealedKeys?.wipe() // the letterbox secrets go with the session; a late write is refused
+        enc3?.wipe() ?: enc3Keys?.wipe() // format 3's conversation keys too (the format cache is the device's: it stays)
         withContext(Dispatchers.IO) { store.wipe() }
     }
 
@@ -1131,7 +1253,7 @@ class Session(
             // sealed: my correspondents' rosters and anchors on the live subscription (§4; the review's 1)
             sealedPeers().also { subscribedPeers = it.toSet() }.takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(sh.belfry.core.sealed.Roster.KIND), limit = 300, tags = mapOf("p" to it)) },
             sealedPeers().takeIf { it.isNotEmpty() && sealed != null }?.let { Filters.of(kinds = listOf(30078), authors = it, limit = 300, tags = mapOf("d" to listOf(sh.belfry.core.sealed.Anchor.D))) },
-        ) + listOf(
+        ) + enc3?.filters().orEmpty() + listOf(
             Filters.of(kinds = listOf(4), since = old, limit = 500, tags = mapOf("p" to listOf(me))),
             Filters.of(kinds = listOf(4), authors = listOf(me), since = old, limit = 500),
         )
@@ -1140,23 +1262,7 @@ class Session(
     /** belfry.json again (admins, name) and the well-known keys; the cached copies are used offline. */
     suspend fun refreshCommunity() {
         if (localOnly) return
-        try {
-            // always asked again (no-cache); 304 when the copy here is the belfry's current one
-            when (val got = Discovery.revalidate(community.domain, http, store.get(K_DISCOVERY_ETAG))) {
-                is Revalidated.NotModified -> {}
-                is Revalidated.Fresh -> {
-                    if (got.community != community) {
-                        community = got.community
-                        onRecordChanged?.invoke(got.community, _guest.value)
-                    }
-                    if (got.etag != null) store.set(K_DISCOVERY_ETAG, got.etag) else store.remove(K_DISCOVERY_ETAG)
-                    extraAdmins = emptySet()
-                    store.remove(K_ADMINS)
-                }
-            }
-        } catch (e: IOException) {
-            // offline: what we have
-        }
+        readBelfryJson()
         try {
             Discovery.bridgeKey(community.domain, http)?.let { bridge = it; store.set(K_BRIDGE, it) }
             // belfry.json names it now (`groups_key`); nostr.json `_groups` for a belfry not yet updated
@@ -1165,6 +1271,45 @@ class Session(
             // offline: the stored ones
         }
         markDirty()
+    }
+
+    /**
+     * belfry.json asked again (no-cache; 304 when the copy here is the belfry's current one). A successful read feeds
+     * this device's format cache (SPEC 19.82); a 304 on a copy that doesn't say its `encrypted` is asked again whole.
+     * False: no answer (offline: what we have).
+     */
+    private suspend fun readBelfryJson(): Boolean {
+        try {
+            var etag = store.get(K_DISCOVERY_ETAG)
+            for (attempt in 0 until 2) {
+                when (val got = Discovery.revalidate(community.domain, http, etag)) {
+                    is Revalidated.NotModified -> {
+                        val doc = community.encrypted
+                        if (doc == null) { etag = null; continue } // a copy from an older build: read it whole once
+                        encRead(doc)
+                    }
+                    is Revalidated.Fresh -> {
+                        if (got.community != community) {
+                            community = got.community
+                            onRecordChanged?.invoke(got.community, _guest.value)
+                        }
+                        if (got.etag != null) store.set(K_DISCOVERY_ETAG, got.etag) else store.remove(K_DISCOVERY_ETAG)
+                        extraAdmins = emptySet()
+                        store.remove(K_ADMINS)
+                        got.community.encrypted?.let { encRead(it) }
+                    }
+                }
+                return true
+            }
+        } catch (e: IOException) {
+            // offline: what we have
+        }
+        return false
+    }
+
+    private fun encRead(doc: String) {
+        val st = encFormat.record(doc, clock())
+        enc3?.setFormat3(st.format == 3)
     }
 
     // ---- drafts (unsent text per channel / thread, on this device) -----------------------------------
@@ -1372,6 +1517,15 @@ class Session(
     private suspend fun sendOne(item: OutboxItem, signedNow: MutableMap<String, Event>, step: (String) -> Unit = {}): SendOutcome {
         if (item.target == Target.API) { step(SendState.STEP_SIGN); return sendApi(item) }
         if (item.kind == DmFiles.KIND && item.dm != null && item.signed == null) return sendDmFile(item, step)
+        // format 3's device events (SPEC 19.82): signed here by the device key, dated now; never through the signer
+        if (item.byDevice && item.signed == null) {
+            val d = deviceKey() ?: return SendOutcome.Error("invalid: no device key")
+            step(SendState.STEP_SIGN)
+            val ev = d.signNow(EventTemplate(item.kind, item.content, item.tags, maxOf(clock(), item.createdAt)))
+            signedNow[item.localId] = ev
+            if (localOnly) return SendOutcome.Ok(ev)
+            return publish(item.target, ev, step)
+        }
         item.signed?.let { ev ->
             if (localOnly) return SendOutcome.Ok(ev)
             return publish(item.target, ev, step)

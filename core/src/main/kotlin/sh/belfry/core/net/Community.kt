@@ -67,6 +67,12 @@ data class Community(
     val sessionApi: String? = null,
     /** The belfry's groups key (belfry.json `groups_key.pubkey`): signs answers to `belfry:` buttons, e-mail cards, guest joins. */
     val groupsKey: String? = null,
+    /**
+     * belfry.json `encrypted` as the last document read said it (docs/encrypted.md §12): `EncFormatState.DOC_NONE`,
+     * `DOC_1`, `DOC_3`, `DOC_OTHER`; null = not known from this copy (a copy kept by an older build, or the defaults).
+     * The format a device writes is not this: it is `EncFormatCache`, fed only by successful reads (SPEC 19.82).
+     */
+    val encrypted: String? = null,
 ) {
     /** The four branding values as the belfry's `/branding` takes them ("" = none). */
     val branding: Branding get() = Branding(brandLogo.orEmpty(), brandCover.orEmpty(), brandPrimary.orEmpty(), brandSecondary.orEmpty(), brandColors)
@@ -111,6 +117,7 @@ data class Community(
         if (agents.isNotEmpty()) put("agents", buildJsonObject { agents.forEach { (a, o) -> put(a, JsonPrimitive(o)) } })
         if (sessionApi != null) put("sessionApi", JsonPrimitive(sessionApi))
         if (groupsKey != null) put("groupsKey", JsonPrimitive(groupsKey))
+        if (encrypted != null) put("encrypted", JsonPrimitive(encrypted))
         // kept so the colours and the logo are there before the belfry answers (and offline)
         val b = branding
         if (b != Branding()) put("branding", b.toJson(withColors = true))
@@ -178,6 +185,9 @@ data class Community(
             doc["nostr"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(belfryPubkey = it) }
             c = c.copy(agents = agentsOf(doc["agents"].obj()))
             doc["groups_key"].obj()?.s("pubkey")?.takeIf(Hex::isKey)?.let { c = c.copy(groupsKey = it) }
+            val enc = doc["encrypted"] as? JsonObject
+            val fmt = (enc?.get("format") as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toDoubleOrNull()
+            c = c.copy(encrypted = sh.belfry.core.enc.EncFormatState.docOf(enc != null, fmt))
             return c
         }
 
@@ -209,6 +219,7 @@ data class Community(
                 agents = agentsOf(o["agents"].obj()),
                 sessionApi = o.s("sessionApi"),
                 groupsKey = o.s("groupsKey")?.takeIf(Hex::isKey),
+                encrypted = o.s("encrypted")?.takeIf { it in setOf("none", "1", "3", "other") },
             ).withBranding(Branding.clean(o["branding"].obj()))
         }
 

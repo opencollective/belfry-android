@@ -337,8 +337,17 @@ minSdk 26, JDK 17.
   `core/enc/` (`Enc`, `EncLists`, `EncKeys`, `EncMessages`, `EncPacks`, `EncRules`), a port of the web's `src/core/enc/core.ts`
   (branch enc-v3): change both together. `vectors/encrypted.json` is the web's file byte for byte (never edit it here; copy a new
   one and update the sha256 pinned in `EncryptedVectorsTest`, whose section list must name every section). "Which devices"
-  is always one of three (`Devices.Listed / Service / Unknown`); tri-state checks return null for wait. Not wired into
-  `Session` / `DirectMessages` / the app yet (part 2).
+  is always one of three (`Devices.Listed / Service / Unknown`); tri-state checks return null for wait.
+- Format 3, part 2 (SPEC 19.82): the format of a belfry is `EncFormatCache` (device-wide vault `enc-format:<domain>`,
+  fed ONLY by a successful belfry.json read in `Session.readBelfryJson`; 3 for good; `EncFormatState.writeFormat`);
+  what a write does is `Session.encWriteDm` / `encWriteGroup` → `EncWrite` (V1 | V3(plan) | Clear | Hold), the table
+  in `core/enc/Writes.kt` `EncWrites` (port of the web's deliver / groupWriteMode: change both together). Every sender
+  of part 3 / part 7 must ask it and obey a Hold (never fall back to v1 or clear). `Session.enc3` (`core/engine/Enc3.kt`):
+  device lists on the live subscription, `devices(a)`, `here()` (the 60 s and the 21st device), `peopleReady` /
+  `groupReady`, the key store (`EncKeyStore` in the vault per slot, wiped at sign-out; `putKey` declares once), the
+  reads marker. Null in the demo, for a guest's session and without a device key. A device-signed event goes through
+  the outbox as `OutboxItem.byDevice` (signed at sending by the device key, never the signer). The set-up line is
+  `Enc3SetupLine` in Messages (only when the cached format is 3). Not wired into `DirectMessages` yet (part 3).
 
 ## UI rules (the owner's, not negotiable)
 

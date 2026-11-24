@@ -82,6 +82,12 @@ data class OutboxItem(
     val body: String? = null,
     /** When the community relay first refused it with "not in whitelist" (seconds; 0 = never): tried again for 10 minutes from then (SPEC 19.79). */
     val notListedAt: Long = 0,
+    /**
+     * Signed at sending by this DEVICE's own key (the session's NIP-46 client key), never through the signer and
+     * never by the account: format 3's device-signed events (SPEC 19.82; the `belfry:device:reads` marker). Dated
+     * when it is signed. With no device key it fails.
+     */
+    val byDevice: Boolean = false,
 ) {
     /** The item as it shows in the log before it is signed: id = localId, no signature. */
     fun asEvent(me: String): Event = signed ?: Event(localId, me, createdAt, kind, tags, content, "")
@@ -102,6 +108,7 @@ data class OutboxItem(
         if (path != null) put("path", JsonPrimitive(path))
         if (body != null) put("body", JsonPrimitive(body))
         if (notListedAt != 0L) put("not_listed_at", JsonPrimitive(notListedAt))
+        if (byDevice) put("by_device", JsonPrimitive(true))
     }
 
     companion object {
@@ -121,6 +128,7 @@ data class OutboxItem(
             path = o.s("path"),
             body = o.s("body"),
             notListedAt = o["not_listed_at"].long() ?: 0,
+            byDevice = (o["by_device"] as? JsonPrimitive)?.content == "true",
         )
     }
 }

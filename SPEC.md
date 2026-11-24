@@ -3289,3 +3289,57 @@ app yet; format 1 (sealed, SPEC 19.64–19.68) is untouched.
   loses a section, and also makes again, byte for byte, everything the generator made with fixed inputs
   (lists, the key rumor, people and group envelopes, messages, packs and the 400-key split, asks,
   answers, the group file). Errors never carry a secret or a rumor's text.
+
+### 19.82 Encrypted conversations, format 3: the format of a belfry, device lists, the key store (2026-11-24; collective-belfry docs/encrypted.md §2, §3, §12, §13, §16.4–16.7, §17.1, §17.3, §17.4, §17.7, §17.13, §18.1, §18.5, §20, §23, §24, §25, §26; the web's `src/core/enc/runtime.ts`, `access.ts`, `model.ts` `groupWriteMode`, `dm.ts` `deliver` on branch enc-v3)
+
+Part 2 of format 3 on Android. Nothing sends format 3 yet (part 3 encrypts, part 7 does private groups);
+format 1 (SPEC 19.64–19.68) and the demo are unchanged.
+
+- **The format of a belfry** (`core/enc/Format.kt` `EncFormatState`, `core/engine/Enc3Store.kt`
+  `EncFormatCache`). belfry.json's `encrypted` is read by `Community.parse` into `Community.encrypted`
+  (`none` = no object, `1`, `3`, `other` = an object with another or no format) and kept with the
+  community copy (a 304 needs it; a copy from an older build without it is read again whole). Only a
+  SUCCESSFUL read (`Session.readBelfryJson`: a 200, or a 304 on a copy that says it) feeds the cache:
+  vault name `enc-format:<domain>`, device-wide (no slot: it outlives sign-outs and account switches).
+  An explicit 1 or 3 decides; 3 is for good (§17.13); no object decides 1 only for a belfry that never
+  showed one. The format a write uses (`writeFormat`): 3; 1 at once when no `encrypted` object was ever
+  seen from that belfry (the web's P3, 515400d: an older server); a 1 read at most 5 minutes before;
+  else unknown — read again (3 s) when the table needs it, still unknown = held.
+- **What to write** (`core/enc/Writes.kt` `EncWrites`, `EncWrite` = `V1` | `V3(plan)` | `Clear` |
+  `Hold(reason, who)`; `Session.encWriteDm(conv)` / `encWriteGroup(id, kind, tags)` for part 3 / 7).
+  People (`n:` / `m:`): demo → V1; ever seen encrypted here → V3 whatever the format; unknown format →
+  Hold(FORMAT); `m:` on 3 → Hold(MAIL), on 1 → V1; `n:` on 3 → V3, or with a guest (or from a guest's
+  session) Clear when never encrypted, Hold(GUEST) when it was; format 1 → V1. Groups: demo → V1; a §16.9
+  kind → Clear (format 3 or ever) else V1; a key seen → V3; format 3: private metadata → V3, known →
+  Clear, unknown group → Hold(GROUP_UNKNOWN); unknown format: private or unknown group → Hold(FORMAT),
+  else V1; format 1 → V1; a guest's session → Hold(GUEST) wherever the group is (or waits to be)
+  encrypted. V3 becomes final only after `Enc3.peopleReady` / `groupReady`: lists read whole on this
+  connection, this device listed, no list = Hold(NO_LIST) (never the account key), fork or invalidAbove =
+  Hold(FORK), the only other person without a device = Hold(NO_DEVICE), over 100 = Clear when never
+  encrypted else Hold(TOO_MANY); a group skips members with no list after a second read (§23) and guest
+  members (§25), refuses over 1000. Words: `EncText.held`.
+- **Device lists** (`core/engine/Enc3.kt`, `Enc3`; only for a member's session with a device key: never
+  the demo, never a guest's session, §25). 8570s from the belfry key of belfry.json are kept in the store
+  like any event (never pruned). Live subscription on the community relay:
+  `{kinds:[8570], authors:[belfry], "#p":[me, my conversations' people, anyone wanted], limit:300}`
+  (no `since`); `want(accounts)` adds a person a key or seal waits on and reads now (30 s apart);
+  `readLists` pages to the end and counts only when complete on this connection; `wholeChain` reads an
+  account's whole chain on demand (gaps). `devices(account)` is `Devices.Listed / Service / Unknown`;
+  `warnings` (fork, invalidAbove, gaps) and `changes` are for part 5.
+- **This device on my list** (§3, §17.4): `Enc3.here()` = YES / NOT_YET (first 60 s) / NOT_LISTED /
+  FULL (twenty devices listed without this one and twenty or more chat sessions in `/me/sessions`;
+  readers are outside the twenty and never this device). Only on a belfry this device knows as format 3,
+  Messages shows the line "This device isn't set up for encrypted messages yet · Try again"
+  (`Enc3SetupLine`, `Session.enc3TryAgain` reads my list again) or "You have 20 devices signed in ·
+  Remove one to read encrypted messages here". Senders hold (`NOT_LISTED`, `FULL`).
+- **The key store** (`EncKeyStore`, `ConvKey`): K → k, conversation (`n:<others>` / `n:<me>` / `g:<id>`),
+  maker device, date, mine, service, group, lists or entry set, people; the conversations ever seen
+  encrypted (with their first key's date) and small notes. One record per account slot in the vault
+  (`enc-keys` / `enc-keys@<slot>`: the app's `Secrets`, AES-256-GCM under an Android Keystore key, name
+  bound as associated data), naming its account and checked on load; wiped at sign-out
+  (`Session.signOut`, `Onboarding.signOut`), later writes refused. Declare once (§17.12): `putKey` keeps
+  the first K. Version-1 letterbox secrets stay in `SealedKeyStore`.
+- **The device's reads marker** (§12): once per device, when it is on my list: kind 30078
+  `["d","belfry:device:reads"]`, `["v","3"]`, content "", to the community relay through the outbox as an
+  `OutboxItem.byDevice` item: signed at sending by the device key (dated then), never by the signer;
+  the signer being down does not hold it back. Sent once (a note in the key store).

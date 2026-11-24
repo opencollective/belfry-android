@@ -696,6 +696,7 @@ class Onboarding(
         session.signOut(revoke)
         vault.remove(Slots.key(V_SESSION, slot))
         vault.remove(Slots.key(SealedKeyStore.V_KEYS, slot))
+        vault.remove(Slots.key(EncKeyStore.V_KEYS, slot)) // format 3's conversation keys (the device's format cache stays)
         changeAccounts { it.without(session.accountId) }
         try { stores.delete(slot) } catch (e: Exception) { }
         vault.remove(V_FLOW)

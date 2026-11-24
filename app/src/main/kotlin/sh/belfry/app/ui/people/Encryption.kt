@@ -875,3 +875,28 @@ fun FreshDoneDialog(names: List<String>, onShowHow: () -> Unit, onDone: () -> Un
         containerColor = c.bg,
     )
 }
+
+/**
+ * Format 3 (SPEC 19.82; docs/encrypted.md §3, §17.4): "This device isn't set up for encrypted messages yet · Try again",
+ * or "You have 20 devices signed in · Remove one to read encrypted messages here". Minimal on purpose: part 4 draws
+ * the final screens. Words in `core/enc/Writes.kt` `EncText`; no colour or animation carries the state (e-ink).
+ */
+@Composable
+internal fun Enc3SetupLine(st: sh.belfry.core.engine.Enc3State) {
+    val c = Belfry.colors
+    val session = LocalSession.current
+    val text = st.line ?: return
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp))
+            .background(c.surface).padding(horizontal = 14.dp, vertical = 10.dp).testTag("enc3-setup"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(text, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
+        if (st.tryAgain) {
+            Spacer(Modifier.width(8.dp))
+            sh.belfry.app.ui.kit.BusyButton(sh.belfry.core.enc.EncText.TRY_AGAIN, { session.enc3TryAgain() }, kind = sh.belfry.app.ui.kit.ButtonKind.Ghost, small = true, modifier = Modifier.testTag("enc3-try-again"))
+        }
+    }
+}
