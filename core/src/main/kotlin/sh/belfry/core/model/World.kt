@@ -426,7 +426,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
         if (!CardAuthors.isCardLine(m.ev, ctx.groupsKey)) return null
         val who = CardAuthors.cardLineWho(m.ev) ?: CardAuthors.by(m.ev, ctx.groupsKey)
         val name = who?.let { if (it == me) "You" else realName(it).ifEmpty { displayName(it) } }
-        return who to CardAuthors.startedLine(name, typeOfId(groupId) == ChannelType.POD)
+        return who to CardAuthors.startedLine(name, typeOfId(groupId) == ChannelType.POD, CardAuthors.cardIdOf(m.ev))
     }
 
     /** Sub-groups announced in this channel or pod. */

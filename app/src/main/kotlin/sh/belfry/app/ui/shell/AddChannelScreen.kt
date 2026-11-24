@@ -100,7 +100,8 @@ fun AddChannelScreen() {
             item(key = "<field>") {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     BelfryTextField(
-                        typed, { typed = it; error = null }, Modifier.fillMaxWidth().testTag("add-channel-name"),
+                        // a channel's hashtag: spaces become dashes, punctuation and emoji are not let in (SPEC 19.89)
+                        typed, { typed = sh.belfry.core.model.HashtagInput.typed(it); error = null }, Modifier.fillMaxWidth().testTag("add-channel-name"),
                         placeholder = "# Name, e.g. repair-cafe",
                         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                     )
@@ -124,7 +125,7 @@ fun AddChannelScreen() {
                 Hairline()
                 Text("New", fontSize = 12.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.6.sp, color = c.muted, modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp))
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    val shown = typed.trim().trimStart('#').trim()
+                    val shown = sh.belfry.core.model.HashtagInput.done(typed)
                     BusyButton(
                         "Create #$shown",
                         onClick = {

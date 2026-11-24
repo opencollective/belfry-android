@@ -249,7 +249,7 @@ private fun InviteCodeSheet(c: Community, onLink: (InviteLink) -> Unit, onScan: 
             val t = text.trim()
             val link = InviteLink.parse(t) ?: if (InviteLink.isToken(t)) InviteLink(c.domain, t) else null
             // a printed card's address pasted here goes where its QR code goes (SPEC 19.72)
-            val card = if (link == null) sh.belfry.core.model.CardLink.parse(t) else null
+            val card = if (link == null) sh.belfry.core.model.CardLink.parse(t)?.card else null
             if (card != null) onCard(card) else if (link == null) error = "That isn’t an invitation. Check the link or the code." else onLink(link)
         }, modifier = Modifier.fillMaxWidth(), enabled = text.isNotBlank())
         Spacer(Modifier.height(12.dp))

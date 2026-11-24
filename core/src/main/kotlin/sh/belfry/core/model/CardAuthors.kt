@@ -33,7 +33,7 @@ object CardAuthors {
     }
 
     /** The groups key's first line in a group or topic started from a card: kind 9 tagged `["card","1"]`. */
-    fun isCardLine(e: Event, groupsKey: String?): Boolean = e.kind == 9 && fromGroupsKey(e, groupsKey) && e.hasTag("card", "1")
+    fun isCardLine(e: Event, groupsKey: String?): Boolean = e.kind == 9 && fromGroupsKey(e, groupsKey) && (e.hasTag("card", "1") || cardIdOf(e) != null)
 
     /** Who a card line says started the group: its first `p` that is a key. */
     fun cardLineWho(e: Event): String? = e.tags.firstOrNull { it.size >= 2 && it[0] == "p" && Hex.isKey(it[1]) }?.get(1)
@@ -54,7 +54,7 @@ object CardAuthors {
 
     /** The events the belfry writes at a claim (the fallback covers these only). */
     private fun atClaim(e: Event): Boolean =
-        e.kind == 9007 || e.kind == 9002 || (e.kind == 9 && (e.tags.any { it.size >= 2 && it[0] == "pod" } || e.hasTag("card", "1")))
+        e.kind == 9007 || e.kind == 9002 || (e.kind == 9 && (e.tags.any { it.size >= 2 && it[0] == "pod" } || e.hasTag("card", "1") || cardIdOf(e) != null))
 
     /**
      * E's real author: the person behind an event the groups key signed for them (its `by`, else
@@ -93,9 +93,23 @@ object CardAuthors {
     /** "1 following" / "8 following": a topic is followed, not joined. */
     fun following(n: Int): String = "$n following"
 
-    /** The first line of a group or topic started from a card, in our words (never the event's text, never the card's id). */
-    fun startedLine(name: String?, pod: Boolean): String {
+    /** "Steward: Lou · 1 person" / "Steward: Dev · 3 following" on the town square's cards (onb-town-group, onb-town-topic). */
+    fun stewardLine(who: String, pod: Boolean, count: Int?): String =
+        "Steward: $who" + (count?.let { " · " + if (pod) (if (it == 1) "1 person" else "$it people") else following(it) } ?: "")
+
+    /** The card's id when a card line carries one (`["card", <id>]`; today's belfry writes `"1"`, the web reads both). */
+    fun cardIdOf(e: Event): String? = e.tags.firstOrNull { it.size >= 2 && it[0] == "card" && Cards.isId(it[1]) }?.get(1)
+
+    /**
+     * The first line of a group or topic started from a card, in our words (never the event's text):
+     * "You created the group from card K7Q2MX" (onb-group-done), "from a printed card" without the id.
+     */
+    fun startedLine(name: String?, pod: Boolean, cardId: String? = null): String {
         val word = if (pod) "group" else "topic"
-        return if (name.isNullOrEmpty()) "This $word was started from a printed card" else "$name started this $word from a printed card"
+        val from = if (cardId != null) "card $cardId" else "a printed card"
+        return if (name.isNullOrEmpty()) "This $word was created from $from" else "$name created the $word from $from"
     }
+
+    /** The grey line over a town square card a printed card made: "created the group" / "created the topic" (+ its name, in bold). */
+    fun createdWords(pod: Boolean): String = if (pod) "created the group" else "created the topic"
 }

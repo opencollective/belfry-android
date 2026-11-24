@@ -40,18 +40,25 @@ data class CardForm(
     val title: String = "", val about: String = "", val hashtag: String = "", val name: String = "", val email: String = "",
     /** A topic card only: the summary by e-mail its starter gets, `weekly` (the default) or `monthly`. */
     val summary: String = Cards.WEEKLY,
+    /**
+     * A visitor: when the last code was asked (`claim-start`, seconds; 0 = not yet). While it is
+     * less than [Cards.CLAIM_SECONDS] old the card opens again on the waiting screen (SPEC 19.89).
+     */
+    val sentAt: Long = 0,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("title", JsonPrimitive(title.take(80))); put("about", JsonPrimitive(about.take(500))); put("hashtag", JsonPrimitive(hashtag.take(30)))
         put("name", JsonPrimitive(name.take(100))); put("email", JsonPrimitive(email.take(200)))
         put("summary", JsonPrimitive(Cards.summaryOf(summary)))
+        if (sentAt > 0) put("sentAt", JsonPrimitive(sentAt))
     }
 
     companion object {
         /** The web's `keptForm`: every field cut to its length, anything else empty. */
         fun of(o: JsonObject?): CardForm? {
             if (o == null) return null
-            return CardForm((o.s("title") ?: "").take(80), (o.s("about") ?: "").take(500), (o.s("hashtag") ?: "").take(30), (o.s("name") ?: "").take(100), (o.s("email") ?: "").take(200), Cards.summaryOf(o.s("summary")))
+            val sent = (o["sentAt"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toLongOrNull()?.takeIf { it > 0 } ?: 0
+            return CardForm((o.s("title") ?: "").take(80), (o.s("about") ?: "").take(500), (o.s("hashtag") ?: "").take(30), (o.s("name") ?: "").take(100), (o.s("email") ?: "").take(200), Cards.summaryOf(o.s("summary")), sent)
         }
     }
 }
@@ -86,18 +93,37 @@ enum class CardWelcome { STARTED, JOINED }
  * after `/g/` gives an empty id: "This card isn't known here" (the web's `unknown`), never an
  * error about the address. Only the domain and the id are read; nothing of the address is shown.
  */
-data class CardLink(val domain: String, val id: String) {
+data class CardLink(
+    val domain: String,
+    val id: String,
+    /**
+     * The e-mail's Confirm button (`?confirm=<token>`, SPEC 19.89): the token, kept in memory only
+     * (never in the vault, never shown), spent once by `claim-confirm`. Null on a card's own address.
+     */
+    val confirm: String? = null,
+) {
     /** False: an address of a card whose id is not one. */
     val known: Boolean get() = Cards.isId(id)
 
+    /** The card itself, without the Confirm link's token (what may be kept). */
+    val card: CardLink get() = if (confirm == null) this else copy(confirm = null)
+
+    override fun toString(): String = "CardLink($domain, $id${if (confirm != null) ", confirm" else ""})" // never the token in a log
+
     companion object {
-        private val LINK = Regex("^https://chat\\.([a-z0-9.-]+)/(?:#/)?g/([^?#]{0,200})$")
+        private val LINK = Regex("^https://chat\\.([a-z0-9.-]+)/(?:#/)?g/([^?#]{0,200})(?:\\?([^#]{0,600}))?$")
+        private val TOKEN = Regex("^[A-Za-z0-9_-]{8,200}$")
 
         fun parse(url: String): CardLink? {
             val m = LINK.matchEntire(url.trim()) ?: return null
             val domain = m.groupValues[1]
             if (!Community.isDomain(domain)) return null
-            return CardLink(domain, Cards.cleanId(m.groupValues[2]) ?: "")
+            // of the query only `confirm`, and only a well-formed token (the web's takeCardFromUrl)
+            val confirm = m.groupValues[3].split('&').firstNotNullOfOrNull { p ->
+                p.takeIf { it.startsWith("confirm=") }?.removePrefix("confirm=")?.takeIf(TOKEN::matches)
+            }
+            val id = Cards.cleanId(m.groupValues[2]) ?: ""
+            return CardLink(domain, id, confirm?.takeIf { id.isNotEmpty() })
         }
     }
 }
@@ -128,26 +154,6 @@ object Cards {
     fun hashtagSlug(s: String): String =
         s.trim().replace(Regex("^#+"), "").lowercase().replace(Regex("[^a-z0-9-]+"), "-").replace(Regex("^-+|-+$"), "").take(30).trimEnd('-') // a cut at 30 must not leave a dash at the end (the server calls that invalid)
 
-    /** The Nth name offered when [slug] is taken: `slug-2`, `slug-3`… cut so that it stays 30 at most. */
-    fun nextHashtag(slug: String, n: Int): String = slug.take(30 - n.toString().length - 1).trimEnd('-') + "-" + n
-
-    /**
-     * A suggested hashtag is taken: the next free one, `-2` to `-9` asked in turn (the web's rule).
-     * Null when none is free, or when an answer is anything but taken / free (the belfry couldn't
-     * check: nothing is offered).
-     */
-    suspend fun nextFree(slug: String, check: suspend (String) -> HashtagState): String? {
-        for (n in 2..9) {
-            val next = nextHashtag(slug, n)
-            when (check(next)) {
-                HashtagState.FREE -> return next
-                HashtagState.TAKEN -> continue
-                else -> return null
-            }
-        }
-        return null
-    }
-
     /** `GET /cards/hashtag/<name>` read: 5xx and 429 are "couldn't check", a state that is neither free nor taken is invalid. */
     fun hashtagAnswer(status: Int, body: JsonObject?): HashtagState {
         if (status >= 500 || status == 429) return HashtagState.UNKNOWN
@@ -158,10 +164,13 @@ object Cards {
         }
     }
 
-    /** The line under the hashtag field. EDITED: the person changed the suggestion by hand. Null: nothing to say. */
-    fun hashtagLine(state: HashtagState?, checking: Boolean, edited: Boolean): String? = when {
+    /**
+     * The line under the hashtag field (SPEC 19.89: the hashtag is asked directly, it is the
+     * channel's name; nothing is suggested). Null: nothing to say.
+     */
+    fun hashtagLine(state: HashtagState?, checking: Boolean): String? = when {
         checking -> "Checking…"
-        state == HashtagState.FREE -> if (edited) "✓ Available" else "✓ Available · suggested from the topic, you can change it"
+        state == HashtagState.FREE -> "✓ Available · this is the channel’s name"
         state == HashtagState.TAKEN -> "Taken: try another one"
         state == HashtagState.INVALID -> "Letters, digits and dashes, 2 to 30"
         state == HashtagState.UNKNOWN -> "Couldn’t check just now"
@@ -248,16 +257,20 @@ object Cards {
 
     fun isEmail(s: String): Boolean = EMAIL.matches(s.trim())
 
-    /** May "Start the group / topic" be tapped? A topic needs its hashtag checked free; a visitor a name and an e-mail. */
+    /**
+     * May "Create the group / topic" be tapped? A group needs its name; a topic only its hashtag,
+     * checked free (it has no other name, SPEC 19.89); a visitor a name and an e-mail too.
+     */
     fun ready(kind: CardKind, f: CardForm, signedIn: Boolean, tag: HashtagState?): Boolean =
-        f.title.isNotBlank() && (kind != CardKind.TOPIC || tag == HashtagState.FREE) && (signedIn || (f.name.isNotBlank() && isEmail(f.email)))
+        (if (kind == CardKind.TOPIC) tag == HashtagState.FREE else f.title.isNotBlank()) && (signedIn || (f.name.isNotBlank() && isEmail(f.email)))
 
-    /** The form typed with a suggested hashtag: was the hashtag changed by hand (kept forms open as the web's do)? */
-    fun hashtagEdited(f: CardForm): Boolean = f.hashtag.isNotEmpty() && f.hashtag != hashtagSlug(f.title)
-
-    /** The body of `POST /cards/<id>/claim`. */
+    /**
+     * The form's part of every claim body (`claim`, `claim-start`, `claim-verify`): a group's
+     * `title` and `about`; a topic's `about` and `hashtag` and no title (the belfry names it by its
+     * hashtag, its description is `about` alone: docs/cards.md §2.2).
+     */
     fun claimBody(kind: CardKind, f: CardForm): JsonObject = buildJsonObject {
-        put("title", JsonPrimitive(plainLabel(f.title).take(80)))
+        if (kind != CardKind.TOPIC) put("title", JsonPrimitive(plainLabel(f.title).take(80)))
         put("about", JsonPrimitive(f.about.trim().take(500)))
         if (kind == CardKind.TOPIC) {
             put("hashtag", JsonPrimitive(hashtagSlug(f.hashtag)))
@@ -265,6 +278,31 @@ object Cards {
             // starts the topic's starter on weekly; it is changed in the topic's notification settings
         }
     }
+
+    /**
+     * The body of `POST /cards/<id>/claim-start` (SPEC 19.89): the whole form, kept by the belfry
+     * for 15 minutes so that the e-mail's Confirm button can create it; `client` names the session
+     * the button hands out.
+     */
+    fun startBody(kind: CardKind, f: CardForm, client: String = "belfry-android"): JsonObject = buildJsonObject {
+        put("email", JsonPrimitive(f.email.trim()))
+        put("name", JsonPrimitive(plainLabel(f.name).take(100)))
+        put("client", JsonPrimitive(client))
+        for ((k, v) in claimBody(kind, f)) put(k, v)
+    }
+
+    /** The body of `POST /cards/<id>/claim-confirm`: the Confirm link's token, nothing else. */
+    fun confirmBody(token: String): JsonObject = buildJsonObject { put("token", JsonPrimitive(token)) }
+
+    /** The body of `POST /cards/<id>/claim-poll`. */
+    val pollBody: JsonObject = JsonObject(emptyMap())
+
+    /** The belfry keeps a claim (its code, its Confirm button) for 15 minutes from `claim-start`. */
+    const val CLAIM_SECONDS = 900L
+    /** The waiting screen asks `claim-poll` every 3 s while it is shown (the web's interval). */
+    const val POLL_MS = 3_000L
+    /** At most this many asks per code sent (15 minutes of 3 s), whatever the clock says. */
+    const val POLL_MAX = (CLAIM_SECONDS * 1000 / POLL_MS).toInt()
 
     /** The body of `POST /cards/<id>/claim-verify` (the web's, with this app's `client`). */
     fun verifyBody(kind: CardKind, f: CardForm, code: String, client: String = "belfry-android"): JsonObject = buildJsonObject {
@@ -285,19 +323,74 @@ object Cards {
     fun summaryHint(summary: String): String =
         if (summaryOf(summary) == MONTHLY) "What was said, once a month. Change it any time." else "What was said, once a week. Change it any time."
 
-    /** A topic made from a card, as the server makes it: its description is `<topic> · <description>`. */
-    fun topicAbout(f: CardForm): String = listOf(plainLabel(f.title).take(80), f.about.trim().take(500)).filter { it.isNotEmpty() }.joinToString(" · ")
+    /** A topic made from a card, as the server makes it now (no title): its description is the description alone. */
+    fun topicAbout(f: CardForm): String = f.about.trim().take(500)
 
     // ---- the screens' words (the web as shipped, where a draft board says otherwise) ----------------
 
-    fun startTitle(kind: CardKind): String = "Start this ${kind.word}"
-    fun startIntro(kind: CardKind): String =
-        if (kind == CardKind.TOPIC) "You found a new topic card. No introductions needed: people come and go and share what they know."
-        else "You found a new group card. You start the group and look after it; everyone who scans this card after you joins it."
-    fun startButton(kind: CardKind): String = "Start the ${kind.word}"
-    fun titleLabel(kind: CardKind): String = if (kind == CardKind.TOPIC) "Topic" else "Title"
+    fun startTitle(kind: CardKind): String = "Start a ${kind.word}"
+    fun startIntro(kind: CardKind): String = "Nobody has scanned this card yet. The ${kind.word} starts with you."
+    fun startButton(kind: CardKind): String = "Create the ${kind.word}"
+    /** The card's chip on the form (onb-group-form, onb-topic-form): "Card K7Q2MX", "Card X2M7KE · topic". */
+    fun chip(kind: CardKind, id: String): String = "Card $id" + if (kind == CardKind.TOPIC) " · topic" else ""
+    const val GROUP_NAME = "Group name"
     const val TITLE_HINT = "What you wrote on the card"
-    fun codeHint(community: String): String = "We’ll send a 6-digit code to confirm it. Already have an account on $community? Use its e-mail address."
+    const val HASHTAG = "Hashtag"
+    const val DESCRIPTION = "Description"
+    const val YOUR_NAME = "Your name"
+    const val YOUR_EMAIL = "Your e-mail"
+    const val LOG_OUT = "Log out"
+    /** Under Create: a visitor's line, or a signed-in account's (Xavier's footnote on cards/claim-signed-in). */
+    fun startFoot(kind: CardKind, signedIn: Boolean): String = when {
+        !signedIn -> "You’ll look after this ${kind.word}. We’ll send a 6-digit code to confirm your e-mail."
+        kind == CardKind.TOPIC -> "You’ll look after this topic."
+        else -> "You’ll be the group’s first steward.\n\nPeople who scan the same QR code again will be invited to join this group so that you can remain connected after this event without having to share your email address publicly."
+    }
+    /** What is being made, in the code screen's words: the group's name, a topic's "#hashtag". */
+    fun what(kind: CardKind, f: CardForm): String = if (kind == CardKind.TOPIC) "#" + hashtagSlug(f.hashtag) else plainLabel(f.title).take(80)
+
+    // the code screen (onb-code)
+    const val CODE_TITLE = "Check your e-mail"
+    fun codeLead(what: String, email: String): String = "To create $what, enter the 6-digit code we sent to $email."
+    /** The board says "click … This page"; a phone taps, and this is a screen. */
+    const val CODE_OR_CONFIRM = "or tap Confirm in the e-mail. This screen moves on by itself once you have."
+    fun creating(what: String): String = "Creating $what…"
+    const val SPAM = "Not there? Look in your spam folder."
+    const val NEW_CODE_SENT = "A new code is on its way to your e-mail."
+    fun resend(wait: Int): String = if (wait > 0) "Send a new code (in $wait s)" else "Send a new code"
+    const val OTHER_ADDRESS = "Use another address"
+
+    /**
+     * What a refusal of `claim-poll` says on the waiting screen (it stops asking): 410 the claim ran
+     * out (or was used), 404 the belfry has no claim of this key for this card any more. Anything
+     * else is asked again at the next tick and says nothing.
+     */
+    fun pollErrorText(f: CardFailed): String? = when (f.code) {
+        CardError.EXPIRED -> "The code and the Confirm button have expired. Send a new code."
+        CardError.UNKNOWN -> "This request isn’t known any more. Send a new code."
+        else -> null
+    }
+    /** Does this refusal of `claim-poll` end the waiting (no more asks)? */
+    fun pollStops(f: CardFailed): Boolean = f.code == CardError.EXPIRED || f.code == CardError.UNKNOWN
+
+    // the e-mail's Confirm button opened in the app (onb-mail → onb-group-done, or onb-confirmed-elsewhere)
+    const val CONFIRMING = "Confirming…"
+    const val CONFIRMED_TITLE = "Confirmed"
+    const val CONFIRMED_TEXT = "It’s created. Go back to the page where you scanned the card: it opens there by itself."
+    const val CONFIRM_FAILED_TITLE = "This link didn’t work"
+    /** Why the Confirm link didn't work, in the app's words; ends with what to do. */
+    fun confirmErrorText(f: CardFailed, kind: CardKind = CardKind.GROUP): String = when (f.code) {
+        CardError.EXPIRED -> "It has expired, or it was used already. Scan the card again to start over."
+        CardError.UNKNOWN -> "This card isn’t known here. Scan the card again to start over."
+        CardError.CLAIMED -> "Someone else was first with this card. Scan it again to join theirs."
+        CardError.RETIRED -> "This card was retired."
+        CardError.SIGNER -> "The belfry is busy. Try again in a minute: the link still works."
+        CardError.OFFLINE -> "No connection. Try again: the link still works."
+        CardError.TOO_MANY -> "Too many tries for now. Try again in a few minutes."
+        else -> errorText(f, kind) + " Scan the card again to start over."
+    }
+    /** These Confirm refusals leave the link usable: Try again (docs/cards.md §2.3: "nothing is used"). */
+    fun confirmMayRetry(f: CardFailed): Boolean = f.code == CardError.SIGNER || f.code == CardError.OFFLINE || f.code == CardError.TOO_MANY
 
     fun takenTitle(kind: CardKind): String = "Someone just started this ${kind.word}"
     const val TAKEN_TEXT = "Your text wasn’t used; you can join theirs."
@@ -316,14 +409,24 @@ object Cards {
     const val UNSUPPORTED_TITLE = "This belfry doesn’t take printed cards"
     const val OPENING = "Opening the card…"
 
-    /** The welcome of the first open after a card (the web's `GroupMid`): the bold first words, then the rest. */
-    fun welcomeTitle(pod: Boolean, name: String): String = "Welcome to ${if (pod) name else "# $name"}!"
+    /** The welcome of the first open after a card (onb-group-done, onb-topic-done; the web's `GroupMid`): the bold first words, then the rest. */
+    fun welcomeTitle(pod: Boolean, name: String, welcome: CardWelcome = CardWelcome.STARTED): String = when {
+        pod -> "Welcome to $name!"
+        welcome == CardWelcome.STARTED -> "#$name is open!"
+        else -> "Welcome to #$name!"
+    }
     fun welcomeText(pod: Boolean, welcome: CardWelcome): String = when {
-        pod && welcome == CardWelcome.STARTED -> "You started it. Say hi and share something to get it going: a photo, a tip, a question."
+        pod && welcome == CardWelcome.STARTED -> "You created it and you look after it. Say hi and share something to get it going."
         pod -> "Say hi and share something: a photo, a tip, a question."
-        welcome == CardWelcome.STARTED -> "You started it. Share something to get it going: a link, a photo, a question."
+        welcome == CardWelcome.STARTED -> "You created it and you look after it. Share the first tip, link or question."
         else -> "No introductions needed: share what you know."
     }
+    /** The facts under the description on the done screens: "Steward: you · 1 person" / "Steward: you · 1 following". */
+    fun stewardFacts(pod: Boolean, steward: String, count: Int): String =
+        "Steward: $steward · " + if (pod) (if (count == 1) "1 person" else "$count people") else "$count following"
+    /** The card's line on the done screens: "Card K7Q2MX: anyone who scans it joins here". */
+    fun cardFacts(pod: Boolean, id: String): String =
+        "Card $id: " + if (pod) "anyone who scans it joins here" else "anyone who scans it can read, post and follow"
 
     // ---- hooks for what is not built here ------------------------------------------------------------
 
@@ -334,9 +437,6 @@ object Cards {
     fun isCardLine(pubkey: String, tags: List<Tag>, groupsKey: String?): Boolean =
         groupsKey != null && pubkey == groupsKey && tags.any { it.size >= 2 && it[0] == "card" && it[1] == "1" }
 
-    /** That line in the app's words: never the event's text, never the card's id. WHO: the name to say ("You" for me), null when the event names nobody. */
-    fun cardLine(who: String?, pod: Boolean): String {
-        val word = if (pod) "group" else "topic"
-        return if (who != null) "$who started this $word from a printed card" else "This $word was started from a printed card"
-    }
+    /** That line in the app's words (never the event's text): [CardAuthors.startedLine]. */
+    fun cardLine(who: String?, pod: Boolean, cardId: String? = null): String = CardAuthors.startedLine(who, pod, cardId)
 }

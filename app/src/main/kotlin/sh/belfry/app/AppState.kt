@@ -60,7 +60,11 @@ data class Opening(
 )
 
 /** A group just started or joined from a printed card, in the belfry at [domain]: its first open welcomes. */
-data class CardWelcomed(val domain: String, val group: String, val welcome: CardWelcome)
+data class CardWelcomed(
+    val domain: String, val group: String, val welcome: CardWelcome,
+    /** The card it was started from, for "Card K7Q2MX: anyone who scans it joins here" (onb-group-done); null when not known. */
+    val cardId: String? = null,
+)
 
 /** What the sign-in screen starts with after "Sign in instead" (guest mode, an address with an account). */
 data class SignInPrefill(val address: String, val hint: String?)
@@ -167,9 +171,11 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
 
     /** A card's address: used in an account of that belfry when there is one (the open one first), else with no account. */
     fun onCardLink(link: CardLink) {
-        try { onboarding.pendingCard = link } catch (e: Exception) { }
         // scanned from "Add an account": that screen goes, the card's shows
         if (_adding.value is Adding.SignIn) _adding.value = null
+        // the e-mail's Confirm button (SPEC 19.89): its token stays in memory only and no account is switched to for it
+        if (link.confirm != null) { _card.value = link; return }
+        try { onboarding.pendingCard = link } catch (e: Exception) { }
         val s = _session.value
         val other = if (s == null || s.community.domain == link.domain) null else accountsNow().onDomain(link.domain).firstOrNull()
         if (other == null) { _card.value = link; return }
@@ -192,8 +198,29 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     suspend fun keepCardForm(link: CardLink, f: CardForm) = withContext(Dispatchers.Default) { try { onboarding.keepCardForm(link, f) } catch (e: Exception) { } }
     suspend fun dropCardForm() = withContext(Dispatchers.Default) { try { onboarding.dropCardForm() } catch (e: Exception) { } }
 
-    /** A visitor, step 1: the code goes to EMAIL. Throws [sh.belfry.core.model.CardFailed]. */
-    suspend fun cardStart(link: CardLink, email: String) = onboarding.cardClaimStart(cardCommunity(link.domain), link.id, email)
+    /** A visitor, step 1: the form to the belfry, the code and the Confirm button to its e-mail. Throws [sh.belfry.core.model.CardFailed]. */
+    suspend fun cardStart(link: CardLink, kind: CardKind, f: CardForm) = onboarding.cardClaimStart(cardCommunity(link.domain), link.id, kind, f)
+
+    /**
+     * The waiting screen's ask (SPEC 19.89). True: this phone is in (the Confirm button was tapped on
+     * another device: the group opens with its welcome), or it holds that claim's session another way
+     * (stop asking, say nothing). False: still waiting. Throws [sh.belfry.core.model.CardFailed].
+     */
+    suspend fun cardPoll(link: CardLink): Boolean = when (val p = onboarding.cardClaimPoll(cardCommunity(link.domain), link.id)) {
+        sh.belfry.core.engine.Onboarding.CardPoll.Waiting -> false
+        sh.belfry.core.engine.Onboarding.CardPoll.Taken -> true
+        is sh.belfry.core.engine.Onboarding.CardPoll.In -> { cardIn(p.session, p.group); true }
+    }
+
+    /**
+     * The e-mail's Confirm button opened the app: true when this phone started the claim (it is
+     * signed in now and the group opens), false when it was confirmed for another device's claim.
+     */
+    suspend fun cardConfirm(link: CardLink, token: String): Boolean =
+        when (val r = onboarding.cardClaimConfirm(cardCommunity(link.domain), link.id, token)) {
+            is sh.belfry.core.engine.Onboarding.CardConfirm.In -> { cardIn(r.session, r.group); true }
+            is sh.belfry.core.engine.Onboarding.CardConfirm.Elsewhere -> false
+        }
 
     /** Step 2: the right code makes the group and signs this phone in; the group opens with its welcome. */
     suspend fun cardVerify(link: CardLink, kind: CardKind, f: CardForm, code: String) {
@@ -223,16 +250,17 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
     }
 
     private fun cardIn(s: Session, group: String) {
+        val card = _card.value
         _card.value = null
-        _cardWelcome.value = CardWelcomed(s.community.domain, group, CardWelcome.STARTED)
+        _cardWelcome.value = CardWelcomed(s.community.domain, group, CardWelcome.STARTED, card?.id?.takeIf { card.domain == s.community.domain && card.known })
         _openAfter.value = s.community.domain to group
         enter(s, fresh = true)
     }
 
     /** Signed in: this account just started GROUP from a card. */
-    fun cardStarted(domain: String, group: String) {
+    fun cardStarted(domain: String, group: String, cardId: String? = null) {
         forgetCard()
-        _cardWelcome.value = CardWelcomed(domain, group, CardWelcome.STARTED)
+        _cardWelcome.value = CardWelcomed(domain, group, CardWelcome.STARTED, cardId)
     }
 
     /** A claimed card is a guest link: its invite takes the usual way in (SPEC 19.74). */

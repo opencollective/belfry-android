@@ -46,6 +46,8 @@ class PrintedCardsStateTest {
     @Volatile private var cardAnswer = 200 to """{"kind":"group","state":"unclaimed"}"""
     @Volatile private var startAnswer = 202 to """{"sent":true}"""
     @Volatile private var verifyAnswer = 400 to """{"error":"wrong_code","tries_left":4}"""
+    @Volatile private var pollAnswer = 202 to """{"pending":true}"""
+    @Volatile private var confirmAnswer = 200 to """{"confirmed":true,"group":"pod-sourdough-ab12","same_device":false}"""
     private val http = OkHttpClient.Builder().addInterceptor(Interceptor { chain ->
         val req = chain.request()
         asked += req.method + " " + req.url.encodedPath + (if (req.header("Authorization") != null) " signed" else "")
@@ -53,6 +55,8 @@ class PrintedCardsStateTest {
         val (code, body) = when {
             path.endsWith("/claim-start") -> startAnswer
             path.endsWith("/claim-verify") -> verifyAnswer
+            path.endsWith("/claim-poll") -> pollAnswer
+            path.endsWith("/claim-confirm") -> confirmAnswer
             "/cards/hashtag/" in path -> 503 to """{"error":"relay"}"""
             "/cards/" in path -> cardAnswer
             else -> 503 to "{}"
@@ -88,7 +92,7 @@ class PrintedCardsStateTest {
         assertEquals(listOf("GET /api/v1/cards/K7Q2MX"), asked.toList())
         assertNull("nothing is made before a code is asked", vault.get(Onboarding.V_APPLICANT + ":riverside.example"))
 
-        state.cardStart(link, "lou@example.org")
+        state.cardStart(link, CardKind.GROUP, form)
         assertEquals("POST /api/v1/cards/K7Q2MX/claim-start signed", asked.last())
         assertNotNull(vault.get(Onboarding.V_APPLICANT + ":riverside.example"))
 
@@ -140,7 +144,7 @@ class PrintedCardsStateTest {
         val demo = CardLink(Demo.DOMAIN, DemoCards.FREE_GROUP)
         state.onCardLink(demo)
         assertEquals(CardInfo.Unclaimed(CardKind.GROUP), state.cardInfo(demo))
-        state.cardStart(demo, "lou@example.org")
+        state.cardStart(demo, CardKind.GROUP, form)
         state.cardVerify(demo, CardKind.GROUP, form, DemoCards.CODE)
         assertTrue(asked.isEmpty()) // the demo asks no belfry
         val s = state.session.value!!
@@ -150,7 +154,7 @@ class PrintedCardsStateTest {
         val (domain, group) = state.openAfter.value!!
         assertEquals(Demo.DOMAIN, domain)
         assertTrue(group, group.startsWith("pod-sourdough-starters"))
-        assertEquals(CardWelcomed(Demo.DOMAIN, group, CardWelcome.STARTED), state.cardWelcome.value)
+        assertEquals(CardWelcomed(Demo.DOMAIN, group, CardWelcome.STARTED, DemoCards.FREE_GROUP), state.cardWelcome.value)
         until("the group is there") { s.world.value.group(group) != null }
         assertEquals("Sourdough starters", s.world.value.group(group)!!.name)
 
@@ -159,9 +163,9 @@ class PrintedCardsStateTest {
         state.onCardLink(topic)
         assertEquals(topic, state.card.value)
         assertTrue(state.phase.value is Phase.SignedIn)
-        state.cardStarted(Demo.DOMAIN, "tool-library")
+        state.cardStarted(Demo.DOMAIN, "tool-library", DemoCards.FREE_TOPIC)
         assertNull(state.card.value)
-        assertEquals(CardWelcomed(Demo.DOMAIN, "tool-library", CardWelcome.STARTED), state.cardWelcome.value)
+        assertEquals(CardWelcomed(Demo.DOMAIN, "tool-library", CardWelcome.STARTED, DemoCards.FREE_TOPIC), state.cardWelcome.value)
         state.clearCardWelcome()
         assertNull(state.cardWelcome.value)
 
@@ -169,5 +173,34 @@ class PrintedCardsStateTest {
         state.onCardLink(link)
         assertEquals(link, state.card.value)
         assertEquals(s, state.session.value)
+    }
+
+    /** The e-mail's Confirm link opened on a phone that did not start the claim (SPEC 19.89): its token in memory only, "Confirmed". */
+    @Test
+    fun aConfirmLinkIsKeptInMemoryOnlyAndConfirmsElsewhere() = runBlocking<Unit> {
+        signedOut()
+        val token = "Tk_" + "b".repeat(40)
+        val confirm = CardLink.parse("https://chat.riverside.example/g/K7Q2MX?confirm=$token")!!
+        state.onCardLink(confirm)
+        assertEquals(confirm, state.card.value)
+        assertNull("the token never reaches the vault", onboarding.pendingCard)
+        for (k in listOf(Onboarding.V_CARD, Onboarding.V_CARD_FORM, Onboarding.V_CARD_CLAIM)) assertNull(k, vault.get(k))
+        assertEquals(false, state.cardConfirm(confirm, token))
+        assertEquals("POST /api/v1/cards/K7Q2MX/claim-confirm signed", asked.last())
+        assertNull(state.session.value)
+        assertTrue(state.phase.value is Phase.SignedOut)
+    }
+
+    /** The waiting screen's poll: pending says nothing; 410 is said; once this phone holds the claim's session, a 410 says nothing. */
+    @Test
+    fun theWaitingScreensPoll() = runBlocking<Unit> {
+        signedOut()
+        state.onCardLink(link)
+        state.cardStart(link, CardKind.GROUP, form)
+        assertEquals(false, state.cardPoll(link))
+        assertEquals("POST /api/v1/cards/K7Q2MX/claim-poll signed", asked.last())
+        pollAnswer = 410 to """{"error":"expired"}"""
+        assertEquals(CardError.EXPIRED, try { state.cardPoll(link); null } catch (e: CardFailed) { e }!!.code)
+        assertNull(state.session.value)
     }
 }

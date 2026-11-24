@@ -47,18 +47,18 @@ class TownCardsTest : DemoShots() {
         assertTrue(gk !in world.group(Demo.TOPIC_CARD)!!.members)
     }
 
-    /** cards/townsquare-new-topic: the topic's card under "started a topic from a printed card", and the group's card above it. */
+    /** onb-town-topic (SPEC 19.89): the topic's card under "created the topic #bike-repair", and the group's card above it. */
     @Test fun townsquareCards() {
         demoShot("cards-townsquare", act = {
             waitTag("topic-card")
             compose.mainClock.advanceTimeBy(3_500)
         }) { ChannelScreen(Demo.GENERAL, onMenu = {}, focusMessage = topicPost().id) }
-        // the topic's card: New topic · #hashtag · the topic · its description · Started by … · N following · Open
+        // the topic's card: New topic · #hashtag · its description · Steward: … · N following · Open
         compose.onNodeWithText("NEW TOPIC", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("#bike-repair", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("Bike repair", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("Started by Lena Fischer · 3 following", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("started a topic from a printed card", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Bike repair · Flat tyres", substring = true, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Steward: Lena Fischer · 3 following", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("created the topic #bike-repair", useUnmergedTree = true).assertExists()
         // no #new-topic chip, never the post's own text, never the groups key as its author
         assertTrue(compose.onAllNodesWithText("#new-topic", substring = true, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("# New topic:", substring = true, useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
@@ -72,7 +72,11 @@ class TownCardsTest : DemoShots() {
     @Test fun newGroupPostIsTheClaimers() {
         compose.setContent { BelfryTheme { InDemo { ChannelScreen(Demo.GENERAL, onMenu = {}, focusMessage = groupPost().id) } } }
         waitText("Sourdough starters")
-        assertTrue(compose.onAllNodesWithText("Created a group", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        // onb-town-group (SPEC 19.89): "created the group Sourdough starters", NEW GROUP, Steward: Sam Carter · N people
+        assertTrue(compose.onAllNodesWithText("created the group Sourdough starters", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        compose.onNodeWithTag("card-group-card", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("NEW GROUP", useUnmergedTree = true).assertExists()
+        assertTrue(compose.onAllNodesWithText("Steward: Sam Carter · ", substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         compose.onNodeWithTag("msg-" + groupPost().id).assertExists()
         // the header over it names Sam, and opens Sam's profile
         compose.onAllNodesWithText("Sam Carter", useUnmergedTree = true).fetchSemanticsNodes().let { assertTrue(it.isNotEmpty()) }
@@ -82,7 +86,7 @@ class TownCardsTest : DemoShots() {
     /** The first line in the group: an activity line in our words; it opens the person's profile. */
     @Test fun firstLineInTheGroup() {
         demoShot("cards-group-first-line") { ChannelScreen(Demo.POD_CARD, onMenu = {}) }
-        compose.onNodeWithText("Sam Carter started this group from a printed card", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Sam Carter created the group from a printed card", useUnmergedTree = true).assertExists()
         assertEquals(1, compose.onAllNodesWithTag("card-started", useUnmergedTree = true).fetchSemanticsNodes().size)
         compose.onNodeWithTag("card-started").performClick()
         assertTrue(nav.went.toString(), Routes.profile(Demo.sam.pubkey) in nav.went)
@@ -90,7 +94,7 @@ class TownCardsTest : DemoShots() {
 
     @Test fun firstLineInTheTopic() {
         demoShot("cards-topic-first-line") { ChannelScreen(Demo.TOPIC_CARD, onMenu = {}) }
-        compose.onNodeWithText("Lena Fischer started this topic from a printed card", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Lena Fischer created the topic from a printed card", useUnmergedTree = true).assertExists()
     }
 
     /** cards/steward: "The card" in the group's Settings, for its stewards and the belfry's admins. */

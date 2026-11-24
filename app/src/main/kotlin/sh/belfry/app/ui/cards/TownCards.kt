@@ -79,9 +79,11 @@ internal fun TopicCard(channelId: String, message: Message, modifier: Modifier =
     val c = Belfry.colors
     val g = world.group(channelId)
     val gone = world.groupState(channelId) == GroupState.DELETED
-    val (topic, description) = CardAuthors.topicParts(g?.about ?: CardAuthors.aboutInPost(message.text))
+    // onb-town-topic (SPEC 19.89): #hashtag · its description · Steward: … · N following · Open. The about is shown
+    // whole (the web's TopicCard since e965481); an older topic's "<topic> · <description>" reads as it is.
+    val description = g?.about ?: CardAuthors.aboutInPost(message.text)
     // the channel is named by its hashtag; a renamed one keeps its id as the hashtag
-    val hashtag = g?.rawName?.takeIf { it.isNotEmpty() && it != topic && !it.contains(' ') } ?: channelId
+    val hashtag = g?.rawName?.takeIf { it.isNotEmpty() && !it.contains(' ') } ?: channelId
     val by = message.author
     val who = if (by == world.me) "you" else world.realName(by).ifEmpty { world.displayName(by) }
     val open = { nav.openChannel(channelId) }
@@ -105,15 +107,62 @@ internal fun TopicCard(channelId: String, message: Message, modifier: Modifier =
             Text("NEW TOPIC", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp, color = c.muted, maxLines = 1)
         }
         Text("#$hashtag", fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (topic.isNotEmpty()) Text(topic, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (description.isNotEmpty()) LinkText(description, fontSize = 15.sp, lineHeight = 20.sp, color = c.text)
         Text(
-            if (gone) "This topic has been deleted" else "Started by $who" + (g?.let { " · " + CardAuthors.following(it.members.size) } ?: ""),
+            if (gone) "This topic has been deleted" else CardAuthors.stewardLine(who, pod = false, count = g?.members?.size),
             fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = Modifier.padding(top = 2.dp).testTag("topic-card-meta"),
         )
         if (!gone) {
             Spacer(Modifier.height(5.dp))
             BusyButton("Open", onClick = { open() }, modifier = Modifier.fillMaxWidth().testTag("topic-card-open"), small = true)
+        }
+    }
+}
+
+/**
+ * onb-town-group (SPEC 19.89): the town square's post of a group a printed card made (the groups key
+ * wrote it for the person, `by`): NEW GROUP · its name · its description · Steward: … · N people ·
+ * Join (Open when I'm in). A deleted, archived or private group: the usual group card.
+ */
+@Composable
+internal fun CardGroupCard(podId: String, message: Message, modifier: Modifier = Modifier) {
+    val world = LocalWorld.current
+    val session = LocalSession.current
+    val nav = LocalNav.current
+    val c = Belfry.colors
+    val g = world.group(podId)
+    if (g == null || g.isPrivate || world.groupState(podId) != GroupState.OPEN) return PodCard(podId, message.text, modifier)
+    val by = message.author
+    val who = if (by == world.me) "you" else world.realName(by).ifEmpty { world.displayName(by) }
+    val inIt = world.me in g.members
+    val open = { nav.go(Routes.pod(podId)) }
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier
+            .padding(top = 4.dp)
+            .widthIn(max = 360.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.surface)
+            .border(1.dp, c.line, shape)
+            .clickable(onClickLabel = "Open the group", onClick = open)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .testTag("card-group-card"),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(BelfryIcons.Pod, contentDescription = null, tint = c.muted, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("NEW GROUP", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.4.sp, color = c.muted, maxLines = 1)
+        }
+        Text(g.name, fontSize = 17.sp, lineHeight = 22.sp, fontWeight = FontWeight.Bold, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (g.about.isNotEmpty()) LinkText(g.about, fontSize = 15.sp, lineHeight = 20.sp, color = c.text)
+        Text(CardAuthors.stewardLine(who, pod = true, count = g.members.size), fontSize = 13.sp, lineHeight = 18.sp, color = c.muted, modifier = Modifier.padding(top = 2.dp).testTag("card-group-card-meta"))
+        Spacer(Modifier.height(5.dp))
+        when {
+            inIt -> BusyButton("Open", onClick = { open() }, modifier = Modifier.fillMaxWidth().testTag("card-group-card-open"), small = true)
+            g.closed -> BusyButton("Open", onClick = { open() }, kind = ButtonKind.Ghost, modifier = Modifier.fillMaxWidth().testTag("card-group-card-open"), small = true)
+            else -> BusyButton("Join", onClick = { session.send(sh.belfry.core.model.Actions.join(podId)) }, modifier = Modifier.fillMaxWidth().testTag("card-group-card-join"), small = true)
         }
     }
 }
@@ -128,7 +177,7 @@ fun CardStartedLine(who: String?, line: String, at: Long) {
     val world = LocalWorld.current
     val nav = LocalNav.current
     val c = Belfry.colors
-    val name = line.substringBefore(" started this ", "")
+    val name = line.substringBefore(" created the ", "")
     Row(
         Modifier.fillMaxWidth()
             .then(if (who != null) Modifier.clickable(role = Role.Button) { nav.go(Routes.profile(who)) } else Modifier)

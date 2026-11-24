@@ -178,7 +178,18 @@ fun MessageRow(
                     Text("Pinned", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = c.orange)
                 }
             }
-            m.cardLine?.let { Text(it, fontSize = 14.sp, color = c.muted) }
+            m.cardLine?.let { line ->
+                // what a printed card made (onb-town-group, onb-town-topic): "created the group **Sourdough starters**"
+                val made = when (val sp = m.special) {
+                    is Special.TopicCard -> if (m.fromCard) "#" + (world.group(sp.channelId)?.rawName?.takeIf { it.isNotEmpty() && !it.contains(' ') } ?: sp.channelId) else null
+                    is Special.PodCard -> if (m.fromCard) world.group(sp.podId)?.name else null
+                    else -> null
+                }
+                Text(androidx.compose.ui.text.buildAnnotatedString {
+                    append(line)
+                    if (made != null) { append(" "); withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.SemiBold, color = c.text)) { append(made) } }
+                }, fontSize = 14.sp, color = c.muted, modifier = Modifier.testTag("card-created-line"))
+            }
             if (m.special == Special.None) {
                 if (m.text.isNotEmpty()) MarkdownWithBox(m.text, world.ctx.domain, onTopic = { chat.topic = it }, eventCards = m.eventRefs.isNotEmpty())
             } else {

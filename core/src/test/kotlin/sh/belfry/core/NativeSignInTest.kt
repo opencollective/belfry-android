@@ -424,11 +424,12 @@ class NativeSignInTest {
         assertNull(applicantKey(vault), "no key is made before a code is asked")
 
         server.enqueue(json(202, """{"sent":true}"""))
-        on.cardClaimStart(c, "K7Q2MX", " lou@example.org ")
+        on.cardClaimStart(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm.copy(email = " lou@example.org "))
         val r1 = server.takeRequest()
         assertEquals("/api/v1/cards/K7Q2MX/claim-start", r1.path)
         val b1 = r1.body.readUtf8()
-        assertEquals("""{"email":"lou@example.org"}""", b1)
+        // the whole form (SPEC 19.89): the belfry keeps it for the e-mail's Confirm button
+        assertEquals("""{"email":"lou@example.org","name":"Lou","client":"belfry-android","title":"Sourdough starters","about":"Swap starters."}""", b1)
         val key = auth(r1, b1).pubkey
         assertEquals(key, LocalSigner(applicantKey(vault)!!).pubkey, "the applicant key of this belfry signs, kept in the vault")
 
@@ -469,14 +470,14 @@ class NativeSignInTest {
         val on = Onboarding(vault, MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { community() }
         val c = community()
         server.enqueue(json(202, """{"sent":true}"""))
-        on.cardClaimStart(c, "K7Q2MX", "lou@example.org")
+        on.cardClaimStart(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm)
         val first = signedBy(server.takeRequest())
         server.enqueue(json(409, """{"error":"key_taken"}"""))
         assertEquals(sh.belfry.core.model.CardError.KEY_TAKEN, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimVerify(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm, "123456") }.code)
         server.takeRequest()
         assertNull(applicantKey(vault))
         server.enqueue(json(202, """{"sent":true}"""))
-        on.cardClaimStart(c, "K7Q2MX", "lou@example.org")
+        on.cardClaimStart(c, "K7Q2MX", sh.belfry.core.model.CardKind.GROUP, cardForm)
         assertTrue(signedBy(server.takeRequest()) != first)
 
         // claimed after the code (a race), expired, a busy belfry: the key stays, nobody is signed in
@@ -577,7 +578,7 @@ class NativeSignInTest {
         assertEquals(sh.belfry.core.engine.Demo.NAME, c.name)
         assertEquals(sh.belfry.core.model.CardInfo.Unclaimed(sh.belfry.core.model.CardKind.TOPIC), on.cardInfo(c, "T9PC4H"))
         assertEquals(sh.belfry.core.model.HashtagState.TAKEN, on.cardHashtag(c, "general"))
-        on.cardClaimStart(c, "T9PC4H", "dev@example.org")
+        on.cardClaimStart(c, "T9PC4H", sh.belfry.core.model.CardKind.TOPIC, sh.belfry.core.model.CardForm(hashtag = "tool-library", name = "Dev Patel", email = "dev@example.org"))
         val f = sh.belfry.core.model.CardForm(title = "Tool library", about = "Borrow drills.", hashtag = "tool-library", name = "Dev Patel", email = "dev@example.org")
         assertEquals(2, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimVerify(c, "T9PC4H", sh.belfry.core.model.CardKind.TOPIC, f, "000000") }.triesLeft)
         val (session, group) = on.cardClaimVerify(c, "T9PC4H", sh.belfry.core.model.CardKind.TOPIC, f, "123456")
@@ -586,12 +587,12 @@ class NativeSignInTest {
         assertTrue(session.localOnly)
         session.flush(); session.settle()
         val g = session.world.value.group("tool-library")!!
-        assertEquals("Tool library · Borrow drills.", g.about)
+        assertEquals("Borrow drills.", g.about) // as the belfry makes a topic now: the description alone
         assertFalse(g.isPod)
         // that card is claimed in this demo from then on; a claimed card can't be started
         assertEquals("tool-library", (session.cards.info("T9PC4H") as sh.belfry.core.model.CardInfo.Claimed).group)
         assertEquals(sh.belfry.core.model.CardError.CLAIMED, assertFailsWith<sh.belfry.core.model.CardFailed> { session.cards.claim("T9PC4H", sh.belfry.core.model.CardKind.TOPIC, f) }.code)
-        assertEquals(sh.belfry.core.model.CardError.CLAIMED, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimStart(c, "CXAWMS", "dev@example.org") }.code)
+        assertEquals(sh.belfry.core.model.CardError.CLAIMED, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimStart(c, "CXAWMS", sh.belfry.core.model.CardKind.TOPIC, f) }.code)
         // a group card, signed in to the demo
         val pod = session.cards.claim("K7Q2MX", sh.belfry.core.model.CardKind.GROUP, sh.belfry.core.model.CardForm(title = "Sourdough starters", about = "Swap starters."))
         session.flush(); session.settle()
@@ -601,5 +602,221 @@ class NativeSignInTest {
         // guest mode writes nothing
         session.demoGuestMode("general")
         assertEquals(sh.belfry.core.model.CardError.GUEST_NOT_SAVED, assertFailsWith<sh.belfry.core.model.CardFailed> { session.cards.claim("K7Q2MX", sh.belfry.core.model.CardKind.GROUP, f) }.code)
+    }
+
+    // ---- printed cards: the e-mail's Confirm button and the waiting screen (SPEC 19.89; docs/cards.md §2.3) --------
+
+    private val K = sh.belfry.core.model.CardKind.GROUP
+    private fun cardOnboarding(vault: MemoryVault, now: () -> Long = { 1_800_000_000L }) = Onboarding(vault, MemoryStore(), http, scope, now, ZoneOffset.UTC) { community() }
+    private val token = "Tk_" + "a".repeat(40)
+
+    /** claim-poll: 202 waits, every refusal is said, 200 opens the session through the kept answer and open(expect). */
+    @Test
+    fun theWaitingScreensPollReceivesTheSessionOnce() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = cardOnboarding(vault)
+        val c = community()
+        // no code asked from this phone: nothing to ask with, and no key is made for it
+        assertEquals(sh.belfry.core.model.CardError.UNKNOWN, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimPoll(c, "K7Q2MX") }.code)
+        assertNull(applicantKey(vault))
+        assertEquals(0, server.requestCount)
+
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", K, cardForm)
+        val key = signedBy(server.takeRequest())
+
+        // 202 pending: still waiting; signed by the claim-start key, body {}
+        server.enqueue(json(202, """{"pending":true}"""))
+        assertEquals(Onboarding.CardPoll.Waiting, on.cardClaimPoll(c, "K7Q2MX"))
+        val p1 = server.takeRequest()
+        assertEquals("/api/v1/cards/K7Q2MX/claim-poll", p1.path)
+        val pb = p1.body.readUtf8()
+        assertEquals("{}", pb)
+        assertEquals(key, auth(p1, pb).pubkey)
+
+        // each refusal, in the app's code; none touches the key or keeps anything
+        for ((answer, code) in listOf(
+            json(410, """{"error":"expired"}""") to sh.belfry.core.model.CardError.EXPIRED,
+            json(404, """{"error":"not_found"}""") to sh.belfry.core.model.CardError.UNKNOWN,
+            json(429, """{"error":"too_many"}""") to sh.belfry.core.model.CardError.TOO_MANY,
+            json(503, """{"error":"relay"}""") to sh.belfry.core.model.CardError.SIGNER,
+            json(200, """{"signed_in":true,"bunker_url":"https://evil.example","pubkey":"${"cd".repeat(32)}","group":"pod-x-1"}""") to sh.belfry.core.model.CardError.FAILED,
+        )) {
+            server.enqueue(answer)
+            assertEquals(code, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimPoll(c, "K7Q2MX") }.code)
+            server.takeRequest()
+            assertEquals(key, LocalSigner(applicantKey(vault)!!).pubkey)
+            assertFalse(on.cardClaimWaiting)
+            assertFalse(on.hasSession)
+        }
+
+        // 200: Confirm was tapped on another device; the session is bound to the claim-start key and opened as the code's
+        val account = LocalSigner.random()
+        server.enqueue(claimed(signer(account), account.pubkey))
+        val got = kotlin.test.assertIs<Onboarding.CardPoll.In>(on.cardClaimPoll(c, "K7Q2MX"))
+        sessions.add(got.session)
+        server.takeRequest()
+        assertEquals(account.pubkey, got.session.me)
+        assertEquals("pod-sourdough-ab12", got.group)
+        assertEquals(key, LocalSigner(SavedSession.fromJsonString(vault.get(Onboarding.V_SESSION)!!)!!.clientSecret).pubkey)
+        assertNull(vault.get(Onboarding.V_CARD_CLAIM))
+        assertNull(applicantKey(vault))
+        // after it: nothing more is asked, nothing is said
+        val before = server.requestCount
+        assertEquals(Onboarding.CardPoll.Taken, on.cardClaimPoll(c, "K7Q2MX"))
+        assertEquals(before, server.requestCount)
+    }
+
+    /** A poll's session whose signer is another key opens nothing; one whose signer does not answer is kept and opened later, once. */
+    @Test
+    fun aPolledSessionGoesThroughTheKeptAnswer() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = cardOnboarding(vault)
+        val c = community()
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", K, cardForm)
+        server.takeRequest()
+        server.enqueue(claimed(signer(LocalSigner.random()), LocalSigner.random().pubkey))
+        assertEquals("mismatch", assertFailsWith<OnboardingException> { on.cardClaimPoll(c, "K7Q2MX") }.code)
+        server.takeRequest()
+        assertFalse(on.hasSession)
+        assertFalse(on.cardClaimWaiting)
+    }
+
+    /** claim-confirm: the token, signed by this phone's applicant key; same_device → the kept answer and open(expect). */
+    @Test
+    fun theConfirmLinkOnTheSameDeviceOpensTheSession() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = cardOnboarding(vault)
+        val c = community()
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", K, cardForm)
+        val key = signedBy(server.takeRequest())
+
+        val account = LocalSigner.random()
+        server.enqueue(json(200, buildJsonObject {
+            put("confirmed", JsonPrimitive(true)); put("group", JsonPrimitive("pod-sourdough-ab12")); put("same_device", JsonPrimitive(true))
+            put("signed_in", JsonPrimitive(true)); put("bunker_url", JsonPrimitive(signer(account))); put("pubkey", JsonPrimitive(account.pubkey)); put("npub", JsonPrimitive("npub1x"))
+        }.toString()))
+        val got = kotlin.test.assertIs<Onboarding.CardConfirm.In>(on.cardClaimConfirm(c, "K7Q2MX", token))
+        sessions.add(got.session)
+        val r = server.takeRequest()
+        assertEquals("/api/v1/cards/K7Q2MX/claim-confirm", r.path)
+        val b = r.body.readUtf8()
+        assertEquals("""{"token":"$token"}""", b)
+        assertEquals(key, auth(r, b).pubkey, "signed by the key that started the claim")
+        assertEquals(account.pubkey, got.session.me)
+        assertEquals("pod-sourdough-ab12", got.group)
+        assertEquals(key, LocalSigner(SavedSession.fromJsonString(vault.get(Onboarding.V_SESSION)!!)!!.clientSecret).pubkey)
+        assertNull(vault.get(Onboarding.V_CARD_CLAIM))
+
+        // the lead's rule: the waiting screen's next poll answers 410: never "expired", it stops silently
+        server.enqueue(json(410, """{"error":"expired"}"""))
+        assertEquals(Onboarding.CardPoll.Taken, on.cardClaimPoll(c, "K7Q2MX"))
+    }
+
+    /** The lead's rule, the race: the poll's 410 arrives while the same-device confirm is being opened (its answer kept, the signer slow). */
+    @Test
+    fun aPollsExpiredAfterTheSameDevicesConfirmSaysNothing() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = cardOnboarding(vault)
+        val c = community()
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", K, cardForm)
+        server.takeRequest()
+        // claim-confirm answered same_device: its answer is kept, the session not open yet (the signer has not answered)
+        val account = LocalSigner.random()
+        vault.set(Onboarding.V_CARD_CLAIM, buildJsonObject {
+            put("community", c.toJson()); put("id", JsonPrimitive("K7Q2MX")); put("bunkerUrl", JsonPrimitive(signer(account))); put("pubkey", JsonPrimitive(account.pubkey))
+            put("group", JsonPrimitive("pod-sourdough-ab12")); put("at", JsonPrimitive(1_800_000_000L))
+        }.toString())
+        // the poll asks nothing then: it opens that kept answer, the same open(expect) path
+        val before = server.requestCount
+        val got = kotlin.test.assertIs<Onboarding.CardPoll.In>(on.cardClaimPoll(c, "K7Q2MX"))
+        sessions.add(got.session)
+        assertEquals(before, server.requestCount)
+        assertEquals(account.pubkey, got.session.me)
+        // and a 410 from then on is no expiry
+        server.enqueue(json(410, """{"error":"expired"}"""))
+        assertEquals(Onboarding.CardPoll.Taken, on.cardClaimPoll(c, "K7Q2MX"))
+    }
+
+    /** Confirmed for a claim this phone did not start: "Confirmed", no session; a phone with no key signs with one it never keeps. */
+    @Test
+    fun theConfirmLinkOnAnotherDevice() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = cardOnboarding(vault)
+        val c = community()
+        server.enqueue(json(200, """{"confirmed":true,"group":"pod-sourdough-ab12","same_device":false}"""))
+        assertEquals(Onboarding.CardConfirm.Elsewhere("pod-sourdough-ab12"), on.cardClaimConfirm(c, "K7Q2MX", token))
+        val r = server.takeRequest()
+        assertNotNull(r.getHeader("Authorization"))
+        assertNull(applicantKey(vault), "no key is kept for a link opened here")
+        assertFalse(on.hasSession)
+        // same_device claimed without this phone's key: the belfry's mistake, nothing opens
+        server.enqueue(json(200, """{"confirmed":true,"group":"pod-x-1","same_device":true,"signed_in":true,"bunker_url":"bunker://${"cd".repeat(32)}?relay=wss%3A%2F%2Fr.example.org","pubkey":"${"cd".repeat(32)}"}"""))
+        assertEquals(sh.belfry.core.model.CardError.FAILED, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimConfirm(c, "K7Q2MX", token) }.code)
+        server.takeRequest()
+        assertFalse(on.hasSession)
+        // every refusal, in the app's code; nothing is kept
+        for ((answer, code) in listOf(
+            json(410, """{"error":"expired"}""") to sh.belfry.core.model.CardError.EXPIRED,
+            json(404, """{"error":"not_found"}""") to sh.belfry.core.model.CardError.UNKNOWN,
+            json(409, """{"error":"claimed","group":"pod-x-1","invite":"AbCdEfGhIjKlMnOpQrStUvWx_-12"}""") to sh.belfry.core.model.CardError.CLAIMED,
+            json(409, """{"error":"hashtag_taken"}""") to sh.belfry.core.model.CardError.HASHTAG_TAKEN,
+            json(409, """{"error":"retired"}""") to sh.belfry.core.model.CardError.RETIRED,
+            json(409, """{"error":"own_key"}""") to sh.belfry.core.model.CardError.OWN_KEY,
+            json(409, """{"error":"agent"}""") to sh.belfry.core.model.CardError.AGENT,
+            json(409, """{"error":"key_taken"}""") to sh.belfry.core.model.CardError.KEY_TAKEN,
+            json(429, """{"error":"too_many"}""") to sh.belfry.core.model.CardError.TOO_MANY,
+            json(503, """{"error":"signer"}""") to sh.belfry.core.model.CardError.SIGNER,
+            json(200, """{"confirmed":false,"group":"pod-x-1"}""") to sh.belfry.core.model.CardError.FAILED,
+            json(200, """{"confirmed":true,"group":"a b"}""") to sh.belfry.core.model.CardError.FAILED,
+        )) {
+            server.enqueue(answer)
+            assertEquals(code, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimConfirm(c, "K7Q2MX", token) }.code)
+            server.takeRequest()
+            assertFalse(on.hasSession)
+            assertFalse(on.cardClaimWaiting)
+        }
+    }
+
+    /** A claim answered by the Confirm link while another account is open: it never switches by itself when resumed later. */
+    @Test
+    fun aConfirmedClaimResumedWithAnotherAccountOpenNeverSwitches() = runBlocking<Unit> {
+        val vault = MemoryVault()
+        val on = cardOnboarding(vault)
+        val c = community()
+        server.enqueue(json(202, """{"sent":true}"""))
+        on.cardClaimStart(c, "K7Q2MX", K, cardForm)
+        server.takeRequest()
+        val secret = applicantKey(vault)!!
+        // the signer did not answer when the confirm's session came: kept (the app was killed there)
+        val account = LocalSigner.random()
+        val kept = buildJsonObject {
+            put("community", c.toJson()); put("id", JsonPrimitive("K7Q2MX")); put("bunkerUrl", JsonPrimitive(signer(account))); put("pubkey", JsonPrimitive(account.pubkey))
+            put("group", JsonPrimitive("pod-sourdough-ab12")); put("at", JsonPrimitive(1_800_000_000L))
+        }.toString()
+        val again = cardOnboarding(vault)
+        val open = again.demo()
+        sessions.add(open)
+        vault.set(Onboarding.V_APPLICANT + ":example.org", secret)
+        vault.set(Onboarding.V_CARD_CLAIM, kept)
+        val (other, group) = again.resumeCardClaim(keepCurrent = open.accountId)!!
+        sessions.add(other)
+        assertEquals("pod-sourdough-ab12", group)
+        assertEquals(account.pubkey, other.me)
+        assertEquals(open.accountId, again.accounts.current, "never a silent switch")
+    }
+
+    /** The demo mails nothing: its poll waits for ever, its Confirm link has expired; nothing leaves the device. */
+    @Test
+    fun theDemosWaitingScreen() = runBlocking<Unit> {
+        val on = Onboarding(MemoryVault(), MemoryStore(), http, scope, { 1_800_000_000L }, ZoneOffset.UTC) { throw IOException("no network in the demo") }
+        val c = on.cardCommunity(sh.belfry.core.engine.Demo.DOMAIN)
+        on.cardClaimStart(c, "K7Q2MX", K, cardForm)
+        assertEquals(Onboarding.CardPoll.Waiting, on.cardClaimPoll(c, "K7Q2MX"))
+        assertEquals(sh.belfry.core.model.CardError.EXPIRED, assertFailsWith<sh.belfry.core.model.CardFailed> { on.cardClaimConfirm(c, "K7Q2MX", token) }.code)
+        assertEquals(0, server.requestCount)
     }
 }
