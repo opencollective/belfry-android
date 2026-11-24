@@ -32,7 +32,7 @@ class Enc3DeviceTest : DemoShots() {
     }
 
     private fun waitForText(text: String) =
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.mainClock.advanceTimeBy(100); compose.onAllNodesWithText(text, substring = true).fetchSemanticsNodes().isNotEmpty() }
 
     @Test fun shareGoesOncePerTap() {
         session.demoEnc3Device(base.copy(cards = listOf(card)))
@@ -69,7 +69,8 @@ class Enc3DeviceTest : DemoShots() {
         compose.waitUntil(10_000) { session.enc3Device.value.askedAt != null }
         assertNotNull(session.enc3Device.value.askedAt)
         try {
-            compose.waitUntil(10_000) { compose.onAllNodesWithText(EncDeviceText.ASKED_TITLE).fetchSemanticsNodes().isNotEmpty() }
+            // the frame clock moved on by hand: with nothing animating, a state that came from another thread may wait for a frame
+            compose.waitUntil(10_000) { compose.mainClock.advanceTimeBy(100); compose.onAllNodesWithText(EncDeviceText.ASKED_TITLE).fetchSemanticsNodes().isNotEmpty() }
         } catch (e: Throwable) {
             throw AssertionError("not shown; state ${session.enc3Device.value}; tree:\n" + compose.onRoot(useUnmergedTree = true).printToString(), e)
         }

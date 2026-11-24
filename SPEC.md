@@ -3423,6 +3423,42 @@ the screens of parts 4–6 (Who can read this, Ask for earlier messages, the dev
   with their words and Try again, never clear once encrypted, format 1 unchanged, mail out to the belfry key and mail
   in, the version-1 ports silent on format 3. The sealed v1 tests are unchanged.
 
+### 19.84 Encrypted conversations, format 3: the screens of people conversations (2026-11-24; Encrypted canvas encrypted/list, conversation, who-can-read, who-agent, laptop-who, state-fetching, state-held, not-before, email, email-who, not-large, edge-no-device, edge-no-device-group, edge-grew-100, edge-21st; collective-belfry docs/encrypted.md §1, §9, §11b, §17.5, §25; the web's `src/ui/WhoCanRead.tsx`, `Messages.tsx` on branch enc-v3)
+
+Part 4 of format 3 on Android: what people see of SPEC 19.83. Words: `core/engine/Enc3View.kt` `WhoText` (the web's, where
+the boards and the web differ the web's) and `EncText`.
+
+- **What the screens read**: `Session.enc3View` (`Enc3View`): `format3`, `encrypted(conv)` (a key of it held or a message
+  opened under one), `firstKeyAt(conv)`, `count(account)` (devices + readers of the current list; null while unknown),
+  `mine()` (my current list, when each key first appeared on my lists, this device's key; null = not set up),
+  `sessions()` (`/me/sessions`: the names of my devices, by client key). Null in the demo and for a guest; tests and
+  screenshots set `Session.demoEnc3View` (`DemoEnc3View`) and `demoEnc3State` (the demo itself stays format 1).
+- **The lock** next to the name at the top of a conversation, never in the Messages list (and on format 3 Notes to myself
+  has no lock in the list either): a people conversation `encrypted` here (the web's rule: none for a conversation never
+  encrypted, so a conversation over 100 devices from the start has no lock and says nothing, encrypted/not-large); an
+  e-mail thread whenever the device knows the belfry as format 3 (its mail is encrypted on the belfry, §10). The lock has
+  the words "Encrypted: see who can read this" (e-ink: never colour alone). On a format-3 belfry the version-1 lock and
+  Encryption screen never show in a conversation, nor version 1's device lines ("Maya added a device") and "Not sealed"
+  marks; the Notes line's lock opens Who can read this; format 1 is unchanged.
+- **Who can read this**: a ModalBottomSheet; beside the conversation (a 360 dp panel with Close) when the window is at least
+  1000 dp wide (encrypted/laptop-who). The lead line ("Only Maya’s devices and yours…", "Only the devices of the people
+  here…", "Only your devices…"); Others: each other person (a face, the name, "2 devices", "…" while the list is unknown),
+  never which devices, never expandable, then "You see how many devices others have, never which."; my name "(you)" with my
+  count, my devices by the name `/me/sessions` gives them ("A device" when it names none), "This device" marked in words,
+  "Added 12 Aug"; my agent (a reader on my list) as "Your agent · access given …". No list here: "This device isn’t set up
+  for encrypted messages yet." Then How it works (§1: what it protects and what the belfry still sees). In an e-mail thread:
+  "On the belfry, only your devices can read this conversation.", the correspondent "By e-mail · not on this belfry", and
+  the E-mail paragraph. The trash icon on my devices (the web's v19) is not here: removing a device is part 5's.
+- **Message states**: Opening this message… with a spinner, offline "Opens when you’re back online" (`Status.online`);
+  held (19.83's words, Try again · Cancel, Try again = `Session.retryHeldDms`); Not encrypted (19.83); "‹name› won’t get
+  this"; the not-before line "Messages after this are encrypted. Earlier ones are not." once, before the first message at
+  or after the conversation's first key, when an unencrypted (`plain`, not e-mail) message came before it.
+- **The 21st device** (encrypted/edge-21st) in Messages: "You have 20 devices signed in" / "Remove one to read encrypted
+  messages here." / "Your devices ›" (Me → Signed-in sessions).
+- Tests: `Enc3ScreensTest` (the lock only where encrypted, v1's lock never on format 3 and kept on format 1, no lock in the
+  list, my device names and only counts for others, my agent, the e-mail explanation, Try again calls the retry, the
+  not-before line once); pictures `Enc3ScreensShotsTest`.
+
 ### 19.85 Encrypted conversations, format 3: a new device, the card on my other devices, the warnings, the first screen, the removed device (2026-11-24; collective-belfry docs/encrypted.md §7, §11, §12, §16.3, §16.6, §16.12, §17.6, §17.7, §18.3, §20, §26, §28; the web's `src/core/enc/runtime.ts`, `src/ui/EarlierLine.tsx`, `App.tsx`, `Sealed.tsx` on branch enc-v3; Encrypted canvas encrypted/new-*, transition, card*, laptop-card, removed-device, signout-only, lost-all*, edge-added-removed, edge-two-lists, first-screen)
 
 Part 5 of format 3 on Android. Pure rules and every word: `core/enc/Device.kt` (`EncDevice`, `EncDeviceText`,

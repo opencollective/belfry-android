@@ -897,7 +897,18 @@ internal fun Enc3SetupLine(st: sh.belfry.core.engine.Enc3State) {
     ) {
         Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))
-        Text(text, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
+        if (st.here == sh.belfry.core.engine.Here.FULL) {
+            // encrypted/edge-21st (SPEC 19.84): its final words, and the way to remove one
+            val nav = sh.belfry.app.ui.nav.LocalNav.current
+            Column(Modifier.weight(1f)) {
+                Text(sh.belfry.core.engine.WhoText.FULL_TITLE, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                Text(sh.belfry.core.engine.WhoText.FULL_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text)
+                Text(
+                    sh.belfry.core.engine.WhoText.YOUR_DEVICES + " ›", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text,
+                    modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.SESSIONS) }.padding(vertical = 2.dp).testTag("enc3-your-devices"),
+                )
+            }
+        } else Text(text, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))
         if (st.tryAgain) {
             Spacer(Modifier.width(8.dp))
             sh.belfry.app.ui.kit.BusyButton(sh.belfry.core.enc.EncText.TRY_AGAIN, { session.enc3TryAgain() }, kind = sh.belfry.app.ui.kit.ButtonKind.Ghost, small = true, modifier = Modifier.testTag("enc3-try-again"))

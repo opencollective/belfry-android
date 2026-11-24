@@ -150,7 +150,7 @@ fun MessagesScreen(
             }
             items(rows, key = { it.conv }) { r ->
                 val t = r.thread
-                if (r.notes) NotesRow(r, dms, world, now, sealed = seal.seal(r.conv) != null, locked = r.conv in seal.locked) { nav.go(Routes.conversation(r.conv)) }
+                if (r.notes) NotesRow(r, dms, world, now, sealed = seal.seal(r.conv) != null && session.enc3View?.format3 != true, /* encrypted/list: no lock in the list on format 3 */ locked = r.conv in seal.locked) { nav.go(Routes.conversation(r.conv)) }
                 else if (t != null) ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) }
             }
             // part 5 (encrypted/new-list, new-asked, transition, lost-all): where the oldest conversations are

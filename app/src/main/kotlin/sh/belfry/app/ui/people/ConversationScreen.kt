@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -130,6 +131,13 @@ fun ConversationScreen(conv: String) {
     val sealState by session.encryption.state.collectAsState()
     val seal = if (newMail) null else sealState.seal(conv)
     val openNotice = rememberNoticeOpener(conv)
+    // format 3 (SPEC 19.84): the lock next to the name opens Who can read this; on a format-3 belfry the v1 lock never shows
+    val enc3 = session.enc3View
+    val format3 = enc3?.format3 == true
+    val enc3Lock = enc3?.locks(conv, mail, newMail) == true
+    val firstEnc = if (enc3 != null && !mail) enc3.firstKeyAt(conv) else null
+    var whoOpen by remember(conv) { mutableStateOf(false) }
+    val beside = whoBeside()
     // a sealed conversation opened: its people's chains asked again, kept messages tried again (§4)
     LaunchedEffect(conv, seal != null) { if (seal != null) session.sealedOpened(conv) }
     // a device not yet allowed (canvas v84): messages from before the conversation was sealed read
@@ -139,9 +147,10 @@ fun ConversationScreen(conv: String) {
     val v1Ui = !enc3Dev.on
     val lockedHere = v1Ui && seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
-    val rows: List<Any> = remember(inline, seal, until) {
+    val rows: List<Any> = remember(inline, seal, until, firstEnc, format3) {
         val shown = DmGroups.collapse(inline.filter { it.at < until })
-        val merged = if (seal == null || seal.notices.isEmpty()) shown
+        // format 3: version 1's device lines never show (other people's devices are a count in Who can read this)
+        val merged = if (seal == null || seal.notices.isEmpty() || format3) shown
         else (shown.map { r -> (if (r is DmGroup) r.at else (r as Dm).at) to r } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
         // history someone shared with this device (canvas v86): a "Shared by" line above each block
         val out = ArrayList<Any>()
@@ -153,7 +162,8 @@ fun ConversationScreen(conv: String) {
             out.add(r)
         }
         if (lockedHere) out.add(LockedHere)
-        out
+        // encrypted/not-before: one line where the unencrypted messages end (format 3)
+        withNotBefore(out, firstEnc, { r -> when (r) { is Dm -> r.at; is DmGroup -> r.at; else -> null } }) { r -> (r as? Dm)?.let { it.plain && !it.isMail } ?: ((r as? DmGroup)?.files?.any { it.plain } == true) }
     }
     fun atOf(r: Any): Long? = when (r) {
         is Dm -> r.at
@@ -176,7 +186,8 @@ fun ConversationScreen(conv: String) {
     LaunchedEffect(conv, list.size, started) { if (started) session.markRead(conv) }
     if (mail) LaunchedEffect(conv) { session.checkReports() }
 
-    Column(Modifier.fillMaxSize().background(c.bg).imePadding()) {
+    Row(Modifier.fillMaxSize()) {
+    Column(Modifier.weight(1f).fillMaxHeight().background(c.bg).imePadding()) {
         // one-shape header (docs/one-shape.md 2): the name, then ✓ · 📁 · 🖼 (no people count, no
         // face); an e-mail thread's line 2 says who it is with. A tap on one person's name: their profile.
         val dmFiles = list.mapNotNull { it.file }
@@ -190,14 +201,15 @@ fun ConversationScreen(conv: String) {
             pullLabel = peer?.let { "Open ${world.displayName(it)}'s profile" },
             // while this device waits to be allowed, every conversation shows the lock (the lead, 2026-11-22):
             // it can't know which are sealed until it can read them
-            titleMark = if (seal != null || (!newMail && (sealState.earlierLocked || sealState.waitingKeys))) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
+            titleMark = if (enc3Lock) ({ Enc3Lock { whoOpen = !whoOpen } })
+            else if (!format3 && (seal != null || (!newMail && (sealState.earlierLocked || sealState.waitingKeys)))) ({ SealLock { nav.go(Routes.encryption(conv)) } }) else null,
             actions = {
                 if (mail && !newMail) IconAction(BelfryIcons.Plus, "New e-mail to $who", { nav.go(Routes.conversation("m:$address")) })
             },
         )
         // Notes to myself (docs/one-shape.md, SPEC 19.66): the screen starts with one fixed line; the lock and the
         // "nobody else" sentence only when sealed
-        if (toSelf) NotesLine(sealed = seal != null) { nav.go(Routes.encryption(conv)) }
+        if (toSelf) NotesLine(sealed = enc3Lock || (seal != null && !format3)) { if (enc3Lock) whoOpen = true else nav.go(Routes.encryption(conv)) }
         if (rows.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 EmptyState(
@@ -224,10 +236,12 @@ fun ConversationScreen(conv: String) {
                         is DmGroup -> "group:" + r.key
                         is DeviceNotice -> "notice:" + r.id
                         is SharedBlock -> "shared:" + r.by + ":" + r.from
+                        NotBefore -> "not-before"
                         else -> "locked"
                     }
                 }) { i, r ->
-                    val prev = rows.getOrNull(i - 1)
+                    // the not-before line carries no date: the day separator looks past it
+                    val prev = rows.getOrNull(i - 1)?.let { p -> if (p === NotBefore) rows.getOrNull(i - 2) else p }
                     val at = atOf(r)
                     val prevAt = prev?.let { atOf(it) }
                     if (at != null && (prevAt == null || world.dayOf(prevAt) != world.dayOf(at))) DaySeparator(ChatFormat.day(world, at, now))
@@ -237,9 +251,9 @@ fun ConversationScreen(conv: String) {
                             val replies = dms.replies(conv, r.rid).size
                             val openReplies = if (replies > 0) ({ nav.go(Routes.dmThread(conv, r.rid)) }) else null
                             if (shared) {
-                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies) }
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (!format3 && (seal?.isNotSealed(r.at) == true || r.notSealed)) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies) }
                             } else {
-                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies)
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (!format3 && (seal?.isNotSealed(r.at) == true || r.notSealed)) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies)
                             }
                         }
                         is DmGroup -> FilesBubble(r, dms, world, group = peers.size > 1, onMenu = { rid, emojiOnly -> acting = rid to emojiOnly }) {
@@ -247,6 +261,7 @@ fun ConversationScreen(conv: String) {
                         }
                         is DeviceNotice -> DeviceNoticeRow(r, world) { openNotice(r) }
                         is SharedBlock -> SharedByRow(r, world) { why = r }
+                        NotBefore -> NotBeforeLine()
                         else -> LockedBlock(sealState) { nav.go(Routes.UNLOCK_STEPS) }
                     }
                 }
@@ -313,6 +328,10 @@ fun ConversationScreen(conv: String) {
         )
         if (plusOpen) DmPlusSheet(conv, composer, onClose = { plusOpen = false }, onRecord = { recording = true })
         if (recording) DmRecorderSheet(conv) { recording = false }
+        if (whoOpen && enc3Lock && !beside) WhoCanReadSheet(conv) { whoOpen = false }
+    }
+    // encrypted/laptop-who: beside the conversation when the window has room for both
+    if (whoOpen && enc3Lock && beside) WhoCanReadPanel(conv) { whoOpen = false }
     }
 }
 
@@ -374,7 +393,12 @@ internal fun Bubble(d: Dm, dms: DmSnapshot, world: World, group: Boolean, onMenu
             }
             if (d.opening) {
                 // format 3 (§9): its key is here, the author's lists are coming (or offline)
-                Text(sh.belfry.core.enc.EncText.OPENING, fontSize = 15.sp, color = c.muted, modifier = Modifier.testTag("dm-opening"))
+                // encrypted/state-fetching: a spinner while it opens; offline, when it will
+                val online = sh.belfry.app.ui.nav.LocalStatus.current.online
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("dm-opening")) {
+                    if (online) { Spinner(size = 12.dp); Spacer(Modifier.width(8.dp)) }
+                    Text(if (online) sh.belfry.core.enc.EncText.OPENING else sh.belfry.core.engine.WhoText.OPENS_ONLINE, fontSize = 15.sp, color = c.muted)
+                }
             } else if (d.text.isNotEmpty()) {
                 MarkdownText(d.text, rich = false, color = if (d.pending) c.muted else c.text)
             } else if (d.attachments.isEmpty()) {
