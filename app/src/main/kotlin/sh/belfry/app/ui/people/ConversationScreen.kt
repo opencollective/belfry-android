@@ -133,7 +133,9 @@ fun ConversationScreen(conv: String) {
     val openNotice = rememberNoticeOpener(conv)
     // format 3 (SPEC 19.84): the lock next to the name opens Who can read this; on a format-3 belfry the v1 lock never shows
     val enc3 = session.enc3View
-    val format3 = enc3?.format3 == true
+    // the one switch for version-1 lock screens (Session.format3Here): never on a format-3 belfry, runtime up or not
+    val f3here by session.format3Here.collectAsState()
+    val format3 = enc3?.format3 == true || f3here
     val enc3Lock = enc3?.locks(conv, mail, newMail) == true
     val firstEnc = if (enc3 != null && !mail) enc3.firstKeyAt(conv) else null
     var whoOpen by remember(conv) { mutableStateOf(false) }
@@ -144,7 +146,7 @@ fun ConversationScreen(conv: String) {
     // as usual, then one amber block in place of the rest; no composer
     // format 3 (SPEC 19.85): the version-1 locked block, waiting lines and Start fresh never show on a format-3 belfry
     val enc3Dev by rememberEnc3Device()
-    val v1Ui = !enc3Dev.on
+    val v1Ui = !enc3Dev.on && !f3here
     val lockedHere = v1Ui && seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
     // format 3 (SPEC 19.86): version 1's "Shared by" history lines never show on a format-3 belfry (format 1 keeps them)

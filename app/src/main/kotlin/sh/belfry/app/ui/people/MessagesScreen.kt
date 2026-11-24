@@ -105,6 +105,9 @@ fun MessagesScreen(
     val enc3 by session.enc3State.collectAsState()
     // format 3, part 5 (SPEC 19.85): on a format-3 belfry the version-1 Allow / waiting / Start fresh screens never show
     val dev by rememberEnc3Device()
+    // the one switch for version-1 lock screens (Session.format3Here): never on a format-3 belfry, runtime up or not
+    val f3here by session.format3Here.collectAsState()
+    val v1Off = dev.on || f3here
     Column(Modifier.fillMaxSize().background(c.bg)) {
         // the address small under the title; a tap copies it (home/messages, Home canvas v4)
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -129,12 +132,12 @@ fun MessagesScreen(
             if (dms.unreadableCount > 0 && !dev.on) item(key = "enc3-unreadable") { Enc3CountLine(sh.belfry.core.enc.EncText.unreadable(dms.unreadableCount), "enc3-unreadable") }
             if (dms.openingCount > 0) item(key = "enc3-opening") { Enc3CountLine(sh.belfry.core.enc.EncText.opening(dms.openingCount), "enc3-opening") }
             // a device of mine added without a prompt here (canvas v183): on top, until answered
-            if (!dev.on && (seal.added.isNotEmpty() || seal.removedJoinerAt > 0L)) item(key = "seal-added") { AddedDeviceCards() }
+            if (!v1Off && (seal.added.isNotEmpty() || seal.removedJoinerAt > 0L)) item(key = "seal-added") { AddedDeviceCards() }
             // a new device (canvas messages/encryption-new-device): earlier messages are locked here; and
             // sealed messages that came but can't be opened here show in no conversation, so the banner
             // says how many wait (Xavier's mail to himself on a phone not yet allowed, 2026-11-22)
             val waitingN = maxOf(dms.lockedCount, seal.demoWaiting)
-            if (dev.on) {
+            if (v1Off) {
                 // format 3: version-1 messages this device never had are the same Ask (encrypted/transition), at the bottom
             } else if (seal.waitingFor.isNotEmpty() && !seal.earlierLocked) {
                 // an older device, a letterbox behind (canvas Messages v8 messages/encryption-waiting-device, sealed.md
@@ -151,7 +154,7 @@ fun MessagesScreen(
             items(rows, key = { it.conv }) { r ->
                 val t = r.thread
                 // encrypted/list: no lock in the list on a format-3 belfry (SPEC 19.84 / 19.86), the version-1 locked look neither
-                val f3 = session.enc3View?.format3 == true || dev.on
+                val f3 = session.enc3View?.format3 == true || v1Off
                 if (r.notes) NotesRow(r, dms, world, now, sealed = seal.seal(r.conv) != null && !f3, locked = !f3 && r.conv in seal.locked) { nav.go(Routes.conversation(r.conv)) }
                 else if (t != null) ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) }
             }
