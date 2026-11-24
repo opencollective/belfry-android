@@ -18,6 +18,7 @@ import sh.belfry.core.model.GroupEncText
 class Enc3GroupsShotsTest : DemoShots() {
     private val g = Enc3GroupsFixture.G
 
+    @androidx.compose.runtime.Composable
     private fun chat() = ChannelScreen(g, onMenu = {})
 
     private fun openWho(wait: String) {

@@ -538,7 +538,18 @@ class Enc3GroupsTest {
         nowMs += 5000
         groups += members(alice.pubkey, bob.pubkey, at = now())
         a.gr.forgetMembers(g)
-        b.receive(a.send("three").second)
+        val (s3, o3) = a.send("three")
+        b.receive(o3)
+        // the members are those of the first key again: that key's entry set is exactly theirs, so it is the one used
+        // (Carol never had it); her devices have no entry in it
+        assertFalse(carolPhone.pubkey in b.gr.entriesOf(g, s3.key))
+        assertEquals(listOf(alicePhone.pubkey, bobPhone.pubkey).sorted(), b.gr.entriesOf(g, s3.key))
+        // a list change makes a new key without her: "Carol can no longer read" from the key before
+        val laptop = LocalSigner.random()
+        val bob2 = list(bob.pubkey, 2, bobList, listOf(bobPhone.pubkey, laptop.pubkey))
+        main += bob2; a.e3.offer(listOf(bob2)); b.e3.offer(listOf(bob2))
+        nowMs += 5000
+        b.receive(a.send("four").second)
         assertEquals(listOf(carol.pubkey), b.gr.keyChanges(g, listOf(alice.pubkey, bob.pubkey, carol.pubkey)).last().removed)
     }
 
