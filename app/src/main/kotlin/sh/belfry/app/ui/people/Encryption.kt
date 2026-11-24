@@ -751,11 +751,11 @@ internal fun NotSealedMark(onClick: () -> Unit, label: String = SealedText.NOT_S
 
 @Composable
 internal fun NotSealedSheet(why: String = SealedText.NOT_SEALED_WHY, onClose: () -> Unit) {
-    BelfrySheet(onDismiss = onClose) { NotSealedContent(onClose, why) }
+    BelfrySheet(onDismiss = onClose) { NotSealedContent(why, onClose) }
 }
 
 @Composable
-fun NotSealedContent(onClose: () -> Unit, why: String = SealedText.NOT_SEALED_WHY) {
+fun NotSealedContent(why: String = SealedText.NOT_SEALED_WHY, onClose: () -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("seal-not-sealed-why")) {
         Text(why, fontSize = 16.sp, lineHeight = 22.sp, color = Belfry.colors.text)
         Spacer(Modifier.height(16.dp))
