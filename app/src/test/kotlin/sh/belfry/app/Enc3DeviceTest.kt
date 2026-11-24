@@ -6,6 +6,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -66,7 +68,11 @@ class Enc3DeviceTest : DemoShots() {
         compose.onNodeWithTag("enc3-ask").performClick()
         compose.waitUntil(10_000) { session.enc3Device.value.askedAt != null }
         assertNotNull(session.enc3Device.value.askedAt)
-        compose.waitUntil(10_000) { compose.onAllNodesWithText(EncDeviceText.ASKED_TITLE).fetchSemanticsNodes().isNotEmpty() }
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodesWithText(EncDeviceText.ASKED_TITLE).fetchSemanticsNodes().isNotEmpty() }
+        } catch (e: Throwable) {
+            throw AssertionError("not shown; state ${session.enc3Device.value}; tree:\n" + compose.onRoot(useUnmergedTree = true).printToString(), e)
+        }
         compose.onNodeWithText(EncDeviceText.askedText(listOf("Safari on iPhone"))).assertIsDisplayed()
     }
 
