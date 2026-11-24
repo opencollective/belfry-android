@@ -1,5 +1,9 @@
 package sh.belfry.app.ui.people
 
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -37,8 +41,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BusyButton
@@ -289,10 +291,19 @@ internal fun Enc3EarlierLine(where: EarlierWhere) {
 fun Enc3FirstScreenHost() {
     val st by rememberEnc3Device()
     val session = LocalSession.current
-    if (st.on && st.firstScreen.isNotEmpty()) Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)) {
-        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(Belfry.colors.bg)) {
-            Enc3FirstScreenContent(st.firstScreen, LocalWorld.current.ctx.zone, onRemove = { session.enc3RemoveFirst(it) }, onContinue = { session.enc3FirstScreenOk() })
-        }
+    // Xavier on a Pixel with 0.9.1 (2026-11-24): "Can't do anything but removing devices." It was a Dialog whose window is
+    // smaller than the display on a phone (the system bars), so the full-height content was cut off at the bottom with
+    // Continue. Now an overlay in the app's own window; system back = Continue; Continue always leaves, even when saving fails.
+    var left by remember { mutableStateOf(false) }
+    if (left || !st.on || st.firstScreen.isEmpty()) return
+    val leave: () -> Unit = { left = true; try { session.enc3FirstScreenOk() } catch (e: Exception) { } }
+    androidx.activity.compose.BackHandler { leave() }
+    androidx.compose.foundation.layout.Box(
+        Modifier.fillMaxSize().background(Belfry.colors.bg)
+            .pointerInput(Unit) { detectTapGestures { } } // nothing under it can be tapped
+            .testTag("enc3-first-overlay"),
+    ) {
+        Enc3FirstScreenContent(st.firstScreen, LocalWorld.current.ctx.zone, onRemove = { session.enc3RemoveFirst(it) }, onContinue = { leave() })
     }
 }
 
@@ -302,7 +313,9 @@ fun Enc3FirstScreenContent(rows: List<FirstRow>, zone: ZoneId, onRemove: suspend
     val world = LocalWorld.current
     var removing by remember { mutableStateOf<FirstRow?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp).testTag("enc3-first-screen")) {
+    val nowSeconds = LocalSession.current.now()
+    // the list scrolls; Continue is pinned under it, above the navigation bar, always on screen
+    Column(Modifier.fillMaxSize().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.safeDrawing).padding(horizontal = 20.dp).testTag("enc3-first-screen")) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Spacer(Modifier.height(28.dp))
             Icon(BelfryIcons.Shield, contentDescription = null, tint = c.text, modifier = Modifier.size(32.dp))
@@ -320,7 +333,7 @@ fun Enc3FirstScreenContent(rows: List<FirstRow>, zone: ZoneId, onRemove: suspend
                         Column(Modifier.weight(1f)) {
                             val name = if (r.reader) world.face(r.device).name else r.name ?: EncDeviceText.NEW_DEVICE
                             Text(name, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text)
-                            Text(if (r.reader) EncDeviceText.agentSince(r.addedAt, zone) else EncDeviceText.added(r.addedAt, zone), fontSize = 13.sp, color = c.muted)
+                            Text(if (r.reader) EncDeviceText.agentSince(r.addedAt, zone) else EncDeviceText.deviceLine(r.addedAt, r.lastActive, nowSeconds, zone), fontSize = 13.sp, color = c.muted)
                         }
                         BusyButton(EncDeviceText.REMOVE, { error = null; removing = r }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("enc3-first-remove"))
                     }

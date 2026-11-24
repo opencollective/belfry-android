@@ -406,7 +406,7 @@ class Enc3Devices(private val enc3: Enc3, private val ports: Enc3DevicePorts, pr
         }
         val older = EncDevice.older(c, device.pubkey).map { DeviceName(it, nameOf(it)) }
         val first = if (firstScreenSeen || firstScreenDone) emptyList() else EncDevice.firstScreen(c, device.pubkey)
-            .filter { it.device !in removedFirst }.map { it.copy(name = nameOf(it.device)) }
+            .filter { it.device !in removedFirst }.map { it.copy(name = nameOf(it.device), lastActive = EncDeviceText.isoSeconds(sessionRows[it.device]?.lastActivity)) }
         // part 6: the devices whose card was answered "shared" (here or by another device of mine)
         val sharedWith = HashSet<String>()
         answeredHere().forEach { (d, a) -> if (a.second == AnswerWord.SHARED) sharedWith += d }

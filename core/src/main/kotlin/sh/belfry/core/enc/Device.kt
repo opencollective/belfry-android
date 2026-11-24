@@ -39,7 +39,7 @@ data class DeviceCard(
 )
 
 /** A row of the first screen after sign-in (§18.3): a device (or my agent, a reader) already on my list, since ADDED_AT. */
-data class FirstRow(val device: String, val addedAt: Long, val reader: Boolean = false, val name: String? = null)
+data class FirstRow(val device: String, val addedAt: Long, val reader: Boolean = false, val name: String? = null, /** When /me/sessions says it was last active (seconds), so rows with one name can be told apart. */ val lastActive: Long? = null)
 
 /** §16.6: what `GET /api/v1/sessions/removed` said. */
 data class RemovedAnswer(val removed: Boolean, val at: Long = 0, val byName: String? = null) {
