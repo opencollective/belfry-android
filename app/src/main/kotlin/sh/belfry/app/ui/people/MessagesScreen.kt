@@ -156,7 +156,7 @@ fun MessagesScreen(
                 // encrypted/list: no lock in the list on a format-3 belfry (SPEC 19.84 / 19.86), the version-1 locked look neither
                 val f3 = session.enc3View?.format3 == true || v1Off
                 if (r.notes) NotesRow(r, dms, world, now, sealed = seal.seal(r.conv) != null && !f3, locked = !f3 && r.conv in seal.locked) { nav.go(Routes.conversation(r.conv)) }
-                else if (t != null) ThreadRow(t, dms, world, now, locked = t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) }
+                else if (t != null) ThreadRow(t, dms, world, now, locked = !f3 && t.conv in seal.locked) { nav.go(Routes.conversation(t.conv)) }
             }
             // part 5 (encrypted/new-list, new-asked, transition, lost-all): where the oldest conversations are
             if (dev.on) item(key = "enc3-earlier") { Enc3EarlierLine(EarlierWhere.LIST) }
