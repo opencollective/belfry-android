@@ -139,6 +139,9 @@ fun ConversationScreen(conv: String) {
     val enc3Lock = enc3?.locks(conv, mail, newMail) == true
     val firstEnc = if (enc3 != null && !mail) enc3.firstKeyAt(conv) else null
     var whoOpen by remember(conv) { mutableStateOf(false) }
+    // Notes to myself on a format-3 belfry (Xavier, Encrypted canvas v33 encrypted/notes-self): "Encrypted for your N
+    // devices" under the name, N = the devices on my current list (not my agent); null while this device has no list
+    val notesDevices: Int? = if (toSelf && format3) enc3?.mine()?.devices?.size?.takeIf { it > 0 } else null
     val beside = whoBeside()
     // a sealed conversation opened: its people's chains asked again, kept messages tried again (§4)
     LaunchedEffect(conv, seal != null) { if (seal != null) session.sealedOpened(conv) }
@@ -199,10 +202,12 @@ fun ConversationScreen(conv: String) {
         sh.belfry.app.ui.kit.OneHeader(
             title,
             items = if (mail) listOf(sh.belfry.app.ui.kit.RowItem("lead", BelfryIcons.Mail, sub, "E-mail with $sub", lead = true))
+            else if (notesDevices != null) listOf(sh.belfry.app.ui.kit.RowItem("notes-devices", null, sh.belfry.core.enc.EncText.notesDevices(notesDevices), sh.belfry.core.enc.EncText.notesDevices(notesDevices)))
             else sh.belfry.app.ui.chat.dmRowItems(0, dmFiles.size - dmPhotos + list.sumOf { it.attachments.size }, dmPhotos),
             navigation = { BackButton { nav.back() } },
-            onPull = peer?.let { p -> { nav.go(Routes.profile(p)) } },
-            pullLabel = peer?.let { "Open ${world.displayName(it)}'s profile" },
+            // Notes to myself on format 3 (encrypted/notes-self): a tap on the header opens Who can read this
+            onPull = if (notesDevices != null) ({ whoOpen = true }) else peer?.let { p -> { nav.go(Routes.profile(p)) } },
+            pullLabel = if (notesDevices != null) "Who can read this" else peer?.let { "Open ${world.displayName(it)}'s profile" },
             // while this device waits to be allowed, every conversation shows the lock (the lead, 2026-11-22):
             // it can't know which are sealed until it can read them
             titleMark = if (enc3Lock) ({ Enc3Lock { whoOpen = !whoOpen } })
@@ -213,7 +218,8 @@ fun ConversationScreen(conv: String) {
         )
         // Notes to myself (docs/one-shape.md, SPEC 19.66): the screen starts with one fixed line; the lock and the
         // "nobody else" sentence only when sealed
-        if (toSelf) NotesLine(sealed = enc3Lock || (seal != null && !format3)) { if (enc3Lock) whoOpen = true else nav.go(Routes.encryption(conv)) }
+        // on format 3 the header's subline says it (encrypted/notes-self); the fixed line stays for version 1
+        if (toSelf && notesDevices == null) NotesLine(sealed = enc3Lock || (seal != null && !format3)) { if (enc3Lock) whoOpen = true else nav.go(Routes.encryption(conv)) }
         if (rows.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 EmptyState(

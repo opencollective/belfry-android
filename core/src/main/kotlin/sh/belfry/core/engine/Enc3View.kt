@@ -109,7 +109,7 @@ object WhoText {
     /** The first line: whose devices can read it (FIRST = each other person's first name). */
     fun lead(mail: Boolean, first: List<String>): String = when {
         mail -> MAIL_LEAD
-        first.isEmpty() -> "Only your devices can read this conversation."
+        first.isEmpty() -> "Only your devices can read your notes." // Notes to myself (encrypted/notes-self-who)
         first.size == 1 -> "Only ${first[0]}’s devices and yours can read this conversation."
         else -> "Only the devices of the people here can read this conversation."
     }

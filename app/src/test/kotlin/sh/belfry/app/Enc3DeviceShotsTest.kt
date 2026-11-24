@@ -10,14 +10,12 @@ import org.junit.Test
 import org.robolectric.annotation.Config
 import sh.belfry.app.ui.nav.LocalWorld
 import sh.belfry.app.ui.people.ConversationScreen
-import sh.belfry.app.ui.people.Enc3FirstScreenContent
 import sh.belfry.app.ui.people.Enc3OnlyDeviceDialog
 import sh.belfry.app.ui.people.MessagesScreen
 import sh.belfry.app.ui.people.RemovedDeviceScreen
 import sh.belfry.core.enc.DeviceCard
 import sh.belfry.core.enc.DeviceName
 import sh.belfry.core.enc.Enc3DeviceState
-import sh.belfry.core.enc.FirstRow
 import sh.belfry.core.enc.RemovedHere
 import sh.belfry.core.engine.Demo
 
@@ -130,15 +128,6 @@ class Enc3DeviceShotsTest : DemoShots() {
     @Test fun strangeEntry() {
         state(base.copy(strange = true))
         demoShot("enc3-edge-strange") { MessagesScreen() }
-    }
-
-    @Test fun firstScreen() {
-        val rows = listOf(
-            FirstRow(iphone.key, DemoShots.NOW - 90 * 86_400, name = iphone.name),
-            FirstRow(mac.key, DemoShots.NOW - 40 * 86_400, name = mac.name),
-            FirstRow(Demo.maya.pubkey, DemoShots.NOW - 40 * 86_400, reader = true),
-        )
-        demoShot("enc3-first-screen") { Enc3FirstScreenContent(rows, LocalWorld.current.ctx.zone, onRemove = {}, onContinue = {}) }
     }
 
     @Test fun removedDevice() = demoShot("enc3-removed-device") {

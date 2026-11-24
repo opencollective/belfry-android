@@ -114,6 +114,8 @@ object EncWrites {
 
 /** The words of format 3's holds and of this device's set-up line (wording not final: part 4 draws the screens). */
 object EncText {
+    /** The subline under Notes to myself's name on a format-3 belfry (Xavier, Encrypted canvas v33 encrypted/notes-self). */
+    fun notesDevices(n: Int): String = if (n == 1) "Encrypted for your device" else "Encrypted for your $n devices"
     const val NOT_SET_UP = "This device isn’t set up for encrypted messages yet"
     const val TRY_AGAIN = "Try again"
     const val FULL = "You have 20 devices signed in · Remove one to read encrypted messages here"

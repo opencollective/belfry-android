@@ -3545,6 +3545,8 @@ cards) keep showing, and on format 3 they never do.
   across restarts; the only device), `Enc3DeviceTest` (Robolectric: Share once per tap, Remove asks first, Ask once,
   nothing on format 1), `Enc3DeviceShotsTest` (pictures, by hand).
 
+**The first screen is removed (Xavier, 2026-11-24, Encrypted canvas v33).** No "These devices can read your messages" screen after sign-in (in 0.9.1 it could not be left on a phone; 0.9.2 made it leavable; 0.9.3 removes it). Instead, Notes to myself's header on a format-3 belfry says "Encrypted for your N devices" (N = the devices on my current list, my agent not counted; "your device" for one), and a tap on the header opens Who can read this ("Only your devices can read your notes."). The fixed first line of Notes stays for version 1 only. The core still works out `Enc3DeviceState.firstScreen`; nothing shows it.
+
 ### 19.86 Encrypted conversations, format 3: Me › Devices, One device, my agent's access, the reader card (2026-11-24; collective-belfry docs/encrypted.md §11, §16.5, §17.4, §17.9, §18.3, §28; the web's `src/ui/WhoCanRead.tsx` `EncDevicesScreen` / `AgentAccess` / `RemoveSheet`, `src/ui/EarlierLine.tsx`, `Profile.tsx`, `Sealed.tsx` on branch enc-v3, f76fec5; Encrypted canvas encrypted/devices, device, devices-agent, agent-access, agent-access-confirm, agent-access-on, edge-agent-card, card-remove)
 
 Part 6 of format 3 on Android. Words: `core/enc/Device.kt` `EncDeviceText` (the web's where it shipped words different from

@@ -188,7 +188,7 @@ private fun SignedIn(state: AppState, session: Session) {
                 GuestJoinHost(onSignIn = { email, channel, moved, nip05 -> state.signInInstead(email, channel, moved, nip05) })
                 sh.belfry.app.ui.people.SealAskHost()
                 sh.belfry.app.ui.people.FreshElsewhereHost()
-                sh.belfry.app.ui.people.Enc3FirstScreenHost() // format 3 (SPEC 19.85, encrypted/first-screen)
+                // no first screen of devices (Xavier, 2026-11-24: "I'd just remove this message altogether"; Encrypted canvas v33)
                 OpenAfterSignIn(state)
                 JoinOffer(state)
                 sh.belfry.app.ui.printed.CardHost(state) // a printed card's address (SPEC 19.72)

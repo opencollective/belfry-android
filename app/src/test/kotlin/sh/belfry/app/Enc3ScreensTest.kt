@@ -49,6 +49,22 @@ class Enc3ScreensTest : DemoShots() {
         assertEquals(0, count("enc3-lock"))
     }
 
+    /**
+     * Notes to myself on format 3 (Xavier, Encrypted canvas v33 encrypted/notes-self, -who): "Encrypted for your N devices"
+     * under the name, a tap opens Who can read this ("Only your devices can read your notes."); no fixed first line.
+     */
+    @Test fun notesSaySoInTheHeader() {
+        val notes = "n:" + session.me
+        Enc3Fixture.install(session, mapOf(notes to DemoShots.NOW - 40 * 86400L))
+        compose.setContent { sh.belfry.app.ui.theme.BelfryTheme { InDemo { ConversationScreen(notes) } } }
+        compose.waitForIdle()
+        compose.onNodeWithText("Encrypted for your 3 devices", useUnmergedTree = true).assertExists()
+        assertEquals(0, count("notes-line-sealed") + count("notes-line-unsealed"))
+        compose.onNodeWithText("Encrypted for your 3 devices", useUnmergedTree = true).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("Only your devices can read your notes.").assertExists()
+    }
+
     /** The Messages list shows no lock on format 3 (encrypted/list). */
     @Test fun noLockInTheList() {
         Enc3Fixture.install(session, mapOf(maya to DemoShots.NOW - 40 * 86400L, "n:" + session.me to DemoShots.NOW - 40 * 86400L))
