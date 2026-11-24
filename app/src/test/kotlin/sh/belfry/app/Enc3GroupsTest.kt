@@ -135,7 +135,7 @@ class Enc3GroupsTest : DemoShots() {
         show { ChannelScreen(g, onMenu = {}) }
         waitForText("Not sent: couldn’t check who can read this group")
         compose.onNodeWithTag("enc3-group-try").performClick()
-        compose.waitUntil(5_000) { session.store.outbox().single().error == null }
+        compose.waitUntil(5_000) { session.store.outbox().single { it.localId == "local-held" }.error == null }
     }
 
     @Test fun tooManyDevicesIsRefusedWithWordsAndDelete() {
