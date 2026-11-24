@@ -168,14 +168,14 @@ fun MeScreen() {
     val seal by session.encryption.state.collectAsState()
     LaunchedEffect(leaving) { if (leaving && !session.localOnly) try { session.encryption.refresh() } catch (e: Exception) { } }
     // format 3 (SPEC 19.85, encrypted/signout-only): this device alone on my list, holding keys
-    val dev by session.enc3Device.collectAsState()
-    if (leaving && dev.on && dev.onlyDevice && guest == null) {
+    val enc3Dev by session.enc3Device.collectAsState()
+    if (leaving && enc3Dev.on && enc3Dev.onlyDevice && guest == null) {
         Enc3OnlyDeviceDialog(
             onAdd = { leaving = false; nav.go(Routes.LINK_DEVICE) },
             onAnyway = { signOut(); leaving = false },
             onDismiss = { leaving = false },
         )
-    } else if (leaving && !dev.on && seal.onlyDevice && guest == null) {
+    } else if (leaving && !enc3Dev.on && seal.onlyDevice && guest == null) {
         OnlyDeviceDialog(
             sh.belfry.core.model.SealedText.Leaving.SIGN_OUT,
             onLink = { leaving = false; nav.go(Routes.LINK_DEVICE) },
