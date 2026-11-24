@@ -17,7 +17,7 @@ import sh.belfry.core.engine.Here
 import sh.belfry.core.mail.MailThreads
 
 /**
- * Format 3, the screens of people conversations (SPEC 19.84; Encrypted canvas encrypted/*): pictures only, on the
+ * Format 3, the screens of people conversations (SPEC 19.84; Encrypted canvas, the encrypted boards): pictures only, on the
  * demo with a made-up format-3 view ([Enc3Fixture]). Run by hand: `gh workflow run ci.yml -f shots='*Enc3ScreensShotsTest*'`.
  */
 class Enc3ScreensShotsTest : DemoShots() {
