@@ -104,7 +104,7 @@ fun MessagesScreen(
     val seal by session.encryption.state.collectAsState()
     val enc3 by session.enc3State.collectAsState()
     // format 3, part 5 (SPEC 19.85): on a format-3 belfry the version-1 Allow / waiting / Start fresh screens never show
-    val dev = rememberEnc3Device()
+    val dev by rememberEnc3Device()
     Column(Modifier.fillMaxSize().background(c.bg)) {
         // the address small under the title; a tap copies it (home/messages, Home canvas v4)
         val context = androidx.compose.ui.platform.LocalContext.current

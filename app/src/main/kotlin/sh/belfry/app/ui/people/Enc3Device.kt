@@ -91,10 +91,7 @@ private fun Said(text: String, muted: Boolean = false) {
 
 /** The part-5 state the screens read: the demo's or the runtime's; nothing on a belfry that isn't format 3 here. */
 @Composable
-internal fun rememberEnc3Device(): Enc3DeviceState {
-    val st by LocalSession.current.enc3Device.collectAsState()
-    return st
-}
+internal fun rememberEnc3Device(): androidx.compose.runtime.State<Enc3DeviceState> = LocalSession.current.enc3Device.collectAsState()
 
 /**
  * On top of Messages (encrypted/card, card-sharing, card-shared, card-remove, card-removed, card-answered, laptop-card;
@@ -104,12 +101,11 @@ internal fun rememberEnc3Device(): Enc3DeviceState {
  */
 @Composable
 internal fun Enc3DeviceCards(modifier: Modifier = Modifier) {
-    val st = rememberEnc3Device()
+    val st by rememberEnc3Device()
     val session = LocalSession.current
-    if (!st.on) return
-    LaunchedEffect(st.cards.size) { if (st.cards.isNotEmpty()) try { session.enc3Names() } catch (e: Exception) { } }
+    LaunchedEffect(st.on, st.cards.size) { if (st.on && st.cards.isNotEmpty()) try { session.enc3Names() } catch (e: Exception) { } }
     val nav = LocalNav.current
-    Column(modifier) {
+    if (st.on) Column(modifier) {
         if (st.fork) Block(BelfryIcons.Shield, EncDeviceText.FORK_TITLE, "enc3-fork", Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
             Said(EncDeviceText.FORK_TEXT)
             DevicesLink { nav.go(Routes.SESSIONS) }
@@ -211,8 +207,7 @@ enum class EarlierWhere { LIST, THREAD }
  */
 @Composable
 internal fun Enc3EarlierLine(where: EarlierWhere) {
-    val st = rememberEnc3Device()
-    if (!st.on || !st.listed) return
+    val st by rememberEnc3Device()
     val dms = LocalDms.current
     val session = LocalSession.current
     val nav = LocalNav.current
@@ -220,40 +215,33 @@ internal fun Enc3EarlierLine(where: EarlierWhere) {
     val v3 = st.demoMissing + dms.unreadableCount
     val v1 = st.demoV1Missing + dms.lockedCount
     val list = where == EarlierWhere.LIST
-    if (v3 + v1 == 0) {
+    val names = st.older.map { it.name }
+    val by = st.sharedBy
+    when {
+        !st.on || !st.listed -> {}
         // encrypted/new-arrived: one quiet line in the conversation
-        val by = st.sharedBy
-        if (!list && by != null) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("enc3-shared-by"), verticalAlignment = Alignment.CenterVertically) {
+        v3 + v1 == 0 -> if (!list && by != null) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("enc3-shared-by"), verticalAlignment = Alignment.CenterVertically) {
             Icon(BelfryIcons.Check, contentDescription = null, tint = Belfry.colors.muted, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
             Text(EncDeviceText.sharedBy(by.name), fontSize = 13.sp, color = Belfry.colors.muted)
         }
-        return
-    }
-    val names = st.older.map { it.name }
-    if (st.older.isEmpty()) {
-        // lost every device: said once (OK), plainly
-        if (list && st.lostOk) return
-        Block(BelfryIcons.Lock, EncDeviceText.LOST_TITLE, "enc3-lost") {
+        // lost every device: said once (OK in Messages), plainly
+        st.older.isEmpty() -> if (!(list && st.lostOk)) Block(BelfryIcons.Lock, EncDeviceText.LOST_TITLE, "enc3-lost") {
             Said(EncDeviceText.LOST_TEXT)
             if (list) Row(Modifier.padding(top = 8.dp)) {
                 BusyButton(EncDeviceText.OK, { session.enc3LostOk() }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("enc3-lost-ok"))
             }
         }
-        return
-    }
-    if (st.askedAt != null) {
-        Block(BelfryIcons.Clock, EncDeviceText.ASKED_TITLE, "enc3-asked", Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
+        st.askedAt != null -> Block(BelfryIcons.Clock, EncDeviceText.ASKED_TITLE, "enc3-asked", Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
             Said(EncDeviceText.askedText(names))
             DevicesLink { nav.go(Routes.SESSIONS) }
         }
-        return
-    }
-    Block(BelfryIcons.Lock, EncDeviceText.EARLIER_TITLE, "enc3-earlier") {
-        if (v3 == 0) Said(EncDeviceText.transitionText(st.since3, world.ctx.zone, names)) // encrypted/transition
-        else if (list) Said(EncDeviceText.earlierText(names))
-        Row(Modifier.padding(top = 8.dp)) {
-            BusyButton(EncDeviceText.ASK, { session.enc3Ask() }, kind = ButtonKind.Primary, small = true, modifier = Modifier.testTag("enc3-ask"))
+        else -> Block(BelfryIcons.Lock, EncDeviceText.EARLIER_TITLE, "enc3-earlier") {
+            if (v3 == 0) Said(EncDeviceText.transitionText(st.since3, world.ctx.zone, names)) // encrypted/transition
+            else if (list) Said(EncDeviceText.earlierText(names))
+            Row(Modifier.padding(top = 8.dp)) {
+                BusyButton(EncDeviceText.ASK, { session.enc3Ask() }, kind = ButtonKind.Primary, small = true, modifier = Modifier.testTag("enc3-ask"))
+            }
         }
     }
 }
@@ -264,10 +252,9 @@ internal fun Enc3EarlierLine(where: EarlierWhere) {
  */
 @Composable
 fun Enc3FirstScreenHost() {
-    val st = rememberEnc3Device()
-    if (!st.on || st.firstScreen.isEmpty()) return
+    val st by rememberEnc3Device()
     val session = LocalSession.current
-    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)) {
+    if (st.on && st.firstScreen.isNotEmpty()) Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = false, dismissOnClickOutside = false)) {
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(Belfry.colors.bg)) {
             Enc3FirstScreenContent(st.firstScreen, LocalWorld.current.ctx.zone, onRemove = { session.enc3RemoveFirst(it) }, onContinue = { session.enc3FirstScreenOk() })
         }

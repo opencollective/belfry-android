@@ -135,7 +135,7 @@ fun ConversationScreen(conv: String) {
     // a device not yet allowed (canvas v84): messages from before the conversation was sealed read
     // as usual, then one amber block in place of the rest; no composer
     // format 3 (SPEC 19.85): the version-1 locked block, waiting lines and Start fresh never show on a format-3 belfry
-    val enc3Dev = rememberEnc3Device()
+    val enc3Dev by rememberEnc3Device()
     val v1Ui = !enc3Dev.on
     val lockedHere = v1Ui && seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
