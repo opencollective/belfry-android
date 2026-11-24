@@ -336,6 +336,17 @@ class Session(
     /** This device's format-3 set-up for the screens (the Messages line); nothing to say in the demo or for a guest. */
     val enc3State: StateFlow<Enc3State> get() = enc3?.state ?: noEnc3
 
+    /** Tests and screenshots only (SPEC 19.84): the set-up state a session without format 3 shows (the 21st device line). */
+    fun demoEnc3State(st: Enc3State) { noEnc3.value = st }
+
+    /** Tests and screenshots only (SPEC 19.84): a made-up format-3 view ([DemoEnc3View]); the demo itself stays format 1. */
+    @Volatile var demoEnc3View: Enc3View? = null
+
+    private val realEnc3View: Enc3View? by lazy { enc3?.let { e -> RealEnc3View(e, { encFormat.state().format == 3 }, { sessions() }) } }
+
+    /** What the format-3 conversation screens read (SPEC 19.84): the lock, Who can read this; null in the demo and for a guest. */
+    val enc3View: Enc3View? get() = demoEnc3View ?: realEnc3View
+
     /** "Try again" on the set-up line: my list read again. */
     suspend fun enc3TryAgain() = withContext(Dispatchers.Default) { enc3?.tryAgain(); Unit }
 
@@ -407,7 +418,10 @@ class Session(
     }
 
     /** "Try again" on a message format 3 holds: decided again now. */
-    suspend fun retryHeldDms() = withContext(Dispatchers.Default) { dm.retryHeldNow() }
+    suspend fun retryHeldDms() = withContext(Dispatchers.Default) { heldRetries.incrementAndGet(); dm.retryHeldNow() }
+
+    /** How many times Try again asked for held messages (tests). */
+    val heldRetries = java.util.concurrent.atomic.AtomicInteger()
 
     /**
      * What a write of KIND (with TAGS) in the group GROUP_ID does now (SPEC 19.82; the web's `groupWriteMode` and its

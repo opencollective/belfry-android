@@ -358,6 +358,11 @@ minSdk 26, JDK 17.
   format 3 `SessionSealedPorts(v1Writes)` publishes nothing of version 1. §17.2 `Dm.clear` / `plain` (re-judged when keys come);
   plain NIP-17 from a listed account dropped from `EncFormatState.since3`. Typing off in encrypted conversations
   (`Session.encryptedHere`). Tests `Enc3PeopleTest`. Never send anything of a people conversation around `encWrite`.
+- Format 3, part 4 (SPEC 19.84): the screens. They read `Session.enc3View` (`core/engine/Enc3View.kt`: `Enc3View`, words
+  `WhoText`, `WhoCanRead.of`; tests set `demoEnc3View` = `DemoEnc3View`, `demoEnc3State`). App: `ui/people/WhoCanRead.kt`
+  (`Enc3Lock` next to the name, `WhoCanReadSheet` / `WhoCanReadPanel` beside the conversation from 1000 dp, `NotBeforeLine`);
+  on format 3 the v1 lock never shows in a conversation (format 1 unchanged); other people are a count, never devices.
+  Tests `Enc3ScreensTest`, pictures `Enc3ScreensShotsTest` (`Enc3Fixture`).
 
 ## UI rules (the owner's, not negotiable)
 
