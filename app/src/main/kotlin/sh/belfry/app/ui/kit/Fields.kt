@@ -58,6 +58,8 @@ fun BelfryTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     /** Under the field on the right, e.g. "268 of 300". */
     counter: String? = null,
+    /** Inside the frame before the text, e.g. a hashtag's "#". */
+    leading: (@Composable () -> Unit)? = null,
 ) {
     val c = Belfry.colors
     val interaction = remember { MutableInteractionSource() }
@@ -98,6 +100,10 @@ fun BelfryTextField(
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top,
                 ) {
+                    if (leading != null) {
+                        leading()
+                        Spacer(Modifier.width(4.dp))
+                    }
                     Box(Modifier.weight(1f)) {
                         if (value.isEmpty() && placeholder != null) {
                             Text(placeholder, fontSize = 16.sp, lineHeight = 22.sp, color = c.faint, maxLines = if (singleLine) 1 else 3)

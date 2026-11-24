@@ -18,6 +18,10 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -25,15 +29,9 @@ import org.junit.Test
 import sh.belfry.app.ui.chat.ChannelScreen
 import sh.belfry.app.ui.kit.LocalNetworkImages
 import sh.belfry.app.ui.printed.CardAccount
-import sh.belfry.app.ui.printed.CardCodeContent
-import sh.belfry.app.ui.printed.CardDeadContent
 import sh.belfry.app.ui.printed.CardDoor
-import sh.belfry.app.ui.printed.CardOpeningContent
 import sh.belfry.app.ui.printed.CardPreview
 import sh.belfry.app.ui.printed.CardScreen
-import sh.belfry.app.ui.printed.CardSignerContent
-import sh.belfry.app.ui.printed.CardStartContent
-import sh.belfry.app.ui.printed.CardTakenContent
 import sh.belfry.app.ui.printed.CardWelcomeState
 import sh.belfry.app.ui.printed.LocalCardWelcome
 import sh.belfry.app.ui.theme.BelfryTheme
@@ -50,21 +48,23 @@ import sh.belfry.core.model.CardLink
 import sh.belfry.core.model.CardWelcome
 import sh.belfry.core.model.Cards
 import sh.belfry.core.model.HashtagState
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Printed cards (SPEC 19.72–19.74; canvas "Belfry · Group cards"): every screen in demo mode, and
- * the rules of the flow (one claim per tap, each refusal in the app's words, what happens to what
- * was typed). No network: the screens talk to a [CardDoor] made here, or to the demo session.
+ * Printed cards (SPEC 19.72–19.74, 19.89; Cards canvas "Onboarding from a card, improved"): the rules
+ * of the flow (one claim per tap, each refusal in the app's words, what happens to what was typed,
+ * the waiting screen's polling, the Confirm link). No network: the screens talk to a [CardDoor] made
+ * here, or to the demo session. The pictures are `CardsV2ShotsTest`.
  */
 class PrintedCardsTest : DemoShots() {
     private val link = CardLink(Demo.DOMAIN, DemoCards.FREE_GROUP)
     private val topicLink = CardLink(Demo.DOMAIN, DemoCards.FREE_TOPIC)
     private val invite = DemoCards.invite(DemoCards.CLAIMED)
     private val sourdough = CardForm(title = "Sourdough starters", about = "Swap starters, share flour, bake together on Saturday mornings.", name = "Lou", email = "lou@example.org")
-    private val tools = CardForm(title = "Tool library", about = "Borrow drills, ladders and the big saw instead of buying them. Say what you need, say what you lend.", hashtag = "tool-library", name = "Dev", email = "dev@example.org")
-    private val lina = CardAccount(Demo.me("Lina Moreau").pubkey, "Lina Moreau")
+    private val tools = CardForm(about = "Borrow drills, ladders and the big saw instead of buying them. Say what you need, say what you lend.", hashtag = "tool-library", name = "Dev", email = "dev@example.org")
+    private val lina = CardAccount(Demo.me("Lina Moreau").pubkey, "Lina Moreau", address = "lina@demo.belfry.sh")
 
     private fun field(tag: String) = compose.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag(tag)))
     private fun waitFor(tag: String) = compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
@@ -73,62 +73,7 @@ class PrintedCardsTest : DemoShots() {
         compose.setContent { BelfryTheme { CompositionLocalProvider(LocalNetworkImages provides false) { CardScreen(door, l) } } }
     }
 
-    // ---- every screen ----------------------------------------------------------------------------------
-
-    @Test fun claimVisitor() = shot("printed-card-claim-visitor") {
-        CardStartContent(CardKind.GROUP, Demo.NAME, null, sourdough, {}, {}, {}, {}, {}, null, false, null, null, true, {}, {})
-    }
-
-    @Test fun claimSignedIn() = shot("printed-card-claim-signed-in") {
-        CardStartContent(CardKind.GROUP, Demo.NAME, lina, sourdough, {}, {}, {}, {}, {}, null, false, null, null, true, {}, {})
-    }
-
-    @Test fun claimTopic() = shot("printed-card-claim-topic") {
-        CardStartContent(CardKind.TOPIC, Demo.NAME, null, tools, {}, {}, {}, {}, {}, Cards.hashtagLine(HashtagState.FREE, false, false), false, null, null, true, {}, {})
-    }
-
-    @Test fun claimTopicTaken() = shot("printed-card-claim-topic-taken") {
-        CardStartContent(CardKind.TOPIC, Demo.NAME, lina, tools.copy(hashtag = "general", summary = Cards.MONTHLY), {}, {}, {}, {}, {}, Cards.hashtagLine(HashtagState.TAKEN, false, true), true, null,
-            Cards.errorText(CardFailed(CardError.HASHTAG_TAKEN), CardKind.TOPIC), false, {}, {})
-    }
-
-    @Test fun claimTopicNotChecked() = shot("printed-card-claim-topic-not-checked") {
-        CardStartContent(CardKind.TOPIC, Demo.NAME, lina, tools, {}, {}, {}, {}, {}, Cards.hashtagLine(HashtagState.UNKNOWN, false, false), false, {}, null, false, {}, {})
-    }
-
-    @Test fun confirmCode() = shot("printed-card-confirm-code") {
-        CardCodeContent("lou@example.org", "Sourdough starters", null, null, { false }, {}, {}, initial = "427")
-    }
-
-    @Test fun confirmCodeWrong() = shot("printed-card-confirm-code-wrong") {
-        CardCodeContent("lou@example.org", "Sourdough starters", Cards.errorText(CardFailed(CardError.WRONG_CODE, triesLeft = 3)), null, { false }, {}, {})
-    }
-
-    @Test fun taken() = shot("printed-card-taken") {
-        CardTakenContent(CardKind.GROUP, CardPreview("Sourdough starters", "Swap starters, share flour, bake together on Saturday mornings.", "Ben Okafor")) {}
-    }
-
-    @Test fun closed() = shot("printed-card-closed") {
-        CardDeadContent(Cards.retiredTitle(CardKind.GROUP, "Sourdough starters"), Cards.retiredText(CardKind.GROUP), Demo.NAME, null, {}, {})
-    }
-
-    @Test fun archived() = shot("printed-card-archived") {
-        CardDeadContent(Cards.archivedTitle(CardKind.GROUP, "Book club"), Cards.archivedText(CardKind.GROUP), Demo.NAME, null, {}, {})
-    }
-
-    @Test fun offline() = shot("printed-card-offline") { CardDeadContent(Cards.OFFLINE_TITLE, Cards.OFFLINE_TEXT, Demo.NAME, {}, {}, {}) }
-
-    @Test fun unknown() = shot("printed-card-unknown") { CardDeadContent(Cards.UNKNOWN_TITLE, Cards.unknownText(Demo.DOMAIN), Demo.NAME, null, {}, {}) }
-
-    @Test fun tooMany() = shot("printed-card-too-many") { CardDeadContent(Cards.BUSY_TITLE, Cards.BUSY_TEXT, Demo.NAME, {}, {}, {}) }
-
-    @Test fun signerNotReached() = shot("printed-card-signer") {
-        CardSignerContent("Sourdough starters", "The belfry's signer did not answer. Check your connection and try again.", null) {}
-    }
-
-    @Test fun opening() = shot("printed-card-opening") { CardOpeningContent() }
-
-    /** cards/claim-done: the demo's group card claimed by the demo's account; the group opens with its welcome. */
+    /** onb-group-done: the demo's group card claimed by the demo's account; the group opens with its facts and welcome. */
     @Test
     fun claimDone() {
         val group = runBlocking { session.cards.claim(DemoCards.FREE_GROUP, CardKind.GROUP, sourdough) }
@@ -136,11 +81,14 @@ class PrintedCardsTest : DemoShots() {
         assertEquals("Sourdough starters", world.group(group)!!.name)
         var dismissed = 0
         demoShot("printed-card-claim-done") {
-            CompositionLocalProvider(LocalCardWelcome provides CardWelcomeState(CardWelcomed(Demo.DOMAIN, group, CardWelcome.STARTED)) { dismissed++ }) { ChannelScreen(group) }
+            CompositionLocalProvider(LocalCardWelcome provides CardWelcomeState(CardWelcomed(Demo.DOMAIN, group, CardWelcome.STARTED, DemoCards.FREE_GROUP)) { dismissed++ }) { ChannelScreen(group) }
         }
         compose.onNodeWithTag("card-welcome").assertExists()
+        compose.onNodeWithText("Steward: you · 1 person").assertExists()
+        compose.onNodeWithText("Card K7Q2MX: anyone who scans it joins here").assertExists()
         compose.onNodeWithText("Welcome to Sourdough starters!", substring = true).assertExists()
-        compose.onNodeWithText("You started it. Say hi and share something to get it going: a photo, a tip, a question.", substring = true).assertExists()
+        compose.onNodeWithText("You created it and you look after it. Say hi and share something to get it going.", substring = true).assertExists()
+        compose.onNodeWithText("You created the group from a printed card", substring = true, useUnmergedTree = true).assertExists()
         compose.onNodeWithContentDescription("Close the welcome").performClick()
         compose.waitUntil(10_000) { dismissed == 1 }
     }
@@ -177,8 +125,12 @@ class PrintedCardsTest : DemoShots() {
         show(CardDoor(Demo.NAME, Demo.DOMAIN, lina, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE },
             claim = { _, f -> claims.incrementAndGet(); sent = f; gate.await() }))
         waitFor("card-start")
-        compose.onNodeWithText("Start this group").assertExists()
-        compose.onNodeWithText("Signed in as Lina Moreau").assertExists()
+        compose.onNodeWithText("Start a group").assertExists()
+        compose.onNodeWithText("Card K7Q2MX").assertExists()
+        // who you are, below Create, with Log out
+        compose.onNodeWithText("Lina Moreau").assertExists()
+        compose.onNodeWithText("lina@demo.belfry.sh").assertExists()
+        compose.onNodeWithText("Create the group").assertExists()
         // signed in: no name, no e-mail asked
         assertTrue(compose.onAllNodesWithTag("card-email").fetchSemanticsNodes().isEmpty())
         // a group card has no summary by e-mail
@@ -310,69 +262,85 @@ class PrintedCardsTest : DemoShots() {
         assertEquals(0, asks.get())
     }
 
-    /** A topic card: the topic first, the hashtag suggested from it and checked live, the next free one when taken, editable. */
+    /** onb-topic-form: the hashtag asked directly (cleaned as typed), checked live, no topic-in-words field, no summary. */
     @Test
     fun aTopicsHashtag() {
         val checked = CopyOnWriteArrayList<String>()
         var down = false
         var sent: CardForm? = null
         show(CardDoor(Demo.NAME, Demo.DOMAIN, lina, info = { CardInfo.Unclaimed(CardKind.TOPIC) },
-            hashtag = { h -> checked += h; if (down) HashtagState.UNKNOWN else if (h == "tool-library" || h == "tool-library-2" || h == "general") HashtagState.TAKEN else HashtagState.FREE },
+            hashtag = { h -> checked += h; if (down) HashtagState.UNKNOWN else if (h == "tool-library" || h == "general") HashtagState.TAKEN else HashtagState.FREE },
             claim = { _, f -> sent = f }), topicLink)
         waitFor("card-start")
-        compose.onNodeWithText("Start this topic").assertExists()
-        compose.onNodeWithText("You found a new topic card. No introductions needed: people come and go and share what they know.").assertExists()
-        field("card-title").performTextInput("Tool library")
-        // suggested from the topic; taken, and -2 too: the next free one is offered and said available
-        waitText("✓ Available · suggested from the topic, you can change it")
-        compose.onNodeWithText("tool-library-3").assertExists()
-        assertEquals(listOf("tool-library", "tool-library-2", "tool-library-3", "tool-library-3"), checked.toList())
-        compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
-
-        // changed by hand to a taken one: said so, nothing else is offered, and it can't be started
-        field("card-hashtag").performTextReplacement("General")
-        waitText("Taken: try another one")
-        compose.onNodeWithText("General").assertExists()
+        compose.onNodeWithText("Start a topic").assertExists()
+        compose.onNodeWithText("Card T9PC4H · topic").assertExists()
+        compose.onNodeWithText("Nobody has scanned this card yet. The topic starts with you.").assertExists()
+        // no topic in words, no group name
+        assertTrue(compose.onAllNodesWithTag("card-title").fetchSemanticsNodes().isEmpty())
         compose.onNodeWithTag("card-start").assertIsNotEnabled()
+        // typed as words: spaces become dashes, capitals and punctuation go (Xavier, 2026-11-24)
+        field("card-hashtag").performTextInput("Tool Library!")
+        compose.onNodeWithText("tool-library").assertExists()
+        waitText("Taken: try another one")
+        compose.onNodeWithTag("card-start").assertIsNotEnabled()
+        // nothing else is offered: the person picks another
+        field("card-hashtag").performTextReplacement("Café  Réparé")
+        compose.onNodeWithText("cafe-repare").assertExists()
+        waitText("✓ Available · this is the channel’s name")
+        compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
         field("card-hashtag").performTextReplacement("x")
         waitText("Letters, digits and dashes, 2 to 30")
         compose.onNodeWithTag("card-start").assertIsNotEnabled()
 
         // the belfry can't check: never "available"; Try again asks again
         down = true
-        field("card-hashtag").performTextReplacement("drills")
+        field("card-hashtag").performTextReplacement("drills ")
+        compose.onNodeWithText("drills-").assertExists()
         waitText("Couldn’t check just now")
+        // the check never ran on the trailing dash
+        assertTrue(checked.toString(), checked.none { it.endsWith("-") })
         compose.onNodeWithTag("card-start").assertIsNotEnabled()
         down = false
         compose.onNodeWithTag("card-recheck").performClick()
-        waitText("✓ Available")
+        waitText("✓ Available · this is the channel’s name")
         // no summary by e-mail on the start form (Xavier, Cards v80): it's in the topic's settings
         assertTrue(compose.onAllNodesWithText("Summary by e-mail").fetchSemanticsNodes().isEmpty())
-        assertTrue(compose.onAllNodesWithTag("card-summary").fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithText("You’ll look after this topic.").assertExists()
         compose.onNodeWithTag("card-start").performScrollTo().assertIsEnabled()
         compose.onNodeWithTag("card-start").performClick()
         compose.waitUntil(10_000) { sent != null }
-        assertEquals("""{"title":"Tool library","about":"","hashtag":"drills"}""", Cards.claimBody(CardKind.TOPIC, sent!!).toString())
-        assertEquals("drills", Cards.hashtagSlug(sent!!.hashtag))
-        assertEquals("Tool library", sent!!.title)
+        // sent without the trailing dash, and without a title (the belfry names it by its hashtag)
+        assertEquals("""{"about":"","hashtag":"drills"}""", Cards.claimBody(CardKind.TOPIC, sent!!).toString())
     }
 
-    /** A visitor: name and e-mail, the code screen, each refusal of the code in words; what was typed is there on the way back. */
+    private fun visitorDoor(
+        starts: MutableList<CardForm> = CopyOnWriteArrayList(), codes: MutableList<String> = CopyOnWriteArrayList(),
+        verify: suspend (String) -> Unit = {}, poll: suspend () -> Boolean = { false }, now: () -> Long = { 1_800_000_000L },
+        kept: CardForm? = null, retry: suspend () -> Boolean = { false },
+    ) = CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE },
+        start = { _, f -> starts += f }, verify = { _, _, code -> codes += code; verify(code) }, poll = poll, now = now, retry = retry,
+        keptForm = { kept })
+
+    private fun toTheCode() {
+        waitFor("card-start")
+        field("card-title").performTextInput("Sourdough starters")
+        field("card-name").performTextInput("Lou")
+        field("card-email").performTextInput("lou@example.org")
+        compose.onNodeWithTag("card-start").performScrollTo().performClick()
+        waitFor("code-boxes")
+    }
+
+    /** A visitor: name and e-mail, the code screen (onb-code), each refusal of the code in words; what was typed is there on the way back. */
     @Test
     fun aVisitorsCode() {
-        val starts = CopyOnWriteArrayList<String>()
+        val starts = CopyOnWriteArrayList<CardForm>()
         val codes = CopyOnWriteArrayList<String>()
         var answer: Exception? = CardFailed(CardError.WRONG_CODE, triesLeft = 3)
-        var verified: CardForm? = null
-        show(CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE },
-            start = { starts += it },
-            verify = { _, f, code -> codes += code; answer?.let { throw it }; verified = f },
-            retry = { answer?.let { throw it }; true },
-            keptForm = { CardForm(title = "Sourdough starters") }))
+        show(visitorDoor(starts, codes, verify = { answer?.let { throw it } }, retry = { answer?.let { throw it }; true }, kept = CardForm(title = "Sourdough starters")))
         waitFor("card-start")
         // what was typed before comes back
         compose.onNodeWithText("Sourdough starters").assertExists()
-        compose.onNodeWithText("We’ll send a 6-digit code to confirm it. Already have an account on ${Demo.NAME}? Use its e-mail address.").assertExists()
+        compose.onNodeWithText("You’ll look after this group. We’ll send a 6-digit code to confirm your e-mail.").assertExists()
         compose.onNodeWithTag("card-start").assertIsNotEnabled()
         field("card-name").performTextInput("Lou")
         field("card-email").performTextInput("lou@example")
@@ -380,8 +348,13 @@ class PrintedCardsTest : DemoShots() {
         field("card-email").performTextReplacement("lou@example.org")
         compose.onNodeWithTag("card-start").performScrollTo().performClick()
         waitFor("code-boxes")
-        assertEquals(listOf("lou@example.org"), starts.toList())
+        // the whole form goes with the request for a code (the Confirm button creates it from there)
+        assertEquals(listOf("lou@example.org"), starts.map { it.email })
+        assertEquals("Lou", starts.single().name)
+        assertEquals("Sourdough starters", starts.single().title)
         compose.onNodeWithText("Check your e-mail").assertExists()
+        compose.onNodeWithText("To create Sourdough starters, enter the 6-digit code we sent to lou@example.org.").assertExists()
+        compose.onNodeWithText("or tap Confirm in the e-mail. This screen moves on by itself once you have.").assertExists()
         compose.onNodeWithText("Not there? Look in your spam folder.").assertExists()
 
         // the sixth digit sends, once
@@ -398,7 +371,6 @@ class PrintedCardsTest : DemoShots() {
             CardFailed(CardError.INVALID, field = "name") to "Please give your name.",
         )) {
             answer = failure
-            // (a code that stays in the boxes is typed over: six new digits replace it)
             compose.onNodeWithTag("code-boxes").performTextInput((200000 + ++n).toString())
             waitText(words)
             assertEquals(1 + n, codes.size)
@@ -417,11 +389,172 @@ class PrintedCardsTest : DemoShots() {
         answer = OnboardingException("signer", "The belfry's signer did not answer. Check your connection and try again.")
         compose.onNodeWithTag("code-boxes").performTextInput("333333")
         waitFor("card-retry")
-        compose.onNodeWithText("Sourdough starters is started").assertExists()
+        compose.onNodeWithText("Sourdough starters is created").assertExists()
         answer = null
         compose.onNodeWithTag("card-retry").performClick()
         compose.waitForIdle()
         assertEquals(2, starts.size)
         assertEquals("333333", codes.last())
+    }
+
+    // ---- the waiting screen: claim-poll (SPEC 19.89) ----------------------------------------------------
+
+    /** It asks while the code screen is shown, one ask at a time, and stops when the screen is left. */
+    @Test
+    fun theWaitingScreenPollsWhileShownAndStopsOnLeaving() {
+        val polls = AtomicInteger()
+        val answers = Channel<Boolean>(Channel.UNLIMITED)
+        var visible by mutableStateOf(true)
+        val door = visitorDoor(poll = { polls.incrementAndGet(); answers.receive() })
+        compose.setContent { BelfryTheme { CompositionLocalProvider(LocalNetworkImages provides false) { if (visible) CardScreen(door, link) } } }
+        toTheCode()
+        compose.waitUntil(10_000) { polls.get() == 1 }
+        // one ask at a time: nothing more until the belfry answered
+        Thread.sleep(300); compose.mainClock.advanceTimeBy(10_000)
+        assertEquals(1, polls.get())
+        answers.trySend(false) // 202: still waiting
+        compose.waitUntil(10_000) { polls.get() == 2 }
+        // no word on the screen while waiting
+        assertTrue(compose.onAllNodesWithTag("card-error").fetchSemanticsNodes().isEmpty())
+        // the screen goes: the asking stops
+        compose.runOnIdle { visible = false }
+        compose.waitForIdle()
+        answers.trySend(false)
+        Thread.sleep(300); compose.mainClock.advanceTimeBy(30_000); compose.waitForIdle()
+        assertEquals(2, polls.get())
+    }
+
+    /** "Use another address" stops it too; the form step never asks. */
+    @Test
+    fun theFormNeverPolls() {
+        val polls = AtomicInteger()
+        show(visitorDoor(poll = { polls.incrementAndGet(); false }))
+        waitFor("card-start")
+        Thread.sleep(300); compose.mainClock.advanceTimeBy(30_000); compose.waitForIdle()
+        assertEquals(0, polls.get())
+    }
+
+    /** 410: the claim ran out; said in the app's words, and nothing more is asked. */
+    @Test fun aPollsExpiredStopsAndSaysSo() = pollStops(CardFailed(CardError.EXPIRED), "The code and the Confirm button have expired. Send a new code.")
+
+    /** 404: the belfry knows no claim of this key for this card any more. */
+    @Test fun aPollsNotFoundStopsAndSaysSo() = pollStops(CardFailed(CardError.UNKNOWN), "This request isn’t known any more. Send a new code.")
+
+    private fun pollStops(failure: CardFailed, words: String) {
+        val polls = AtomicInteger()
+        val answers = Channel<CardFailed?>(Channel.UNLIMITED)
+        show(visitorDoor(poll = { polls.incrementAndGet(); answers.receive()?.let { throw it }; false }))
+        toTheCode()
+        compose.waitUntil(10_000) { polls.get() == 1 }
+        // a busy belfry or no connection: asked again, nothing said
+        answers.trySend(CardFailed(CardError.SIGNER))
+        compose.waitUntil(10_000) { polls.get() == 2 }
+        answers.trySend(CardFailed(CardError.OFFLINE))
+        compose.waitUntil(10_000) { polls.get() == 3 }
+        assertTrue(compose.onAllNodesWithTag("card-error").fetchSemanticsNodes().isEmpty())
+        answers.trySend(failure)
+        waitText(words)
+        Thread.sleep(300); compose.mainClock.advanceTimeBy(30_000); compose.waitForIdle()
+        assertEquals(3, polls.get())
+    }
+
+    /** The lead's rule: this phone holds the session another way (its own Confirm link): the poll stops and says nothing. */
+    @Test
+    fun aPollThatFindsTheSessionHereSaysNothing() {
+        val polls = AtomicInteger()
+        show(visitorDoor(poll = { polls.incrementAndGet(); true }))
+        toTheCode()
+        compose.waitUntil(10_000) { polls.get() == 1 }
+        Thread.sleep(300); compose.mainClock.advanceTimeBy(30_000); compose.waitForIdle()
+        assertEquals(1, polls.get())
+        assertTrue(compose.onAllNodesWithTag("card-error").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("expired", substring = true).fetchSemanticsNodes().isEmpty())
+    }
+
+    /** After the claim's 15 minutes nothing more is asked, and the screen says the code has expired. */
+    @Test
+    fun theWaitingStopsAfterFifteenMinutes() {
+        val clock = AtomicLong(1_800_000_000L)
+        val polls = AtomicInteger()
+        val answers = Channel<Boolean>(Channel.UNLIMITED)
+        show(visitorDoor(poll = { polls.incrementAndGet(); answers.receive() }, now = { clock.get() }))
+        toTheCode()
+        compose.waitUntil(10_000) { polls.get() == 1 }
+        clock.addAndGet(Cards.CLAIM_SECONDS)
+        answers.trySend(false)
+        waitText("The code and the Confirm button have expired. Send a new code.")
+        Thread.sleep(300); compose.mainClock.advanceTimeBy(30_000); compose.waitForIdle()
+        assertEquals(1, polls.get())
+    }
+
+    /** A card opened again less than 15 minutes after its code was asked: the waiting screen again, asking. */
+    @Test
+    fun aCardReopenedWhileItsCodeLivesWaitsAgain() {
+        val polls = AtomicInteger()
+        show(visitorDoor(poll = { polls.incrementAndGet(); false }, kept = sourdough.copy(sentAt = 1_800_000_000L - 60)))
+        waitFor("code-boxes")
+        compose.onNodeWithText("To create Sourdough starters, enter the 6-digit code we sent to lou@example.org.").assertExists()
+        compose.waitUntil(10_000) { polls.get() >= 1 }
+    }
+
+    // ---- the e-mail's Confirm link (SPEC 19.89) --------------------------------------------------------------
+
+    private val token = "Tk_" + "c".repeat(40)
+    private val confirmLink = CardLink(Demo.DOMAIN, DemoCards.FREE_GROUP, token)
+
+    /** The same phone: claim-confirm once with the token; it is in, the card asks nothing else. */
+    @Test
+    fun aConfirmLinkOnThisPhoneGoesIn() {
+        val sent = CopyOnWriteArrayList<String>()
+        val infos = AtomicInteger()
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { infos.incrementAndGet(); CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE },
+            confirm = { sent += it; true }), confirmLink)
+        compose.waitUntil(10_000) { sent.isNotEmpty() }
+        compose.waitForIdle()
+        assertEquals(listOf(token), sent.toList())
+        assertEquals(0, infos.get())
+        assertTrue(compose.onAllNodesWithTag("card-start").fetchSemanticsNodes().isEmpty())
+    }
+
+    /** Another phone's claim: "Confirmed" with the web's words, and Close. */
+    @Test
+    fun aConfirmLinkForAnotherDeviceSaysConfirmed() {
+        val closed = AtomicInteger()
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE },
+            confirm = { false }, close = { closed.incrementAndGet() }), confirmLink)
+        waitFor("card-confirmed")
+        compose.onNodeWithText("Confirmed").assertExists()
+        compose.onNodeWithText("It’s created. Go back to the page where you scanned the card: it opens there by itself.").assertExists()
+        compose.onNodeWithTag("card-close").performClick()
+        compose.waitUntil(10_000) { closed.get() == 1 }
+    }
+
+    /** A link that didn't work says why; a busy belfry can be tried again with the same link. */
+    @Test
+    fun aConfirmLinkThatDidNotWork() {
+        val tries = AtomicInteger()
+        var answer: CardFailed = CardFailed(CardError.SIGNER)
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, null, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE },
+            confirm = { tries.incrementAndGet(); throw answer }), confirmLink)
+        waitText("This link didn’t work")
+        compose.onNodeWithText("The belfry is busy. Try again in a minute: the link still works.").assertExists()
+        answer = CardFailed(CardError.EXPIRED)
+        compose.onNodeWithTag("card-again").performClick()
+        waitText("It has expired, or it was used already. Scan the card again to start over.")
+        assertEquals(2, tries.get())
+        assertTrue(compose.onAllNodesWithTag("card-again").fetchSemanticsNodes().isEmpty())
+    }
+
+    /** Signed in: Log out asks first, then signs out (the card stays, to start it as someone else). */
+    @Test
+    fun logOutAsksFirst() {
+        val outs = AtomicInteger()
+        show(CardDoor(Demo.NAME, Demo.DOMAIN, lina, info = { CardInfo.Unclaimed(CardKind.GROUP) }, hashtag = { HashtagState.FREE }, logOut = { outs.incrementAndGet() }))
+        waitFor("card-log-out")
+        compose.onNodeWithTag("card-log-out").performScrollTo().performClick()
+        waitFor("card-log-out-confirm")
+        assertEquals(0, outs.get())
+        compose.onNodeWithTag("card-log-out-confirm").performClick()
+        compose.waitUntil(10_000) { outs.get() == 1 }
     }
 }

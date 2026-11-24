@@ -103,9 +103,12 @@ class CardAuthorsTest {
         assertEquals("Sourdough starters" to "", CardAuthors.topicParts("Sourdough starters"))
         assertEquals("Sourdough starters" to "Swap and feed · every week", CardAuthors.topicParts("Sourdough starters · Swap and feed · every week"))
         assertEquals("1 following", CardAuthors.following(1))
-        assertEquals("Lou started this group from a printed card", CardAuthors.startedLine("Lou", true))
-        assertEquals("Dev started this topic from a printed card", CardAuthors.startedLine("Dev", false))
-        assertEquals("This topic was started from a printed card", CardAuthors.startedLine(null, false))
+        assertEquals("Lou created the group from a printed card", CardAuthors.startedLine("Lou", true))
+        assertEquals("Dev created the topic from card X2M7KE", CardAuthors.startedLine("Dev", false, "X2M7KE"))
+        assertEquals("This topic was created from a printed card", CardAuthors.startedLine(null, false))
+        assertEquals("Steward: Lou · 1 person", CardAuthors.stewardLine("Lou", pod = true, count = 1))
+        assertEquals("Steward: Dev · 3 following", CardAuthors.stewardLine("Dev", pod = false, count = 3))
+        assertEquals("Steward: Dev", CardAuthors.stewardLine("Dev", pod = false, count = null))
     }
 
     // ---- in the world: events shaped as the belfry writes them (docs/cards.md §2.2) ----
@@ -153,12 +156,13 @@ class CardAuthorsTest {
         assertEquals(gk, post.pubkey)
         assertEquals(lou, post.author)
         assertEquals("Lou Martin", w.nameOver(post))
-        assertEquals("Created a group", post.cardLine)
+        assertEquals("created the group", post.cardLine)
+        assertTrue(post.fromCard)
         // the topic's post: its card, no #new-topic chip, by the claimer
         val topic = w.messages("general").single { it.special is Special.TopicCard }
         assertEquals(Special.TopicCard("bread"), topic.special)
         assertEquals(dev, topic.author)
-        assertEquals("started a topic from a printed card", topic.cardLine)
+        assertEquals("created the topic", topic.cardLine)
         assertTrue("new-topic" in topic.topics)
         assertEquals(emptyList(), w.extraTopics(topic))
         assertEquals("Bread · Loaves and crumbs", w.group("bread")!!.about)
@@ -166,8 +170,8 @@ class CardAuthorsTest {
         assertEquals(1, w.group("bread")!!.members.size)
         // the first line: an activity line in our words, by name
         val line = w.messages(g.id).single()
-        assertEquals(lou to "Lou Martin started this group from a printed card", w.cardLine(g.id, line))
-        assertEquals(dev to "Dev Patel started this topic from a printed card", w.cardLine("bread", w.messages("bread").single()))
+        assertEquals(lou to "Lou Martin created the group from a printed card", w.cardLine(g.id, line))
+        assertEquals(dev to "Dev Patel created the topic from a printed card", w.cardLine("bread", w.messages("bread").single()))
         assertNull(w.cardLine("general", post))
         // the log: the claimer created it, and it is a group
         val log = w.channelLog(g.id)
@@ -177,7 +181,7 @@ class CardAuthorsTest {
         assertEquals("created the channel", w.channelLog("bread").single { it.ev.kind == 9007 }.text)
         assertEquals("Dev Patel", w.logWho("bread", w.channelLog("bread").single { it.ev.kind == 9007 }.ev))
         // my own card: "You"
-        assertEquals("You started this group from a printed card", world(claim("pod-mine-ab12", ana, "Ana Silva", t0 + 100, false, "Mine", "x")).let { x -> x.cardLine("pod-mine-ab12", x.messages("pod-mine-ab12").single())!!.second })
+        assertEquals("You created the group from a printed card", world(claim("pod-mine-ab12", ana, "Ana Silva", t0 + 100, false, "Mine", "x")).let { x -> x.cardLine("pod-mine-ab12", x.messages("pod-mine-ab12").single())!!.second })
     }
 
     @Test fun olderGroupsWithoutByGoByTheCardLine() {
@@ -199,6 +203,8 @@ class CardAuthorsTest {
         assertFalse(lou in g.admins)
         val post = w.messages("general").single { it.special is Special.PodCard }
         assertEquals(mallory, post.author)
+        assertFalse(post.fromCard)
+        assertEquals("Created a group", post.cardLine)
         // their "card line" is an ordinary message of theirs
         val line = w.messages(g.id).single()
         assertNull(w.cardLine(g.id, line))

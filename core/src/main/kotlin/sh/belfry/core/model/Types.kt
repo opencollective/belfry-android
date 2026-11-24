@@ -156,8 +156,17 @@ data class Message(
         is Special.ProposalCard -> "a proposal"
         else -> null
     }
-    /** The grey line above a card: "Created a group" …, or for a topic's card "started a topic from a printed card". */
-    val cardLine: String? get() = if (special is Special.TopicCard) "started a topic from a printed card" else created?.let { "Created $it" }
+    /** A town square post a printed card made: the groups key wrote it for [author] (SPEC 19.75). */
+    val fromCard: Boolean get() = special is Special.TopicCard || (special is Special.PodCard && author != ev.pubkey)
+    /**
+     * The grey line above a card: "Created a group" …; for what a printed card made "created the
+     * topic" / "created the group", followed by its name in bold where it is drawn (onb-town-*, SPEC 19.89).
+     */
+    val cardLine: String? get() = when {
+        special is Special.TopicCard -> CardAuthors.createdWords(pod = false)
+        special is Special.PodCard && author != ev.pubkey -> CardAuthors.createdWords(pod = true)
+        else -> created?.let { "Created $it" }
+    }
     val isCard get() = cardLine != null
 }
 

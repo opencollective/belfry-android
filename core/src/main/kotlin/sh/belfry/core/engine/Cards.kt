@@ -110,11 +110,11 @@ class CardsService internal constructor(private val s: Session) {
             else -> throw CardFailed(CardError.UNKNOWN)
         }
         val title = Cards.plainLabel(f.title).take(80)
-        if (title.isEmpty()) throw CardFailed(CardError.INVALID, field = "title")
+        if (title.isEmpty() && kind != CardKind.TOPIC) throw CardFailed(CardError.INVALID, field = "title")
         val group = if (kind == CardKind.TOPIC) {
             val tag = Cards.hashtagSlug(f.hashtag)
             if (hashtag(tag) != HashtagState.FREE) throw CardFailed(CardError.HASHTAG_TAKEN)
-            // as the cards server makes a topic: a channel whose id and name are the hashtag
+            // as the cards server makes a topic now (SPEC 19.89): a channel whose id and name are the hashtag, the description its about
             s.send(Actions.createChannel(tag, tag, Cards.topicAbout(f)))
             tag
         } else {

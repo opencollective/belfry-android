@@ -3018,7 +3018,7 @@ address and a 6-digit code.
 - **The demo** (`chat.belfry.example`): nothing is mailed; the code is `123456` (any other: "2 tries
   left"); the right one opens the demo as that person and makes the group there.
 - **Not built**: "or tap Confirm in the e-mail" and the board cards/confirm-done (the web shipped
-  the code only; the server has no such link).
+  the code only; the server has no such link). **Built since: 19.89.**
 
 **Resumed while another account is open (the lead's rule, 2026-11-24).** A kept answer that is opened at the app's start never switches accounts by itself: when an account is open, the claimed account is added to the list (`resumeCardClaim(keepCurrent)`: the open one stays the current one) and a sheet says "You're also signed in as ‹address or name›" with **Switch** (opens the claimed account on its new group, with the welcome) and **Stay here**. With no account open it opens as before.
 
@@ -3597,3 +3597,79 @@ belfry this device doesn't know as format 3 (`Enc3DeviceState.on`): there Me kee
   the reader card's OK answers "shared", its Remove turns access off), `Enc3MeTest` (Robolectric: This device has no trash, the
   trash asks first then revokes, the agent's trash turns access off, One device, access asks before on and calls reads true /
   false, the state follows the list, the reader card's Remove and OK, the two leftovers), `Enc3MeShotsTest` (pictures, by hand).
+
+### 19.89 Printed cards: the create flow, improved; the e-mail's Confirm button (2026-11-24; Xavier's approval of the Cards canvas section "Onboarding from a card, improved", v90: cards/onb-group-form, onb-topic-form, onb-code, onb-mail, onb-group-done, onb-topic-done, onb-town-group, onb-town-topic, claim-signed-in, onb-topic-signed-in, onb-confirmed-elsewhere; contract collective-belfry docs/cards.md §2.2–§2.3 at Belfry 3ef7ff5, live on the four belfries; the web's chat e965481, 25ff046, 6170a4f, 9ed56d1. Changes 19.72 and 19.73 on Android)
+
+- **The form** (onb-group-form / onb-topic-form; signed in: claim-signed-in / onb-topic-signed-in): ‹the
+  belfry's mark and name› · the chip "Card ‹id›" ("Card ‹id› · topic") — the card's id is shown here now, as the
+  boards and the web do (19.72 said nowhere) · "Start a group" / "Start a topic" · "Nobody has scanned this card
+  yet. The group starts with you." A group: "Group name" (80; under it "What you wrote on the card"),
+  "Description". A topic: **"Hashtag" only** (the channel's name: no topic in words, no summary), its line "✓
+  Available · this is the channel’s name" / "Checking…" / "Taken: try another one" / "Letters, digits and
+  dashes, 2 to 30" / "Couldn’t check just now" + Try again; nothing is suggested or offered (`nextFree` is gone),
+  then "Description". A visitor: "Your name", "Your e-mail". Button "Create the group" / "Create the topic"
+  (BusyButton). Under it, a visitor: "You’ll look after this group. We’ll send a 6-digit code to confirm your
+  e-mail."; signed in: the account box (face, name, the account's address) with **Log out** (a Material dialog asks
+  first; the account signs out, the card stays and shows as a visitor's), then for a group Xavier's footnote "You’ll
+  be the group’s first steward. / People who scan the same QR code again will be invited to join this group…", for
+  a topic "You’ll look after this topic." Ready: a group's name; a topic's hashtag checked free; a visitor's name
+  and address too (`Cards.ready`).
+- **The hashtag field** (Xavier via the lead, 2026-11-24): `HashtagInput.typed` on every edit, typed or pasted:
+  lower case; a run of white space → one "-"; accents folded (NFKD, ASCII only); only `a–z 0–9 -`, so punctuation
+  and emoji are not inserted; no leading "-", never "--"; 30 at most. `HashtagInput.done` (a trailing "-" dropped)
+  when the field is left and when the form is sent; the live check runs on the done value. The same filter is on
+  "Add a channel"'s `# Name` field (`AddChannelScreen`), the other place a channel's slug is typed. ("New channel"
+  asks a display name, not a slug: unchanged.)
+- **The bodies**: a topic sends **no title** (the belfry names it by its hashtag; its about is the description
+  alone, `Cards.topicAbout`); a group `{title, about}`. `claim-start` sends the whole form: `{"email", "name",
+  "client": "belfry-android", "title"? | "hashtag"?, "about"}` (`Cards.startBody`; the belfry keeps it 15
+  minutes), `claim-verify` as before (with the form), `claim-confirm {"token"}`, `claim-poll {}`.
+- **The code screen** (onb-code): "Check your e-mail" · "To create ‹name or #hashtag›, enter the 6-digit code we
+  sent to ‹address›." · six boxes · "or tap Confirm in the e-mail. This screen moves on by itself once you have."
+  (the board's "click … page", for a phone) · "Creating ‹…›…" while the code is checked · "Send a new code (in N
+  s)" · "Use another address" · "Not there? Look in your spam folder." at the bottom. When the code was asked is
+  kept with the form (`CardForm.sentAt`): a card opened again within 15 minutes opens on this screen.
+- **The waiting screen asks `POST /cards/<id>/claim-poll {}`** (NIP-98 by the applicant key) every 3 s
+  (`Cards.POLL_MS`), one ask at a time, only while the code screen is shown and the app is in front
+  (`rememberStarted`), and not while a typed code is being checked. 202 → ask again; 200 → the session (below);
+  410 → "The code and the Confirm button have expired. Send a new code."; 404 → "This request isn’t known any
+  more. Send a new code."; 429, 5xx, no connection → asked again, nothing said. It stops on leaving the screen
+  ("Use another address", back, the app in the background: it starts again on return), on 410 / 404, once this
+  phone is in, and after 15 minutes from the last code (`Cards.CLAIM_SECONDS`; at most `POLL_MAX` = 300 asks),
+  which says the 410's words. "Send a new code" starts the 15 minutes again.
+- **The Confirm link** `https://chat.<domain>/g/<id>?confirm=<token>` (App Link; `CardLink.confirm`: only
+  `confirm`, only `^[A-Za-z0-9_-]{8,200}$`, only with a card id; kept in memory only — never in `pending-card`,
+  never logged, `toString` hides it; a QR code, a pasted address and a link in a chat drop it). It switches to no
+  account. "Confirming…", then `POST /cards/<id>/claim-confirm {"token"}`, signed by this phone's applicant key
+  for that belfry when it has one, else by a key made for that one request and never kept. `same_device` +
+  signed-in body → this phone is in and the group opens; `same_device` false → **"Confirmed"** · "It’s created. Go
+  back to the page where you scanned the card: it opens there by itself." (the web's words) · Close. Refusals:
+  "This link didn’t work" · 410 "It has expired, or it was used already. Scan the card again to start over." · 404
+  "This card isn’t known here. …" · 409 claimed "Someone else was first with this card. Scan it again to join
+  theirs." · 409 retired "This card was retired." · 503 "The belfry is busy. Try again in a minute: the link still
+  works." + Try again (also no connection, 429) · others in 19.72's words + "Scan the card again to start over."
+- **One way to open the session** (the lead's rule): the code, a poll's 200 and a same-device confirm each keep
+  the answer in the vault (`card-claim`) before the signer is asked, then `Onboarding.finishCardClaim` →
+  `open(..., expect = pubkey)`, exactly as 19.73. A kept answer of that card is opened instead of asking again
+  (poll and verify). A signer that does not answer: kept, Try again, and the next start of the app (19.73's
+  "never switches by itself" rule holds for that resume). Asked while the person is on the code screen or opened
+  their Confirm link, the session opens and the group shows (as the code does).
+- **A same-device confirm, then the poll's 410** (the lead, 2026-11-24): this phone holds that claim's session
+  (opened this run, `claimedHere`), is opening it (`confirming`), or has its answer kept: the poll returns
+  `CardPoll.Taken` — the waiting stops silently, never "expired".
+- **The done screens** (onb-group-done / onb-topic-done; the web opens the header half pulled down, which this
+  app does not have): under the top bar, once, a panel with the description (two lines), "Steward: you · 1
+  person" ("· 1 following" for a topic) with my face, "Card ‹id›: anyone who scans it joins here" ("…can read,
+  post and follow"; the id the app opened, `CardWelcomed.cardId`), and the welcome "Welcome to ‹name›! You
+  created it and you look after it. Say hi and share something to get it going." / "#‹tag› is open! You created
+  it and you look after it. Share the first tip, link or question." ✕ closes it. The "+" (Add someone) is not built
+  (group-invite is a draft). The top bar's subtitle keeps the app's rule (the web keeps "N active" too). The
+  group's first line: "‹You› created the group from a printed card" ("from card ‹id›" when the line carries
+  `["card", <id>]`; today's belfry writes `"1"`).
+- **The town square** (onb-town-group / onb-town-topic): over the post "created the group **‹name›**" /
+  "created the topic **#‹tag›**" (`Message.fromCard`: the groups key wrote it for someone); a group's
+  `CardGroupCard`: NEW GROUP · name · description · "Steward: ‹who› · N people" · Join (Open when I'm in or it is
+  closed; deleted, archived, private: the usual group card); a topic's card: NEW TOPIC · #tag · its about whole ·
+  "Steward: ‹who› · N following" · Open.
+- **The demo**: nothing is mailed: the poll waits for ever, a Confirm link has expired; a topic's about is its
+  description.

@@ -81,7 +81,7 @@ object Links {
         if (u.startsWith("https://chat.$domain/")) {
             sh.belfry.core.net.InviteLink.parse(u)?.let { if (it.domain == domain) return InApp.Join(u) }
             sh.belfry.core.net.EventLink.parse(u)?.let { if (it.domain == domain) return InApp.Event(u) }
-            CardLink.parse(u)?.let { if (it.domain == domain) return InApp.Card(u) }
+            CardLink.parse(u)?.let { if (it.domain == domain) return InApp.Card(u.substringBefore("?")) } // a Confirm link's token is never passed on from a chat (SPEC 19.89)
         }
         return null
     }

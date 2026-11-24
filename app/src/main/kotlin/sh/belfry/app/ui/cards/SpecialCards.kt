@@ -64,7 +64,7 @@ fun SpecialCard(groupId: String, message: Message, modifier: Modifier = Modifier
     when (val s = message.special) {
         is Special.None -> Unit
         is Special.EventCard -> EventCard(s.coord, message.text, modifier)
-        is Special.PodCard -> PodCard(s.podId, message.text, modifier)
+        is Special.PodCard -> if (message.author != message.pubkey) CardGroupCard(s.podId, message, modifier) else PodCard(s.podId, message.text, modifier)
         is Special.TopicCard -> TopicCard(s.channelId, message, modifier)
         is Special.ProposalCard -> ProposalCard(s.groupId, message.text, modifier)
         is Special.MemberMail -> MemberMailPost(message, s, modifier)

@@ -308,6 +308,19 @@ minSdk 26, JDK 17.
   `group` / `topic` for the rule that lets a reading guest post in a topic (SPEC 19.77, `GuestTopic`). Tests `CardsTest`,
   `NativeSignInTest` (the claim's key and session), `PrintedCardsTest` (screens `printed-card-*`, the flow's rules),
   `PrintedCardsStateTest`. The steward's card section and the Townsquare's cards: SPEC 19.75 / 19.76 below.
+- The create flow, improved (SPEC 19.89; Cards canvas "Onboarding from a card, improved"; docs/cards.md §2.3 at Belfry 3ef7ff5):
+  the words are all in `Cards` (`startTitle`, `chip`, `startFoot`, `codeLead`, `CODE_OR_CONFIRM`, `pollErrorText`,
+  `confirmErrorText`, `welcomeTitle/Text`, `stewardFacts`, `cardFacts`); a topic is its hashtag (no title in any body).
+  **Every hashtag / channel-slug field filters through `core/model/HashtagInput`** (`typed` on each edit, `done` on
+  leaving and sending). Three ways a visitor's claim gets its session — the code, `claim-poll`'s 200 (the waiting screen,
+  every 3 s while shown and started, stops on leave / 410 / 404 / 15 minutes / in), `claim-confirm`'s `same_device`
+  (the Confirm link `/g/<id>?confirm=<token>`, `CardLink.confirm`, memory only) — and **one path**: kept in `card-claim`,
+  then `finishCardClaim` → `open(expect)`. Never add a fourth way that opens a session differently. A poll that finds the
+  claim's session here (`claimedHere`, `confirming`, a kept answer) is `CardPoll.Taken`: silent, never "expired".
+  App: `CardDoor.start / poll / confirm / logOut / now`, `ConfirmFlow` in `CardScreen`, `CardConfirmedContent`,
+  `CardWelcomeBar` = the done panel (`CardWelcomed.cardId`), `CardGroupCard` (town square, `Message.fromCard`). Tests
+  `CardsTest`, `HashtagInputTest`, `NativeSignInTest` (poll / confirm / kept answer / no switch), `PrintedCardsTest`
+  (polling stops, Confirm), `PrintedCardsStateTest`; pictures `CardsV2ShotsTest` (by hand).
 
 - Printed cards in the town (SPEC 19.75 / 19.76; collective-belfry docs/cards.md §2.2, §2.5, §2.6, §4; canvas
   "Belfry · Group cards": cards/townsquare-new-topic, cards/steward): **who wrote an event is `World.realAuthor(e)`**

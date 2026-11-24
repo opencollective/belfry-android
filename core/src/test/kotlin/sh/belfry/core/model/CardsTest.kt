@@ -35,10 +35,28 @@ class CardsTest {
         }
         // not a card's address at all
         for (no in listOf(
-            "http://chat.belfry.sh/g/K7Q2MX", "https://belfry.sh/g/K7Q2MX", "https://chat.belfry.sh/g/K7Q2MX?x=1", "https://chat.belfry.sh/g/K7Q2MX#frag",
+            "http://chat.belfry.sh/g/K7Q2MX", "https://belfry.sh/g/K7Q2MX", "https://chat.belfry.sh/g/K7Q2MX#frag",
             "https://chat.belfry.sh@evil.example/g/K7Q2MX", "https://chat.belfry.sh/join/$invite", "https://chat.belfry.sh/group/K7Q2MX", "hello", "",
         )) assertNull(CardLink.parse(no), no)
         assertEquals("https://chat.belfry.sh/g/K7Q2MX", Cards.url("belfry.sh", "K7Q2MX"))
+    }
+
+    /** The e-mail's Confirm button (SPEC 19.89): `?confirm=<token>`, only a well-formed token, never shown or logged. */
+    @Test fun theConfirmLink() {
+        val token = "Ab3_-" + "x".repeat(38)
+        val l = CardLink.parse("https://chat.belfry.sh/g/K7Q2MX?confirm=$token")!!
+        assertEquals(CardLink("belfry.sh", "K7Q2MX", token), l)
+        assertEquals(CardLink("belfry.sh", "K7Q2MX"), l.card)
+        assertFalse(l.toString().contains(token), "the token never reaches a log")
+        assertEquals(token, CardLink.parse("https://chat.belfry.sh/g/k7q2mx/?utm=1&confirm=$token")!!.confirm)
+        // anything else in the query is ignored; a token that is not one is no token
+        assertEquals(CardLink("belfry.sh", "K7Q2MX"), CardLink.parse("https://chat.belfry.sh/g/K7Q2MX?x=1"))
+        for (bad in listOf("short", "has space", "a/b/c/d/e/f/g", "<script>alert</script>", "x".repeat(201))) assertNull(CardLink.parse("https://chat.belfry.sh/g/K7Q2MX?confirm=$bad")!!.confirm, bad)
+        // a card whose id is not one carries no token
+        assertNull(CardLink.parse("https://chat.belfry.sh/g/nope?confirm=$token")!!.confirm)
+        // a scanned or pasted QR, a link in a chat: never the token
+        assertNull(InviteScan.card("https://chat.belfry.sh/g/K7Q2MX?confirm=$token")!!.confirm)
+        assertEquals(Links.InApp.Card("https://chat.belfry.sh/g/K7Q2MX"), Links.inApp("https://chat.belfry.sh/g/K7Q2MX?confirm=$token", "belfry.sh"))
     }
 
     @Test fun scannedPastedAndTappedInAChat() {
@@ -75,29 +93,8 @@ class CardsTest {
         assertEquals(30, Cards.hashtagSlug("one two three four five six seven eight nine").length)
     }
 
-    @Test fun theNextFreeOneWhenTaken() = runBlocking<Unit> {
-        assertEquals("tools-2", Cards.nextHashtag("tools", 2))
-        // a cut never leaves a dash at the end, nor two before the number
+    @Test fun aCutNeverEndsOnADash() {
         assertEquals("a".repeat(29), Cards.hashtagSlug("a".repeat(29) + " bcd"))
-        assertEquals("a".repeat(27) + "-2", Cards.nextHashtag("a".repeat(27) + "-bc", 2))
-        assertEquals("a".repeat(28) + "-9", Cards.nextHashtag("a".repeat(30), 9))
-        assertEquals(30, Cards.nextHashtag("a".repeat(30), 2).length)
-
-        val asked = ArrayList<String>()
-        fun check(taken: Set<String>, unknown: Set<String> = emptySet()): suspend (String) -> HashtagState = { h ->
-            asked.add(h)
-            if (h in unknown) HashtagState.UNKNOWN else if (h in taken) HashtagState.TAKEN else HashtagState.FREE
-        }
-        assertEquals("general-2", Cards.nextFree("general", check(setOf("general"))))
-        asked.clear()
-        assertEquals("general-4", Cards.nextFree("general", check(setOf("general", "general-2", "general-3"))))
-        assertEquals(listOf("general-2", "general-3", "general-4"), asked)
-        // every one to -9 taken: nothing is offered
-        assertNull(Cards.nextFree("general", check((2..9).map { "general-$it" }.toSet())))
-        // the belfry can't check: nothing is offered, and nothing more is asked
-        asked.clear()
-        assertNull(Cards.nextFree("general", check(setOf("general-2"), unknown = setOf("general-3"))))
-        assertEquals(listOf("general-2", "general-3"), asked)
     }
 
     @Test fun aHashtagsAnswerIsNeverFreeWhenTheBelfryCouldNotCheck() {
@@ -111,13 +108,12 @@ class CardsTest {
         assertEquals(HashtagState.UNKNOWN, Cards.hashtagAnswer(500, null))
         assertEquals(HashtagState.UNKNOWN, Cards.hashtagAnswer(429, obj("""{"error":"too_many"}""")))
 
-        assertEquals("✓ Available · suggested from the topic, you can change it", Cards.hashtagLine(HashtagState.FREE, checking = false, edited = false))
-        assertEquals("✓ Available", Cards.hashtagLine(HashtagState.FREE, checking = false, edited = true))
-        assertEquals("Taken: try another one", Cards.hashtagLine(HashtagState.TAKEN, false, false))
-        assertEquals("Letters, digits and dashes, 2 to 30", Cards.hashtagLine(HashtagState.INVALID, false, true))
-        assertEquals("Couldn’t check just now", Cards.hashtagLine(HashtagState.UNKNOWN, false, true))
-        assertEquals("Checking…", Cards.hashtagLine(HashtagState.FREE, checking = true, edited = false))
-        assertNull(Cards.hashtagLine(null, false, false))
+        assertEquals("✓ Available · this is the channel’s name", Cards.hashtagLine(HashtagState.FREE, checking = false))
+        assertEquals("Taken: try another one", Cards.hashtagLine(HashtagState.TAKEN, false))
+        assertEquals("Letters, digits and dashes, 2 to 30", Cards.hashtagLine(HashtagState.INVALID, false))
+        assertEquals("Couldn’t check just now", Cards.hashtagLine(HashtagState.UNKNOWN, false))
+        assertEquals("Checking…", Cards.hashtagLine(HashtagState.FREE, checking = true))
+        assertNull(Cards.hashtagLine(null, false))
     }
 
     @Test fun whatACardIs() {
@@ -213,22 +209,32 @@ class CardsTest {
         // a topic needs its hashtag checked free: never on "couldn't check", never while unchecked
         for (s in listOf(null, HashtagState.TAKEN, HashtagState.INVALID, HashtagState.UNKNOWN)) assertFalse(Cards.ready(CardKind.TOPIC, f, false, s), "$s")
         assertTrue(Cards.ready(CardKind.TOPIC, f, false, HashtagState.FREE))
-
-        assertFalse(Cards.hashtagEdited(CardForm(title = "Tool library", hashtag = "tool-library")))
-        assertTrue(Cards.hashtagEdited(CardForm(title = "Tool library", hashtag = "tools")))
-        assertFalse(Cards.hashtagEdited(CardForm(title = "Tool library")))
+        // a topic has no other name than its hashtag (SPEC 19.89): no title needed
+        assertTrue(Cards.ready(CardKind.TOPIC, CardForm(hashtag = "tool-library"), true, HashtagState.FREE))
     }
 
     @Test fun theBodies() {
         val f = CardForm(title = "  Tool\u0007 library ", about = " Borrow drills. ", hashtag = "#Tool-Library", name = " Dev‮ ", email = " dev@example.org ")
         assertEquals("""{"title":"Tool library","about":"Borrow drills."}""", Cards.claimBody(CardKind.GROUP, f).toString())
-        // a topic card: its hashtag; no summary by e-mail (Xavier, Cards v80: it's in the topic's settings)
-        assertEquals("""{"title":"Tool library","about":"Borrow drills.","hashtag":"tool-library"}""", Cards.claimBody(CardKind.TOPIC, f).toString())
-        assertEquals("""{"title":"Tool library","about":"Borrow drills.","hashtag":"tool-library"}""", Cards.claimBody(CardKind.TOPIC, f.copy(summary = "monthly")).toString())
+        // a topic card: its hashtag and no title (the belfry names it by its hashtag, SPEC 19.89); no summary by e-mail
+        assertEquals("""{"about":"Borrow drills.","hashtag":"tool-library"}""", Cards.claimBody(CardKind.TOPIC, f).toString())
+        assertEquals("""{"about":"Borrow drills.","hashtag":"tool-library"}""", Cards.claimBody(CardKind.TOPIC, f.copy(summary = "monthly")).toString())
         assertEquals(
-            """{"email":"dev@example.org","code":"123456","name":"Dev","client":"belfry-android","title":"Tool library","about":"Borrow drills.","hashtag":"tool-library"}""",
+            """{"email":"dev@example.org","code":"123456","name":"Dev","client":"belfry-android","about":"Borrow drills.","hashtag":"tool-library"}""",
             Cards.verifyBody(CardKind.TOPIC, f.copy(summary = "monthly"), " 123456 ").toString(),
         )
+        // claim-start carries the whole form (the Confirm button creates it from there)
+        assertEquals(
+            """{"email":"dev@example.org","name":"Dev","client":"belfry-android","title":"Tool library","about":"Borrow drills."}""",
+            Cards.startBody(CardKind.GROUP, f).toString(),
+        )
+        assertEquals(
+            """{"email":"dev@example.org","name":"Dev","client":"belfry-android","about":"Borrow drills.","hashtag":"tool-library"}""",
+            Cards.startBody(CardKind.TOPIC, f).toString(),
+        )
+        assertEquals("""{"token":"abc"}""", Cards.confirmBody("abc").toString())
+        assertEquals("{}", Cards.pollBody.toString())
+        assertEquals(300, Cards.POLL_MAX)
         assertFalse(Cards.verifyBody(CardKind.GROUP, f, "123456").containsKey("hashtag"))
         assertFalse(Cards.claimBody(CardKind.GROUP, f).containsKey("summary"))
         assertEquals("What was said, once a week. Change it any time.", Cards.summaryHint("weekly"))
@@ -237,31 +243,74 @@ class CardsTest {
         assertEquals("weekly", CardForm.of(obj("""{"summary":"yearly"}"""))!!.summary)
         assertEquals("weekly", CardForm().summary)
         assertEquals(80, (Cards.claimBody(CardKind.GROUP, CardForm(title = "x".repeat(200)))["title"] as kotlinx.serialization.json.JsonPrimitive).content.length)
-        assertEquals("Tool library · Borrow drills.", Cards.topicAbout(f))
-        assertEquals("Tool library", Cards.topicAbout(f.copy(about = " ")))
-        // the kept form: every field back, cut to its length
+        assertEquals("Borrow drills.", Cards.topicAbout(f))
+        assertEquals("", Cards.topicAbout(f.copy(about = " ")))
+        // the kept form: every field back, cut to its length; when the code was asked
         assertEquals(CardForm("a", "b", "c", "d", "e@f.g"), CardForm.of(CardForm("a", "b", "c", "d", "e@f.g").toJson()))
+        assertEquals(1_800_000_000L, CardForm.of(CardForm(email = "e@f.g", sentAt = 1_800_000_000L).toJson())!!.sentAt)
+        assertEquals(0L, CardForm.of(obj("""{"sentAt":"12"}"""))!!.sentAt)
         assertEquals(80, CardForm.of(obj("""{"title":"${"x".repeat(100)}"}"""))!!.title.length)
         assertNull(CardForm.of(null))
     }
 
     @Test fun theWordsOfTheScreens() {
-        assertEquals("Start this group", Cards.startTitle(CardKind.GROUP))
-        assertEquals("Start the topic", Cards.startButton(CardKind.TOPIC))
-        assertEquals("Topic", Cards.titleLabel(CardKind.TOPIC))
-        assertEquals("Title", Cards.titleLabel(CardKind.GROUP))
+        // onb-group-form, onb-topic-form, claim-signed-in, onb-topic-signed-in
+        assertEquals("Start a group", Cards.startTitle(CardKind.GROUP))
+        assertEquals("Nobody has scanned this card yet. The topic starts with you.", Cards.startIntro(CardKind.TOPIC))
+        assertEquals("Create the topic", Cards.startButton(CardKind.TOPIC))
+        assertEquals("Card K7Q2MX", Cards.chip(CardKind.GROUP, "K7Q2MX"))
+        assertEquals("Card X2M7KE · topic", Cards.chip(CardKind.TOPIC, "X2M7KE"))
+        assertEquals("You’ll look after this group. We’ll send a 6-digit code to confirm your e-mail.", Cards.startFoot(CardKind.GROUP, false))
+        assertEquals("You’ll look after this topic.", Cards.startFoot(CardKind.TOPIC, true))
+        assertTrue(Cards.startFoot(CardKind.GROUP, true).startsWith("You’ll be the group’s first steward.\n\nPeople who scan the same QR code again"))
+        assertEquals("#tool-library", Cards.what(CardKind.TOPIC, CardForm(title = "ignored", hashtag = "Tool-library")))
+        assertEquals("Sourdough starters", Cards.what(CardKind.GROUP, CardForm(title = " Sourdough starters ")))
+        // onb-code
+        assertEquals("To create Sourdough starters, enter the 6-digit code we sent to lou@example.org.", Cards.codeLead("Sourdough starters", "lou@example.org"))
+        assertEquals("Send a new code (in 24 s)", Cards.resend(24))
+        assertEquals("Send a new code", Cards.resend(0))
+        assertEquals("Creating #tool-library…", Cards.creating("#tool-library"))
+        // the done screens
+        assertEquals("Welcome to Sourdough starters!", Cards.welcomeTitle(true, "Sourdough starters"))
+        assertEquals("#tool-library is open!", Cards.welcomeTitle(false, "tool-library"))
+        assertEquals("Welcome to #tool-library!", Cards.welcomeTitle(false, "tool-library", CardWelcome.JOINED))
+        assertEquals("You created it and you look after it. Say hi and share something to get it going.", Cards.welcomeText(true, CardWelcome.STARTED))
+        assertEquals("Say hi and share something: a photo, a tip, a question.", Cards.welcomeText(true, CardWelcome.JOINED))
+        assertEquals("You created it and you look after it. Share the first tip, link or question.", Cards.welcomeText(false, CardWelcome.STARTED))
+        assertEquals("No introductions needed: share what you know.", Cards.welcomeText(false, CardWelcome.JOINED))
+        assertEquals("Steward: you · 1 person", Cards.stewardFacts(true, "you", 1))
+        assertEquals("Steward: you · 1 following", Cards.stewardFacts(false, "you", 1))
+        assertEquals("Card K7Q2MX: anyone who scans it joins here", Cards.cardFacts(true, "K7Q2MX"))
+        assertEquals("Card X2M7KE: anyone who scans it can read, post and follow", Cards.cardFacts(false, "X2M7KE"))
+        // the dead ends, unchanged
         assertEquals("Join", Cards.takenButton(CardKind.GROUP))
         assertEquals("Open the topic", Cards.takenButton(CardKind.TOPIC))
         assertEquals("Sourdough starters is closed to new people", Cards.retiredTitle(CardKind.GROUP, "Sourdough starters"))
         assertEquals("This topic is closed to new people", Cards.retiredTitle(CardKind.TOPIC, ""))
         assertEquals("Book club has ended", Cards.archivedTitle(CardKind.GROUP, "Book club"))
         assertEquals("Check that you scanned a card of belfry.brussels.", Cards.unknownText("belfry.brussels"))
-        assertEquals("Welcome to Sourdough starters!", Cards.welcomeTitle(true, "Sourdough starters"))
-        assertEquals("Welcome to # tool-library!", Cards.welcomeTitle(false, "tool-library"))
-        assertEquals("You started it. Say hi and share something to get it going: a photo, a tip, a question.", Cards.welcomeText(true, CardWelcome.STARTED))
-        assertEquals("Say hi and share something: a photo, a tip, a question.", Cards.welcomeText(true, CardWelcome.JOINED))
-        assertEquals("You started it. Share something to get it going: a link, a photo, a question.", Cards.welcomeText(false, CardWelcome.STARTED))
-        assertEquals("No introductions needed: share what you know.", Cards.welcomeText(false, CardWelcome.JOINED))
+        // onb-confirmed-elsewhere: the web's words
+        assertEquals("It’s created. Go back to the page where you scanned the card: it opens there by itself.", Cards.CONFIRMED_TEXT)
+    }
+
+    /** Every answer of claim-poll and claim-confirm that is not a success, in the app's words (SPEC 19.89). */
+    @Test fun pollAndConfirmRefusals() {
+        assertEquals("The code and the Confirm button have expired. Send a new code.", Cards.pollErrorText(Cards.failure(410, obj("""{"error":"expired"}"""))))
+        assertEquals("This request isn’t known any more. Send a new code.", Cards.pollErrorText(Cards.failure(404, obj("""{"error":"not_found"}"""))))
+        assertTrue(Cards.pollStops(Cards.failure(410, obj("""{"error":"expired"}"""))))
+        assertTrue(Cards.pollStops(Cards.failure(404, null)))
+        // a busy belfry, too many asks, no connection: asked again at the next tick, nothing said
+        for (f in listOf(Cards.failure(429, null), Cards.failure(503, obj("""{"error":"signer"}""")), CardFailed(CardError.OFFLINE), CardFailed(CardError.FAILED))) {
+            assertFalse(Cards.pollStops(f), f.code.name)
+            assertNull(Cards.pollErrorText(f), f.code.name)
+        }
+        assertEquals("It has expired, or it was used already. Scan the card again to start over.", Cards.confirmErrorText(Cards.failure(410, obj("""{"error":"expired"}"""))))
+        assertEquals("This card isn’t known here. Scan the card again to start over.", Cards.confirmErrorText(Cards.failure(404, null)))
+        assertEquals("Someone else was first with this card. Scan it again to join theirs.", Cards.confirmErrorText(Cards.failure(409, obj("""{"error":"claimed","group":"pod-x-1"}"""))))
+        assertEquals("The belfry is busy. Try again in a minute: the link still works.", Cards.confirmErrorText(Cards.failure(503, obj("""{"error":"relay"}"""))))
+        assertTrue(Cards.confirmErrorText(Cards.failure(409, obj("""{"error":"own_key"}"""))).startsWith("This address has an account that signs in with its own key."))
+        for (c in CardError.entries) assertTrue(Cards.confirmErrorText(CardFailed(c)).isNotBlank())
+        assertEquals(setOf(CardError.SIGNER, CardError.OFFLINE, CardError.TOO_MANY), CardError.entries.filter { Cards.confirmMayRetry(CardFailed(it)) }.toSet())
     }
 
     @Test fun theCardsLineInAGroup() {
@@ -270,9 +319,10 @@ class CardsTest {
         assertFalse(Cards.isCardLine("cd".repeat(32), listOf(listOf("card", "1")), key), "only the groups key writes it")
         assertFalse(Cards.isCardLine(key, listOf(listOf("card", "2")), key))
         assertFalse(Cards.isCardLine(key, listOf(listOf("card", "1")), null))
-        assertEquals("You started this group from a printed card", Cards.cardLine("You", pod = true))
-        assertEquals("Dev Patel started this topic from a printed card", Cards.cardLine("Dev Patel", pod = false))
-        assertEquals("This topic was started from a printed card", Cards.cardLine(null, pod = false))
+        assertEquals("You created the group from a printed card", Cards.cardLine("You", pod = true))
+        assertEquals("You created the group from card K7Q2MX", Cards.cardLine("You", pod = true, cardId = "K7Q2MX"))
+        assertEquals("Dev Patel created the topic from a printed card", Cards.cardLine("Dev Patel", pod = false))
+        assertEquals("This topic was created from a printed card", Cards.cardLine(null, pod = false))
     }
 
     @Test fun aGuestWhoCameByACardKeepsItsKind() {

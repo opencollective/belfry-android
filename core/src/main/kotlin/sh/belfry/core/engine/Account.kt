@@ -544,14 +544,15 @@ class Onboarding(
     }
 
     /**
-     * A visitor starts a card's group, step 1: a 6-digit code goes to EMAIL. Signed by this phone's
+     * A visitor starts a card's group, step 1: the form goes to the belfry (kept there 15 minutes)
+     * and a 6-digit code and a Confirm button to its e-mail (SPEC 19.89). Signed by this phone's
      * applicant key for that belfry ([applicantSecret]: the key of the e-mail log-in and of
-     * applying, kept in the vault), which becomes the session's key. `key_taken`: that key is let
-     * go, so the next code is asked with a new one. Throws [CardFailed].
+     * applying, kept in the vault), which becomes the session's key whichever way the address is
+     * proven. `key_taken`: that key is let go, so the next code is asked with a new one. Throws [CardFailed].
      */
-    suspend fun cardClaimStart(c: Community, id: String, email: String): Unit = withContext(Dispatchers.Default) {
+    suspend fun cardClaimStart(c: Community, id: String, kind: CardKind, f: CardForm): Unit = withContext(Dispatchers.Default) {
         if (c.domain == Demo.DOMAIN) { DemoCards.start(id); return@withContext }
-        cardCall(c) { CardsApi(BelfryApi(c, http)).claimStart(id, email, applicantSecret(c.domain)) }
+        cardCall(c) { CardsApi(BelfryApi(c, http)).claimStart(id, kind, f, applicantSecret(c.domain)) }
     }
 
     /**
@@ -573,6 +574,93 @@ class Onboarding(
             vault.set(V_CARD_CLAIM, kept.toJsonString())
         }
         finishCardClaim(kept)
+    }
+
+    /** What one ask of `claim-poll` says (SPEC 19.89). */
+    sealed interface CardPoll {
+        /** Still waiting: ask again in a few seconds. */
+        data object Waiting : CardPoll
+        /** The Confirm button was tapped on another device: the session, opened here (not started), and the group. */
+        data class In(val session: Session, val group: String) : CardPoll
+        /**
+         * This phone has (or is opening) the session of this claim another way (its own Confirm
+         * link, the code): stop asking and say nothing; that way goes into the group (the lead's rule:
+         * the 410 that follows a same-device confirm is never "expired").
+         */
+        data object Taken : CardPoll
+    }
+
+    /** Cards whose Confirm link is being sent from this phone right now (memory only): a 410 of their poll is no expiry. */
+    private val confirming = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    /** Cards whose claim opened a session on this phone (memory only, this run): their later 410s say nothing. */
+    private val claimedHere = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private fun claimKey(c: Community, id: String) = c.domain + " " + id
+
+    /**
+     * The waiting screen, every few seconds: was the e-mail's Confirm button tapped elsewhere? A kept
+     * answer of this card (a same-device confirm whose signer did not answer yet) is finished instead
+     * of asking. 200 → the answer is kept in the vault before the signer is asked, then opened exactly
+     * as the code's ([finishCardClaim]: `open(expect = pubkey)`); one way to open a session. Throws
+     * [CardFailed] (`EXPIRED` 410, `UNKNOWN` 404: the waiting ends; anything else: ask again) or
+     * [OnboardingException] (`signer`: kept, Try again; `mismatch`).
+     */
+    suspend fun cardClaimPoll(c: Community, id: String): CardPoll = withContext(Dispatchers.Default) {
+        val key = claimKey(c, id)
+        if (key in claimedHere || key in confirming) return@withContext CardPoll.Taken
+        cardClaim()?.takeIf { it.community.domain == c.domain && it.id == id }?.let { kept ->
+            val (s, group) = finishCardClaim(kept)
+            return@withContext CardPoll.In(s, group)
+        }
+        if (c.domain == Demo.DOMAIN) return@withContext CardPoll.Waiting // the demo mails nothing: nobody taps Confirm
+        // no applicant key: this phone asked no code for that belfry (or it was let go): nothing to ask with
+        val secret = vault.get("$V_APPLICANT:${c.domain}")?.takeIf(Hex::isKey) ?: throw CardFailed(CardError.UNKNOWN)
+        val answer: sh.belfry.core.net.CardClaimed? = try {
+            cardCall(c) { CardsApi(BelfryApi(c, http)).claimPoll(id, secret) }
+        } catch (e: CardFailed) {
+            // the same-device confirm (or the code) won the race: this phone holds that session, the 410 is no expiry
+            if (e.code == CardError.EXPIRED && (key in claimedHere || key in confirming || cardClaim()?.let { it.community.domain == c.domain && it.id == id } == true)) return@withContext CardPoll.Taken
+            throw e
+        }
+        val got = answer ?: return@withContext CardPoll.Waiting
+        if (key in claimedHere) return@withContext CardPoll.Taken
+        val kept = KeptCardClaim(c, id, got.signed.bunkerUrl, got.signed.pubkey, got.group, clock())
+        vault.set(V_CARD_CLAIM, kept.toJsonString())
+        val (s, group) = finishCardClaim(kept)
+        CardPoll.In(s, group)
+    }
+
+    /** `claim-confirm`'s outcome on this phone. */
+    sealed interface CardConfirm {
+        /** This phone started the claim: its session, opened here (not started), and the group. */
+        data class In(val session: Session, val group: String) : CardConfirm
+        /** Confirmed for a claim started elsewhere: it opens there ("Confirmed", onb-confirmed-elsewhere). */
+        data class Elsewhere(val group: String) : CardConfirm
+    }
+
+    /**
+     * The e-mail's Confirm button opened the app (`/g/<id>?confirm=<token>`, SPEC 19.89). Signed by
+     * this phone's applicant key for that belfry when it has one (it may be the key that started the
+     * claim), else by a key made for this one request and never kept. `same_device` → the answer is
+     * kept in the vault, then opened as the code's is ([finishCardClaim], `open(expect = pubkey)`).
+     * Throws [CardFailed] or [OnboardingException] (`signer`: kept, Try again; `mismatch`).
+     */
+    suspend fun cardClaimConfirm(c: Community, id: String, token: String): CardConfirm = withContext(Dispatchers.Default) {
+        if (c.domain == Demo.DOMAIN) throw CardFailed(CardError.EXPIRED) // the demo mails no button (the web's demo says the same)
+        val key = claimKey(c, id)
+        confirming += key
+        try {
+            val secret = vault.get("$V_APPLICANT:${c.domain}")?.takeIf(Hex::isKey)
+            val got = cardCall(c) { CardsApi(BelfryApi(c, http)).claimConfirm(id, token, LocalSigner(secret ?: sh.belfry.core.crypto.Keys.generateSecretHex())) }
+            val claimed = got.claimed ?: return@withContext CardConfirm.Elsewhere(got.group)
+            // same_device without our key would be the belfry's mistake: nothing can open it here
+            if (secret == null) throw CardFailed(CardError.FAILED)
+            val kept = KeptCardClaim(c, id, claimed.signed.bunkerUrl, claimed.signed.pubkey, claimed.group, clock())
+            vault.set(V_CARD_CLAIM, kept.toJsonString())
+            val (s, group) = finishCardClaim(kept)
+            CardConfirm.In(s, group)
+        } finally {
+            confirming -= key
+        }
     }
 
     /** Is a claim waiting for its signer (the code was right, the session is not open yet)? */
@@ -608,6 +696,7 @@ class Onboarding(
             throw e
         }
         vault.remove(V_CARD_CLAIM)
+        claimedHere += claimKey(k.community, k.id)
         forgetApplicant(domain)
         pendingCard = null
         dropCardForm()
