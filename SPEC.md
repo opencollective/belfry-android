@@ -3597,3 +3597,97 @@ belfry this device doesn't know as format 3 (`Enc3DeviceState.on`): there Me kee
   the reader card's OK answers "shared", its Remove turns access off), `Enc3MeTest` (Robolectric: This device has no trash, the
   trash asks first then revokes, the agent's trash turns access off, One device, access asks before on and calls reads true /
   false, the state follows the list, the reader card's Remove and OK, the two leftovers), `Enc3MeShotsTest` (pictures, by hand).
+
+### 19.88 Encrypted conversations, format 3: private groups (2026-11-24; collective-belfry docs/encrypted.md §4–§6, §8, §10, §16.1, §16.8–§16.10, §17.2, §17.8, §17.10, §17.12, §17.14, §18.4, §18.7, §18.8, §20, §22–§26, §28; the web's `src/core/enc/runtime.ts` part 10, `sync.ts`, `model.ts` `groupWriteMode` / `privateNow`, `ui/WhoCanRead.tsx` `GroupWho`, `ui/Chat.tsx` `MemberLine` on branch enc-v3, 039678d … d7acb17; Encrypted canvas encrypted/group, group-who, group-who-cant-check, group-joined, group-joined-others, group-removed, group-removed-self, group-removed-info, group-email, group-too-big)
+
+- **Private here** = the group's metadata says private (a group: closed + private) OR a key of it was ever seen on this
+  device (`Enc3Groups.privateHere`). Writes follow part 2's table (`EncWrites.group`): a group ever encrypted here is written
+  encrypted whatever the cached format; format 3 + private metadata → encrypted; format unknown after an `encrypted` object was
+  seen → held; a group whose metadata isn't here on format 3 → held; §16.9's clear list stays clear. `Session.privateNow(h)` =
+  V3, or held with private metadata (the web's `privateNow`): no events, meetings, proposals or tickets, no typing, a guest's
+  session can't post, no "Turn into a proposal".
+- **Reading** (`core/engine/Enc3Groups.kt`, `Session.enc3Groups`; null where `enc3` is: the demo, a guest's session, no device
+  key). The live groups subscription adds `{kinds: [8571, 8572], "#h": [my private groups], since: newest of them − 1 h}`
+  (re-sent when the set changes); a private group new here is read from its start once (`enc-groups-seen`). Group envelopes
+  (8571 with `h`, `d` = K, `maker`, `lists`; several events per `d`) are kept per group and K. For an 8572 (`h`, `d` = K): a key
+  held for another conversation never opens it (declared once, §17.12: `Wrong`, settled); else my entry opened with the maker
+  device's key (`EncKeys.openGroupEnvelope`), accepted when the maker was on its account's list at the envelope's date
+  (`acceptGroupKey`; wait → that account's lists asked, kept), kept as `ConvKey(conv = g:<id>, group, mine = my account and a
+  device of my lists, service = the groups key or the belfry key, claimed = its `set`)`. **Its `lists` (what `pickKey` adopts
+  by) is the claimed set only while the entry keys of every envelope event of that `d` hash to it** (`EncKeys.deviceSet(
+  entryKeys)`), judged again whenever more envelope events arrive; otherwise "" and "Can't check who can read this". No key
+  here: its envelopes asked by `#h` + `#d` (once a minute); a complete read that found envelopes, none with an entry for this
+  device → "can't be read on this device" (`waiting(h).second`). The message: `openGroupMessage`, `acceptGroupMessage` (outer
+  author = rumor author, both `h` the group's, the seal's signer a device of the author at the outer date); wait → kept (never
+  settled), dropped only once the author's whole chain, read complete on this connection, lists the signer nowhere.
+- **What is dropped from inside an 8572** (`Enc3Groups.privileged`, the web's P1.1 and d7acb17's ruling): §16.9's clear-list
+  kinds (9000, 9001, 9002, 9005, 9007, 9008, 9021, 9022, 39000–39003, vouch labels, `belfry:inbox:` / `seen:` 30078s, 1985s by
+  the groups key), format 3's own kinds, and every 1985 in a `belfry/` label space except `belfry/pin`, `belfry/inbox`,
+  `belfry/event-status`, `belfry/proposal-status` (the model's own admin / author checks apply, the author being the account
+  whose device sealed it), a press (`belfry/action`) and a service key's `belfry/action-result`. Everything else (9, 1111, 7,
+  1010, 5, 2100–2103, 1068, 1018, …) goes into the log as the group's own event: the rumor with its id and no signature
+  (`ports.opened` → `addToLog`). `World` applies newest per author and `d`, edits and deletions on them as on any event.
+- **§17.2**: a SIGNED event of a private group (by its metadata) dated at or after the group's first key, outside the clear
+  list, never counts: `Session.buildWorld` leaves it out (`Enc3Groups.refuses` / `firstKeys`, format 3 only).
+- **Writing** happens at sending, in `Session.sendOne`, for every unsigned groups-relay item with an `h`: `encWriteGroup` FIRST
+  (before any upload or signature). V3 = `Enc3Groups.ready(h)`: the group's 39002 read on this groups-relay connection (≤ 3 s;
+  never a stale or empty cache), me in it, then part 2's `Enc3.groupReady` (members' lists read whole, a member with no list
+  after a second read skipped for this message, a guest member no entry, forks hold, over 1000 devices refused). Files are
+  then sealed like a kind 15's (`DmFiles.seal`: AES-256-GCM, the ciphertext uploaded as `application/octet-stream`; imeta `url`,
+  `m` the original type, `size`, `x` of the ciphertext, `ox`, `encryption-algorithm aes-gcm`, `decryption-key`,
+  `decryption-nonce`, `dim`, `alt`). `Enc3Groups.seal`: the newest key made for exactly the plan's device set
+  (`EncKeys.pickKey`: never a service key, < 30 days, not future-dated; another member's key only while its entries add up,
+  judged again right before use) or a new one, kept with its entries BEFORE anything goes; its envelopes
+  (`EncKeys.groupEnvelopes`, split at 60 000 bytes, `set` in each entry) are signed by my ACCOUNT through the signer and
+  published (groups relay) before the message, made again (same K, fresh dates) until each was taken (`envelopesOut`); then
+  the 8572 (`EncMessages.groupMessage`: outer by my account through the signer, `h`, `d` = K, `["p", x]` per `nostr:npub` in
+  the text, §17.14; the seal by this DEVICE). The rumor goes into my log at once (`Enc3Groups.sent`).
+- **Holds, never clear**: the item stays queued with `error = "held: enc3:<REASON>[:who]"` (tried again with the outbox's
+  back-off; its group's lane waits); over 1000 devices fails it: `"invalid: enc3:TOO_MANY"`. Under the message
+  (`MessageRow`, `heldOf` / `heldWords`): "Not sent: couldn’t check who can read this group" (group unknown, lists, fork),
+  "This device isn’t set up for encrypted messages yet", "You have 20 devices signed in · Remove one to send encrypted messages
+  here", "Guests can’t take part in private groups yet.", each with Try again; too many: "Not sent: this group has too many
+  devices to encrypt · Tell a steward · Delete" (group-too-big, a draft).
+- **Buttons** (§24): `Session.pressButton` in a private group: the press (1985 `L belfry/action`, `l`, `e`, `p`, `h`) sealed
+  into the group like any of its events (envelopes first), and for a `belfry:` button a second rumor (`Buttons.pressCopy`:
+  `L`, `l`, `h`, `["e", press, "", "press"]`, `["p", groups key]` only, the button, `["k", kind]`, content = the message rumor
+  as opened, its id kept, no `decryption-key` / `decryption-nonce` in any imeta) sent as a people conversation to the groups key
+  (`Enc3.peopleReady` + `encryptPeople(self = false)`, envelopes then the copy on the community relay). Either can't go →
+  `not_sent` (the button unlocks). The answer arrives as an 8572 by the groups key: shown, its key `service`, never sent with.
+- **E-mail into a private group** (§24): the groups key's inbox card arrives as an 8572 and shows as today's card, its label
+  "E-mail received · ‹time› · By e-mail"; Who can read this adds "E-mail to this group reaches the belfry’s mail server
+  unencrypted and is encrypted as soon as it arrives. Once here, the belfry can’t read it."
+- **Screens** (`ui/people/Enc3Groups.kt`, read through `Enc3View.groupPrivate / groupCantCheck / groupChanges /
+  groupWaiting`): the lock next to the name in the header (`GroupLock`, "Encrypted: see who can read this group") → Who can read
+  this (`GroupWhoSheet`): "Only the devices of these N people can read ‹group›. Someone who joins later can’t read what was said
+  before." (or "Can’t check who can read this" · "This device couldn’t confirm which devices can read ‹group›. It keeps
+  trying." and no Others), my devices by name (trash as part 4), Others with a count only, "Not signed in on any device" ·
+  "Gets new messages once signed in", How it works. Lines in the feed (`FeedItem.EncLine`, `core/model/GroupLines.kt`, words
+  `GroupEncText`): from the relay's 9000 / 9001 "‹name› joined · They see messages from now on." / "You joined ‹group› · You
+  see messages from when you joined." / "‹by› removed ‹name› · New messages no longer reach their devices." with the (i)
+  ("‹name› was removed" · "When ‹by› removed ‹first›, a new key was made for ‹group›. Messages sent from now on are encrypted
+  with it, and ‹first›’s devices never get it, so they can’t read them." · "What ‹first› could read before stays on ‹first›’s
+  devices." · OK) / "‹by› removed you from ‹group› · You can’t read or send new messages here. What you could read before stays
+  on your devices." (a private group I was removed from stays, read only); and from one key's entry keys to the next
+  (`Enc3Groups.keyChanges`, entry keys mapped to people through their lists) "‹name› can read from here" / "‹name› can no
+  longer read", left out where a 9000 / 9001 for that person falls between the two keys. Waiting messages: "Opening N
+  encrypted messages…" / "N messages can’t be read on this device · Ask for them" (part 5's ask). A guest member's session:
+  "Guests can’t take part in private groups yet." where the composer would be. The composer's ＋ and the create sheet show
+  Event, Meeting, Proposal disabled with "Not available in private groups yet."; `createEvent` / `createProposal` /
+  `createMeeting` refuse them (`ActionException("private")`).
+- **Files** (§23, §26): `Media.sealed` (`SealedMedia`) from an imeta with `encryption-algorithm aes-gcm` and its key, nonce, x,
+  ox (an encrypted imeta without them is never shown as a plain file); `Session.sealedMedia` downloads, checks x, GCM, ox and
+  keeps the plain bytes by ox; a picture shows in the message, a video / recording / PDF opens in the phone's viewer, anything
+  else is handed on as `application/octet-stream`.
+- **Push**: the belfry announces a group 8572 without content (docs/push.md); the app shows the payload's own title and body.
+  A tap names the outer 8572: `Session.messageIdFor` maps it to the rumor once opened here.
+- **Decided here**: the 39002 read before a write takes the newest one the relay answers, then the world's members; the key
+  lines need the envelopes of both keys on this device (keys from packs have none: no line); an archived private group is
+  not subscribed (`World.groups`); a group's FILES tab and the photo viewer's grid don't show sealed files (only the message).
+- Tests: `Enc3GroupsTest` (core, fake relays: write then read, mentions as p, the seal the device's, the envelope the
+  account's; reuse, new keys on members / lists / 30 days; adoption only while entries add up, judged again; never a service
+  key, its answer shown; maker not listed, lists coming → wait then open; declared once across groups; clear-list kinds and
+  belfry labels dropped, pin / inbox / statuses / press through; §17.2's refusal; edits, deletions, newest per author and d on
+  rumors; no entry → can't be read; a signer not the author's device dropped after a whole read; envelopes made again until
+  out; every hold; over 1000; guest and list-less members; the table never clear; the press copy without file keys; sealed
+  files; key lines and words), app `Enc3GroupsTest` (Robolectric) and `Enc3GroupsShotsTest` (pictures, by hand).

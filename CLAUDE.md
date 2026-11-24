@@ -382,6 +382,18 @@ minSdk 26, JDK 17.
   `Enc3RemoveSheet` (card-remove's words; the agent's own); the trash calls `Session.enc3RemoveListed` (revoke with `by`, or
   `reads: false`), never on This device. Access: `Session.enc3AgentReads` (`POST /agents {pubkey, reads}`); reader card OK
   `Session.enc3ReaderOk`. Demo records `demoRevoked` / `demoAgentReads`. Tests `Enc3MeTest`, `Enc3MeShotsTest`.
+- Format 3, part 7 (SPEC 19.88): private groups. Runtime `core/engine/Enc3Groups.kt` (`Session.enc3Groups`; ports to the groups
+  relay): 8571 / 8572 by `#h` for my private groups, a key from my entry accepted by its maker's list, **adopted for sending only
+  while its entry keys add up to its `set`** (judged again as envelopes arrive), declared once (a key opens only its own group),
+  opened rumors (no signature) into the log as the group's events after `privileged` drops §16.9's kinds and `belfry/*` labels
+  (pin, inbox, event-status, proposal-status, presses and service answers pass); §17.2's refusal in `Session.buildWorld`. Writing
+  is decided in `Session.sendOne` (`encWriteGroup` → `Enc3Groups.ready` → `seal` → `sendGroupEncrypted`: envelopes by my account
+  through the signer first, then the 8572; files sealed like DM files); a hold is the item's `error = "held: enc3:<REASON>"`,
+  too many devices `"invalid: enc3:TOO_MANY"`: never clear. `Session.privateNow(h)` gates events / meetings / proposals, typing,
+  a guest's composer. Buttons: `pressEncrypted` + `Buttons.pressCopy` to the groups key. UI `ui/people/Enc3Groups.kt` (lock, Who
+  can read this, `FeedItem.EncLine` lines, waiting line, guest / removed bars, held words); `Media.sealed` + `Session.sealedMedia`.
+  Tests set `DemoEnc3View(privateGroups = …)` (`Enc3GroupsFixture`, `Session.demoAddEvents`, `demoGuestMember`). Tests
+  `Enc3GroupsTest` (core and app), `Enc3GroupsShotsTest`.
 
 ## UI rules (the owner's, not negotiable)
 

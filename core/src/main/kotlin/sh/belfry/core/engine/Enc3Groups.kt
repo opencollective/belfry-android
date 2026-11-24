@@ -199,6 +199,14 @@ class Enc3Groups(val e3: Enc3, private val ports: Enc3GroupPorts) {
         val asks = ArrayList<Pair<String, String>>()
         val wants = LinkedHashSet<String>()
         synchronized(lock) {
+            // P1.3 / P2.3: more envelope events of a held key arrived: its entries judged again against its set
+            for ((name, m) in envs) {
+                val h = name.substring(0, name.lastIndexOf('/'))
+                val held = e3.key(name.substring(name.lastIndexOf('/') + 1)) ?: continue
+                if (held.conv != Enc3.groupConv(h) || !held.group || held.claimed.isEmpty() || judged[held.pub] == m.size) continue
+                val next = judgeSet(held, m.values.toList())
+                if (next != held) e3.replaceKey(next)
+            }
             for ((id, e) in msgs.entries.toList()) {
                 val h = hOf(e)
                 val K = EncMessages.named(e)?.takeIf { Enc.isKey(it) }

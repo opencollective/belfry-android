@@ -553,7 +553,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     fun isAnnouncement(m: Message, g: Group?): Boolean = Topics.ANNOUNCE in m.topics && g != null && m.pubkey in g.admins
 
     /** Every photo and file posted in the channel, newest first. */
-    fun files(groupId: String): List<Media> = messages(groupId).flatMap { it.media }.reversed()
+    fun files(groupId: String): List<Media> = messages(groupId).flatMap { it.media }.filter { it.sealed == null }.reversed() // a sealed file opens from its message only (SPEC 19.88)
 
     // ---- threads (NIP-22 kind 1111, `E` = the message) -----------------------------------------
 

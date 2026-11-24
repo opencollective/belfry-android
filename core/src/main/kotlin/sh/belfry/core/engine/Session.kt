@@ -2930,6 +2930,18 @@ class Session(
         if (localOnly) setGuest(GuestInfo(channel, saved = false, reading = true, card = GuestTopic.card(card)))
     }
 
+    /** Tests and screenshots only (SPEC 19.88): a guest member's session (not reading), for the private-group bar. */
+    fun demoGuestMember(channel: String) {
+        if (localOnly) setGuest(GuestInfo(channel, saved = true, reading = false))
+    }
+
+    /** Tests and screenshots only (SPEC 19.88): events into the demo's log as if they had arrived (opened rumors, a 9000…), the world rebuilt. */
+    fun demoAddEvents(events: List<Event>) {
+        if (!localOnly) return
+        addToLog(events)
+        rebuild()
+    }
+
     private fun setGuest(g: GuestInfo?) {
         _guest.value = g
         onRecordChanged?.invoke(community, g)
