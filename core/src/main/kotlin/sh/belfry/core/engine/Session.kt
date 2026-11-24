@@ -431,8 +431,10 @@ class Session(
     suspend fun enc3Remove(card: sh.belfry.core.enc.DeviceCard) {
         if (localOnly) {
             demoRemovals++
+            if (card.reader) demoAgentReads += card.device to false else demoRevoked += card.device
             val st = demoEnc3.value
-            demoEnc3.value = st.copy(cards = st.cards.filter { it.device != card.device }, notices = st.notices + sh.belfry.core.enc.EncDeviceText.removed(card.name))
+            val said = if (card.reader) sh.belfry.core.enc.EncDeviceText.agentOff(card.name ?: sh.belfry.core.enc.EncDeviceText.AGENT) else sh.belfry.core.enc.EncDeviceText.removed(card.name)
+            demoEnc3.value = st.copy(cards = st.cards.filter { it.device != card.device }, notices = st.notices + said)
             return
         }
         withContext(Dispatchers.Default) { (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).remove(card) }
@@ -446,6 +448,53 @@ class Session(
             return
         }
         withContext(Dispatchers.Default) { (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).removeFirst(row) }
+    }
+
+    // ---- format 3, part 6 (SPEC 19.86): Me › Devices, my agent's access, the reader card ------------------------
+
+    /** Demo records for the behaviour tests: who was revoked (by this device), and each access call (agent, reads). */
+    val demoRevoked: MutableList<String> = java.util.Collections.synchronizedList(ArrayList())
+    val demoAgentReads: MutableList<Pair<String, Boolean>> = java.util.Collections.synchronizedList(ArrayList())
+
+    /**
+     * The trash icon on another device of my list (revoked, `by` = this device's key) or on my agent (its access off), after
+     * the person confirmed. Never this device. The demo changes its made-up list at once (the belfry's new list).
+     */
+    suspend fun enc3RemoveListed(key: String, reader: Boolean) {
+        if (localOnly) {
+            val st = demoEnc3.value
+            if (key == st.here) throw ActionException("this_device", sh.belfry.core.enc.EncDeviceText.FAILED)
+            demoRemovals++
+            if (reader) demoAgentReads += key to false else demoRevoked += key
+            demoEnc3.value = st.copy(devices = st.devices - key, readers = st.readers - key, cards = st.cards.filter { it.device != key })
+            return
+        }
+        withContext(Dispatchers.Default) { guard(); (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).removeListed(key, reader) }
+    }
+
+    /**
+     * My agent's access (§11): `POST /agents {pubkey, reads}` by me, its owner. On or off is read from my list afterwards
+     * ([sh.belfry.core.enc.Enc3DeviceState.readers]), never kept from this call. The demo records the call and leaves its
+     * list as it was (a test plays the belfry's new list).
+     */
+    suspend fun enc3AgentReads(agent: String, reads: Boolean) {
+        if (localOnly) { demoAgentReads += agent to reads; return }
+        withContext(Dispatchers.Default) {
+            guard()
+            val d = enc3Devices
+            if (d != null) d.agentReads(agent, reads)
+            else if (!call { it.agentReads(signer, agent, reads) }) throw ActionException("not_yet", sh.belfry.core.enc.EncDeviceText.NOT_YET)
+        }
+    }
+
+    /** OK on my agent's card (§17.9): answered for every device; access stays on. CARD's name is the agent's. */
+    suspend fun enc3ReaderOk(card: sh.belfry.core.enc.DeviceCard) {
+        if (localOnly) {
+            val st = demoEnc3.value
+            demoEnc3.value = st.copy(cards = st.cards.filter { it.device != card.device }, notices = st.notices + sh.belfry.core.enc.EncDeviceText.readerOk(card.name ?: sh.belfry.core.enc.EncDeviceText.AGENT))
+            return
+        }
+        withContext(Dispatchers.Default) { guard(); (enc3Devices ?: throw ActionException("not_set_up", sh.belfry.core.enc.EncDeviceText.FAILED)).readerOk(card) }
     }
 
     fun enc3GoneOk(device: String) {

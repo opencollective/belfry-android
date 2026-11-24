@@ -15,6 +15,7 @@ fun NavGraphBuilder.peopleRoutes() {
     composable(Routes.ME) { MeScreen() }
     composable(Routes.SESSIONS) { SessionsScreen() }
     composable(Routes.DEVICES) { DevicesScreen() }
+    composable(Routes.DEVICE) { entry -> Enc3OneDeviceScreen(entry.arg("key")) }
     composable(Routes.NOTIFICATIONS) { NotificationsScreen() }
     composable(Routes.PRIVACY) { PrivacyScreen() }
     composable(Routes.BRANDING) { BrandingScreen() }

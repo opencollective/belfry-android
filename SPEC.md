@@ -3454,7 +3454,7 @@ the boards and the web differ the web's) and `EncText`.
   this"; the not-before line "Messages after this are encrypted. Earlier ones are not." once, before the first message at
   or after the conversation's first key, when an unencrypted (`plain`, not e-mail) message came before it.
 - **The 21st device** (encrypted/edge-21st) in Messages: "You have 20 devices signed in" / "Remove one to read encrypted
-  messages here." / "Your devices ›" (Me → Signed-in sessions).
+  messages here." / "Your devices ›" (Me › Devices, SPEC 19.86).
 - Tests: `Enc3ScreensTest` (the lock only where encrypted, v1's lock never on format 3 and kept on format 1, no lock in the
   list, my device names and only counts for others, my agent, the e-mail explanation, Try again calls the retry, the
   not-before line once); pictures `Enc3ScreensShotsTest`.
@@ -3518,7 +3518,7 @@ cards) keep showing, and on format 3 they never do.
   e-mail password." OK only, kept); two different lists of my devices or a newer signed list that isn't valid (fork /
   invalidAbove: "Your belfry gave out two different lists of your devices", kept for good once seen); an envelope for my
   account with an entry for a key never on my lists ("A device that was never on your list got your messages"; the keys
-  kept in the key store across restarts). Both with Your devices (Me › Sessions).
+  kept in the key store across restarts). Both with Your devices (Me › Devices since part 6, SPEC 19.86).
 - **The first screen** (§18.3; encrypted/first-screen): once per device, on the first list of mine it is on, the other
   devices and readers already on it, each with "Added ‹day›" (its first list) or "Your agent · access given ‹day›" and
   Remove (asks first), then Continue. A full-screen dialog over the app (`Enc3FirstScreenHost` in `AppRoot`).
@@ -3537,7 +3537,7 @@ cards) keep showing, and on format 3 they never do.
   tablet) · Sign out anyway · Cancel, before it happens (`Enc3OnlyDeviceDialog` in Me).
 - **Words**: the web's where it shipped words different from a board (Remove's text, "‹name› was removed."); the boards'
   for what the web didn't ship (the transition sentence, the first screen as a screen with Remove on each row, the time
-  range of added-and-removed). The fork / strange texts point at "your devices" (Android has no Me › Devices yet).
+  range of added-and-removed). The fork / strange texts point at "your devices" (Me › Devices, SPEC 19.86).
 - **Demo**: stays format 1 (no runtime); tests set a state by hand (`Session.demoEnc3Device`, `demoEncConvs`,
   `demoShares` / `demoRemovals`).
 - Tests: `Enc3DevicesTest` (core: asks once / 24 h / a new sibling and asked again by the look; answers only from older
@@ -3547,3 +3547,56 @@ cards) keep showing, and on format 3 they never do.
   needing both conditions and never offline; the removed answer read strictly; the first screen once; the warnings kept
   across restarts; the only device), `Enc3DeviceTest` (Robolectric: Share once per tap, Remove asks first, Ask once,
   nothing on format 1), `Enc3DeviceShotsTest` (pictures, by hand).
+
+### 19.86 Encrypted conversations, format 3: Me › Devices, One device, my agent's access, the reader card (2026-11-24; collective-belfry docs/encrypted.md §11, §16.5, §17.4, §17.9, §18.3, §28; the web's `src/ui/WhoCanRead.tsx` `EncDevicesScreen` / `AgentAccess` / `RemoveSheet`, `src/ui/EarlierLine.tsx`, `Profile.tsx`, `Sealed.tsx` on branch enc-v3, f76fec5; Encrypted canvas encrypted/devices, device, devices-agent, agent-access, agent-access-confirm, agent-access-on, edge-agent-card, card-remove)
+
+Part 6 of format 3 on Android. Words: `core/enc/Device.kt` `EncDeviceText` (the web's where it shipped words different from
+a board; the boards' where it shipped none). Runtime: `Enc3Devices.removeListed / agentReads / readerOk`; the screens read
+`Enc3DeviceState.devices / readers / added / here / sharedWith` (my current list, set on every list check). Nothing here on a
+belfry this device doesn't know as format 3 (`Enc3DeviceState.on`): there Me keeps the version-1 Devices and Signed-in devices.
+
+- **The truth is my list.** Which devices exist, and whether my agent reads, come from my current list (`["device", k]`,
+  `["device", agent, "reader"]`), never from what this device did; `/me/sessions` only names the devices (`device`, else
+  `application_name`; "A device") and says when each was last active.
+- **Me › Devices** (`Routes.DEVICES` → `DevicesScreen` → `Enc3DevicesScreen` on format 3): "These devices can read your
+  encrypted messages."; every device of my list, This device first then the newest, each "Added ‹day› · last active ‹day›"
+  (Today / Yesterday / 12 Aug), "This device" and "New" (added in the last 24 h, not this one) as words in a frame; my agent
+  when it reads: its member name, "Your agent · access given ‹day›". A trash icon on every row but This device's. Device:
+  asks first (encrypted/card-remove exactly: "Remove ‹name›?" · "It’s signed out at once and can’t read new messages." ·
+  on its own line "If you didn’t add it, someone used a code sent to your e-mail. Change your e-mail password." · Remove /
+  Cancel), then `POST /me/sessions/revoke` with its `bunker_pubkey` (else `client_pubkey`) and `by` = this device's key; a
+  card shown for it is answered "removed"; "‹name› was removed.". My agent: "Remove ‹name›’s access?" · "‹name› won’t read
+  your private messages and private groups any more. What it read before stays with it.", then `POST /agents {pubkey,
+  reads: false}`; "‹name› can’t read your private messages any more.". Feet: "A device you remove is signed out and can’t
+  read anything new." / "Removing your agent here turns its access off." (boards). No list here: "This device isn’t set up
+  for encrypted messages yet." A device row opens One device; the agent's row opens its profile.
+- **One device** (`Routes.device(key)`, encrypted/device): its name as title; Added (day and time), Last active, Earlier
+  messages Shared / Not shared (its card answered "shared", here or by another device of mine); Remove this device (the same
+  sheet; then back) with "It’s signed out at once. Messages already on it stay there until it’s next online."; This device:
+  no Remove, "This device. Sign out is in Me." (the web says Settings: Android's sign-out is in Me).
+- **The same sheet everywhere** (`Enc3RemoveSheet`): part 5's card, the first screen (a reader row gets the agent's words),
+  Who can read this (its trash now calls `Session.enc3RemoveListed`), Me › Devices, One device. This device can't be removed
+  from any of them (`removeListed` / `removeFirst` refuse its key).
+- **Links**: part 4's "Your devices ›" on the 21st-device line, part 5's fork / strange warnings and the asked line's "Your
+  devices" open Me › Devices (`Routes.DEVICES`; on format 1 that is the version-1 screen as before).
+- **My agent's access** (§11; encrypted/agent-access, -confirm, -on): on my own agent's profile only (I am its owner) and only
+  on format 3, a section "Private messages" with the switch "Give access to my private messages and private groups", off by
+  default. Under it: "Off: it doesn’t read them." / "‹name› is now one of your devices: it reads them like one." / "Waiting
+  for the belfry…" (after a call, until my list agrees; the switch is still meanwhile). On asks first ("Give ‹name› access?" ·
+  "It will read your private messages and private groups from now on, like one of your devices. You can turn this off at
+  any time." · Give access / Cancel), then `POST /agents {pubkey, reads: true}` (`BelfryApi.agentReads`, NIP-98 by my signer;
+  404 = "This belfry can’t do that yet."). Off asks first (the agent's Remove words), then `reads: false`. The state shown is
+  the list's `reader` entry, never what was sent.
+- **The reader card** (§17.9; encrypted/edge-agent-card): when a `reader` entry for an account appears on a list of mine after
+  the first one this device saw (`EncDevice.cards`, `readersAdded`), on all my devices: "‹agent› can now read your private
+  messages" · when · OK · Remove (trash icon). No Share (an agent gets no earlier messages). Answered once for every device like
+  the other cards: OK = an 8575 "shared" about the reader ("‹agent› reads your private messages from now on."; the web's OK;
+  the board shows Remove only), Remove = asks first, then `reads: false` and an 8575 "removed".
+- **Leftovers of parts 4–5**: on a format-3 belfry (`Enc3View.format3` or `Enc3DeviceState.on`) the Notes to myself row in
+  Messages has no lock and no version-1 locked look; version 1's "Shared by ‹name›" history lines never show in a
+  conversation (format 1 keeps both).
+- **Not built**: the web's 30078 `belfry:device:reads` marker (part 2 owns the marker), private groups (part 7).
+- Tests: `Enc3DevicesTest` (core: the trash revokes with `by` and answers the card, never this device; access follows the list,
+  the reader card's OK answers "shared", its Remove turns access off), `Enc3MeTest` (Robolectric: This device has no trash, the
+  trash asks first then revokes, the agent's trash turns access off, One device, access asks before on and calls reads true /
+  false, the state follows the list, the reader card's Remove and OK, the two leftovers), `Enc3MeShotsTest` (pictures, by hand).

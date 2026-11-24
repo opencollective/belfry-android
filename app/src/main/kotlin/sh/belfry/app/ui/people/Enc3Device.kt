@@ -43,7 +43,6 @@ import sh.belfry.app.ui.chat.face
 import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.ButtonKind
-import sh.belfry.app.ui.kit.ConfirmSheet
 import sh.belfry.app.ui.kit.rememberBusy
 import sh.belfry.app.ui.nav.LocalDms
 import sh.belfry.app.ui.nav.LocalNav
@@ -108,15 +107,15 @@ internal fun Enc3DeviceCards(modifier: Modifier = Modifier) {
     if (st.on) Column(modifier) {
         if (st.fork) Block(BelfryIcons.Shield, EncDeviceText.FORK_TITLE, "enc3-fork", Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
             Said(EncDeviceText.FORK_TEXT)
-            DevicesLink { nav.go(Routes.SESSIONS) }
+            DevicesLink { nav.go(Routes.DEVICES) }
         }
         if (st.strange) Block(BelfryIcons.Shield, EncDeviceText.STRANGE_TITLE, "enc3-strange") {
             Said(EncDeviceText.STRANGE_TEXT)
-            DevicesLink { nav.go(Routes.SESSIONS) }
+            DevicesLink { nav.go(Routes.DEVICES) }
         }
         for (card in st.cards) {
-            if (card.reader) continue // part 6: "‹agent› can now read your private messages"
-            if (card.gone) GoneCard(card) else AddedCard(card)
+            // part 6 (SPEC 19.86, encrypted/edge-agent-card): my agent was given access
+            if (card.reader) ReaderCard(card) else if (card.gone) GoneCard(card) else AddedCard(card)
         }
         for (n in st.notices) {
             Row(
@@ -174,14 +173,40 @@ private fun AddedCard(card: DeviceCard) {
             )
         }
     }
-    if (removing) ConfirmSheet(
-        title = EncDeviceText.removeTitle(card.name), confirmLabel = EncDeviceText.REMOVE,
-        onConfirm = {
-            try { session.enc3Remove(card) } catch (e: Exception) { error = e.shown(EncDeviceText.FAILED) }
-            removing = false
-        },
-        onDismiss = { removing = false }, message = EncDeviceText.REMOVE_TEXT, cancelLabel = EncDeviceText.CANCEL, confirmTag = "enc3-remove-confirm",
-    )
+    if (removing) Enc3RemoveSheet(Enc3Removing(card.device, card.name, false), onConfirm = {
+        try { session.enc3Remove(card) } catch (e: Exception) { error = e.shown(EncDeviceText.FAILED) }
+        removing = false
+    }, onDismiss = { removing = false }, confirmTag = "enc3-remove-confirm")
+}
+
+/**
+ * Part 6 (SPEC 19.86; §17.9; encrypted/edge-agent-card, the web's EarlierLine.tsx): my agent was given access to my private
+ * messages, on all my devices: "‹agent› can now read your private messages", when, then OK (answered for every device, as
+ * the web) and Remove (asks first; access off). No Share: an agent gets no earlier messages.
+ */
+@Composable
+private fun ReaderCard(card: DeviceCard) {
+    val session = LocalSession.current
+    val world = LocalWorld.current
+    val name = world.displayName(card.device)
+    val named = card.copy(name = name)
+    var removing by remember(card.device) { mutableStateOf(false) }
+    var error by remember(card.device) { mutableStateOf<String?>(null) }
+    Block(BelfryIcons.User, EncDeviceText.readerTitle(name), "enc3-reader-card") {
+        Said(EncDeviceText.time(card.at, session.now(), world.ctx.zone, rememberH24()), muted = true)
+        error?.let { Text(it, fontSize = 14.sp, color = Belfry.colors.text, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp).testTag("enc3-reader-error")) }
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BusyButton(EncDeviceText.OK, {
+                error = null
+                try { session.enc3ReaderOk(named) } catch (e: Exception) { error = e.shown(EncDeviceText.FAILED) }
+            }, kind = ButtonKind.Ghost, small = true, modifier = Modifier.testTag("enc3-reader-ok"))
+            BusyButton(EncDeviceText.REMOVE, { error = null; removing = true }, kind = ButtonKind.Ghost, small = true, icon = BelfryIcons.Trash, modifier = Modifier.testTag("enc3-reader-remove"))
+        }
+    }
+    if (removing) Enc3RemoveSheet(Enc3Removing(card.device, name, true), onConfirm = {
+        try { session.enc3Remove(named) } catch (e: Exception) { error = e.shown(EncDeviceText.FAILED) }
+        removing = false
+    }, onDismiss = { removing = false }, confirmTag = "enc3-reader-remove-confirm")
 }
 
 /** encrypted/edge-added-removed: added and removed while this device was away. A notice, OK only. */
@@ -201,7 +226,7 @@ private fun GoneCard(card: DeviceCard) {
 enum class EarlierWhere { LIST, THREAD }
 
 /** A device's icon from the name its session gave itself (a guess for the eye only; the name says it in words). */
-private fun deviceIcon(name: String?): ImageVector {
+internal fun deviceIcon(name: String?): ImageVector {
     val n = name.orEmpty()
     return when {
         listOf("Mac", "Windows", "Linux", "Laptop", "Desktop").any { n.contains(it, ignoreCase = true) } -> BelfryIcons.Computer
@@ -244,7 +269,7 @@ internal fun Enc3EarlierLine(where: EarlierWhere) {
         }
         st.askedAt != null -> Block(BelfryIcons.Clock, EncDeviceText.ASKED_TITLE, "enc3-asked", Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
             Said(EncDeviceText.askedText(names))
-            DevicesLink { nav.go(Routes.SESSIONS) }
+            DevicesLink { nav.go(Routes.DEVICES) }
         }
         else -> Block(BelfryIcons.Lock, EncDeviceText.EARLIER_TITLE, "enc3-earlier") {
             if (v3 == 0) Said(EncDeviceText.transitionText(st.since3, world.ctx.zone, names)) // encrypted/transition
@@ -307,11 +332,9 @@ fun Enc3FirstScreenContent(rows: List<FirstRow>, zone: ZoneId, onRemove: suspend
     }
     removing?.let { r ->
         val name = if (r.reader) world.face(r.device).name else r.name
-        ConfirmSheet(
-            title = EncDeviceText.removeTitle(name), confirmLabel = EncDeviceText.REMOVE,
-            onConfirm = { try { onRemove(r) } catch (e: Exception) { error = e.shown(EncDeviceText.FAILED) }; removing = null },
-            onDismiss = { removing = null }, message = EncDeviceText.REMOVE_TEXT, cancelLabel = EncDeviceText.CANCEL, confirmTag = "enc3-first-remove-confirm",
-        )
+        Enc3RemoveSheet(Enc3Removing(r.device, name, r.reader), onConfirm = {
+            try { onRemove(r) } catch (e: Exception) { error = e.shown(EncDeviceText.FAILED) }; removing = null
+        }, onDismiss = { removing = null }, confirmTag = "enc3-first-remove-confirm")
     }
 }
 

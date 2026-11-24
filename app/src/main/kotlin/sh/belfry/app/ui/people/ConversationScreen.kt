@@ -147,7 +147,9 @@ fun ConversationScreen(conv: String) {
     val v1Ui = !enc3Dev.on
     val lockedHere = v1Ui && seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
-    val rows: List<Any> = remember(inline, seal, until, firstEnc, format3) {
+    // format 3 (SPEC 19.86): version 1's "Shared by" history lines never show on a format-3 belfry (format 1 keeps them)
+    val v1Shared = if (format3 || !v1Ui) emptyList() else seal?.shared.orEmpty()
+    val rows: List<Any> = remember(inline, seal, until, firstEnc, format3, v1Shared) {
         val shown = DmGroups.collapse(inline.filter { it.at < until })
         // format 3: version 1's device lines never show (other people's devices are a count in Who can read this)
         val merged = if (seal == null || seal.notices.isEmpty() || format3) shown
@@ -156,7 +158,7 @@ fun ConversationScreen(conv: String) {
         val out = ArrayList<Any>()
         var open: SharedBlock? = null
         for (r in merged) {
-            val block = when (r) { is Dm -> seal?.shared?.firstOrNull { it.holds(r.at) }; is DmGroup -> seal?.shared?.firstOrNull { it.holds(r.at) }; else -> null }
+            val block = when (r) { is Dm -> v1Shared.firstOrNull { it.holds(r.at) }; is DmGroup -> v1Shared.firstOrNull { it.holds(r.at) }; else -> null }
             if (block != null && block != open) out.add(block)
             open = block ?: open.takeIf { r !is Dm && r !is DmGroup }
             out.add(r)

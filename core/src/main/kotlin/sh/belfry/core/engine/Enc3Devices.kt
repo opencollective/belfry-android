@@ -257,7 +257,47 @@ class Enc3Devices(private val enc3: Enc3, private val ports: Enc3DevicePorts, pr
         if (card.reader) ports.agentReads(card.device, false)
         else ports.revoke(card.device, bunkerOf(card.device), device.pubkey)
         if (!card.gone) answer(card, AnswerWord.REMOVED)
-        notices += EncDeviceText.removed(card.name)
+        // a reader's card: the screen names the agent (its member name; the core has no names of members)
+        notices += if (card.reader) EncDeviceText.agentOff(card.name ?: EncDeviceText.AGENT) else EncDeviceText.removed(card.name)
+        refresh()
+    }
+
+    /**
+     * Part 6 (SPEC 19.86; §17.9): OK on my agent's card ("‹agent› can now read your private messages"): answered once for
+     * every device as the web does (an 8575 "shared" about the reader, signed by this device). Access stays on.
+     */
+    suspend fun readerOk(card: DeviceCard) {
+        if (!card.reader) throw ActionException("not_reader", EncDeviceText.FAILED)
+        val c = chain()
+        if (c == null || device.pubkey !in c.current.devices) throw ActionException("not_listed", EncDeviceText.FAILED)
+        answer(card, AnswerWord.SHARED)
+        notices += EncDeviceText.readerOk(card.name ?: EncDeviceText.AGENT)
+        refresh()
+    }
+
+    /**
+     * Part 6 (SPEC 19.86; §11): my agent's access, `POST /agents {pubkey, reads}`. Whether it is on is never kept here:
+     * the screens read it from my current list (a `reader` entry, [Enc3DeviceState.readers]) once the belfry lists it.
+     * Turned off while its card shows: the card is answered "removed".
+     */
+    suspend fun agentReads(agent: String, reads: Boolean) {
+        ports.agentReads(agent, reads)
+        if (!reads) _state.value.cards.firstOrNull { it.reader && it.device == agent }?.let { if (chain()?.current?.devices?.contains(device.pubkey) == true) answer(it, AnswerWord.REMOVED) }
+        refresh()
+    }
+
+    /**
+     * Part 6 (SPEC 19.86): the trash icon of Me › Devices, One device and Who can read this, after the person confirmed:
+     * another device of my list revoked (`by` = this device's key), or my agent's access off. Never this device (its
+     * row has no trash: signing out is Me's). A card shown for it is answered "removed".
+     */
+    suspend fun removeListed(key: String, reader: Boolean) {
+        if (key == device.pubkey) throw ActionException("this_device", EncDeviceText.FAILED)
+        if (reader) { agentReads(key, false); return }
+        ports.revoke(key, bunkerOf(key), device.pubkey)
+        val listed = chain()?.current?.devices?.contains(device.pubkey) == true
+        _state.value.cards.firstOrNull { !it.reader && !it.gone && it.device == key }?.let { if (listed) answer(it, AnswerWord.REMOVED) }
+        removedFirst += key
         refresh()
     }
 
@@ -281,6 +321,7 @@ class Enc3Devices(private val enc3: Enc3, private val ports: Enc3DevicePorts, pr
 
     /** Remove on the first screen: a device's session revoked (by = this device), or my agent's access off. */
     suspend fun removeFirst(row: FirstRow) {
+        if (row.device == device.pubkey) throw ActionException("this_device", EncDeviceText.FAILED)
         if (row.reader) ports.agentReads(row.device, false) else ports.revoke(row.device, bunkerOf(row.device), device.pubkey)
         removedFirst += row.device
         refresh()
@@ -366,6 +407,10 @@ class Enc3Devices(private val enc3: Enc3, private val ports: Enc3DevicePorts, pr
         val older = EncDevice.older(c, device.pubkey).map { DeviceName(it, nameOf(it)) }
         val first = if (firstScreenSeen || firstScreenDone) emptyList() else EncDevice.firstScreen(c, device.pubkey)
             .filter { it.device !in removedFirst }.map { it.copy(name = nameOf(it.device)) }
+        // part 6: the devices whose card was answered "shared" (here or by another device of mine)
+        val sharedWith = HashSet<String>()
+        answeredHere().forEach { (d, a) -> if (a.second == AnswerWord.SHARED) sharedWith += d }
+        if (c != null) EncDevice.answers(answers.values, me, c, EncDevice.asks(asks.values, me, c).values).forEach { (d, a) -> if (a.answer == AnswerWord.SHARED) sharedWith += d }
         val shared = note(N_SHARED_BY)?.split(':')?.takeIf { it.size == 2 && Enc.isKey(it[0]) }?.let { DeviceName(it[0], nameOf(it[0])) }
         _state.value = Enc3DeviceState(
             on = enc3.isFormat3,
@@ -381,6 +426,11 @@ class Enc3Devices(private val enc3: Enc3, private val ports: Enc3DevicePorts, pr
             firstScreen = first,
             onlyDevice = EncDevice.onlyDevice(c, device.pubkey, enc3.keyCount),
             since3 = ports.since3(),
+            devices = c?.current?.devices.orEmpty(),
+            readers = c?.current?.readers.orEmpty(),
+            added = c?.let { EncDevice.since(it) }.orEmpty(),
+            here = device.pubkey,
+            sharedWith = sharedWith,
         )
     }
 

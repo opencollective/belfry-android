@@ -120,7 +120,7 @@ internal fun ColumnScope.WhoCanReadBody(conv: String) {
     val who = WhoCanRead.of(view, mail, others, sessions) { world.displayName(it) }
     val mailName = if (mail) dms.convName(conv, world).ifEmpty { dms.mailAddress(conv) } else ""
     // SPEC 19.85: a trash icon on each other device of mine and my agent (asks first; revoke with by = this device)
-    WhoContent(who, world, mailName, onRemove = { r -> session.enc3RemoveFirst(sh.belfry.core.enc.FirstRow(r.key, r.addedAt ?: 0, reader = r.agent, name = r.name)); sessions = view.sessions() })
+    WhoContent(who, world, mailName, onRemove = { r -> session.enc3RemoveListed(r.key, r.agent); sessions = view.sessions() })
 }
 
 /** Drawn from a [WhoCanRead] (the screenshot tests draw it directly). */
@@ -167,11 +167,9 @@ internal fun ColumnScope.WhoContent(who: WhoCanRead, world: World, mailName: Str
     removeError?.let { Text(it, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text, modifier = Modifier.padding(top = 6.dp, start = 4.dp)) }
     removing?.let { d ->
         val name = if (d.agent) world.displayName(d.key) else d.name
-        sh.belfry.app.ui.kit.ConfirmSheet(
-            title = sh.belfry.core.enc.EncDeviceText.removeTitle(name), confirmLabel = sh.belfry.core.enc.EncDeviceText.REMOVE,
-            onConfirm = { try { onRemove?.invoke(d) } catch (e: Exception) { removeError = e.shown(sh.belfry.core.enc.EncDeviceText.FAILED) }; removing = null },
-            onDismiss = { removing = null }, message = sh.belfry.core.enc.EncDeviceText.REMOVE_TEXT, confirmTag = "enc3-who-remove-confirm",
-        )
+        Enc3RemoveSheet(Enc3Removing(d.key, name, d.agent), onConfirm = {
+            try { onRemove?.invoke(d) } catch (e: Exception) { removeError = e.shown(sh.belfry.core.enc.EncDeviceText.FAILED) }; removing = null
+        }, onDismiss = { removing = null }, confirmTag = "enc3-who-remove-confirm")
     }
     Spacer(Modifier.height(18.dp))
     if (who.mail) {

@@ -905,7 +905,7 @@ internal fun Enc3SetupLine(st: sh.belfry.core.engine.Enc3State) {
                 Text(sh.belfry.core.engine.WhoText.FULL_TEXT, fontSize = 14.sp, lineHeight = 19.sp, color = c.text)
                 Text(
                     sh.belfry.core.engine.WhoText.YOUR_DEVICES + " ›", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text,
-                    modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.SESSIONS) }.padding(vertical = 2.dp).testTag("enc3-your-devices"),
+                    modifier = Modifier.padding(top = 4.dp).clickable(role = Role.Button) { nav.go(Routes.DEVICES) }.padding(vertical = 2.dp).testTag("enc3-your-devices"),
                 )
             }
         } else Text(text, fontSize = 14.sp, lineHeight = 19.sp, color = c.text, modifier = Modifier.weight(1f))

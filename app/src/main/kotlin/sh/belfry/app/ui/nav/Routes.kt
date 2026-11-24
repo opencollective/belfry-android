@@ -92,6 +92,9 @@ object Routes {
     const val SESSIONS = "sessions"
     /** Me → Devices: the devices that read my sealed conversations (canvas messages/encryption-remove-device, v87). */
     const val DEVICES = "devices"
+    /** Format 3 (SPEC 19.86, encrypted/device): one device of my list, by its key (never shown): Added, Last active, Remove. */
+    const val DEVICE = "device/{key}"
+    fun device(key: String) = "device/${enc(key)}"
     /** Me → Notifications (push). */
     const val NOTIFICATIONS = "notifications"
     /** Me → Privacy: "Show others when I'm typing" (canvas v110 messages/typing-setting). */
