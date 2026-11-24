@@ -203,6 +203,7 @@ class Enc3MeTest : DemoShots() {
         Enc3Fixture.install(session, mapOf(trio to DemoShots.NOW - 40 * 86400L))
         demoShot("enc3-me-t-shared") { ConversationScreen(trio) }
         assertEquals(0, count("seal-shared-by"))
+        assertEquals("nor its rule beside the shared messages", 0, count("seal-shared-message"))
         assertTrue(compose.onAllNodesWithText("Shared by Lena Fischer").fetchSemanticsNodes().isEmpty())
     }
 
@@ -217,5 +218,6 @@ class Enc3MeTest : DemoShots() {
         val trio = MailThreads.nostrConv(Demo.tomas.pubkey, listOf(Demo.lena.pubkey, session.me), session.me)
         demoShot("enc3-me-t-shared-v1") { ConversationScreen(trio) }
         assertEquals(1, count("seal-shared-by"))
+        assertEquals(3, count("seal-shared-message"))
     }
 }

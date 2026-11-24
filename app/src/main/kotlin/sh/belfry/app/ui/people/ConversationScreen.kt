@@ -249,7 +249,7 @@ fun ConversationScreen(conv: String) {
                     if (at != null && (prevAt == null || world.dayOf(prevAt) != world.dayOf(at))) DaySeparator(ChatFormat.day(world, at, now))
                     when (r) {
                         is Dm -> {
-                            val shared = seal?.shared?.any { it.holds(r.at) } == true
+                            val shared = v1Shared.any { it.holds(r.at) }
                             val replies = dms.replies(conv, r.rid).size
                             val openReplies = if (replies > 0) ({ nav.go(Routes.dmThread(conv, r.rid)) }) else null
                             if (shared) {
