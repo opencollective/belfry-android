@@ -90,11 +90,8 @@ fun navColumnStays(): Boolean {
 @Composable
 fun HomeScreen(shell: ShellState, drawerOpen: Boolean = false) {
     // a newer version of the app: a slim line above everything (update/UpdateUi.kt)
-    Column(Modifier.fillMaxSize()) {
-        sh.belfry.app.update.UpdateBar()
-        Box(Modifier.weight(1f)) {
-            androidx.compose.runtime.CompositionLocalProvider(LocalShell provides shell) { PlacesHost(shell, drawerOpen) }
-        }
+    sh.belfry.app.update.UnderUpdateBar {
+        androidx.compose.runtime.CompositionLocalProvider(LocalShell provides shell) { PlacesHost(shell, drawerOpen) }
     }
 }
 
