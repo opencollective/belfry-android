@@ -116,7 +116,8 @@ fun DmThreadScreen(conv: String, root: String) {
     val people = (peers + world.me).distinct().size
     val sealState by session.encryption.state.collectAsState()
     val seal = sealState.seal(conv)
-    val lockedHere = seal != null && conv in sealState.locked
+    // never the version-1 locked look on a format-3 belfry (Session.format3Here)
+    val lockedHere = seal != null && conv in sealState.locked && !session.format3Here.collectAsState().value
     val composer = rememberComposerState("$conv#$root")
     val state = rememberLazyListState()
     var acting by remember(conv, root) { mutableStateOf<Pair<String, Boolean>?>(null) }
