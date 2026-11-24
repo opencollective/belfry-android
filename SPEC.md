@@ -3438,7 +3438,8 @@ the boards and the web differ the web's) and `EncText`.
   encrypted, so a conversation over 100 devices from the start has no lock and says nothing, encrypted/not-large); an
   e-mail thread whenever the device knows the belfry as format 3 (its mail is encrypted on the belfry, §10). The lock has
   the words "Encrypted: see who can read this" (e-ink: never colour alone). On a format-3 belfry the version-1 lock and
-  Encryption screen never show in a conversation, the Notes line's lock opens Who can read this; format 1 is unchanged.
+  Encryption screen never show in a conversation, nor version 1's device lines ("Maya added a device") and "Not sealed"
+  marks; the Notes line's lock opens Who can read this; format 1 is unchanged.
 - **Who can read this**: a ModalBottomSheet; beside the conversation (a 360 dp panel with Close) when the window is at least
   1000 dp wide (encrypted/laptop-who). The lead line ("Only Maya’s devices and yours…", "Only the devices of the people
   here…", "Only your devices…"); Others: each other person (a face, the name, "2 devices", "…" while the list is unknown),

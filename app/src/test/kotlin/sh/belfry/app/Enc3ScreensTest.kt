@@ -31,6 +31,8 @@ class Enc3ScreensTest : DemoShots() {
         demoShot("enc3-t-lock") { ConversationScreen(maya) }
         assertEquals(1, count("enc3-lock"))
         assertEquals(0, count("seal-lock")) // the demo's maya conversation is sealed (v1): its lock never shows on format 3
+        assertEquals(0, count("seal-notice-amber")) // nor its device lines
+        assertEquals(0, count("seal-not-sealed"))
     }
 
     @Test fun noLockWhereNotEncrypted() {

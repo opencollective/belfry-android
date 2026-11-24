@@ -144,9 +144,10 @@ fun ConversationScreen(conv: String) {
     // as usual, then one amber block in place of the rest; no composer
     val lockedHere = seal != null && conv in sealState.locked
     val until = if (lockedHere) seal?.since ?: Long.MIN_VALUE else Long.MAX_VALUE
-    val rows: List<Any> = remember(inline, seal, until, firstEnc) {
+    val rows: List<Any> = remember(inline, seal, until, firstEnc, format3) {
         val shown = DmGroups.collapse(inline.filter { it.at < until })
-        val merged = if (seal == null || seal.notices.isEmpty()) shown
+        // format 3: version 1's device lines never show (other people's devices are a count in Who can read this)
+        val merged = if (seal == null || seal.notices.isEmpty() || format3) shown
         else (shown.map { r -> (if (r is DmGroup) r.at else (r as Dm).at) to r } + seal.notices.filter { it.at < until }.map { it.at to it }).sortedBy { it.first }.map { it.second }
         // history someone shared with this device (canvas v86): a "Shared by" line above each block
         val out = ArrayList<Any>()
@@ -234,7 +235,8 @@ fun ConversationScreen(conv: String) {
                         else -> "locked"
                     }
                 }) { i, r ->
-                    val prev = rows.getOrNull(i - 1)
+                    // the not-before line carries no date: the day separator looks past it
+                    val prev = rows.getOrNull(i - 1)?.let { p -> if (p === NotBefore) rows.getOrNull(i - 2) else p }
                     val at = atOf(r)
                     val prevAt = prev?.let { atOf(it) }
                     if (at != null && (prevAt == null || world.dayOf(prevAt) != world.dayOf(at))) DaySeparator(ChatFormat.day(world, at, now))
@@ -244,9 +246,9 @@ fun ConversationScreen(conv: String) {
                             val replies = dms.replies(conv, r.rid).size
                             val openReplies = if (replies > 0) ({ nav.go(Routes.dmThread(conv, r.rid)) }) else null
                             if (shared) {
-                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies) }
+                                SharedRule { Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (!format3 && (seal?.isNotSealed(r.at) == true || r.notSealed)) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies) }
                             } else {
-                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (seal?.isNotSealed(r.at) == true || r.notSealed) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies)
+                                Bubble(r, dms, world, group = peers.size > 1, onMenu = { emojiOnly -> acting = r.rid to emojiOnly }, notSealed = if (!format3 && (seal?.isNotSealed(r.at) == true || r.notSealed)) ({ notSealedOpen = true }) else if (r.clear) ({ notEncryptedOpen = true }) else null, onCancelHeld = { session.cancelHeldDm(r.rid)?.let { t -> composer.value = androidx.compose.ui.text.input.TextFieldValue(t); true } ?: false }, replies = replies, onReplies = openReplies)
                             }
                         }
                         is DmGroup -> FilesBubble(r, dms, world, group = peers.size > 1, onMenu = { rid, emojiOnly -> acting = rid to emojiOnly }) {

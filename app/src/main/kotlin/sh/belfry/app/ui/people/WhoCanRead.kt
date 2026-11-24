@@ -215,11 +215,9 @@ private fun WhoRow(title: String?, sub: String? = null, end: String? = null, mar
 internal fun NotBeforeLine() {
     val c = Belfry.colors
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp).testTag("enc3-not-before"), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.weight(1f).height(1.dp).background(c.line))
+        Box(Modifier.width(16.dp).height(1.dp).background(c.line))
         Icon(BelfryIcons.Lock, contentDescription = null, tint = c.muted, modifier = Modifier.padding(horizontal = 8.dp).size(12.dp))
-        Text(WhoText.NOT_BEFORE, fontSize = 12.sp, lineHeight = 16.sp, color = c.muted, modifier = Modifier.weight(4f, fill = false))
-        Spacer(Modifier.width(8.dp))
-        Box(Modifier.weight(1f).height(1.dp).background(c.line))
+        Text(WhoText.NOT_BEFORE, fontSize = 12.sp, lineHeight = 16.sp, color = c.muted, modifier = Modifier.weight(1f))
     }
 }
 

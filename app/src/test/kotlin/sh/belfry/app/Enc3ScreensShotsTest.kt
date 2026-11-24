@@ -79,7 +79,7 @@ class Enc3ScreensShotsTest : DemoShots() {
     private fun heldIn(conv: String, h: EncWrite.Hold, text: String, notTo: List<String> = emptyList()): List<Dm> {
         val now = session.now()
         return listOf(
-            Dm("a", conv, Demo.maya.pubkey, false, now - 3000, 14, "Can you feed the cat on Friday?", enc = true),
+            Dm("a", conv, if (conv == maya) Demo.maya.pubkey else Demo.tomas.pubkey, false, now - 3000, 14, "Can you feed the cat on Friday?", enc = true),
             Dm("h", conv, session.me, true, now - 60, 14, text, pending = true, heldSince = now - 60, heldWhy = DmSnapshot.enc3Why(h), notTo = notTo),
         )
     }
