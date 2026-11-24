@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -90,7 +91,7 @@ class Enc3MeTest : DemoShots() {
         Enc3Fixture.install(session, emptyMap())
         session.demoEnc3Device(mine(readers = listOf(agent)))
         show { Enc3DevicesScreen() }
-        compose.onNodeWithTag("enc3-device-agent-trash").performClick()
+        compose.onNodeWithTag("enc3-device-agent-trash").performScrollTo().performClick()
         waitForText(EncDeviceText.agentRemoveTitle(agentName))
         compose.onNodeWithText(EncDeviceText.agentRemoveText(agentName)).assertExists()
         assertTrue(session.demoAgentReads.isEmpty())
