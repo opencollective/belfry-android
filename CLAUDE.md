@@ -376,6 +376,20 @@ minSdk 26, JDK 17.
   in Me). On format 3 (`Enc3DeviceState.on`) the v1 Allow / waiting / Start fresh screens never show. Demo: format 1; tests set
   `Session.demoEnc3Device`. Tests `Enc3DevicesTest`, `Enc3DeviceTest`, `Enc3DeviceShotsTest`. Readers' cards: part 6.
 
+- Link previews built by the sender (SPEC 19.87; docs/link-previews-v2.md; canvas channels/og-*): ONLY the sender's device fetches
+  the page, once, while composing; readers never fetch anything but the picture, and only from the belfry's Blossom. Pure rules in
+  `core/preview/` (`LinkPreviews`: which link, the tags, `read`; `PageMeta` + `Entities`; `SafeFetch` + `FetchRules`: the SSRF
+  rules, every hop resolved and judged, then asked of exactly those addresses; `PreviewBuilder`; `PictureEncoder`, the app's
+  `app/.../preview/AndroidPictureEncoder`; `OkPreviewNet`). Runtime `core/engine/LinkPreviewService.kt` (`Session.linkPreviews`:
+  `build`, `read`, `picture`, `kept`; `net` / `resolver` are seams, `DemoPreviews` in the demo). The picture is stored the way the
+  conversation's FILES are (`modeFor`): DMs always encrypted (`modeForDm`), groups in the clear (`modeForGroup`, the hook for format 3
+  part 7). App: `ui/chat/LinkPreviewCard.kt` (`ComposerLinkPreview`, `LinkPreviewBox`, `MessageLinkPreview` in `MessageRow`,
+  `DmLinkPreview` under a bubble); `Composer(linkPreview = mode)`, `ComposerState.previewTags` passed as `preview =` to
+  `postMessage` / `replyInThread` / `sendDm`. A preview `imeta` (`purpose preview`) is never a photo: skip it wherever imeta is read
+  (`LinkPreviews.isPreviewImeta`). `vectors/link-previews.json` is written by `tools/link_previews_vectors.py` (pinned sha256 in
+  `LinkPreviewsVectorsTest`). Tests `SafeFetchTest`, `PreviewSendTest`, `PreviewsV2Test`, pictures `PreviewsV2ShotsTest`. Never fetch
+  a real page from a test.
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

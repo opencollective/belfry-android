@@ -133,6 +133,8 @@ data class Message(
      * [pubkey]. The name, the face and the profile it opens; [pubkey] stays who signed (edit, delete).
      */
     val author: String = ev.pubkey,
+    /** Its link preview's tags (SPEC 19.87: `preview` and the preview `imeta`), read with `LinkPreviews.read`. */
+    val preview: List<List<String>> = emptyList(),
 ) {
     val id get() = ev.id
     val pubkey get() = ev.pubkey

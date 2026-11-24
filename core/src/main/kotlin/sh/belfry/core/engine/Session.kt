@@ -1955,11 +1955,15 @@ class Session(
      * Posts a message. PICKED are the people picked with @ in the composer (name → pubkey): each
      * "@Name" becomes a mention. ANNOUNCE only counts from a channel admin. Returns the local id.
      */
-    suspend fun postMessage(groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList()): String {
+    suspend fun postMessage(
+        groupId: String, text: String, files: List<NewAttachment> = emptyList(), topic: String? = null, announce: Boolean = false, picked: List<Pair<String, String>> = emptyList(),
+        /** The link preview's tags (SPEC 19.87: [LinkPreview.tags] or `["preview","none"]`), from the composer. */
+        preview: List<Tag> = emptyList(),
+    ): String {
         val d = Actions.postMessage(groupId, Mentions.substitute(text, picked).trim(), topic, announce)
         // an event's URL in the text: its `a` tag too, so every client shows the card
         val a = _world.value.eventTagsFor(d.content, community.mainRelay) { events.knownCoord(it) }
-        return send(d.copy(tags = d.tags + a), files)
+        return send(d.copy(tags = d.tags + a + LinkPreviewService.onSend(preview)), files)
     }
 
     /**
@@ -2009,8 +2013,8 @@ class Session(
     }
 
     /** A reply in the thread under ROOT (a channel message). */
-    suspend fun replyInThread(groupId: String, root: Event, text: String, files: List<NewAttachment> = emptyList(), picked: List<Pair<String, String>> = emptyList()): String =
-        send(Actions.postThreadReply(groupId, root, Mentions.substitute(text, picked).trim()), files)
+    suspend fun replyInThread(groupId: String, root: Event, text: String, files: List<NewAttachment> = emptyList(), picked: List<Pair<String, String>> = emptyList(), preview: List<Tag> = emptyList()): String =
+        send(Actions.postThreadReply(groupId, root, Mentions.substitute(text, picked).trim()).let { d -> d.copy(tags = d.tags + LinkPreviewService.onSend(preview)) }, files)
 
     /** Edits my own message or reply (kind 1010); its photos and files are kept. */
     suspend fun editMessage(groupId: String, m: Message, text: String, picked: List<Pair<String, String>> = emptyList()): String =
@@ -2132,7 +2136,7 @@ class Session(
     /** A conversation's sealed messages, for Share history (§8). */
     fun sealedRumors(conv: String): List<sh.belfry.core.nostr.Event> = dm.sealedRumorsOf(conv)
 
-    suspend fun sendDm(conv: String, text: String, subject: String? = null, root: String? = null): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject, root = root) } }
+    suspend fun sendDm(conv: String, text: String, subject: String? = null, root: String? = null, preview: List<Tag> = emptyList()): String { lastDmSentMs = System.currentTimeMillis(); return dmCall { dm.send(conv, text, subject, root = root, preview = LinkPreviewService.onSend(preview)) } }
 
     /** When this phone last sent a DM or e-mail (ms): a "dm" push right after it is my own copy (SPEC 19.19). */
     @Volatile var lastDmSentMs: Long = 0L
@@ -2377,6 +2381,12 @@ class Session(
     val mailAlias: MailAliasService by lazy { MailAliasService(this) }
     /** The printed card a group was started from, for its stewards (SPEC 19.76). */
     val groupCards: GroupCardService by lazy { GroupCardService(this) }
+
+    /** Link previews built on this device (SPEC 19.87; engine/LinkPreviewService.kt). */
+    val linkPreviews: LinkPreviewService by lazy { LinkPreviewService(this) }
+    internal val httpClient: OkHttpClient get() = http
+    internal fun previewUploadApi(): BelfryApi = api()
+    internal fun guardWrite() = guard()
 
     /** Sign in to another app with this account through the belfry (engine/RemoteApps.kt, SPEC 19.47). */
     val remoteApps: RemoteAppsService by lazy { RemoteAppsService(this) }

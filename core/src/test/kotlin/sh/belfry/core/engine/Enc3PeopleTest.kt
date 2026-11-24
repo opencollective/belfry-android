@@ -223,6 +223,20 @@ class Enc3PeopleTest {
         assertEquals(0, b.signer.calls)
     }
 
+    /** SPEC 19.87: a link preview's tags are inside the format-3 rumor; Bob reads them from it, nothing outside. */
+    @Test fun aLinkPreviewTravelsInsideTheEncryptedMessage() = runBlocking<Unit> {
+        val (a, b) = devices(listOf(aliceList, bobList))
+        val pic = sh.belfry.core.preview.PreviewPicture("https://blossom.belfry.example/" + "c".repeat(64), "image/jpeg", 1200, 630, "c".repeat(64), "d".repeat(64), "e".repeat(64), "f".repeat(24))
+        val preview = sh.belfry.core.preview.LinkPreview("https://toolshare.example/s", "Street library", "Drills for all", "ToolShare", pic).tags()
+        a.dm.send(conv(bob), "Look https://toolshare.example/s", preview = preview)
+        val out = a.queued.map { it.signed!! }
+        assertTrue(out.all { e -> e.tags.none { it.firstOrNull() == "preview" || it.firstOrNull() == "imeta" } && !e.content.contains("toolshare") })
+        b.receive(a.publish())
+        val got = b.snapshot().thread(conv(alice)).single()
+        assertTrue(got.enc)
+        assertEquals(preview, got.preview)
+    }
+
     @Test fun aKeyIsReusedUntilAListChangesOrItIs30DaysOld() = runBlocking<Unit> {
         val (a, _) = devices(listOf(aliceList, bobList))
         a.dm.send(conv(bob), "one")

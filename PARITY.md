@@ -11,6 +11,17 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
+## Link previews built by the sender (Android branch `previews-v2`, 2026-11-24; SPEC 19.87; docs/link-previews-v2.md)
+
+| Board | Status | Notes |
+|---|---|---|
+| channels/og-composer: the preview above the field with ✕, built on the device | done, never run against a real site | "Getting a preview of the link…" while built; ✕ sends `["preview","none"]` and stops the fetch. The page is fetched only from the sender's phone, with the SSRF rules of SPEC 19.87. |
+| channels/og-message, og-no-image, og-no-preview, og-several, og-dark | done | Readers draw the box from the tags only; the picture only from the belfry's Blossom. |
+| channels/og-thread, og-laptop | done | 440 dp at most from 840 dp wide. |
+| channels/og-dm: under the bubble | done, differs from the board's note | The board said "only where not end-to-end encrypted" (v1); v2 shows it everywhere, the picture AES-256-GCM encrypted inside sealed / format-3 / NIP-17 conversations. |
+| Private groups | partial | Their picture goes in the clear like their files until format 3 part 7 (hook `LinkPreviewService.modeForGroup`). |
+| The web sender, iOS | not Android's | They copy `vectors/link-previews.json`. |
+
 ## No link, closed requests (Android, 2026-11-18)
 
 | Board | Status | Notes |
