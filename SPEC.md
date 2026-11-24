@@ -3252,3 +3252,40 @@ Also from that day's web feedback (802be45, 1826857), words only:
   "caught up on return: … ago".
 - Tests: `CardsGuestEngineTest` (the rules, and local fake relays), `RelayTest.bunkerSignerAsksAgainWhenTheRelayLimitsTheRate`.
   Never met a real relay.
+
+### 19.81 Encrypted conversations, format 3: the pure rules and the shared vectors (2026-11-24; collective-belfry docs/encrypted.md with §16–§26; the web's `src/core/enc/core.ts` on branch enc-v3, d7acb17)
+
+Part 1 of format 3 on Android: the rules only, in `core/src/main/kotlin/sh/belfry/core/enc/`, a port
+of the web's `core.ts` (change both together). Nothing is wired into `Session`, `DirectMessages` or the
+app yet; format 1 (sealed, SPEC 19.64–19.68) is untouched.
+
+- `Enc.kt`: kinds 8570–8575, the limits (20 devices + readers outside them, 100 per people
+  conversation, 1000 per group, 60 000-byte envelope events, 40 000-byte packs and rumors, 30-day keys,
+  15 minutes in the future, 10-minute grace, 5-minute skew), `Enc.signWith` (sealedcore `signWith`),
+  `Enc.valid`, `Enc.withId`, `Fixed` (the seams the vectors fix: dates, one-time key, nonces, aux),
+  `EncJson` (JSON written as JavaScript's `JSON.stringify` writes it, keys in the web's order, and strict
+  readers: a field of the wrong type = not an event).
+- `Lists.kt` (`EncLists`): `parseList`, `chainOf` (gaps, fork, `invalidAbove` from signed belfry lists
+  only), `changes`, `listedBefore` (each device's first list ever), `signsAt` / `listedAt` (tri-state:
+  null = wait; the OUTER event's date, 10-minute grace after a drop, the per-run 5-minute grace at the
+  start of a listing, readers never sign as the account). `Devices` is the three answers of §20:
+  `Listed(chain)`, `Service` (exactly the belfry key or the groups key), `Unknown` (wait) — never one
+  value for the last two.
+- `ConvKeys.kt` (`EncKeys`): `alias`, `listsHash`, `peopleId` / `peopleOf`, `peopleLists`, `deviceSet`,
+  `newKey`, `keyRumor` / `acceptKeyRumor`, `peopleEnvelopes` / `openPeopleEnvelope`, `groupEnvelopes`
+  (unsigned: the signer signs) / `entryKeys` / `openGroupEnvelope` / `acceptGroupKey`, `pickKey`
+  (people: my own account's keys only; group: another member's key only when its entry set is the
+  device set; never a service key).
+- `Messages.kt` (`EncMessages`): `peopleMessage` (one copy per person, mine silent), `groupMessage`
+  (mentions outside, §17.14), `named`, `openPeopleMessage` / `openGroupMessage`, `acceptPeopleMessage` /
+  `acceptGroupMessage` (`Verdict` OK / WAIT / NO).
+- `Packs.kt` (`EncPacks`): `packs` / `openPack` (only from a device on my current list listed before me,
+  never with gaps, never from a reader), `ask`, `answer`, `readAsk`, `readAnswer`.
+- `Rules.kt` (`EncRules`): `declare` (once per K), `clearAfterKey`, `peopleLimit`, `groupLimit`,
+  `clearInGroup` (§16.9). Encrypted files in a group reuse `DmFiles` (§23).
+- Vectors: `vectors/encrypted.json`, copied byte for byte from the web chat's enc-v3 (d7acb17, written by
+  its `tools/vectors/gen-encrypted.mjs`; sha256 16efbbc8…2fe, pinned by the test). `EncryptedVectorsTest`
+  runs every section and case as the web's `tools/vectors/check.mjs` does, fails when the file gains or
+  loses a section, and also makes again, byte for byte, everything the generator made with fixed inputs
+  (lists, the key rumor, people and group envelopes, messages, packs and the 400-key split, asks,
+  answers, the group file). Errors never carry a secret or a rumor's text.

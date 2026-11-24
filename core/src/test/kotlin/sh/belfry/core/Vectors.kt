@@ -12,5 +12,8 @@ object Vectors {
         if (p != null) File(p) else File("../vectors")
     }
 
+    /** The file itself (to pin its sha256). */
+    fun file(name: String): File = File(dir, name)
+
     fun load(name: String): JsonObject = Json.parseToJsonElement(File(dir, name).readText(Charsets.UTF_8)).jsonObject
 }

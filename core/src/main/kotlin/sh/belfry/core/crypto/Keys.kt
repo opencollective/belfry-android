@@ -32,11 +32,15 @@ object Keys {
         Hex.encode(publicKey(Hex.decodeOrNull(secretHex) ?: throw CryptoException("bad hex")))
 
     /** BIP-340 signature (64 bytes) of a 32-byte message (an event id), with fresh auxiliary randomness. */
-    fun sign(message: ByteArray, secret: ByteArray): ByteArray {
+    fun sign(message: ByteArray, secret: ByteArray): ByteArray = sign(message, secret, Random.bytes(32))
+
+    /** BIP-340 with the auxiliary randomness AUX (32 bytes): fixed only by tests that reproduce vectors byte for byte. */
+    fun sign(message: ByteArray, secret: ByteArray, aux: ByteArray): ByteArray {
         if (message.size != 32) throw CryptoException("message must be 32 bytes")
         if (!isSecret(secret)) throw CryptoException("invalid secret key")
+        if (aux.size != 32) throw CryptoException("aux must be 32 bytes")
         return try {
-            Secp256k1.signSchnorr(message, secret, Random.bytes(32))
+            Secp256k1.signSchnorr(message, secret, aux)
         } catch (e: Throwable) {
             throw CryptoException("could not sign")
         }

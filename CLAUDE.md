@@ -333,6 +333,12 @@ minSdk 26, JDK 17.
   relay's "restricted: pubkey not in whitelist": a send is tried again for 10 minutes, `OutboxItem.notListedAt`),
   `BunkerSigner` (a rate-limited request is asked again, 4 in flight), `Session.wake` → `catchUpOnReturn` (a fresh
   subscription on each living socket, once per 2 s). `Access.isRefusal` is only the old word list `Reopen` still reads.
+- Encrypted conversations, format 3, part 1 (SPEC 19.81; collective-belfry docs/encrypted.md §1–§26): the pure rules in
+  `core/enc/` (`Enc`, `EncLists`, `EncKeys`, `EncMessages`, `EncPacks`, `EncRules`), a port of the web's `src/core/enc/core.ts`
+  (branch enc-v3): change both together. `vectors/encrypted.json` is the web's file byte for byte (never edit it here; copy a new
+  one and update the sha256 pinned in `EncryptedVectorsTest`, whose section list must name every section). "Which devices"
+  is always one of three (`Devices.Listed / Service / Unknown`); tri-state checks return null for wait. Not wired into
+  `Session` / `DirectMessages` / the app yet (part 2).
 
 ## UI rules (the owner's, not negotiable)
 
