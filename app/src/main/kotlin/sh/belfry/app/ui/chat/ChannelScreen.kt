@@ -516,7 +516,7 @@ private fun FeedRowView(groupId: String, row: FeedRow, chat: ChatState, thread: 
                 }
             }
             is FeedItem.BelfryJoined -> BelfryJoinRow(item.j)
-            is FeedItem.MailThread -> MailThreadRow(item.t) { openThread(item.t.id) }
+            is FeedItem.MailThread -> MailThreadRow(item.t, privateGroup = LocalSession.current.enc3View?.groupPrivate(groupId) == true) { openThread(item.t.id) }
             is FeedItem.Preview -> ActivityPreviewRow(groupId, item.p, now)
             is FeedItem.Answer -> sh.belfry.app.ui.cards.AnswerLine(item)
             is FeedItem.EncLine -> sh.belfry.app.ui.people.GroupLineRow(groupId, item.line)

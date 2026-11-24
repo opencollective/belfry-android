@@ -37,7 +37,7 @@ import sh.belfry.core.model.plainRefs
  * e-mail", time; the subject; a line of the latest e-mail; the state, who has it, the counts.
  */
 @Composable
-fun MailThreadRow(t: InboxThread, onOpen: () -> Unit) {
+fun MailThreadRow(t: InboxThread, privateGroup: Boolean = false, onOpen: () -> Unit) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val latest = t.latest
@@ -58,9 +58,9 @@ fun MailThreadRow(t: InboxThread, onOpen: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(who, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 Spacer(Modifier.width(6.dp))
-                NameTag(BelfryIcons.Mail, "guest, by e-mail")
-                Spacer(Modifier.width(8.dp))
-                Text(ChatFormat.time(world, t.last), fontSize = 12.sp, color = c.faint, maxLines = 1)
+                // SPEC 19.88 (encrypted/group-email): in a private group, just "By e-mail" after the time
+                if (!privateGroup) { NameTag(BelfryIcons.Mail, "guest, by e-mail"); Spacer(Modifier.width(8.dp)) }
+                Text(ChatFormat.time(world, t.last) + if (privateGroup) " · " + sh.belfry.core.model.GroupEncText.BY_EMAIL else "", fontSize = 12.sp, color = c.faint, maxLines = 1)
             }
             Text(t.subject.ifEmpty { "(no subject)" }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (line.isNotEmpty()) Text(line, fontSize = 15.sp, color = c.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
