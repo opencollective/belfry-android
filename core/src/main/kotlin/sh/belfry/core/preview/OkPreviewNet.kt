@@ -38,7 +38,10 @@ class OkPreviewNet(base: OkHttpClient) : PreviewNet {
 
     override suspend fun get(url: String, host: String, addresses: List<InetAddress>, accept: String, maxBytes: Int, timeoutMs: Long): NetAnswer? {
         val c = client.newBuilder()
-            .dns { h -> if (h.equals(host, ignoreCase = true)) addresses else throw UnknownHostException(h) }
+            .dns(object : okhttp3.Dns {
+                override fun lookup(hostname: String): List<InetAddress> =
+                    if (hostname.equals(host, ignoreCase = true)) addresses else throw UnknownHostException(hostname)
+            })
             .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)
             .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
             .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
