@@ -86,6 +86,23 @@ class EventsTest {
         assertEquals(2, e.versions.size)
     }
 
+    /**
+     * The lead's check (2026-11-25; opensourcevillage.org d=h9ptvr): an older version by the event's creator and a newer one
+     * by a co-host known only from the relay's 39001 list: the co-host's newer version is the event everywhere.
+     */
+    @Test
+    fun aCoHostFromTheRelaysListWinsWithTheNewerVersion() {
+        val evs = base().toMutableList()
+        evs.add(ev(groupsKey, t0 + 10, 39001, "", listOf(listOf("d", g), listOf("p", alice, "admin"), listOf("p", bob, "admin"))))
+        val w0 = world(evs)
+        val e0 = w0.calendar.single()
+        assertTrue(bob in e0.hosts, "a co-host by the relay's list")
+        evs.addAll(EventActions.edit(e0, form.copy(title = "Garden day, new date"), w0.group(g), "wss://g").map { draft(bob, t0 + 7 * 86_400, it) })
+        val e = world(evs).calendar.single()
+        assertEquals("Garden day, new date", e.title)
+        assertEquals(bob, e.ev.pubkey)
+    }
+
     @Test
     fun ticketsHoldersApplicationsAndWhereIStand() {
         val evs = base("Why?").toMutableList()

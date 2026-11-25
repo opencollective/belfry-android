@@ -386,7 +386,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         // mid and full share one top (the cover with ‹ ••• on it, or the usual header, then the title):
         // pulling down only lets more show under it
         else Column(
-            (if (full) Modifier.weight(1f) else Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.68f).dp)).fillMaxWidth().verticalScroll(rememberScrollState()),
+            (if (full) Modifier.weight(1f) else Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp * 0.68f).dp)).fillMaxWidth().verticalScroll(rememberScrollState()).testTag("event-top-scroll"),
         ) {
                 val cover = e.cover
                 if (cover != null) EventCoverTop(cover, onBack, onMore)

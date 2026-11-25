@@ -358,6 +358,16 @@ class EventsTest : DemoShots() {
         error("the festival never showed")
     }
 
+    /** Fully pulled down, the event's top scrolls (the lead's check, 2026-11-25: the web's didn't). */
+    @Test
+    fun theFullEventTopScrolls() {
+        val e = aFestival()
+        compose.setContent { BelfryTheme { InDemo { EventScreen(e.coord) } } }
+        tap("event-more-level")
+        compose.onNodeWithTag("event-screen-full").assertExists()
+        compose.onNodeWithTag("event-top-scroll").assert(androidx.compose.ui.test.hasScrollAction())
+    }
+
     /** "Hide 'Show my ticket' for hosts on their own event" (Xavier, 2026-11-24): its maker never gets it; someone else's event keeps it. */
     @Test
     fun theHostHasNoTicketToShow() {
