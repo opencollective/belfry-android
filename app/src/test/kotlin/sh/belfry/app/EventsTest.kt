@@ -1,5 +1,6 @@
 package sh.belfry.app
 
+import androidx.compose.ui.test.assert
 import sh.belfry.core.model.showsMyTicket
 import sh.belfry.core.model.eventRole
 import androidx.compose.foundation.layout.Arrangement
