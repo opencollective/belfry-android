@@ -297,7 +297,11 @@ class Enc3Groups(val e3: Enc3, private val ports: Enc3GroupPorts) {
             if (lists.isNotEmpty()) ports.addEvents(lists)
             val newest = lists.maxWithOrNull(compareBy<Event> { it.createdAt }.thenByDescending { it.id })
             val members = newest?.let { n -> n.createdAt to Enc.values(n, "p").filter { Enc.isKey(it) }.toSet() }
-            synchronized(lock) { membersOn[h] = conn to relay; if (members != null) fetched[h] = members else fetched.remove(h) }
+            synchronized(lock) {
+                membersOn[h] = conn to relay
+                if (members != null) fetched[h] = members else fetched.remove(h)
+                Unit
+            }
         }
         // the read's list, or a newer one by the relay that came live since (a removal counts at once)
         val read = synchronized(lock) { fetched[h] } ?: return EncWrite.Hold(HoldReason.GROUP_UNKNOWN)

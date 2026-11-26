@@ -105,7 +105,7 @@ class RelayKeyCache(
         if (relay.isBlank()) return null
         if (!force && !due(relay)) return known(relay)
         if (force) synchronized(backoff) { backoff[relay]?.let { if (nowMs() < it.nextMs) return known(relay) } }
-        val got = try { read(relay) } catch (e: Exception) { RelayInfo.Read.NoAnswer }
+        val got = try { read(relay) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { RelayInfo.Read.NoAnswer }
         when (got) {
             is RelayInfo.Read.Key -> {
                 store.set(storeKey(relay), buildJsonObject { put("self", JsonPrimitive(got.self)); put("at", JsonPrimitive(nowMs())) }.toString())
@@ -117,10 +117,12 @@ class RelayKeyCache(
         return known(relay)
     }
 
-    private fun failed(relay: String) = synchronized(backoff) {
-        val n = (backoff[relay]?.fails ?: 0) + 1
-        val wait = (FIRST_RETRY_MS shl minOf(n - 1, 10)).coerceAtMost(MAX_RETRY_MS)
-        backoff[relay] = Backoff(n, nowMs() + wait)
+    private fun failed(relay: String) {
+        synchronized(backoff) {
+            val n = (backoff[relay]?.fails ?: 0) + 1
+            val wait = (FIRST_RETRY_MS shl minOf(n - 1, 10)).coerceAtMost(MAX_RETRY_MS)
+            backoff[relay] = Backoff(n, nowMs() + wait)
+        }
     }
 
     companion object {
