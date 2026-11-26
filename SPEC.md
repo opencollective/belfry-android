@@ -3843,7 +3843,7 @@ belfry this device doesn't know as format 3 (`Enc3DeviceState.on`): there Me kee
   address here (`name@domain`; without one, the belfry's domain), always, on one line each, cut with … The date is the
   content's first line, "Wednesday, November 25" (`EEEE, MMMM d`, English), with room around it (about 56 dp above,
   40 below; Coming up about 40 under the tiles).
-- **A tap on the header** drops the accounts menu (Android: Material's `DropdownMenu` under the header, nearly the
+- **A tap on the header** drops the accounts menu (Android: a card in a focusable popup under the header over a dimmed screen, nearly the
   screen's width): one row per account on this device, the open one first, each with that belfry's mark, its name and
   "‹my address there› · ‹my role›" (Steward · Member · Guest, 19.31; Android shows the built-in words, not a belfry's
   custom role labels); the open one is checked; a dot on an account with news; then **Add an account** (the sign-in

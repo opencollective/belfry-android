@@ -322,7 +322,7 @@ minSdk 26, JDK 17.
   `CardsTest`, `HashtagInputTest`, `NativeSignInTest` (poll / confirm / kept answer / no switch), `PrintedCardsTest`
   (polling stops, Confirm), `PrintedCardsStateTest`; pictures `CardsV2ShotsTest` (by hand).
 - Today's header (SPEC 19.90; Home canvas home/today-belfry, -tap, switch-*): `ui/places/TodayHeader.kt` (`TodayHeaderBar` in
-  `HomePlace`: mark, name ⌄, my address; `TodayAccountsMenu` = a `DropdownMenu`; `BelfryMarkView` = logo or the crest); words
+  `HomePlace`: mark, name ⌄, my address; `TodayAccountsMenu` in a focusable `Popup` over a scrim (a `DropdownMenu` drew its frame badly); `BelfryMarkView` = logo or the crest); words
   `core/model/TodayHeader.kt`. `AccountRecord.role` / `logo` are kept by `AppState.watch` (`Onboarding.describe`) from the open
   session only; the menu's dot is `AccountsUi.unread` (push). **Never ask another belfry anything to fill the menu.** A switch
   lands on Today because `SignedIn` is keyed by the session (a new `ShellState`): keep it so. Tests `TodayHeaderTest` (app and

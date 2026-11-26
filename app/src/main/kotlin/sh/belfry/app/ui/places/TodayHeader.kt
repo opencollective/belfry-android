@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -20,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PersonAdd
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
@@ -49,7 +50,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sh.belfry.app.ui.kit.BelfryIcons
@@ -85,7 +85,12 @@ fun TodayHeaderBar(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> U
     var accountsOpen by remember { mutableStateOf(false) }
     val screen = LocalConfiguration.current.screenWidthDp.dp
     val menuWidth = minOf(screen - 32.dp, 440.dp)
-    Box(Modifier.fillMaxWidth().background(c.bg).windowInsetsPadding(WindowInsets.statusBars).testTag("today-header-bar")) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var headerHeight by remember { mutableStateOf(0) }
+    Box(
+        Modifier.fillMaxWidth().background(c.bg).onSizeChanged { headerHeight = it.height }
+            .windowInsetsPadding(WindowInsets.statusBars).testTag("today-header-bar"),
+    ) {
         Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(48.dp)) { if (onMenu != null) IconAction(BelfryIcons.Menu, "The town", onMenu, badge = menuBadge) }
             Column(
@@ -113,13 +118,23 @@ fun TodayHeaderBar(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> U
             }
             Box(Modifier.width(48.dp)) { if (onCreate != null) IconAction(BelfryIcons.Plus, "Create", onCreate) }
         }
-        DropdownMenu(
-            expanded = open, onDismissRequest = { open = false },
-            offset = DpOffset((screen - menuWidth) / 2, 4.dp),
-            shape = RoundedCornerShape(18.dp), containerColor = c.bg, shadowElevation = 12.dp, tonalElevation = 0.dp,
-            modifier = Modifier.width(menuWidth).testTag("today-accounts-menu"),
+        // the menu drops from the header over a dimmed screen (home/today-belfry-tap); no animation (e-ink), back or a tap outside closes it
+        if (open) androidx.compose.ui.window.Popup(
+            onDismissRequest = { open = false },
+            properties = androidx.compose.ui.window.PopupProperties(focusable = true),
         ) {
-            TodayAccountsMenu(accounts, onDismiss = { open = false }, onAccounts = { open = false; accountsOpen = true })
+            Box(
+                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f))
+                    .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null, onClickLabel = "Close") { open = false },
+            ) {
+                androidx.compose.material3.Surface(
+                    shape = RoundedCornerShape(18.dp), color = c.bg, shadowElevation = 12.dp,
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = with(density) { headerHeight.toDp() } + 4.dp)
+                        .width(menuWidth).testTag("today-accounts-menu"),
+                ) {
+                    TodayAccountsMenu(accounts, onDismiss = { open = false }, onAccounts = { open = false; accountsOpen = true })
+                }
+            }
         }
     }
     // "Accounts ›": the full list behind ⇅ in the drawer (SPEC 19.24)
