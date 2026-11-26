@@ -180,6 +180,8 @@ data class ApiEvent(
     val location: String,
     val online: Boolean,
     val links: List<String>,
+    /** The event's own site (`website`, https only; SPEC 19.93). */
+    val website: String? = null,
     val cover: String?,
     val visibility: Visibility,
     val status: EventStatus,
@@ -214,6 +216,7 @@ data class ApiEvent(
             rsvps = if (mine != null) mapOf(me to mine) else emptyMap(), tz = tz.ifEmpty { null }, isNew = true, creator = creator,
             hosts = hosts.map { it.first }.toSet(), cover = cover, visibility = visibility, slug = if (link != d) link else null,
             status = status, statusReason = statusReason.ifEmpty { null }, versions = listOf(fake), goingKeys = emptyList(), remote = true, goingCount = going,
+            website = website?.takeIf { it.startsWith("https://") },
         )
     }
 }
@@ -236,6 +239,8 @@ data class EventForm(
     val tz: String = "UTC",
     val location: String = "",
     val online: String = "",
+    /** The event's own outside site ("Event website", SPEC 19.93): https, or "" for none. */
+    val website: String = "",
     val visibility: Visibility = Visibility.MEMBERS,
     val slug: String = "",
     /** A file server URL, uploaded before. */
@@ -478,12 +483,29 @@ object EventShape {
         return end.toLocalDate() to end.toLocalTime()
     }
 
-    /** Join opens this long before the start. */
-    const val JOIN_EARLY = 10 * 60L
+    /** Join opens this long before the start: 1 hour (the lead's ruling of 24 Nov, Event form canvas; it was 10 minutes). */
+    const val JOIN_EARLY = 3600L
     /** An event with no end: Join stays open this long after the start. */
     const val NO_END = 2 * 3600L
 
-    /** May I join the call now? From 10 minutes before the start until the end (start + 2 h without one). */
+    /**
+     * The line under "Join online" (SPEC 19.93; Event form canvas evview-mid, -join-now, -not-going; web 649c8cf):
+     * someone not going is told how to get the link (and never sees it); for people going, when it shows.
+     */
+    fun joinWord(e: CalEvent, now: Long, holds: Boolean): String {
+        val end = e.end ?: (e.start + NO_END)
+        val mins = Math.round(kotlin.math.abs(now - e.start) / 60.0)
+        return when {
+            !holds -> "For people going: answer Going to get the link"
+            now > end -> "The event has ended"
+            !joinOpen(e, now) -> "The link appears here 1 hour before"
+            now < e.start -> "Starts in $mins min"
+            mins < 60 -> "Started $mins min ago"
+            else -> "Started ${Math.round(mins / 60.0)} h ago"
+        }
+    }
+
+    /** May I join the call now? From 1 hour before the start until the end (start + 2 h without one). */
     fun joinOpen(e: CalEvent, now: Long): Boolean =
         e.status != EventStatus.CANCELLED && now >= e.start - JOIN_EARLY && now <= (e.end ?: (e.start + NO_END))
 
@@ -538,6 +560,9 @@ object EventActions {
         if (where.isNotEmpty()) tags.add(listOf("location", where))
         val online = n.online.jsTrim()
         if (online.startsWith("https://")) tags.add(listOf("r", online))
+        // the event's own site (SPEC 19.93; web 649c8cf, the lead's tag): after `r`, as the web writes it
+        val site = n.website.jsTrim()
+        if (site.startsWith("https://")) tags.add(listOf("website", site))
         if (!n.cover.isNullOrEmpty()) tags.add(listOf("image", n.cover))
         if (n.slug.isNotEmpty()) tags.add(listOf("slug", n.slug))
         return (if (n.allDay) 31922 else 31923) to (tags + extra)
@@ -659,3 +684,63 @@ fun World.waitingForPayment(e: CalEvent, p: EventPeople = eventPeople(e)): Boole
     val app = p.applications.firstOrNull { it.pubkey == me } ?: return false
     return tickets(e).firstOrNull { it.d == app.ticket }?.cost?.priced == true
 }
+
+/**
+ * "Event website" (SPEC 19.93; Event form canvas evform-new / -fetching / -fetched; web 649c8cf; collective-belfry
+ * docs/event-details.md): the event's own site as a `["website", url]` tag, and what the belfry reads from it
+ * (`GET <api>/event-details?url=`) to fill in what the form still has empty. Never the Join online link.
+ */
+object EventDetails {
+    /** The `website` tag of a version (https only), else null. */
+    fun websiteOf(e: Event): String? = e.tags.firstOrNull { it.size >= 2 && it[0] == "website" && it[1].startsWith("https://") }?.get(1)
+
+    /** Worth asking the belfry about: an https address with a host that has a dot (the web's test). */
+    fun askable(url: String): Boolean = Regex("^https://[^\\s/]+\\.\\S+").containsMatchIn(url.trim())
+
+    /** The site as the event screen shows it: no https://, no www., no trailing slash. */
+    fun shown(url: String): String = url.removePrefix("https://").removePrefix("www.").trimEnd('/')
+
+    /** The host named in "✓ Filled in from <host>." */
+    fun hostOf(url: String): String = try { java.net.URI(url.trim()).host?.removePrefix("www.").orEmpty() } catch (e: Exception) { "" }
+
+    const val HINT = "The event’s own site, if it has one (e.g. a conference site). Paste it and we fill in the rest."
+    const val FETCHING = "Fetching event details…"
+    fun filledFrom(host: String): String = "✓ Filled in from $host. Check it and change anything."
+    const val BAD = "The address should start with https://"
+
+    /**
+     * The belfry's answer, as the web reads it (`fetchEventDetails`): strings cut to size, dates as ISO instants, a
+     * place as "name, address", a time zone only when it looks like one, a picture only through the belfry's own
+     * proxy ([apiOrigin], https). Null when nothing usable came.
+     */
+    data class Found(
+        val url: String, val title: String, val start: Long?, val end: Long?, val allDay: Boolean,
+        val tz: String?, val place: String, val image: String?, val description: String,
+    )
+
+    fun read(o: kotlinx.serialization.json.JsonObject?, asked: String, apiOrigin: String): Found? {
+        if (o == null) return null
+        fun s(k: String, n: Int): String = ((o[k] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content ?: "").trim().take(n)
+        fun date(k: String): Long? = s(k, 60).ifEmpty { null }?.let { v ->
+            try { java.time.OffsetDateTime.parse(v).toEpochSecond() } catch (e: Exception) { try { java.time.Instant.parse(v).epochSecond } catch (e: Exception) { null } }
+        }
+        val p = o["place"] as? kotlinx.serialization.json.JsonObject
+        fun ps(k: String, n: Int): String = ((p?.get(k) as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content ?: "").trim().take(n)
+        val place = listOf(ps("name", 200), ps("address", 300)).filter { it.isNotEmpty() }.joinToString(", ")
+        val tz = s("timezone", 80).takeIf { Regex("^[A-Za-z_]+(/[A-Za-z0-9_+-]+)*$").matches(it) }
+        val image = s("image", 2000).takeIf { i ->
+            try { val u = java.net.URI(i); u.scheme == "https" && apiOrigin.isNotEmpty() && "https://" + u.authority == apiOrigin } catch (e: Exception) { false }
+        }
+        val allDay = (o["all_day"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+        val f = Found(s("url", 2000).ifEmpty { asked }, s("title", 200), date("starts_at"), date("ends_at"), allDay, tz, place, image, s("description", 5000))
+        return if (f.title.isNotEmpty() || f.start != null || f.place.isNotEmpty() || f.description.isNotEmpty()) f else null
+    }
+
+    /** The origin of an API base ("https://api.example.org/api/v1" → "https://api.example.org"). */
+    fun originOf(apiBase: String): String = try { java.net.URI(apiBase).let { if (it.scheme == null || it.authority == null) "" else it.scheme + "://" + it.authority } } catch (e: Exception) { "" }
+
+    /** The demo's one site (the web's DETAILS_DEMO). */
+    const val DEMO_SITE = "https://riverside-openday.example"
+    val DEMO_ANSWER = """{"url":"https://riverside-openday.example","title":"Riverside Open Day 2027","starts_at":"2027-01-28T09:00:00Z","ends_at":"2027-01-28T16:00:00Z","all_day":false,"timezone":"Europe/Brussels","place":{"name":"Community hall","address":"Rue Haute 12"},"description":"Meet the groups of Riverside Commons: workshops, the repair café and soup at noon."}"""
+}
+

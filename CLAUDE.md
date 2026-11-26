@@ -422,6 +422,17 @@ minSdk 26, JDK 17.
   `LinkPreviewsVectorsTest`). Tests `SafeFetchTest`, `PreviewSendTest`, `PreviewsV2Test`, pictures `PreviewsV2ShotsTest`. Never fetch
   a real page from a test.
 
+- The web after chat 6497883 (SPEC 19.91–19.93, branch `web-parity`, PARITY.md's section): **a one-shot relay read that
+  must mean something goes through `Relay.queryAuthed`** (waits for NIP-42, only an EOSE after AUTH on the same socket;
+  null = nothing known, never empty); a CLOSED is never a finished answer (`queryUntilEose` → null). Diagnostics shows
+  each socket's sign-in (`Relay.signIn`, the prefix word only). Every version of an event comes by `#d` with no
+  `authors` / `since`: `Session.askVersions` (event screen, Calendar, event cards; once per session), plus a missing
+  39001; `GroupFilters` asks the metadata kind by kind. The event's own site is `["website", url]` after `r`
+  (`CalEvent.website`, `EventDetails` holds the rules, words and the `event-details` reader); the event screen's
+  `EventLinkRows` (Join online · Event website · Our page; the call only for people going, from 1 hour before:
+  `EventShape.joinWord` / `JOIN_EARLY`); `QrSheet` = the code, the address on one line, `kit/CopyIconButton`.
+  Pictures `WebParityShotsTest` (by hand).
+
 ## UI rules (the owner's, not negotiable)
 
 - Every button disables itself the moment it is tapped and shows progress until its work is done.

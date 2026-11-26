@@ -11,6 +11,23 @@ demo community under Robolectric. Sign-in against a live belfry, the signer (NIP
 relays, uploads, the photo picker, the keyboard, the share sheet and back gestures are untested
 in the real world.
 
+## The web chat after 6497883, up to c8703b4 (Android branch `web-parity`, 2026-11-26; SPEC 19.91–19.93)
+
+| Web commit | Status | Notes |
+|---|---|---|
+| b5c78fa, 9640d99: one-shot reads only on a signed-in socket | done, never run against a real relay | `Relay.queryAuthed`; a CLOSED is never an answer (SPEC 19.91). Android has no one-shot read of names (kind 0 comes on the subscriptions) or of the website page. |
+| fa38d50, 8343fd6: every version of an event by `#d`; metadata kind by kind; a missing 39001 asked | done, never run against a real relay | `Session.askVersions` (SPEC 19.92). The event header's drag in 8343fd6: Android's full view scrolls and only the handle moves the level already. |
+| 1d5d814: the QR sheet's address on one line with a copy icon | done | `QrSheet` (Our page, a card's QR). The co-host link keeps its own sheet (`LinkBox`: QR, address, Copy link · Share…). |
+| 649c8cf: Event website, Join online, the three links | partial | Built: the `website` tag, the field with the belfry's event-details fill-in, the three rows, Join from 1 hour before for people going. Not built: Where as In person / Online / Both, "Changed" marks and "Save changes?" with "Tell the N people going" (`notify` / `changed` tags: the server's change e-mail), the page address only for Public with "See that event ›" / "Use it", Tickets › / Co-hosts › rows in the form, the People screen from the hosts line (Android has its own people list). |
+| 67d32ab: the laptop form's Save top right | not yet | Android's form is one column with Create at the bottom on tablets too. |
+| c8703b4: each relay's sign-in in Diagnostics | done | About Belfry → Diagnostics (SPEC 19.91). |
+| 4ff22bf, b9dc04b, e69f38e: roles from `POST /whois` | already there | `ctx.kinds` (whois for guest-joined keys and for me) decides `amGuest` and a join's member flag. Not ported: kept per key across starts, and "a join is a guest's only with a `guest` tag" (Android still reads `invited-by` until whois answers). Agents' parts: web only. |
+| e31afdd: the app's own words; `card_id` | already there | Android maps server errors to fixed words; `CardAuthors` reads `card_id`; the slug placeholder is never an id. |
+| 87d7595: Notes to myself header on format 3 | already there | `ConversationScreen` (encrypted/notes-self). |
+| 8ec4d8d: More under a header's description only when cut | not checked here | |
+| 4d55b7c and the agent parts of e69f38e | web only | Agents. |
+| 34e5707, 353b62d, 73150aa; d67304b; the card commits; the format-3 commits | already there | SPEC 19.81–19.89. |
+
 ## Link previews built by the sender (Android branch `previews-v2`, 2026-11-24; SPEC 19.87; docs/link-previews-v2.md)
 
 | Board | Status | Notes |

@@ -29,11 +29,17 @@ class EventShapeTest {
     private fun base(f: EventForm = form): List<Event> = EventActions.create(f, d, alice, "wss://g", "wss://m").mapIndexed { i, x -> draft(alice, t0 + i, x) }
 
     @Test
-    fun joinOpensTenMinutesBeforeAndClosesAtTheEnd() {
+    fun joinOpensAnHourBeforeAndClosesAtTheEnd() {
         val e = world(base()).calendar.single()
         assertEquals(listOf("https://meet.jit.si/garden"), e.links)
-        assertFalse(EventShape.joinOpen(e, start - 601))
-        assertTrue(EventShape.joinOpen(e, start - 600))
+        assertFalse(EventShape.joinOpen(e, start - 3601))
+        assertTrue(EventShape.joinOpen(e, start - 3600))
+        // the line under Join online (SPEC 19.93)
+        assertEquals("For people going: answer Going to get the link", EventShape.joinWord(e, start, holds = false))
+        assertEquals("The link appears here 1 hour before", EventShape.joinWord(e, start - 3601, holds = true))
+        assertEquals("Starts in 20 min", EventShape.joinWord(e, start - 1200, holds = true))
+        assertEquals("Started 5 min ago", EventShape.joinWord(e, start + 300, holds = true))
+        assertEquals("The event has ended", EventShape.joinWord(e, start + 3601, holds = true))
         assertTrue(EventShape.joinOpen(e, start + 3600))
         assertFalse(EventShape.joinOpen(e, start + 3601))
         val noEnd = world(base(form.copy(end = null))).calendar.single()

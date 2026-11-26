@@ -297,6 +297,11 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         else { ticketFor = null; sheet = EventSheet.Take }
     }
     val url = world.eventUrl(e)
+    // SPEC 19.93: the call link only for people going: a place, a plain RSVP, a ticket (the web's `holds`, exactly)
+    val holds = world.me in p.holders || (plain && e.rsvps[world.me] == Rsvp.ACCEPTED)
+    val online = e.links.isNotEmpty() || api?.online == true
+    // SPEC 19.92: every version of it, any author, once per session (a co-host's version made elsewhere)
+    LaunchedEffect(e.d) { if (!e.remote) session.events.askVersions(listOf(e.d)) }
 
     // One shape (SPEC 19.54; canvas one-shape/event-default, -tiny, -full): three states over the event's chat.
     // Mid (HALF) while it needs me (not answered, still going?, people asking); tiny (UP) once answered.
@@ -397,35 +402,39 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                     if (!full) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         When()
-                        EventWhere(e)
-                        if (e.links.isEmpty() && api?.online == true) Muted("Online: the link shows once you have a place.")
+                        EventWhere(e, online = online)
                     }
                     EventHostedBy(e, hostsShown, api)
                     Faces()
                     if (e.meeting && !e.remote) MeetingFaces(e) { level = EventLevel.FULL }
                     if (e.description.isNotEmpty()) {
+                        // More only when the two lines really cut it (web 8ec4d8d, Xavier, Cards v73)
+                        var cut by remember(e.description) { mutableStateOf(false) }
                         Text(
                             sh.belfry.core.markdown.Markdown.plain(e.description), fontSize = 15.sp, lineHeight = 21.sp, color = c.text, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { cut = it.hasVisualOverflow },
                             modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Show everything") { level = EventLevel.FULL },
                         )
-                        Text(
+                        if (cut) Text(
                             "More", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.text, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
                             modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(role = Role.Button) { level = EventLevel.FULL }.padding(vertical = 4.dp).testTag("event-more-details"),
                         )
                     }
                     Answer()
+                    EventLinkRows(e, online, holds || viewer?.ticketUrl != null, url.takeIf { e.isNew }) { sheet = EventSheet.Qr }
                     } else {
             // full (one-shape/event-full): where (with Directions), hosts, the whole description, who comes, to-dos and files, the answer
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 When()
-                EventWhere(e, directions = true)
-                if (e.links.isEmpty() && api?.online == true) Muted("Online: the link shows once you have a place.")
+                EventWhere(e, directions = true, online = online)
             }
             EventHostedBy(e, hostsShown, api)
             if (e.description.isNotEmpty()) MarkdownText(e.description, rich = false)
             Faces()
             EventContentsLine(e)
             Answer()
+            // Join online · Event website · Our page (SPEC 19.93; was the Address section with Copy · Share · QR)
+            EventLinkRows(e, online, holds || viewer?.ticketUrl != null, url.takeIf { e.isNew }) { sheet = EventSheet.Qr }
             // a meeting: who is invited, what they answered, who was there (hosts check people in)
             if (e.meeting && !e.remote) MeetingPeople(e, host)
 
@@ -434,25 +443,6 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
                 Column {
                     SectionTitle("Tickets")
                     for (t in tks) TicketRow(t, p, onPick = null)
-                }
-            }
-
-            // canvas v113 events/event-full-address: the address, then Copy link · Share… (the QR code is in the event's menu)
-            if (e.isNew) {
-                Column(Modifier.testTag("event-url")) {
-                    SectionTitle("Address")
-                    // the whole address on one line: it scrolls sideways when it is longer than the screen (Xavier's word)
-                    Text(
-                        url, fontSize = 14.sp, color = c.muted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 1, softWrap = false,
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("event-address"),
-                    )
-                    Gap(10)
-                    sh.belfry.app.ui.kit.CopyShareButtons(url, e.title, copyTag = "event-copy", shareTag = "event-share", copyLabel = "Copy", shareLabel = "Share") {
-                        BusyButton(
-                            "QR", onClick = { sheet = EventSheet.Qr }, kind = ButtonKind.Ghost, icon = BelfryIcons.Qr,
-                            modifier = Modifier.weight(1f).height(sh.belfry.app.ui.kit.COPY_SHARE_HEIGHT).testTag("event-qr"),
-                        )
-                    }
                 }
             }
 
@@ -540,7 +530,7 @@ private fun EventView(e: CalEvent, api: ApiEvent?, ticket: String? = null) {
         EventSheet.Take -> TakeSheet(e, tks, p, ticketFor, onPick = { ticketFor = it }, onDismiss = close)
         EventSheet.Tickets -> TicketsSheet(e, onDismiss = close)
         EventSheet.Guests -> GuestListSheet(e, onDismiss = close)
-        EventSheet.Qr -> QrSheet(url, "URL of the event", onDismiss = close)
+        EventSheet.Qr -> QrSheet(url, "Our page", onDismiss = close)
         EventSheet.CoHost -> CoHostSheet(e, onDismiss = close)
         EventSheet.Invite -> EventInviteSheet(e, onDismiss = close)
         EventSheet.Cancel -> CancelSheet(e, onDismiss = close)

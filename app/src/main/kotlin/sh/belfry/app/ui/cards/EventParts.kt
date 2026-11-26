@@ -11,6 +11,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Directions
 import androidx.compose.material.icons.outlined.Videocam
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import sh.belfry.core.model.channelCounts
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -556,45 +557,80 @@ internal fun openInMaps(context: android.content.Context, place: String) {
 }
 
 /**
- * Where: 🏠 the place (a link to maps; [directions] adds a Directions button, full), and for an online
- * event 📹 "Online · Jitsi" (a link to the call) with Join on the same line, on from 10 minutes before
- * the start until the end.
+ * Where (SPEC 19.93; Event form canvas evview-mid): the place (a tap opens maps; full: Directions) with
+ * " · and online" when it has a call, or "Online" alone. The call itself is the Join online row of [EventLinkRows].
  */
 @Composable
-internal fun EventWhere(e: CalEvent, directions: Boolean = false) {
+internal fun EventWhere(e: CalEvent, directions: Boolean = false, online: Boolean = e.links.isNotEmpty()) {
     val c = Belfry.colors
     val context = LocalContext.current
-    val now = LocalSession.current.now()
     val place = e.location?.trim().orEmpty()
     if (place.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().testTag("event-place")) {
         Icon(BelfryIcons.MapPin, contentDescription = "Where", tint = c.text, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(8.dp))
-        Text(
-            place, fontSize = 16.sp, color = c.text, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
-            modifier = Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "Open in maps") { openInMaps(context, place) }.padding(vertical = 4.dp),
-        )
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                place, fontSize = 16.sp, color = c.text, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                modifier = Modifier.weight(1f, fill = false).clickable(role = Role.Button, onClickLabel = "Open in maps") { openInMaps(context, place) }.padding(vertical = 4.dp),
+            )
+            if (online) Text(" · and online", fontSize = 16.sp, color = c.text, maxLines = 1)
+        }
         if (directions) {
             Spacer(Modifier.width(8.dp))
             BusyButton("Directions", onClick = { openInMaps(context, place) }, kind = ButtonKind.Ghost, small = true, icon = androidx.compose.material.icons.Icons.Outlined.Directions, modifier = Modifier.testTag("event-directions"))
         }
+    } else if (online) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().testTag("event-online-where")) {
+        Icon(BelfryIcons.Link, contentDescription = "Where", tint = c.text, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Online", fontSize = 16.sp, color = c.text)
     }
-    for (link in e.links.filter { sh.belfry.app.ui.kit.isSafeLink(it) }.take(2)) {
-        val open = sh.belfry.core.model.EventShape.joinOpen(e, now)
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().testTag("event-online")) {
-            Icon(androidx.compose.material.icons.Icons.Outlined.Videocam, contentDescription = "Online", tint = c.text, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "Online · " + sh.belfry.core.model.Actions.meetingLabel(link), fontSize = 16.sp, color = c.text,
-                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline, maxLines = 2,
-                modifier = Modifier.weight(1f).clickable(role = Role.Button, onClickLabel = "Open the call") { sh.belfry.app.ui.signin.openInBrowser(context, link) }.padding(vertical = 4.dp),
+}
+
+/**
+ * The event's three links, in this order, under the answer (SPEC 19.93; Event form canvas evview-mid, -full, -join-now,
+ * -not-going, -qr; web 649c8cf): **Join online** (people going: the line says when, and from 1 hour before until the
+ * end a Join button opens the call; anyone else: how to get it, never the link), **Event website** (its address, ↗
+ * opens it outside the app; the address is the tag's, nothing is read from the page), **Our page** (the belfry's
+ * page: Copy, and QR opens [onQr]). Each row says itself in words (e-ink: no state by colour alone).
+ */
+@Composable
+internal fun EventLinkRows(e: CalEvent, online: Boolean, holds: Boolean, url: String?, onQr: () -> Unit) {
+    val c = Belfry.colors
+    val context = LocalContext.current
+    val now = LocalSession.current.now()
+    val call = e.links.firstOrNull { sh.belfry.app.ui.kit.isSafeLink(it) }
+    val site = e.website?.takeIf { sh.belfry.app.ui.kit.isSafeLink(it) }
+    if (!online && site == null && url == null) return
+    @Composable
+    fun LinkRow(title: String, sub: String, tag: String, trailing: @Composable () -> Unit) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag(tag), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                Text(sub, fontSize = 14.sp, color = c.muted, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            trailing()
+        }
+    }
+    Column(Modifier.fillMaxWidth().testTag("event-links")) {
+        if (online) {
+            val open = holds && call != null && sh.belfry.core.model.EventShape.joinOpen(e, now)
+            LinkRow("Join online", sh.belfry.core.model.EventShape.joinWord(e, now, holds), "event-online") {
+                // the call only for people going, from 1 hour before: Join; before that, a clock in words (e-ink)
+                if (open) BusyButton(
+                    "Join", onClick = { sh.belfry.app.ui.signin.openInBrowser(context, call!!) }, small = true,
+                    icon = androidx.compose.material.icons.Icons.Outlined.Videocam, modifier = Modifier.testTag("event-join"),
+                ) else if (holds && call != null) Icon(BelfryIcons.Clock, contentDescription = "Not yet", tint = c.muted, modifier = Modifier.padding(horizontal = 13.dp).size(22.dp).testTag("event-join-off"))
+            }
+        }
+        if (site != null) LinkRow("Event website", sh.belfry.core.model.EventDetails.shown(site), "event-website") {
+            IconAction(
+                androidx.compose.material.icons.Icons.AutoMirrored.Outlined.OpenInNew, "Open the event website",
+                { sh.belfry.app.ui.signin.openInBrowser(context, site) }, Modifier.testTag("event-website-open"),
             )
-            Spacer(Modifier.width(8.dp))
-            // not yet (or over): off, with a clock instead of the camera (e-ink: the icon says it, not a grey)
-            BusyButton(
-                "Join", onClick = { sh.belfry.app.ui.signin.openInBrowser(context, link) }, small = true, enabled = open,
-                icon = if (open) androidx.compose.material.icons.Icons.Outlined.Videocam else BelfryIcons.Clock,
-                modifier = Modifier.testTag(if (open) "event-join" else "event-join-off"),
-            )
+        }
+        if (url != null) LinkRow("Our page", url.removePrefix("https://"), "event-url") {
+            sh.belfry.app.ui.kit.CopyIconButton(url, e.title, Modifier.testTag("event-copy"))
+            IconAction(BelfryIcons.Qr, "Show the link as a QR code", onQr, Modifier.testTag("event-qr"))
         }
     }
 }
