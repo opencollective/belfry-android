@@ -417,10 +417,16 @@ class AppState(private val onboarding: Onboarding, private val scope: CoroutineS
         watcher = scope.launch(Dispatchers.Default) {
             s.world.map { w ->
                 val me = w.profiles[w.me]
-                listOf(w.realName(w.me), w.myAddress ?: "", w.ctx.communityName.ifEmpty { s.community.name }, me?.picture ?: "")
-            }.distinctUntilChanged().collect { (name, address, community, picture) ->
+                val guest = s.guest.value != null || w.amGuest
+                // the role and the belfry's mark for Today's accounts menu (SPEC 19.90): what this session knows, nothing asked of other belfries
+                listOf(
+                    w.realName(w.me), w.myAddress ?: "", w.ctx.communityName.ifEmpty { s.community.name }, me?.picture ?: "",
+                    sh.belfry.core.model.TodayHeader.role(w.isCommunityAdmin, guest), s.branding.logo,
+                )
+            }.distinctUntilChanged().collect { v ->
+                val (name, address, community, picture, role) = v
                 try {
-                    val list = onboarding.describe(s.accountId, name, address, community, picture, s.guest.value != null)
+                    val list = onboarding.describe(s.accountId, name, address, community, picture, s.guest.value != null, role, v[5])
                     _accounts.value = _accounts.value.copy(list = list)
                 } catch (e: Exception) { }
             }

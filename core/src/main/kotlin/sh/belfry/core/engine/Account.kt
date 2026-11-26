@@ -180,8 +180,8 @@ class Onboarding(
     }
 
     /** What the switcher shows about an account (its session tells, when it learns it). */
-    fun describe(id: String, name: String, address: String, community: String, picture: String, guest: Boolean): AccountList =
-        changeAccounts { it.described(id, name, address, community, picture, guest) }
+    fun describe(id: String, name: String, address: String, community: String, picture: String, guest: Boolean, role: String? = null, logo: String? = null): AccountList =
+        changeAccounts { it.described(id, name, address, community, picture, guest, role, logo) }
 
     /**
      * Something to do as an account that is not open (register this device for its pushes): its

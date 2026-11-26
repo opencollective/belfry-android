@@ -44,7 +44,6 @@ import sh.belfry.app.ui.chat.glyph
 import sh.belfry.app.ui.kit.BelfryIcons
 import sh.belfry.app.ui.kit.BusyButton
 import sh.belfry.app.ui.kit.IconAction
-import sh.belfry.app.ui.kit.TopBar
 import sh.belfry.app.ui.kit.icon
 import sh.belfry.app.ui.nav.LocalDms
 import sh.belfry.app.ui.nav.LocalNav
@@ -55,6 +54,7 @@ import sh.belfry.app.ui.shell.LocalShell
 import sh.belfry.app.ui.shell.ShellState
 import sh.belfry.app.ui.shell.rememberPlaceCounts
 import sh.belfry.app.ui.theme.Belfry
+import sh.belfry.core.model.TodayHeader
 import sh.belfry.core.model.comingUp
 import sh.belfry.core.model.charterToAgree
 import sh.belfry.core.model.guestChannels
@@ -64,20 +64,15 @@ import sh.belfry.core.model.unreadPlaces
 import sh.belfry.core.model.calendarList
 import sh.belfry.core.model.CalendarList
 import sh.belfry.core.read.Unread
-import java.time.Instant
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private val TODAY = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.ENGLISH)
 
 /**
- * Home (SPEC 19.31; iOS HomeView): the date as the title and ☰; the To-dos, Mentions and Messages
+ * Home (SPEC 19.31; iOS HomeView): ☰, the belfry's header (SPEC 19.90), the date as the first line; the To-dos, Mentions and Messages
  * tiles (always there, "Nothing new" at zero); what waits for me (requests, a new agreement);
  * the events coming up in the next 7 days I'm part of; the places with something unread. A guest's
  * Home: their request, the channels they were invited to, the public events.
  */
 @Composable
-fun HomePlace(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> Unit)? = null) {
+fun HomePlace(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> Unit)? = null, menuOpen: Boolean = false) {
     val c = Belfry.colors
     val world = LocalWorld.current
     val session = LocalSession.current
@@ -89,14 +84,19 @@ fun HomePlace(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> Unit)?
     val guest = world.amGuest || guestInfo?.reading == true
     val counts = rememberPlaceCounts()
     val now = session.now()
-    val title = TODAY.format(Instant.ofEpochSecond(now).atZone(world.ctx.zone))
+    val title = TodayHeader.date(now, world.ctx.zone)
     Column(Modifier.fillMaxSize().background(c.bg).testTag("home")) {
-        TopBar(
-            title,
-            navigation = if (onMenu != null) ({ IconAction(BelfryIcons.Menu, "The town", onMenu, badge = menuBadge) }) else null,
-            actions = { if (onCreate != null && !guest) IconAction(BelfryIcons.Plus, "Create", onCreate) },
-        )
+        // the belfry and who I am there, centred; a tap: the accounts menu (SPEC 19.90, home/today-belfry)
+        TodayHeaderBar(onMenu = onMenu, menuBadge = menuBadge, onCreate = if (onCreate != null && !guest) onCreate else null, startOpen = menuOpen)
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            // the date is the content's first line, with room around it (Xavier, 25 Nov: "more breathing room")
+            item(key = "<date>") {
+                Text(
+                    title, fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold, color = c.text,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 56.dp, bottom = 32.dp).testTag("home-date"),
+                )
+            }
             if (guest) {
                 guestHome(this, now)
                 return@LazyColumn
@@ -131,7 +131,7 @@ fun HomePlace(onMenu: (() -> Unit)?, menuBadge: Int = 0, onCreate: (() -> Unit)?
                 PlaceCard { NavRow(Icons.Outlined.Description, "$n new ${if (n == 1) "agreement" else "agreements"} to read", toAgree.first().title, { nav.go(Routes.CHARTER) }, badge = n, subLines = 2) }
             }
             val coming = world.comingUp(now)
-            item(key = "<coming-title>") { PlaceSection("Coming up", "Calendar") { shell?.place = ShellState.Place.CALENDAR } }
+            item(key = "<coming-title>") { Spacer(Modifier.height(14.dp)); PlaceSection("Coming up", "Calendar") { shell?.place = ShellState.Place.CALENDAR } }
             if (coming.isEmpty()) {
                 item(key = "<coming-none>") { Text("Nothing in the next 7 days.", fontSize = 15.sp, color = c.muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
             } else item(key = "<coming>") {

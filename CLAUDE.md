@@ -321,6 +321,12 @@ minSdk 26, JDK 17.
   `CardWelcomeBar` = the done panel (`CardWelcomed.cardId`), `CardGroupCard` (town square, `Message.fromCard`). Tests
   `CardsTest`, `HashtagInputTest`, `NativeSignInTest` (poll / confirm / kept answer / no switch), `PrintedCardsTest`
   (polling stops, Confirm), `PrintedCardsStateTest`; pictures `CardsV2ShotsTest` (by hand).
+- Today's header (SPEC 19.90; Home canvas home/today-belfry, -tap, switch-*): `ui/places/TodayHeader.kt` (`TodayHeaderBar` in
+  `HomePlace`: mark, name ⌄, my address; `TodayAccountsMenu` = a `DropdownMenu`; `BelfryMarkView` = logo or the crest); words
+  `core/model/TodayHeader.kt`. `AccountRecord.role` / `logo` are kept by `AppState.watch` (`Onboarding.describe`) from the open
+  session only; the menu's dot is `AccountsUi.unread` (push). **Never ask another belfry anything to fill the menu.** A switch
+  lands on Today because `SignedIn` is keyed by the session (a new `ShellState`): keep it so. Tests `TodayHeaderTest` (app and
+  core), pictures `TodayHeaderShotsTest` (by hand; `TodayFixture`, `TwoAccountsApp`).
 
 - Printed cards in the town (SPEC 19.75 / 19.76; collective-belfry docs/cards.md §2.2, §2.5, §2.6, §4; canvas
   "Belfry · Group cards": cards/townsquare-new-topic, cards/steward): **who wrote an event is `World.realAuthor(e)`**

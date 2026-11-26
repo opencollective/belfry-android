@@ -36,6 +36,10 @@ data class AccountRecord(
     val picture: String = "",
     val demo: Boolean = false,
     val guest: Boolean = false,
+    /** My role there as last seen (SPEC 19.90: "Steward", "Member", "Guest"; "" = not known yet). */
+    val role: String = "",
+    /** The belfry's logo as last seen (https only; "" = the default crest). */
+    val logo: String = "",
 ) {
     /** The second line of the switcher's row. */
     val line: String get() = when {
@@ -53,7 +57,15 @@ data class AccountRecord(
         put("community", JsonPrimitive(community)); put("picture", JsonPrimitive(picture))
         if (demo) put("demo", JsonPrimitive(true))
         if (guest) put("guest", JsonPrimitive(true))
+        if (role.isNotEmpty()) put("role", JsonPrimitive(role))
+        if (logo.isNotEmpty()) put("logo", JsonPrimitive(logo))
     }
+
+    /** The Today menu's second line (SPEC 19.90): "address · role"; a guest with no role known yet is a Guest. */
+    val menuLine: String get() = sh.belfry.core.model.TodayHeader.line(
+        if (demo && address.isEmpty()) "Demo" else address.ifEmpty { domain },
+        role.ifEmpty { if (guest) sh.belfry.core.model.PlaceNames.GUEST else "" },
+    )
 
     companion object {
         fun fromJson(o: JsonObject): AccountRecord? {
@@ -65,6 +77,8 @@ data class AccountRecord(
                 name = (o.s("name") ?: "").take(200), address = (o.s("address") ?: "").take(320),
                 community = (o.s("community") ?: "").take(200), picture = (o.s("picture") ?: "").take(2000),
                 demo = o["demo"].bool() ?: false, guest = o["guest"].bool() ?: false,
+                role = (o.s("role") ?: "").take(40),
+                logo = (o.s("logo") ?: "").takeIf { it.startsWith("https://") }?.take(2000) ?: "",
             )
         }
     }
@@ -142,8 +156,15 @@ data class AccountList(
     }
 
     /** What the switcher shows about an account, as its session last saw it. */
-    fun described(id: String, name: String, address: String, community: String, picture: String, guest: Boolean): AccountList =
-        copy(accounts = accounts.map { if (it.id == id) it.copy(name = name, address = address, community = community, picture = picture, guest = guest) else it })
+    fun described(
+        id: String, name: String, address: String, community: String, picture: String, guest: Boolean,
+        role: String? = null, logo: String? = null,
+    ): AccountList = copy(accounts = accounts.map {
+        if (it.id == id) it.copy(
+            name = name, address = address, community = community, picture = picture, guest = guest,
+            role = role ?: it.role, logo = logo?.takeIf { l -> l.isEmpty() || l.startsWith("https://") } ?: it.logo,
+        ) else it
+    })
 
     /** The accounts in this belfry (never the demo), the current one first. */
     fun onDomain(domain: String): List<AccountRecord> {

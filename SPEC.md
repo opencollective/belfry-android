@@ -3835,3 +3835,25 @@ belfry this device doesn't know as format 3 (`Enc3DeviceState.on`): there Me kee
   "Steward: ‹who› · N following" · Open.
 - **The demo**: nothing is mailed: the poll waits for ever, a Confirm link has expired; a topic's about is its
   description.
+
+### 19.90 Today's header: the belfry, who I am there, the accounts menu (Android, 2026-11-26; Xavier's approval of the Home canvas home/today-belfry, -dark, -tap, switch-1-drawer, switch-2-accounts, switch-3-today, v13+; changes 19.24 and 19.31's Home)
+
+- **The header.** Only Today puts the belfry in its header; every other place keeps its own title. Level with ☰ and
+  centred: the belfry's mark (its logo, https only, else a default crest), its name with a small ⌄, and under it my
+  address here (`name@domain`; without one, the belfry's domain), always, on one line each, cut with … The date is the
+  content's first line, "Wednesday, November 25" (`EEEE, MMMM d`, English), with room around it (about 56 dp above,
+  40 below; Coming up about 40 under the tiles).
+- **A tap on the header** drops the accounts menu (Android: Material's `DropdownMenu` under the header, nearly the
+  screen's width): one row per account on this device, the open one first, each with that belfry's mark, its name and
+  "‹my address there› · ‹my role›" (Steward · Member · Guest, 19.31; Android shows the built-in words, not a belfry's
+  custom role labels); the open one is checked; a dot on an account with news; then **Add an account** (the sign-in
+  over the app, 19.24) and **Accounts ›** (the full list behind ⇅ in the drawer). Tapping a row locks every row, shows
+  a spinner on it and switches.
+- **A switch always lands on that belfry's Today**, wherever it was asked from (this menu, the drawer's ⇅ list, About
+  Belfry), with its mark, name and my address there at once (switch-3-today). Not the screen that was open. A switch
+  made to open something (a tapped notification, an event's or a guest link's address) then opens that thing.
+- **What the menu knows** comes from this device only: per account the switcher's record (19.24) keeps, as its
+  session last saw them, also my `role` and the belfry's `logo` (https only; both optional in the list's JSON, an older
+  list reads "" and shows the crest, and "Guest" for a guest). The dot is the push code's "something came for it since
+  it was last open" (19.24). **Nothing is asked of a belfry whose account is not open** to fill the menu: no polling.
+- Words: `core/model/TodayHeader.kt`.
