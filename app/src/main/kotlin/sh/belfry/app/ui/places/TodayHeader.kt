@@ -24,6 +24,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -139,7 +140,8 @@ fun TodayAccountsMenu(accounts: AccountsUi, onDismiss: () -> Unit, onAccounts: (
     val session = LocalSession.current
     val busy = rememberBusy()
     val belfry = world.ctx.communityName.ifEmpty { session.community.name }
-    val guest = world.amGuest || session.guest.value != null
+    val guestInfo by session.guest.collectAsState()
+    val guest = world.amGuest || guestInfo != null
     val myLine = TodayHeader.line(TodayHeader.address(world.myAddress, session.community.domain), TodayHeader.role(world.isCommunityAdmin, guest))
     Column {
         MenuAccountRow(session.branding.logo, belfry, myLine, current = true, unread = false, busy = busy, onClick = { onDismiss() }, modifier = Modifier.testTag("today-account-current"))
