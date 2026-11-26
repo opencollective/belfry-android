@@ -29,8 +29,12 @@ interface Enc3GroupPorts {
     fun addEvents(events: List<Event>)
     /** H's metadata says private (a group, closed + private: docs/one-shape.md). */
     fun privateMeta(h: String): Boolean
-    /** H's members as the world knows them now (39002), or null when the group isn't known here. */
+    /** H's members as the world knows them now (39002), or null when the group isn't known here. For display: [Enc3Groups.ready] reads its own. */
     fun members(h: String): Set<String>?
+    /** SPEC 19.94: the key the groups relay signs its metadata with (NIP-11 `self`); null: not known, private writes hold. */
+    fun relayKey(): String?
+    /** SPEC 19.94: the newest 39002 of H signed by [relayKey] that the log holds (its date and members), or null. */
+    fun relayMembers(h: String): Pair<Long, Set<String>>? = null
     /** ACCOUNT is a guest (§25: a guest member gets no entry). */
     fun isGuest(account: String): Boolean
     /** Rumors opened from 8572s (no signature), into the log as the group's events. */
@@ -75,8 +79,8 @@ class Enc3Groups(val e3: Enc3, private val ports: Enc3GroupPorts) {
     private val noEntry = HashSet<String>()
     private val asked = HashMap<String, Long>()
     /** group → the groups relay connection its 39002 was read on (and the members it said). */
-    private val membersOn = HashMap<String, Int>()
-    private val fetched = HashMap<String, Set<String>>()
+    private val membersOn = HashMap<String, Pair<Int, String>>()
+    private val fetched = HashMap<String, Pair<Long, Set<String>>>()
     private val judging = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** Something the screens show changed (keys, waits, lines). */
@@ -278,22 +282,27 @@ class Enc3Groups(val e3: Enc3, private val ports: Enc3GroupPorts) {
     // ---- writing (§5, §6, §16.1, §17.8, §17.14, §18.7, §23, §25) ----------------------------------------
 
     /**
-     * A write of H on format 3, checked: its member list from a 39002 read on this connection (P2.4: never a stale or
-     * empty cache), me in it, then [Enc3.groupReady] (lists read whole, a member with no list after a second read
-     * skipped for this message, a guest member no entry, forks hold, over 1000 devices refused).
+     * A write of H on format 3, checked: its member list from a 39002 SIGNED BY THE GROUPS RELAY'S KEY (SPEC 19.94: its
+     * NIP-11 `self`; unknown → held) read on this connection (P2.4: never a stale or empty cache, never the world's
+     * list), me in it, then [Enc3.groupReady] (lists read whole, a member with no list after a second read skipped for
+     * this message, a guest member no entry, forks hold, over 1000 devices refused). A 39002 by anyone else never
+     * counts, newest or not; none by the relay → held.
      */
     suspend fun ready(h: String, pageMs: Long = 3_000): EncWrite {
+        val relay = ports.relayKey()?.takeIf { Enc.isKey(it) } ?: return EncWrite.Hold(HoldReason.GROUP_UNKNOWN)
         val conn = ports.connection() ?: return EncWrite.Hold(HoldReason.GROUP_UNKNOWN)
-        var members: Set<String>? = null
-        if (synchronized(lock) { membersOn[h] } != conn) {
+        if (synchronized(lock) { membersOn[h] } != (conn to relay)) {
             val got = ports.query(Filters.of(kinds = listOf(39002), tags = mapOf("d" to listOf(h))), pageMs) ?: return EncWrite.Hold(HoldReason.GROUP_UNKNOWN)
-            val lists = got.events.filter { it.kind == 39002 && Enc.one(it, "d") == h }
+            val lists = got.events.filter { it.kind == 39002 && Enc.one(it, "d") == h && it.pubkey == relay && Enc.valid(it) }
             if (lists.isNotEmpty()) ports.addEvents(lists)
             val newest = lists.maxWithOrNull(compareBy<Event> { it.createdAt }.thenByDescending { it.id })
-            members = newest?.let { n -> Enc.values(n, "p").filter { Enc.isKey(it) }.toSet() }
-            synchronized(lock) { membersOn[h] = conn; if (members != null) fetched[h] = members!! }
+            val members = newest?.let { n -> n.createdAt to Enc.values(n, "p").filter { Enc.isKey(it) }.toSet() }
+            synchronized(lock) { membersOn[h] = conn to relay; if (members != null) fetched[h] = members else fetched.remove(h) }
         }
-        val m = members ?: ports.members(h) ?: synchronized(lock) { fetched[h] } ?: return EncWrite.Hold(HoldReason.GROUP_UNKNOWN)
+        // the read's list, or a newer one by the relay that came live since (a removal counts at once)
+        val read = synchronized(lock) { fetched[h] } ?: return EncWrite.Hold(HoldReason.GROUP_UNKNOWN)
+        val live = ports.relayMembers(h)
+        val m = if (live != null && live.first > read.first) live.second else read.second
         if (e3.me !in m) return EncWrite.Hold(HoldReason.GROUP_UNKNOWN)
         return e3.groupReady(m, ports::isGuest)
     }

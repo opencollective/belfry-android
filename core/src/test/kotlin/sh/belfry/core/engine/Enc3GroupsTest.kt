@@ -96,6 +96,8 @@ class Enc3GroupsTest {
         var groupsUp = true
         var groupsConn = 1
         var memberSet: Set<String>? = null
+        /** SPEC 19.94: the groups relay's NIP-11 `self` as this device knows it (null: not read). */
+        var relayKnown: String? = relayKey.pubkey
         var privates = setOf(g)
         val guests = HashSet<String>()
         val opened = ArrayList<Event>()
@@ -119,6 +121,7 @@ class Enc3GroupsTest {
             override fun addEvents(events: List<Event>) {}
             override fun privateMeta(h: String): Boolean = h in privates
             override fun members(h: String): Set<String>? = memberSet
+            override fun relayKey(): String? = relayKnown
             override fun isGuest(account: String): Boolean = account in guests
             override fun opened(rumors: List<Event>) { opened += rumors }
             override fun later(block: suspend () -> Unit) { later += block }
@@ -591,6 +594,62 @@ class Enc3GroupsTest {
         // the press copy to the groups key never carries its key either
         val copy = Buttons.pressCopy("c".repeat(64), g, MessageButton("go", "Go", "primary", "belfry:website-publish"), got, groupsKey, bob.pubkey, now())
         assertFalse(copy.content.contains(pic.key) || copy.content.contains(pic.nonce))
+    }
+
+    // ---- SPEC 19.94: only the groups relay's own 39002 decides who gets the key ------------------------------
+
+    @Test fun aMemberSigned39002NeverDecidesWhoGetsTheKey() {
+        val (a, _) = setUp()
+        // Bob publishes a newer "member list" of his own that adds Carol: never counts, newest or not
+        groups += bob.signNow(EventTemplate(39002, "", listOf(listOf("d", g), listOf("p", alice.pubkey), listOf("p", bob.pubkey), listOf("p", carol.pubkey)), now() + 5))
+        val plan = assertIs<EncPlan.Group>(assertIs<EncWrite.V3>(a.write()).plan)
+        assertFalse(carolPhone.pubkey in plan.devices, "Carol is only in the member-signed list: no entry for her")
+        assertEquals(setOf(alicePhone.pubkey, bobPhone.pubkey), plan.devices.toSet(), "the relay-signed list")
+        // the relay's own newer list does count
+        groups += members(alice.pubkey, bob.pubkey, carol.pubkey, at = now() + 6)
+        a.gr.forgetMembers(g)
+        val plan2 = assertIs<EncPlan.Group>(assertIs<EncWrite.V3>(a.write()).plan)
+        assertTrue(carolPhone.pubkey in plan2.devices)
+    }
+
+    @Test fun onlyMemberSigned39002sHold() {
+        aliceList = list(alice.pubkey, 1, null, listOf(alicePhone.pubkey))
+        bobList = list(bob.pubkey, 1, null, listOf(bobPhone.pubkey))
+        main += listOf(aliceList, bobList)
+        groups += alice.signNow(EventTemplate(39002, "", listOf(listOf("d", g), listOf("p", alice.pubkey), listOf("p", bob.pubkey)), now()))
+        val a = Device(alice, alicePhone)
+        assertEquals(EncWrite.Hold(HoldReason.GROUP_UNKNOWN), a.write(), "no list by the relay's key: held, never clear")
+    }
+
+    @Test fun theRelayKeyUnknownHoldsEvenAGroupEverEncryptedHere() {
+        val (a, _) = setUp()
+        a.send("one") // a key of the group is held here now (ever)
+        a.relayKnown = null
+        assertEquals(EncWrite.Hold(HoldReason.GROUP_UNKNOWN), runBlocking { a.gr.ready(g) }, "NIP-11 not read: held")
+        assertEquals(EncWrite.Hold(HoldReason.GROUP_UNKNOWN), a.write())
+        // another key than the one that signed the lists: the same
+        a.relayKnown = LocalSigner.random().pubkey
+        assertEquals(EncWrite.Hold(HoldReason.GROUP_UNKNOWN), a.write())
+        a.relayKnown = relayKey.pubkey
+        assertIs<EncWrite.V3>(a.write())
+    }
+
+    @Test fun untrustedMetadataIsUnknownForTheTable() {
+        val f3 = EncWrites.Facts(false, false, 3)
+        val t = sh.belfry.core.enc.GroupTrust
+        // shown private, but not trusted: held, never clear
+        assertEquals(EncWrite.Hold(HoldReason.GROUP_UNKNOWN), t.write(f3, ever = false, trusted = false, privateMeta = true, known = true, clearKind = false))
+        // shown public, not trusted: held too (a forged "public" must not make a private group's write plain)
+        assertEquals(EncWrite.Hold(HoldReason.GROUP_UNKNOWN), t.write(f3, ever = false, trusted = false, privateMeta = false, known = true, clearKind = false))
+        // ever encrypted here: still V3 (its list then needs the relay's 39002: [Enc3Groups.ready])
+        assertIs<EncWrite.V3>(t.write(f3, ever = true, trusted = false, privateMeta = false, known = false, clearKind = false))
+        // trusted: the table as before
+        assertIs<EncWrite.V3>(t.write(f3, ever = false, trusted = true, privateMeta = true, known = true, clearKind = false))
+        assertEquals(EncWrite.Clear, t.write(f3, ever = false, trusted = true, privateMeta = false, known = true, clearKind = false))
+        // format 1 is unchanged (no group encryption there)
+        assertEquals(EncWrite.V1, t.write(EncWrites.Facts(false, false, 1), ever = false, trusted = false, privateMeta = true, known = true, clearKind = false))
+        // format unknown: held
+        assertIs<EncWrite.Hold>(t.write(EncWrites.Facts(false, false, null), ever = false, trusted = false, privateMeta = false, known = true, clearKind = false))
     }
 
     @Test fun lineWords() {

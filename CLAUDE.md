@@ -413,6 +413,13 @@ minSdk 26, JDK 17.
   can read this, `FeedItem.EncLine` lines, waiting line, guest / removed bars, held words); `Media.sealed` + `Session.sealedMedia`.
   Tests set `DemoEnc3View(privateGroups = …)` (`Enc3GroupsFixture`, `Session.demoAddEvents`, `demoGuestMember`). Tests
   `Enc3GroupsTest` (core and app), `Enc3GroupsShotsTest`.
+- Group metadata only from the groups relay's key (SPEC 19.94; the lead, 2026-11-26): 39000–39003 count only when signed by the
+  groups relay's NIP-11 **`self`** (never `pubkey`: the operator). `core/net/RelayInfo.kt` (`RelayInfo.parse / fetch`, wss only;
+  `RelayKeyCache`: store `relay-self:<url>`, daily, back-off) → `Session.groupsRelayKey` (read in the background, `refreshRelayKey`)
+  → `WorldContext.groupsRelayKey`: known = others' 39000–39003 left out of `World.all`; unknown = shown as before,
+  `World.groupMetaTrusted` false. Every private-group write decision goes through `enc/GroupTrust` (untrusted = unknown = held on
+  format 3) and `Enc3Groups.ready` takes only a relay-signed 39002 (`relayKey()`, `relayMembers()` ports). Never weaken either.
+  Demo: `Demo.relay` signs all metadata and is the demo's key. Tests `RelayKeyTest`, `RelayKeySessionTest`, `Enc3GroupsTest`.
 
 - Link previews built by the sender (SPEC 19.87; docs/link-previews-v2.md; canvas channels/og-*): ONLY the sender's device fetches
   the page, once, while composing; readers never fetch anything but the picture, and only from the belfry's Blossom. Pure rules in

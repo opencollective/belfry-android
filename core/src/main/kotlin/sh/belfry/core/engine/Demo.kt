@@ -114,7 +114,9 @@ object Demo {
     /** The demo's `_groups` key (posts e-mail cards and guest joins) and `_smtp` key (the mail bridge). */
     val groups = key("_groups")
     val bridge = key("_smtp")
-    private val relayKey = key("relay").pubkey
+    /** The demo groups relay's own key: it signs every 39000–39003, and the demo session gives it as the relay's NIP-11 `self` (SPEC 19.94). */
+    val relay = key("relay")
+    val relayKey: String = relay.pubkey
 
     /** The demo community: Maya and the person using the demo are its admins. */
     fun community(me: String): Community = Community.defaults(DOMAIN).copy(name = NAME, admins = listOf(maya.pubkey, me), agents = mapOf(wren.pubkey to kofi.pubkey, pip.pubkey to maya.pubkey))

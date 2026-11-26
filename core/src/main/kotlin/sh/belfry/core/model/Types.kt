@@ -36,6 +36,11 @@ data class WorldContext(
     val belfryKey: String? = null,
     /** Each channel's address as the belfry answers it (`POST /mail-alias`, SPEC 19.60), by channel id. */
     val mailAddresses: Map<String, String> = emptyMap(),
+    /**
+     * SPEC 19.94: the key the groups relay signs its metadata with (its NIP-11 `self`), or null when not known (yet).
+     * Known: 39000–39003 by any other author are ignored. Null: today's reading, and [World.groupMetaTrusted] is false.
+     */
+    val groupsRelayKey: String? = null,
 )
 
 data class Profile(val name: String? = null, val picture: String? = null, val nip05: String? = null, val about: String = "", val at: Long = 0)

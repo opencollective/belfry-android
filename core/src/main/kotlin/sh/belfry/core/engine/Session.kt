@@ -392,6 +392,8 @@ class Session(
             override fun addEvents(events: List<Event>) = addToLog(events)
             override fun privateMeta(h: String): Boolean = _world.value.group(h)?.let { it.isPod && it.closed && it.isPrivate } == true
             override fun members(h: String): Set<String>? = _world.value.group(h)?.members
+            override fun relayKey(): String? = groupsRelayKey
+            override fun relayMembers(h: String): Pair<Long, Set<String>>? = _world.value.relayMembers(h)
             override fun isGuest(account: String): Boolean = _world.value.isGuest(account)
             override fun opened(rumors: List<Event>) = addToLog(rumors)
             override fun later(block: suspend () -> Unit) = launchSafely(block)
@@ -407,11 +409,14 @@ class Session(
     fun privateNow(groupId: String): Boolean {
         demoEnc3View?.let { return it.groupPrivate(groupId) }
         if (localOnly) return false
-        val g = _world.value.group(groupId)
+        val w0 = _world.value
+        val g = w0.group(groupId)
+        // shown private (trusted or not): the screens' gates stay on; the table gets only trusted metadata (SPEC 19.94)
         val privateMeta = g != null && g.isPod && g.closed && g.isPrivate
+        val trusted = w0.groupMetaTrusted
         val ever = enc3?.everEncrypted(Enc3.groupConv(groupId)) == true
         val f = sh.belfry.core.enc.EncWrites.Facts(localOnly, _guest.value != null, encWriteFormat())
-        val w = sh.belfry.core.enc.EncWrites.group(f, ever, privateMeta, g != null, false)
+        val w = sh.belfry.core.enc.GroupTrust.write(f, ever, trusted, privateMeta, g != null, false)
         return w is sh.belfry.core.enc.EncWrite.V3 || (w is sh.belfry.core.enc.EncWrite.Hold && privateMeta)
     }
 
@@ -660,11 +665,14 @@ class Session(
     suspend fun encWriteGroup(groupId: String, kind: Int, tags: List<Tag> = emptyList()): sh.belfry.core.enc.EncWrite = withContext(Dispatchers.Default) {
         val e = enc3
         val w0 = _world.value
+        // SPEC 19.94: the metadata counts only when the groups relay's key is known (else unknown: format 3 holds)
+        val trusted = w0.groupMetaTrusted || localOnly
+        if (!trusted) launchSafely { refreshRelayKey() }
         val g = w0.group(groupId)
         val privateMeta = g != null && g.isPod && g.closed && g.isPrivate
         val clearKind = EncRules.clearInGroup(Event("", me, 0, kind, tags, ""), community.groupsKey ?: groupsKey)
         val ever = e?.everEncrypted(Enc3.groupConv(groupId)) == true
-        fun decide(f: sh.belfry.core.enc.EncWrites.Facts) = sh.belfry.core.enc.EncWrites.group(f, ever, privateMeta, g != null, clearKind)
+        fun decide(f: sh.belfry.core.enc.EncWrites.Facts) = sh.belfry.core.enc.GroupTrust.write(f, ever, trusted, privateMeta, g != null, clearKind)
         var w = decide(encFacts(false))
         if (w is sh.belfry.core.enc.EncWrite.Hold && w.reason == sh.belfry.core.enc.HoldReason.FORMAT) w = decide(encFacts(true))
         // SPEC 19.88: the members from a 39002 read on this connection (≤ 3 s), their lists read whole, then the plan
@@ -848,6 +856,14 @@ class Session(
     @Volatile private var extraAdmins: Set<String> = emptySet()
     @Volatile private var bridge: String? = null
     @Volatile private var groupsKey: String? = null
+    /**
+     * SPEC 19.94: the groups relay's own key (its NIP-11 `self`): only 39000–39003 it signed count. Null: not known
+     * (yet): the metadata is shown as before but a private group's writes hold. Stored per relay URL ([relayKeys]).
+     */
+    @Volatile private var groupsRelayKey: String? = null
+    private val relayKeys = sh.belfry.core.net.RelayKeyCache(store, { System.currentTimeMillis() }) { url -> relayInfoRead(url) }
+    /** Tests only: how the NIP-11 document is read (default: an HTTPS GET with the session's client). */
+    @Volatile internal var relayInfoRead: suspend (String) -> sh.belfry.core.net.RelayInfo.Read = { url -> sh.belfry.core.net.RelayInfo.fetch(url, http) }
     /** Deleted by absence (SPEC 19.30): what the groups relay said it has no metadata for. Stored. */
     @Volatile private var groupsAbsent: Map<String, Long> = emptyMap()
     @Volatile private var lastPresence = 0L
@@ -1002,6 +1018,7 @@ class Session(
         extraAdmins = parseJsonOrNull(store.get(K_ADMINS) ?: "").arr()?.mapNotNull { it.str() }?.filter(Hex::isKey)?.toSet() ?: emptySet()
         bridge = store.get(K_BRIDGE)?.takeIf(Hex::isKey)
         groupsKey = store.get(K_GROUPS_KEY)?.takeIf(Hex::isKey)
+        groupsRelayKey = if (localOnly) Demo.relayKey else relayKeys.known(community.groupsRelay)
         groupsAbsent = parseJsonOrNull(store.get(K_ABSENT) ?: "").obj()?.mapNotNull { (k, v) -> v.long()?.let { k to it } }?.toMap() ?: emptyMap()
         parseJsonOrNull(store.get(K_MAIL_ADDRESSES) ?: "").obj()?.forEach { (k, v) -> v.str()?.let { mailAddresses[k] = it } }
         lastCreatedAt = maxOf(
@@ -1032,8 +1049,21 @@ class Session(
         communityAdmins = community.admins.toSet() + extraAdmins, groupsKey = community.groupsKey ?: groupsKey, bridgeKey = bridge, zone = zone,
         groupsRelay = community.groupsRelay, agents = community.agents, kinds = HashMap(kinds),
         groupsAbsent = groupsAbsent, placeNames = placeNames, belfryKey = community.belfryPubkey,
-        mailAddresses = HashMap(mailAddresses),
+        mailAddresses = HashMap(mailAddresses), groupsRelayKey = groupsRelayKey,
     )
+
+    /**
+     * SPEC 19.94: the groups relay's NIP-11 `self` read again when due (once a day; after a failure, with a back-off),
+     * in the background only. A new answer rebuilds the world (its metadata judged by that key).
+     */
+    internal suspend fun refreshRelayKey(force: Boolean = false): String? {
+        if (localOnly) return groupsRelayKey
+        val url = community.groupsRelay
+        val k = withContext(Dispatchers.IO) { relayKeys.refresh(url, force) }
+        if (k != groupsRelayKey) { groupsRelayKey = k; markDirty() }
+        return k
+    }
+
 
     /** The belfry said channel CHANNEL's address is ADDRESS (null: it can't say; the app works it out). */
     internal fun setMailAddress(channel: String, address: String?) {
@@ -1284,6 +1314,8 @@ class Session(
         if (started || stopped) return
         started = true
         if (!localOnly) launchSafely { _format3Here.value = encFormat.state().format == 3 } // the vault: off the main thread
+        // SPEC 19.94: the groups relay's key from its NIP-11 document, now and whenever due (never blocks a screen)
+        if (!localOnly) launchSafely { while (!stopped) { refreshRelayKey(); delay(RELAY_KEY_LOOK_MS) } }
         launchSafely { dm.process() }
         if (localOnly) {
             setStatus { it.copy(access = AccessState.IN) }
@@ -2266,8 +2298,19 @@ class Session(
         if (ev.kind != 9007 && ev.kind != 9002) return
         val meta = ev.tags.filter { it.isNotEmpty() && it[0] in setOf("name", "about", "picture", "closed", "open", "prompt", "private", "public") }
         val out = ArrayList<Event>()
-        if (ev.kind == 9002 || meta.isNotEmpty()) out.add(Event("meta-" + ev.id, ev.pubkey, ev.createdAt, 39000, listOf(listOf("d", h)) + meta, ""))
-        if (ev.kind == 9007) out.add(Event("members-" + ev.id, ev.pubkey, ev.createdAt, 39002, listOf(listOf("d", h), listOf("p", ev.pubkey)), ""))
+        // signed (in effect) by the demo relay's key: the only author of 39000–39003 the demo's world takes (SPEC 19.94);
+        // one replaceable 39000 per group then, so the change is laid over the relay's last one (as a relay would)
+        if (ev.kind == 9002 || meta.isNotEmpty()) {
+            val before = synchronized(logLock) { log.filter { it.kind == 39000 && it.pubkey == Demo.relayKey && it.tag("d") == h }.maxByOrNull { it.createdAt } }
+            val tags = ArrayList(before?.tags?.filter { it.isNotEmpty() && it[0] != "d" }.orEmpty())
+            for (t in meta) {
+                val same = when (t[0]) { "closed", "open" -> setOf("closed", "open"); "private", "public" -> setOf("private", "public"); else -> setOf(t[0]) }
+                tags.removeAll { it[0] in same }
+                tags.add(t)
+            }
+            out.add(Event("meta-" + ev.id, Demo.relayKey, maxOf(ev.createdAt, (before?.createdAt ?: 0) + 1), 39000, listOf(listOf("d", h)) + tags, ""))
+        }
+        if (ev.kind == 9007) out.add(Event("members-" + ev.id, Demo.relayKey, ev.createdAt, 39002, listOf(listOf("d", h), listOf("p", ev.pubkey)), ""))
         addToLog(out)
     }
 
@@ -3160,6 +3203,8 @@ class Session(
         const val ARCHIVED_TEXT = "This group is archived or deleted: nothing can be posted in it."
         const val K_DISCOVERY_ETAG = "belfry-json-etag"
         private const val RECHECK_MS = 30_000L
+        /** How often the session looks whether the groups relay's NIP-11 key is due (SPEC 19.94; the cache decides). */
+        private const val RELAY_KEY_LOOK_MS = 60_000L
         private const val K_SEEN_SENT = "seen-sent:"
         private const val SUB = "main"
         private const val REBUILD_MS = 100L

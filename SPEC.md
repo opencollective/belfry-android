@@ -3927,3 +3927,36 @@ before that never came.
   People screen from the hosts line, the laptop form's Save top right.
 - Tests: core `EventsTest.theEventWebsiteTag`, `eventDetailsAsTheWebReadsThem`, `EventShapeTest`; pictures
   `WebParityShotsTest` (by hand).
+
+### 19.94 Group metadata only from the groups relay's own key (2026-11-26; the lead's ruling: who reads a private group decides who gets its key, format 3 / 19.88)
+
+A member list (39002) must not rest on the relay never storing a member-published 39002. **The groups relay's
+metadata (39000, 39001, 39002, 39003) counts only when signed by the groups relay's own key**: the `self` field of
+its NIP-11 document (zooid signs every metadata event with it; NIP-11 `pubkey` is the operator, never used here).
+- **The read** (`core/net/RelayInfo.kt`): `GET https://<host>/<path>` of the groups relay's `wss://` URL, `Accept:
+  application/nostr+json`, at most 64 KB read; only `self` is taken (a JSON string, 64 hex, kept lower case). No
+  `self`, not hex, or only `pubkey` = the key is unknown. A `ws://` relay is never read (unknown). Nothing else of the
+  document is kept or shown.
+- **The cache** (`RelayKeyCache`): per relay URL in the account's store (`relay-self:<url>` → `{self, at}`), so it
+  survives restarts; read again at most once a day; a failure (offline, non-200, not JSON) keeps what was known and is
+  tried again after 30 s, doubling to 1 h (memory only); a 200 document without a valid `self` forgets the key.
+  `Session` reads it in the background after `start()` (looking every minute whether it is due, and when a group write
+  finds it unknown); never on a screen's thread. A new answer rebuilds the world. Tests seam: `Session.relayInfoRead`.
+- **The world** (`WorldContext.groupsRelayKey`): KNOWN → every 39000–39003 by another author is left out of
+  `World.all` entirely (names, about, access, private, admins, members, `metaAuthors`); `World.groupMetaTrusted`
+  true; `World.relayMembers(h)` = the newest relay-signed 39002. UNKNOWN → read as before (display), but
+  `groupMetaTrusted` false. 9007 / 9002 / 9000 / 9001 are read as before.
+- **Encryption** (`core/enc/GroupTrust.kt`, `Session.encWriteGroup` / `privateNow`): the table (`EncWrites.group`)
+  gets `privateMeta` and `known` only from trusted metadata; untrusted = unknown: on format 3 `Hold(GROUP_UNKNOWN)`
+  (a group shown public too: a forged "public" never makes a write plain); a group ever encrypted here stays V3.
+  Format 1 is unchanged. `privateNow`'s screen gates (no events, typing…) still follow the metadata as shown.
+  `Enc3Groups.ready(h)`: relay key unknown → `Hold(GROUP_UNKNOWN)`; the 39002 read on the connection counts only
+  when signed by that key (and valid); none → held; the world's newer relay-signed 39002 (`relayMembers`) is taken
+  over the read when it came later (a removal counts at once). Never the world's member list otherwise.
+- **Demo**: `Demo.relay` signs every 39000–39003 and is the demo session's relay key (the demo's own synthesized
+  39000 / 39002 are by it too): nothing changes in the demo.
+- Tests: core `RelayKeyTest` (member-signed 39000–39003 ignored, relay-signed newer counts, unknown reads as before;
+  NIP-11 parse: both fields → `self`, only `pubkey` → unknown, bad JSON, invalid `self`; the URL; the cache: kept
+  across restarts, daily, back-off, forgotten), `Enc3GroupsTest` (a member-signed newest 39002 never decides; only
+  member-signed → held; relay key unknown or another → held even when ever encrypted; `GroupTrust` table),
+  `RelayKeySessionTest` (read in the background, kept, a restart knows it). Never run against a real relay.

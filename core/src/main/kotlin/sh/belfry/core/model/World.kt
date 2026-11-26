@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import sh.belfry.core.crypto.Bech32
+import sh.belfry.core.crypto.Hex
 import sh.belfry.core.crypto.sha256Hex
 import sh.belfry.core.mail.MailThreads
 import sh.belfry.core.nostr.Event
@@ -44,7 +45,22 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
     private val pendingById: Map<String, OutboxItem> = pendingItems.associateBy { it.localId }
 
     /** All events, queued ones shown as if published (not the pre-signed gift wraps). In arrival order. */
-    val all: List<Event> = newestCopies(if (pendingItems.isEmpty()) events else events + pendingItems.map { it.asEvent(ctx.me) })
+    val all: List<Event> = newestCopies(relaySigned(if (pendingItems.isEmpty()) events else events + pendingItems.map { it.asEvent(ctx.me) }, ctx.groupsRelayKey))
+
+    /**
+     * SPEC 19.94: the groups' relay metadata (39000–39003) can be trusted here: the groups relay's own key (its NIP-11
+     * `self`, [WorldContext.groupsRelayKey]) is known, and every 39000–39003 by another author was left out of [all]
+     * (names, access, private, admins, members). False: shown as before, but never a ground for who can read a private
+     * group (its writes hold).
+     */
+    val groupMetaTrusted: Boolean get() = ctx.groupsRelayKey != null
+
+    /** SPEC 19.94: H's newest 39002 by the groups relay's key (its date and members); null when that key isn't known or none is here. */
+    fun relayMembers(h: String): Pair<Long, Set<String>>? {
+        val key = ctx.groupsRelayKey ?: return null
+        val n = ofKind(39002).filter { it.pubkey == key && it.t("d") == h }.maxWithOrNull(BY_TIME) ?: return null
+        return n.createdAt to n.tags.filter { it.size >= 2 && it[0] == "p" && Hex.isKey(it[1]) }.mapTo(LinkedHashSet()) { it[1] }
+    }
 
     // ---- what the snapshot before already worked out -----------------------------------------------
 
@@ -1637,6 +1653,12 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
          * keep their versions: those are their history (edits merged against the version they
          * started from; a channel's log of answers), and their readers take the newest themselves.
          */
+        /** SPEC 19.94: with the groups relay's key known (KEY), 39000–39003 by any other author are left out; unknown: all kept. */
+        internal fun relaySigned(events: List<Event>, key: String?): List<Event> {
+            if (key == null || events.none { it.kind in 39000..39003 && it.pubkey != key }) return events
+            return events.filter { it.kind !in 39000..39003 || it.pubkey == key }
+        }
+
         internal fun newestCopies(events: List<Event>): List<Event> {
             var newest: HashMap<String, Event>? = null
             var lost: HashSet<String>? = null

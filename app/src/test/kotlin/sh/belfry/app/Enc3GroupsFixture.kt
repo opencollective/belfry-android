@@ -52,7 +52,7 @@ object Enc3GroupsFixture {
     /** encrypted/group-removed-self: Maya removed me; the relay's member list no longer has me. */
     fun removedMe(session: Session) {
         member(session, add = false, who = session.me, minutes = 30)
-        session.demoAddEvents(listOf(LocalSigner.random().signNow(EventTemplate(39002, "", listOf(listOf("d", G)) + listOf(Demo.maya, Demo.lena, Demo.kofi).map { listOf("p", it.pubkey) }, AT + 30 * 60))))
+        session.demoAddEvents(listOf(Demo.relay.signNow(EventTemplate(39002, "", listOf(listOf("d", G)) + listOf(Demo.maya, Demo.lena, Demo.kofi).map { listOf("p", it.pubkey) }, AT + 30 * 60))))
     }
 
     /** The inbox card the groups key put into the group as an 8572 (encrypted/group-email). */
