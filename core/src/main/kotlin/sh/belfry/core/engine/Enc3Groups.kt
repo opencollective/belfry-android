@@ -152,17 +152,23 @@ class Enc3Groups(val e3: Enc3, private val ports: Enc3GroupPorts) {
             }
             return Look.Key(held)
         }
-        var got: GroupKey? = null
+        // §17.12 (the iOS review, 2026-11-26): every envelope of this d that opens is judged, never only the first: a member
+        // can publish a decoy with the same d = K and an unlisted maker; a refused one never hides the real key. The first
+        // accepted wins; only when none is accepted and one waits for a list does the key wait.
+        var g: GroupKey? = null
+        val waitFor = LinkedHashSet<String>()
         val sk = e3.secret
         for (env in list) {
-            got = try { EncKeys.openGroupEnvelope(sk, env, h) } catch (x: Exception) { null } // a bad envelope: skipped (§17.12)
-            if (got != null) break
+            val opened = try { EncKeys.openGroupEnvelope(sk, env, h) } catch (x: Exception) { null } ?: continue // a bad envelope: skipped
+            when (EncKeys.acceptGroupKey(opened, e3.devices(opened.account), e3.nowS())) {
+                Verdict.OK -> { g = opened; break }
+                Verdict.WAIT -> waitFor += opened.account
+                Verdict.NO -> {} // refused (a decoy, or a maker not listed then): the next one is tried
+            }
         }
-        val g = got ?: return Look.None
-        when (EncKeys.acceptGroupKey(g, e3.devices(g.account), e3.nowS())) {
-            Verdict.WAIT -> { e3.want(listOf(g.account)); return Look.Wait }
-            Verdict.NO -> return Look.None
-            Verdict.OK -> {}
+        if (g == null) {
+            if (waitFor.isEmpty()) return Look.None
+            e3.want(waitFor.toList()); return Look.Wait
         }
         val svc = g.account == ports.groupsKey() || g.account == ports.belfryKey()
         val mine = g.account == e3.me && e3.chainOnly(e3.me)?.lists?.any { g.maker in it.devices } == true

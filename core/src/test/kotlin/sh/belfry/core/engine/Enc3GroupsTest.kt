@@ -303,6 +303,23 @@ class Enc3GroupsTest {
         assertEquals(0, b2.gr.waiting(g).first)
     }
 
+    /**
+     * §17.12 (the iOS review, 2026-11-26): a member publishes a decoy envelope with the same d = K, entries for my device and
+     * a maker that was never listed; it arrives first. It is refused, and the real envelope is still tried: the message opens.
+     */
+    @Test fun aDecoyEnvelopeNeverHidesTheRealKey() {
+        val (a, b) = setUp()
+        val (s, out) = a.send("the real one")
+        val k = a.e3.key(s.key)!!
+        val stranger = LocalSigner.random()
+        val decoy = carol.signNow(EncKeys.groupEnvelopes(Hex.decode(stranger.secretHex), k.secret, g, listOf(bobPhone.pubkey), "").single())
+        assertTrue(b.receive(listOf(decoy)).isEmpty(), "the decoy alone opens nothing")
+        assertNull(b.e3.key(s.key), "and declares nothing")
+        val got = b.receive(out)
+        assertEquals("the real one", got.single().content, "the real envelope was tried after the refused decoy")
+        assertEquals(alicePhone.pubkey, b.e3.key(s.key)!!.maker)
+    }
+
     @Test fun aKeyHeldForOneGroupNeverOpensAnother() {
         val (a, b) = setUp()
         val (s, out) = a.send("garden")
