@@ -93,6 +93,9 @@ class EncWritesTest {
         // a guest's session (§25: no runtime): clear on format 3, as today on 1, held once encrypted
         assertEquals(CLEAR, EncWrites.people(n, f(3, guest = true), ever = false, guestIn = false))
         assertEquals(V1, EncWrites.people(n, f(1, guest = true), ever = false, guestIn = false))
+        // §25 ruling (2026-11-26): a guest's session is never held for the format: unknown = the old way, unencrypted
+        assertEquals(CLEAR, EncWrites.people(n, f(null, guest = true), ever = false, guestIn = false))
+        assertEquals(CLEAR, EncWrites.people(n, f(null, guest = true), ever = false, guestIn = true))
         assertEquals(hold(HoldReason.GUEST), EncWrites.people(n, f(3, guest = true), ever = true, guestIn = false))
         // anything else: as today
         assertEquals(V1, EncWrites.people("x:1", f(null), ever = false, guestIn = false))

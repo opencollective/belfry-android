@@ -81,6 +81,9 @@ object EncWrites {
         val people = conv.startsWith("n:")
         if (!mail && !people) return EncWrite.V1
         val enc = people && ever
+        // §25 (the ruling from the iOS review, 2026-11-26): a guest's session runs no encryption and sends its messages
+        // the old way, never held for a format it doesn't use
+        if (people && f.guestSession && !enc) return if (f.format == 1) EncWrite.V1 else EncWrite.Clear
         if (f.format == null && !enc) return EncWrite.Hold(HoldReason.FORMAT)
         // e-mail out on format 3 (SPEC 19.83; §10, the lead 2026-11-24: live on the server): an 8572 with the belfry key
         // as one more person of that message; a guest's session runs no format 3 at all (§25)
