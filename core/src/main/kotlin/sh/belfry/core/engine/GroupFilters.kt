@@ -21,11 +21,14 @@ import sh.belfry.core.net.Filters
  */
 object GroupFilters {
     val META_KINDS = listOf(39000, 39001, 39002, 39003)
-    const val META_LIMIT = 1000
+    /**
+     * Each metadata kind its own filter and cap (SPEC 19.92; web 8343fd6): one cap of 1000 for the four left some
+     * groups' admins (39001) out on a big belfry (OSV), so a co-host's version of an event was dropped as not a host's.
+     */
+    val META_LIMITS = mapOf(39000 to 3000, 39001 to 3000, 39002 to 3000, 39003 to 1000)
     const val LIMIT = 2000
 
-    fun of(kinds: List<Int>, newest: Long, full: Boolean): List<JsonObject> = listOf(
-        Filters.of(kinds = META_KINDS, limit = META_LIMIT),
+    fun of(kinds: List<Int>, newest: Long, full: Boolean): List<JsonObject> = META_KINDS.map { Filters.of(kinds = listOf(it), limit = META_LIMITS.getValue(it)) } + listOf(
         Filters.of(kinds = kinds, since = if (full) 0 else maxOf(0, newest - 3600), limit = LIMIT),
         Filters.of(kinds = CHARTER_KINDS, limit = CHARTER_LIMIT, tags = mapOf("h" to listOf(sh.belfry.core.model.Charter.ID))),
     )

@@ -74,6 +74,8 @@ class FakeRelay(
      * to each authenticated socket whose open subscription matches it (the lead's fourth review).
      */
     private val strict: Boolean = false,
+    /** The AUTH challenge comes this long after the socket opens (rnostr: about 1.5 s; the web's /authreq/on). */
+    private val authDelayMs: Long = 0,
 ) : WebSocketListener() {
     /** AUTH per socket (a second client's reconnect doesn't sign out the first). */
     private val authBy = java.util.concurrent.ConcurrentHashMap<WebSocket, String>()
@@ -132,7 +134,10 @@ class FakeRelay(
     override fun onOpen(webSocket: WebSocket, response: Response) {
         opens++
         sockets.add(webSocket)
-        if (requireAuth && !lateAuth && sendAuth) send(webSocket, "AUTH", challenge)
+        if (requireAuth && !lateAuth && sendAuth) {
+            if (authDelayMs <= 0) send(webSocket, "AUTH", challenge)
+            else Thread { Thread.sleep(authDelayMs); try { send(webSocket, "AUTH", challenge) } catch (e: Exception) { /* closed */ } }.start()
+        }
     }
 
     private fun matches(e: Event, f: JsonObject): Boolean {
@@ -293,6 +298,68 @@ class RelayTest {
         val after = r2.queryKnown(listOf(Filters.of(kinds = listOf(8560))))!!
         assertTrue(after.second, "the same query after AUTH is")
         r2.close()
+    }
+
+    /**
+     * SPEC 19.91 (web b5c78fa / 9640d99): a REQ sent before NIP-42 AUTH is CLOSED "auth-required" on the belfries'
+     * relays. That is no answer, never "nothing there": `query` gives nothing, `queryUntilEose` null; `queryAuthed`
+     * waits for the challenge (here 800 ms after the socket opens) and reads once signed in.
+     */
+    @Test
+    fun oneShotReadsOnlyAfterAuth() = runBlocking<Unit> {
+        val f = FakeRelay(requireAuth = true, authDelayMs = 800).also { it.expect(3); fakes.add(it) }
+        val member = LocalSigner.random()
+        val version = member.signNow(EventTemplate(31923, "", listOf(listOf("d", "2027-abc123")), 1_800_000_000))
+        f.stored.add(version)
+        val byD = listOf(Filters.of(kinds = listOf(31922, 31923), limit = 1000, tags = mapOf("d" to listOf("2027-abc123"))))
+        // the old way: a REQ at once, before the challenge: CLOSED, which is no answer
+        val early = Relay(f.url, client, scope)
+        early.authSigner = member
+        early.connect()
+        assertNull(early.queryUntilEose(byD, 2_000), "a CLOSED is no answer")
+        early.close()
+        // queryAuthed: waits for AUTH, then the whole answer
+        val relay = Relay(f.url, client, scope)
+        relay.authSigner = member
+        relay.connect()
+        val got = relay.queryAuthed(byD, 5_000)
+        assertNotNull(got, "a whole answer once signed in")
+        assertEquals(listOf(version.id), got.map { it.id })
+        assertTrue(relay.isAuthenticated)
+        assertEquals(true, relay.signIn?.ok)
+        // a relay that CLOSEs even once signed in: still nothing known (null), never an empty answer
+        f.closeReqs = true
+        assertNull(relay.queryAuthed(byD, 2_000, tries = 2, retryMs = 50))
+        f.closeReqs = false
+        relay.close()
+        // a refused sign-in: nothing known, and Diagnostics has the refusal's word only
+        val stranger = Relay(f.url, client, scope)
+        stranger.authSigner = object : sh.belfry.core.nostr.Signer by member {
+            override suspend fun sign(template: EventTemplate): Event = member.sign(template.copy(tags = template.tags.map { if (it.firstOrNull() == "challenge") listOf("challenge", "wrong") else it }))
+        }
+        stranger.connect()
+        assertNull(stranger.queryAuthed(byD, 3_000, tries = 1))
+        until("the refusal noted") { stranger.signIn != null }
+        assertEquals(false, stranger.signIn?.ok)
+        assertEquals("restricted", stranger.signIn?.why)
+        stranger.close()
+    }
+
+    /** A relay that never asks for AUTH (no challenge within the wait): read as it is, and never waited on again. */
+    @Test
+    fun oneShotReadOnARelayThatNeverAsks() = runBlocking<Unit> {
+        val f = FakeRelay(requireAuth = false).also { it.expect(1); fakes.add(it) }
+        val someone = LocalSigner.random()
+        f.stored.add(someone.signNow(EventTemplate(1, "hi", emptyList(), 1_800_000_000)))
+        val relay = Relay(f.url, client, scope)
+        relay.authSigner = someone
+        relay.authWaitMs = 300
+        relay.connect()
+        assertEquals(1, relay.queryAuthed(listOf(Filters.of(kinds = listOf(1))), 3_000)?.size)
+        val t0 = System.currentTimeMillis()
+        assertEquals(1, relay.queryAuthed(listOf(Filters.of(kinds = listOf(1))), 3_000)?.size)
+        assertTrue(System.currentTimeMillis() - t0 < 300, "no second wait on the same socket")
+        relay.close()
     }
 
     @Test

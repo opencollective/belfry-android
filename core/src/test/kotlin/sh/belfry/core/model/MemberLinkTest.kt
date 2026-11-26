@@ -145,16 +145,21 @@ class MemberLinkTest {
     @Test fun groupsMetadataIsAlwaysAskedForWhole() {
         val kinds = listOf(39000, 9, 9000)
         val normal = GroupFilters.of(kinds, newest = t0, full = false)
-        assertEquals(3, normal.size)
+        assertEquals(6, normal.size)
         // the charter, whole and apart: no agreement falls outside the newest events
-        assertNull(normal[2]["since"])
-        assertEquals(listOf(2100L, 2101L), normal[2]["kinds"]!!.jsonArray.map { it.jsonPrimitive.long })
-        val meta = normal[0]
-        assertNull(meta["since"])
-        assertEquals(GroupFilters.META_KINDS.map { it.toLong() }, meta["kinds"]!!.jsonArray.map { it.jsonPrimitive.long })
-        assertEquals(t0 - 3600, normal[1]["since"]!!.jsonPrimitive.long)
+        assertNull(normal[5]["since"])
+        assertEquals(listOf(2100L, 2101L), normal[5]["kinds"]!!.jsonArray.map { it.jsonPrimitive.long })
+        // each metadata kind its own filter, its own cap (SPEC 19.92): never one cap for the four
+        for ((i, k) in GroupFilters.META_KINDS.withIndex()) {
+            val meta = normal[i]
+            assertNull(meta["since"])
+            assertEquals(listOf(k.toLong()), meta["kinds"]!!.jsonArray.map { it.jsonPrimitive.long })
+            assertEquals(GroupFilters.META_LIMITS.getValue(k).toLong(), meta["limit"]!!.jsonPrimitive.long)
+        }
+        assertEquals(3000L, normal[1]["limit"]!!.jsonPrimitive.long, "the admins (39001): 3000")
+        assertEquals(t0 - 3600, normal[4]["since"]!!.jsonPrimitive.long)
         // a member who had only a guest's view on this device: the whole history, once
-        assertEquals(0L, GroupFilters.of(kinds, newest = t0, full = true)[1]["since"]!!.jsonPrimitive.long)
-        assertEquals(0L, GroupFilters.of(kinds, newest = 100, full = false)[1]["since"]!!.jsonPrimitive.long)
+        assertEquals(0L, GroupFilters.of(kinds, newest = t0, full = true)[4]["since"]!!.jsonPrimitive.long)
+        assertEquals(0L, GroupFilters.of(kinds, newest = 100, full = false)[4]["since"]!!.jsonPrimitive.long)
     }
 }
