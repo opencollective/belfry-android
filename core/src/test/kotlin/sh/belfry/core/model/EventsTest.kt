@@ -67,6 +67,50 @@ class EventsTest {
         assertEquals("https://example.org/events/garden-day", w.eventUrl(e))
     }
 
+    /** SPEC 19.93 (web 649c8cf): the event's own site is `["website", url]` after `r`, https only; read back; kept on an edit. */
+    @Test
+    fun theEventWebsiteTag() {
+        val f = form.copy(online = "https://meet.jit.si/garden", website = " https://gardenday.example.org/2026 ")
+        val v = EventActions.create(f, d, alice, "wss://g", "wss://m")[2].tags
+        val r = v.indexOf(listOf("r", "https://meet.jit.si/garden"))
+        assertTrue(r >= 0)
+        assertEquals(listOf("website", "https://gardenday.example.org/2026"), v[r + 1], "after r, as the web writes it")
+        assertTrue(EventActions.create(form.copy(website = "http://plain.example.org"), d, alice, "wss://g", "wss://m")[2].tags.none { it.firstOrNull() == "website" }, "https only")
+        val w = world(EventActions.create(f, d, alice, "wss://g", "wss://m").mapIndexed { i, x -> draft(alice, t0 + i, x) })
+        val e = w.calendar.single()
+        assertEquals("https://gardenday.example.org/2026", e.website)
+        assertEquals(listOf("https://meet.jit.si/garden"), e.links, "Join online stays the r link alone")
+        assertEquals("https://gardenday.example.org/2026", Meetings.formOf(e, "UTC").website, "a version that changes only tags keeps it")
+        assertEquals("gardenday.example.org/2026", EventDetails.shown("https://www.gardenday.example.org/2026/"))
+        assertNull(world(base()).calendar.single().website)
+    }
+
+    /** SPEC 19.93: what the belfry reads from a site (docs/event-details.md), as the web reads it. */
+    @Test
+    fun eventDetailsAsTheWebReadsThem() {
+        val o = Json.parseToJsonElement("""{"url":"https://x.example","title":"  Open Day ","starts_at":"2027-01-28T09:00:00Z","ends_at":"2027-01-28T16:00:00+00:00","all_day":false,
+            "timezone":"Europe/Brussels","place":{"name":"Hall","address":"Rue Haute 12"},"image":"https://api.example.org/proxy/abc","description":"Soup."}""").jsonObject
+        val f = EventDetails.read(o, "https://x.example/", "https://api.example.org")!!
+        assertEquals("Open Day", f.title)
+        assertEquals(1801126800L, f.start)
+        assertEquals(1801152000L, f.end)
+        assertEquals("Hall, Rue Haute 12", f.place)
+        assertEquals("Europe/Brussels", f.tz)
+        assertEquals("https://api.example.org/proxy/abc", f.image)
+        // a picture anywhere else is never taken; a zone that isn't one is dropped
+        val other = Json.parseToJsonElement("""{"title":"T","image":"https://evil.example/p.jpg","timezone":"x; rm"}""").jsonObject
+        val g = EventDetails.read(other, "https://x.example", "https://api.example.org")!!
+        assertNull(g.image)
+        assertNull(g.tz)
+        assertEquals("https://x.example", g.url)
+        assertNull(EventDetails.read(Json.parseToJsonElement("""{"url":"https://x.example"}""").jsonObject, "https://x.example", ""), "nothing usable")
+        assertTrue(EventDetails.askable("https://riverside-openday.example"))
+        assertFalse(EventDetails.askable("https://localhost"))
+        assertFalse(EventDetails.askable("http://a.example"))
+        assertEquals("riverside-openday.example", EventDetails.hostOf("https://www.riverside-openday.example/x"))
+        assertEquals("https://api.example.org", EventDetails.originOf("https://api.example.org/api/v1"))
+    }
+
     @Test
     fun ruleBTheNewestVersionByAHostCounts() {
         val evs = base().toMutableList()

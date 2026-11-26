@@ -99,6 +99,39 @@ class EventsService internal constructor(private val s: Session) {
         return api(write = false) { it.slug(name, d) }
     }
 
+    /**
+     * "Event website" (SPEC 19.93): what the belfry reads from the site, to fill in what the form still has empty. The
+     * demo knows one site ([EventDetails.DEMO_SITE]), after a moment, like the web's.
+     */
+    suspend fun details(url: String): sh.belfry.core.model.EventDetails.Found? {
+        if (s.localOnly) {
+            delay(900)
+            if (url.trim().trimEnd('/') != sh.belfry.core.model.EventDetails.DEMO_SITE) return null
+            return sh.belfry.core.model.EventDetails.read(sh.belfry.core.nostr.parseJsonOrNull(sh.belfry.core.model.EventDetails.DEMO_ANSWER) as? kotlinx.serialization.json.JsonObject, url, "")
+        }
+        return try { api(write = false) { it.details(url) } } catch (e: Exception) { null }
+    }
+
+    /**
+     * A cover from the site's picture, through the belfry's proxy only (EventDetails.read keeps no other address): its
+     * bytes uploaded as the event's cover. Null when it isn't a picture or can't be had.
+     */
+    suspend fun coverFrom(image: String): String? {
+        if (s.localOnly) return null
+        val bytes = try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                s.httpClient.newCall(okhttp3.Request.Builder().url(image).build()).execute().use { r ->
+                    val type = r.header("Content-Type").orEmpty()
+                    if (!r.isSuccessful || !type.startsWith("image/")) null else r.body?.bytes()?.takeIf { it.size in 1..15_000_000 }?.let { it to type.substringBefore(';') }
+                }
+            }
+        } catch (e: Exception) { null } ?: return null
+        return try { s.uploadPicture(bytes.first, "cover.jpg", bytes.second) } catch (e: Exception) { null }
+    }
+
+    /** Every version of these events by `#d`, any author (SPEC 19.92): see [Session.askVersions]. */
+    fun askVersions(ds: Collection<String>) = s.askVersions(ds)
+
     suspend fun claimSlug(d: String, slug: String) {
         if (s.localOnly) return
         api { it.claimSlug(d, slug) }

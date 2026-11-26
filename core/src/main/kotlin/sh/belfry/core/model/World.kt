@@ -1376,6 +1376,7 @@ class World(events: List<Event>, outbox: List<OutboxItem> = emptyList(), val ctx
                 meeting = e.tags.any { it.size >= 2 && it[0] == "t" && it[1] == "meeting" },
                 invited = e.tags.filter { it.size >= 4 && it[0] == "p" && it[3] == "invited" && sh.belfry.core.crypto.Hex.isKey(it[1]) }.map { it[1] }.distinct(),
                 madeIn = e.t("channel")?.ifEmpty { null },
+                website = EventDetails.websiteOf(e),
             )
             if (isNew) {
                 val going = goingList(base, EventLinks.people(inGroupSorted(groupId)))

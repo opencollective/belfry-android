@@ -156,6 +156,10 @@ class Relay(
     /** NIP-42 done on this socket (an EOSE before it may hold only what the relay shows anyone). */
     val isAuthenticated: Boolean get() = synchronized(lock) { authed }
 
+    /** The relay's last answer to our NIP-42 sign-in on any socket (Diagnostics; SPEC 19.91): null = none yet. */
+    @Volatile var signIn: SignInNote? = null
+        private set
+
     private val lock = Any()
     private var socket: WebSocket? = null
     private var isOpen = false
@@ -164,6 +168,10 @@ class Relay(
     private val subs = LinkedHashMap<String, List<JsonObject>>()
     private var authEventId: String? = null
     private var authed = false
+    /** An AUTH challenge came on the current socket (NIP-42). */
+    private var challenged = false
+    /** The socket on which a wait for AUTH ended with no challenge at all: a relay that doesn't ask; never waited on again. */
+    private var noChallengeOn: WebSocket? = null
     private val authWaiters = ArrayList<CompletableDeferred<Unit>>()
     private val queries = HashMap<String, QueryBox>()
 
@@ -174,6 +182,8 @@ class Relay(
 
     /** How long a probe waits for an answer (a seam for tests). */
     @Volatile var probeMs: Long = PROBE_MS
+    /** How long a one-shot read waits for the relay's AUTH (a seam for tests; SPEC 19.91). */
+    @Volatile var authWaitMs: Long = AUTH_WAIT_MS
     /** A socket quiet longer than this is asked before a send goes into it (a seam for tests). */
     @Volatile var sendQuietMs: Long = SEND_QUIET_MS
 
@@ -199,6 +209,7 @@ class Relay(
                 opening = d
                 isOpen = false
                 authed = false
+                challenged = false
                 authEventId = null
                 _state.value = RelayState.CONNECTING
                 socket = client.newWebSocket(Request.Builder().url(url).build(), Listener())
@@ -343,6 +354,7 @@ class Relay(
         socket = null
         isOpen = false
         authed = false
+        challenged = false
         authEventId = null
         return Waiters(w, boxes, was)
     }
@@ -483,6 +495,10 @@ class Relay(
      * reached after NIP-42 on this same socket; sealed.md 294c94f (7)). Null without a connection.
      */
     suspend fun queryKnown(filters: List<JsonObject>, timeoutMs: Long = 8_000): Pair<List<Event>, Boolean>? {
+        // the relay asked for AUTH and the sign-in is under way: the REQ goes out once it is done (SPEC 19.91). Before
+        // any challenge it goes at once: an answer sent before AUTH is never complete knowledge (below)
+        if (openSocket() == null) { try { connect(timeoutMs) } catch (e: RelayException) { return null } }
+        if (authSigner != null && synchronized(lock) { challenged && !authed }) awaitSignIn(minOf(timeoutMs, authWaitMs))
         val box = QueryBox()
         val before = synchronized(lock) { socket }
         val a = ask(filters, timeoutMs, box) ?: return null
@@ -504,13 +520,66 @@ class Relay(
             s
         } ?: return null
         ws.send(req(id, filters))
-        val finished = withTimeoutOrNull(timeoutMs) { box.done.await() } != null
+        // a CLOSED (auth-required, restricted…) ends the wait but is no answer: never "finished" (web b5c78fa)
+        val finished = withTimeoutOrNull(timeoutMs) { box.done.await() } != null && !box.closed
         val still = synchronized(lock) { queries.remove(id) != null }
         if (still) ws.send(closeMsg(id))
         return box.events() to finished
     }
 
     suspend fun queryOnce(filter: JsonObject, timeoutMs: Long = 8_000): List<Event> = query(listOf(filter), timeoutMs)
+
+    /**
+     * A one-shot read that counts only on a signed-in socket (SPEC 19.91; the web's `queryAuthed`, b5c78fa / 9640d99):
+     * a REQ sent before NIP-42 AUTH is CLOSED "auth-required" on the belfries' relays, and that is never "nothing
+     * there". It waits for AUTH first (a relay that never asks, within [AUTH_WAIT_MS], is read as it is), then takes
+     * only an EOSE on the same socket, after AUTH. Tried [tries] times ([retryMs] × n apart). Null: no complete
+     * answer, so nothing is known (the caller asks again later and never takes it for empty).
+     */
+    suspend fun queryAuthed(filters: List<JsonObject>, timeoutMs: Long = 8_000, tries: Int = 3, retryMs: Long = 2_500): List<Event>? {
+        for (i in 0 until tries) {
+            if (i > 0) delay(retryMs * i)
+            readSignedIn(filters, timeoutMs)?.let { return it }
+        }
+        return null
+    }
+
+    private suspend fun readSignedIn(filters: List<JsonObject>, timeoutMs: Long): List<Event>? {
+        if (openSocket() == null) { try { connect(timeoutMs) } catch (e: RelayException) { return null } }
+        val before = synchronized(lock) { socket } ?: return null
+        val signedIn = awaitSignIn(minOf(timeoutMs, authWaitMs))
+        val asks = synchronized(lock) { socket !== before || challenged || authEventId != null }
+        // refused, or a challenge not answered in time, or the socket changed meanwhile: nothing known
+        if (authSigner != null && !signedIn && asks) return null
+        val box = QueryBox()
+        val a = ask(filters, timeoutMs, box) ?: return null
+        val same = synchronized(lock) { socket === before }
+        if (!a.second || box.closed || !same) return null
+        // the relay asked for AUTH after the REQ went out: the answer may hold only its public part
+        if (authSigner != null && !box.authedAtSend && synchronized(lock) { challenged }) return null
+        return a.first
+    }
+
+    /**
+     * Waits for NIP-42 on the open socket when this relay has a signer and isn't signed in yet. True: signed in. A wait
+     * that ends with no challenge at all marks the socket as one whose relay doesn't ask (no second wait on it).
+     */
+    private suspend fun awaitSignIn(ms: Long): Boolean {
+        if (authSigner == null) return false
+        val ws = synchronized(lock) {
+            if (authed) return true
+            val s = socket ?: return false
+            if (noChallengeOn === s) return false
+            s
+        }
+        return try {
+            waitForAuth(ms)
+            true
+        } catch (e: RelayException) {
+            synchronized(lock) { if (socket === ws && !challenged && authEventId == null && !authed) noChallengeOn = ws }
+            synchronized(lock) { authed && socket === ws }
+        }
+    }
 
     // ---- receiving ------------------------------------------------------------------------------
 
@@ -550,6 +619,7 @@ class Relay(
                 }
                 if (authAnswer) {
                     _state.value = RelayState.UP
+                    signIn = SignInNote(ok, System.currentTimeMillis(), if (ok) "" else SignInNote.word(reason))
                     if (ok) {
                         resubscribe(ws)
                         waiters.forEach { it.complete(Unit) }
@@ -572,6 +642,7 @@ class Relay(
             "AUTH" -> {
                 val challenge = arr.getOrNull(1).str() ?: return
                 val signer = authSigner ?: return
+                synchronized(lock) { if (socket === ws) challenged = true }
                 _state.value = RelayState.AUTH
                 scope.launch {
                     try {
@@ -584,6 +655,7 @@ class Relay(
                         val waiters = synchronized(lock) { val w = authWaiters.toList(); authWaiters.clear(); w }
                         waiters.forEach { it.completeExceptionally(RelayException("timeout: sign-in to the relay")) }
                         if (synchronized(lock) { socket === ws }) _state.value = RelayState.UP
+                        signIn = SignInNote(false, System.currentTimeMillis(), "timeout")
                         onAuthRefused?.invoke("timeout: sign-in to the relay")
                     }
                 }
@@ -606,6 +678,8 @@ class Relay(
     companion object {
         /** An answer to a probe within this, or the socket is dead (SPEC 19.50). */
         const val PROBE_MS = 5_000L
+        /** How long a one-shot read waits for the relay's AUTH before it goes out (SPEC 19.91). */
+        const val AUTH_WAIT_MS = 5_000L
         /** A socket quiet for longer is asked before a send goes into it. */
         const val SEND_QUIET_MS = 10_000L
         const val STEP_CHECK = "checking the connection"
@@ -621,5 +695,13 @@ class Relay(
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
+    }
+}
+
+/** How the relay answered our NIP-42 sign-in: OK or refused, when (wall clock, ms), and the refusal's machine word only (never its text). */
+data class SignInNote(val ok: Boolean, val atMs: Long, val why: String) {
+    companion object {
+        /** "restricted: not you" → "restricted": the NIP-01 prefix, never the relay's words (UI-18). */
+        fun word(reason: String): String = reason.substringBefore(':').trim().lowercase().filter { it in 'a'..'z' || it == '-' }.take(30).ifEmpty { "refused" }
     }
 }

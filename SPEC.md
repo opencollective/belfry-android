@@ -3857,3 +3857,71 @@ belfry this device doesn't know as format 3 (`Enc3DeviceState.on`): there Me kee
   list reads "" and shows the crest, and "Guest" for a guest). The dot is the push code's "something came for it since
   it was last open" (19.24). **Nothing is asked of a belfry whose account is not open** to fill the menu: no polling.
 - Words: `core/model/TodayHeader.kt`.
+
+### 19.91 One-shot relay reads only after AUTH (2026-11-26; the web's chat b5c78fa, 9640d99, c8703b4)
+
+A REQ sent before NIP-42 AUTH is CLOSED `auth-required` (or answered with only the relay's public part) on the
+belfries' relays. **That is no answer, never "nothing there"** (the web's cause candidate for Xavier's stale
+CHAOSScon event on OSV, 25 Nov).
+- `Relay.ask`: a CLOSED ends the wait but never counts as finished: `queryUntilEose` → null, `query` → nothing.
+- `Relay.queryAuthed(filters, timeoutMs, tries = 3, retryMs = 2.5 s)` (the web's `queryAuthed`): connects, waits for
+  AUTH (up to 5 s, `AUTH_WAIT_MS`; a relay that never sends a challenge in that time is read as it is, and that
+  socket is never waited on again), sends the REQ, and takes only an EOSE on the same socket, sent after AUTH (a
+  challenge that came after the REQ makes the answer no answer). Null = nothing known; the caller asks again later.
+  Used by the presence check (deleted by absence: an answer before AUTH lacks every members-only group, so it must
+  never count), the new-group history by `#h`, the e-mail delivery reports (7679), the event versions (19.92).
+- `Relay.queryKnown` (sealed, format 3): when a challenge came and the sign-in is under way, the REQ waits for it;
+  an answer to a REQ before AUTH stays incomplete, as before.
+- Diagnostics (About Belfry): each socket's sign-in: "signed in … ago", "not signed in", "sign-in refused
+  (restricted) … ago" — the NIP-01 prefix only, never the relay's words (`SignInNote`).
+- Tests: `RelayTest.oneShotReadsOnlyAfterAuth` (a challenge 800 ms after the socket opens, like rnostr; a CLOSED
+  after AUTH; a refused sign-in), `oneShotReadOnARelayThatNeverAsks`.
+
+### 19.92 Every version of an event, by `#d`, from any author (2026-11-26; the web's chat fa38d50, 9640d99, 8343fd6)
+
+Rule B (the newest version by a current host wins, `World.readCalendar`) needs every version. The live catch-up
+asks only for what is newer than this device's last sync (`since`), so a co-host's version made elsewhere and dated
+before that never came.
+- `Session.askVersions(ds)` / `EventsService.askVersions`: `{"kinds":[31922,31923],"#d":[…≤100],"limit":1000}` on
+  the main relay, **no `authors`, no `since`**, through `queryAuthed`; once each per session (ids matching
+  `EventLinks.D` only); no whole answer → asked again (5 tries, 4 s × n apart). Asked by the event screen, the
+  Calendar place (everything listed) and an event's card in a channel. Opening an event by its link that this device
+  doesn't hold still goes through the belfry's API (`EventsService.fetch`); once held, its versions are asked.
+- An event group with versions by others whose admin list (39001) never came: `{"kinds":[39001],"#d":[ev-…]}` on
+  the groups relay, once (then those versions are judged).
+- The groups relay's live subscription asks its metadata kind by kind, each its own cap (39000, 39001, 39002: 3000;
+  39003: 1000; `GroupFilters.META_LIMITS`): one cap of 1000 for the four left some event groups' admins out on OSV.
+- Tests: `EventVersionsTest` (a co-host's version older than the sync point arrives and wins; the REQ has no
+  `authors` / `since`; asked once), `MemberLinkTest.groupsMetadataIsAlwaysAskedForWhole`.
+
+### 19.93 The event's three links, the Event website, the QR sheet (2026-11-26; Event form canvas, approved 24 Nov: evform/evform-new, -fetching, -fetched, evview-mid, -full, -join-now, -not-going, -qr (changed 25 Nov); the web's chat 649c8cf, 1d5d814)
+
+- **Wire**: the event's own outside site is a tag on the NIP-52 version, `["website", "<https url>"]`, written right
+  after the `r` tag (the web's `versionTags`: `location`, `r`, `website`, `image`, `slug`), https only, trimmed. Read
+  as `CalEvent.website` (the first such tag, https only; `ApiEvent.website` from the API's `website`). A version made
+  again from an event (`Meetings.formOf`) keeps it. `r` stays the call link alone ("Join online").
+- **Event website in the form** (`CreateEventScreen`, first field): "https://… (optional)", the hint "The event’s own
+  site, if it has one (e.g. a conference site). Paste it and we fill in the rest.". An address worth asking
+  (`EventDetails.askable`) is sent 600 ms after the last edit to `GET <api>/event-details?url=` (signed NIP-98;
+  docs/event-details.md), "Fetching event details…" meanwhile (Create waits), then "✓ Filled in from <host>. Check it
+  and change anything.": the title, description and place only where still empty, the times unless the person
+  picked them, the cover from the answer's `image` only when it is on the belfry's own API origin (its bytes
+  uploaded as the cover). Never the Join online link. The answer is read like the web's `fetchEventDetails`
+  (`EventDetails.read`: lengths cut, a time zone only when it looks like one). The demo knows
+  `https://riverside-openday.example` (the web's DETAILS_DEMO).
+- **Join online** (form): "Paste a meeting link", "The video call link. Only people going see it, from 1 hour before
+  the start.", Create a Jitsi link. `EventShape.JOIN_EARLY` = 1 hour (the lead's ruling, 24 Nov; was 10 minutes).
+- **The event screen** (mid and full, under the answer; `EventLinkRows`): three rows in this order, each with words —
+  **Join online** (`EventShape.joinWord`: someone not going "For people going: answer Going to get the link" and no
+  link; going: "The link appears here 1 hour before", "Starts in N min", "Started N min ago", "The event has ended";
+  from 1 hour before until the end a Join button; "going" = a place, a plain RSVP Going, as the web's `holds`),
+  **Event website** (the address without https:// / www., ↗ opens it outside the app; nothing is read from the
+  page), **Our page** (the belfry's page: a copy icon that says "Copied" for a moment, a QR icon). The place line
+  reads "… · and online"; no place: "Online". The full view's Address section (Copy · Share · QR) is gone.
+- **The QR sheet** (`QrSheet`: Our page, a card's QR): the code on white, the address on one line without https://,
+  scrolling sideways, never wrapped, a small copy icon beside it, "Show it to someone: their camera opens the page."
+- Not built (see PARITY.md): Where as In person / Online / Both, "Changed" marks and "Save changes?" with "Tell the N
+  people going" (`["notify","1"]`, `["changed",…]`), the page address only for Public with "See that event ›", the
+  People screen from the hosts line, the laptop form's Save top right.
+- Tests: core `EventsTest.theEventWebsiteTag`, `eventDetailsAsTheWebReadsThem`, `EventShapeTest`; pictures
+  `WebParityShotsTest` (by hand).

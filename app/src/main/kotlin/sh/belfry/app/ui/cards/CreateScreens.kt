@@ -285,6 +285,12 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
     var endTime by remember { mutableStateOf(last.toLocalTime()) }
     var location by remember { mutableStateOf(old?.location ?: "") }
     var online by remember { mutableStateOf(old?.links?.firstOrNull() ?: "") }
+    // "Event website" (SPEC 19.93; Event form canvas evform-new, -fetching, -fetched): pasted, the belfry reads the
+    // page and fills in what is still empty (never Join online). FETCHING: null nothing, "" under way, else the host.
+    var website by remember { mutableStateOf(old?.website ?: "") }
+    var fetching by remember { mutableStateOf<String?>(null) }
+    var fetchedFor by remember { mutableStateOf(old?.website ?: "") }
+    var timesEdited by remember { mutableStateOf(old != null) }
     var description by remember { mutableStateOf(old?.description ?: "") }
     var cover by remember { mutableStateOf(old?.cover) }
     var visibility by remember { mutableStateOf(old?.visibility ?: Visibility.MEMBERS) }
@@ -314,6 +320,8 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
         time("endTime")?.let { endTime = it }
         location = kept["location"] ?: location
         online = kept["online"] ?: online
+        website = kept["website"] ?: website
+        fetchedFor = website
         description = kept["description"] ?: description
         cover = kept["cover"]?.takeIf { it.startsWith("https://") } ?: cover
         visibility = Visibility.entries.firstOrNull { it.key == kept["visibility"] } ?: visibility
@@ -322,7 +330,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
     draft.Keep(
         "title" to title, "allDay" to (if (allDay) "1" else "0"),
         "startDate" to startDate.toString(), "startTime" to startTime.toString(), "endDate" to endDate.toString(), "endTime" to endTime.toString(),
-        "location" to location, "online" to online, "description" to description, "cover" to cover.orEmpty(),
+        "location" to location, "online" to online, "website" to website, "description" to description, "cover" to cover.orEmpty(),
         "visibility" to visibility.key, "slug" to slug, "slugEdited" to (if (slugEdited) "1" else "0"),
     )
 
@@ -347,10 +355,38 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
         slugChecking = false
     }
 
+    LaunchedEffect(website) {
+        val u = website.trim()
+        if (!sh.belfry.core.model.EventDetails.askable(u) || u == fetchedFor) return@LaunchedEffect
+        delay(600)
+        fetchedFor = u
+        fetching = ""
+        val d = session.events.details(u)
+        if (d == null) { fetching = null; return@LaunchedEffect }
+        if (d.title.isNotEmpty() && title.isBlank()) title = d.title.take(200)
+        if (d.description.isNotEmpty() && description.isBlank()) description = d.description
+        if (d.place.isNotEmpty() && location.isBlank()) location = d.place
+        val st = d.start
+        if (st != null && !timesEdited) {
+            // the form keeps this device's zone: the site's instants, shown here (its own zone only for all-day dates)
+            val siteZone = d.tz?.let { z -> try { java.time.ZoneId.of(z) } catch (e: Exception) { null } } ?: zone
+            allDay = d.allDay
+            val a = Instant.ofEpochSecond(st).atZone(if (d.allDay) siteZone else zone)
+            val b = Instant.ofEpochSecond(d.end ?: (st + 3600)).atZone(if (d.allDay) siteZone else zone)
+            startDate = a.toLocalDate(); startTime = a.toLocalTime().withSecond(0).withNano(0)
+            endDate = b.toLocalDate(); endTime = b.toLocalTime().withSecond(0).withNano(0)
+        }
+        val img = d.image
+        if (img != null && cover == null) session.events.coverFrom(img)?.let { if (cover == null) cover = it }
+        fetching = sh.belfry.core.model.EventDetails.hostOf(d.url).ifEmpty { sh.belfry.core.model.EventDetails.hostOf(u) }
+    }
+
     val start = ZonedDateTime.of(startDate, startTime, zone)
     val end = ZonedDateTime.of(endDate, endTime, zone)
     val link = online.trim()
     val linkBad = link.isNotEmpty() && !link.startsWith("https://")
+    val site = website.trim()
+    val siteBad = site.isNotEmpty() && !site.startsWith("https://")
     val endsBefore = if (allDay) endDate.isBefore(startDate) else end.isBefore(start)
     val places = remember(channel, world) { world.eventPlaces(channel).take(8) }
     val where = if (channel == Routes.NO_CHANNEL) null else world.group(channel)
@@ -358,6 +394,25 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
 
     CardScreen(if (old != null) "Edit the event" else "New event") {
         PageColumn {
+            Column(Modifier.testTag("event-website-field")) {
+                BelfryTextField(
+                    website, { website = it.take(2000) }, Modifier.fillMaxWidth().testTag("event-website"), label = "Event website",
+                    placeholder = "https://… (optional)",
+                    error = if (siteBad) sh.belfry.core.model.EventDetails.BAD else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+                )
+                Gap(6)
+                Muted(sh.belfry.core.model.EventDetails.HINT)
+                when (val f = fetching) {
+                    null -> Unit
+                    "" -> Row(Modifier.padding(top = 6.dp).testTag("event-fetching"), verticalAlignment = Alignment.CenterVertically) {
+                        sh.belfry.app.ui.kit.Spinner(size = 16.dp)
+                        GapW(8)
+                        Muted(sh.belfry.core.model.EventDetails.FETCHING)
+                    }
+                    else -> Text(sh.belfry.core.model.EventDetails.filledFrom(f), fontSize = 14.sp, color = Belfry.colors.text, modifier = Modifier.padding(top = 6.dp).testTag("event-fetched"))
+                }
+            }
             BelfryTextField(title, { title = it.take(200) }, Modifier.fillMaxWidth().testTag("event-title"), label = "Title", placeholder = "e.g. Garden day", error = if (tried && title.isBlank()) "Give the event a title" else null, keyboardOptions = words)
             Column {
                 val cv = cover
@@ -404,13 +459,15 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
             }
             Column {
                 BelfryTextField(
-                    online, { online = it }, Modifier.fillMaxWidth().testTag("event-online"), label = "Online",
-                    placeholder = "A Jitsi, Google Meet or Zoom link",
+                    online, { online = it }, Modifier.fillMaxWidth().testTag("event-online"), label = "Join online",
+                    placeholder = "Paste a meeting link",
                     error = if (linkBad) "The link should start with https://" else null,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 )
+                Gap(6)
+                Muted("The video call link. Only people going see it, from 1 hour before the start.")
                 Gap(8)
-                Chip("New Jitsi link", icon = BelfryIcons.Link, onClick = { online = Actions.jitsiLink(title.ifBlank { "meeting" }) })
+                Chip("Create a Jitsi link", icon = BelfryIcons.Link, onClick = { online = Actions.jitsiLink(title.ifBlank { "meeting" }) })
             }
             BelfryTextField(description, { description = it }, Modifier.fillMaxWidth(), label = "Description", placeholder = "Markdown: **bold**, *italic*, - lists, [links](https://…)", singleLine = false, minLines = 3, maxLines = 8, keyboardOptions = words)
             // events/new-event: Who sees it · Who can come as two segmented rows
@@ -446,13 +503,13 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
                 onClick = {
                     tried = true
                     error = null
-                    if (!done && title.isNotBlank() && !linkBad && !endsBefore && !slugTaken) {
+                    if (!done && title.isNotBlank() && !linkBad && !siteBad && fetching != "" && !endsBefore && !slugTaken) {
                         done = true
                         val n = EventForm(
                             title = title.trim(), description = description.trim(), allDay = allDay,
                             start = start.toEpochSecond(), end = end.toEpochSecond(),
                             startDate = startDate.toString(), endDate = endDate.toString(), tz = zone.id,
-                            location = location.trim(), online = link, visibility = visibility, slug = slug.trim('-'), cover = cover,
+                            location = location.trim(), online = link, website = site, visibility = visibility, slug = slug.trim('-'), cover = cover,
                             applicationPrompt = if (byApplication && old == null) question.trim().ifEmpty { "Why would you like to come?" } else null,
                         )
                         if (old != null) {
@@ -478,6 +535,7 @@ fun CreateEventScreen(channel: String, openPicker: String? = null, showErrors: B
         }
     }
 
+    LaunchedEffect(picking) { if (picking != Picking.None) timesEdited = true }
     when (picking) {
         Picking.None -> Unit
         // a new start moves the end with it: the event keeps its length

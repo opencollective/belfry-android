@@ -74,6 +74,9 @@ fun CalendarPlace(onMenu: (() -> Unit)? = null, menuBadge: Int = 0) {
     if (guest) LaunchedEffect(session) { try { session.members.refreshPublicEvents() } catch (e: Exception) { } }
     val list = lists[tab.coerceIn(0, lists.size - 1)]
     val events = world.calendarList(list, now, remote.map { it.toCalEvent(world.ctx.zone, world.me) })
+    // SPEC 19.92: every version of what is listed, by #d (once each per session)
+    val listed = events.filter { !it.remote && it.isNew }.map { it.d }
+    LaunchedEffect(listed) { session.events.askVersions(listed) }
     Column(Modifier.fillMaxSize().background(c.bg).testTag("calendar")) {
         TopBar(
             "Calendar",

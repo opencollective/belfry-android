@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -279,11 +280,34 @@ internal fun GuestListSheet(e: CalEvent, onDismiss: () -> Unit) {
     }
 }
 
-/** A QR code is a button: it opens full width on white with the URL under it. */
+/**
+ * A link as a big QR code (SPEC 19.93; Event form canvas evform/evview-qr, changed 25 Nov at Xavier's ask; web 1d5d814):
+ * on white (e-ink and any camera), then the address on ONE line without https://, scrolling sideways and never
+ * wrapped, a small copy icon beside it, and "Show it to someone: their camera opens the page."
+ */
 @Composable
 internal fun QrSheet(url: String, title: String, onDismiss: () -> Unit) {
-    BelfrySheet(onDismiss = onDismiss, title = title) {
-        Column(Modifier.padding(bottom = 16.dp)) { LinkBox(url, title) }
+    val c = Belfry.colors
+    BelfrySheet(onDismiss = onDismiss, title = title, modifier = Modifier.testTag("qr-sheet")) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.clip(RoundedCornerShape(16.dp)).background(androidx.compose.ui.graphics.Color.White).padding(16.dp)) {
+                sh.belfry.app.ui.kit.QrCode(url, size = 240.dp)
+            }
+            Gap(14)
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).border(1.dp, c.line, RoundedCornerShape(12.dp)).padding(start = 12.dp, end = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    url.removePrefix("https://"), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 14.sp, color = c.text,
+                    maxLines = 1, softWrap = false,
+                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()).padding(vertical = 12.dp).testTag("qr-address"),
+                )
+                sh.belfry.app.ui.kit.CopyIconButton(url, title, Modifier.testTag("qr-copy"))
+            }
+            Gap(8)
+            Muted("Show it to someone: their camera opens the page.", Modifier.fillMaxWidth())
+        }
     }
 }
 

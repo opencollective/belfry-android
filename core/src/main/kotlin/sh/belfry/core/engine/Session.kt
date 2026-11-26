@@ -1245,8 +1245,9 @@ class Session(
         var absent = groupsAbsent
         var changed = false
         for (q in GroupPresence.questions(ids)) {
-            // its metadata and its own 9007 / 9002 / 9008; only an answer that ends with EOSE counts
-            val answer = r.queryUntilEose(listOf(
+            // its metadata and its own 9007 / 9002 / 9008; only an answer that ends with EOSE after AUTH counts
+            // (SPEC 19.91: a REQ before AUTH holds only the public part, and a CLOSED is no answer: never "absent")
+            val answer = r.queryAuthed(listOf(
                 buildJsonObject {
                     put("kinds", JsonArray(listOf(JsonPrimitive(39000))))
                     put("#d", JsonArray(q.map { JsonPrimitive(it) }))
@@ -1255,7 +1256,7 @@ class Session(
                     put("kinds", JsonArray(listOf(JsonPrimitive(9007), JsonPrimitive(9002), JsonPrimitive(9008))))
                     put("#h", JsonArray(q.filter { it != "general" }.map { JsonPrimitive(it) }))
                 },
-            )) ?: continue
+            ), tries = 2) ?: continue
             val next = _world.value.presenceAfter(q, answer, absent) ?: continue
             addToLog(answer)
             if (next != absent) { absent = next; changed = true }
@@ -1501,13 +1502,82 @@ class Session(
         if (localOnly) append("demo: no network\n")
         for (e in connections.all) {
             val q = e.relay.quietMs()
-            append("${e.role}: ${e.relay.state.value.name.lowercase()}" + (if (q > 0) ", quiet ${SendTrace.secs(q)}" else "") + "\n")
+            append("${e.role}: ${e.relay.state.value.name.lowercase()}" + (if (q > 0) ", quiet ${SendTrace.secs(q)}" else "") + ", " + signInWords(e.relay) + "\n")
         }
         append("online: ${_status.value.online}, foreground: ${connections.foreground}\n")
         if (caughtUp) append("caught up on return: ${SendTrace.secs(Relay.nowMs() - caughtUpAt)} ago\n")
         append("\nLast sends\n")
         val l = trace.lines()
         if (l.isEmpty()) append("none yet\n") else l.forEach { append(it).append('\n') }
+    }
+
+    /** A relay's NIP-42 state for Diagnostics (SPEC 19.91; web c8703b4): signed in or not, and the relay's last answer. */
+    private fun signInWords(r: Relay): String {
+        val n = r.signIn
+        val ago = n?.let { " " + SendTrace.secs(maxOf(0, System.currentTimeMillis() - it.atMs)) + " ago" }.orEmpty()
+        return when {
+            r.isAuthenticated -> "signed in" + ago
+            n == null -> "not signed in"
+            n.ok -> "not signed in on this connection (last$ago)"
+            else -> "sign-in refused (${n.why})$ago"
+        }
+    }
+
+    // ---- every version of the events on screen (SPEC 19.92; web fa38d50, 9640d99, 8343fd6) ------------
+
+    private val versionsAsked: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val adminsAsked: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    /** The versions asked, newest call last (tests). */
+    internal val versionAsks = java.util.concurrent.CopyOnWriteArrayList<List<String>>()
+
+    /**
+     * Every version of these events, by `#d`, any author, no `since` (once each per session): the catch-up asks only
+     * for what is newer than this device's last sync, so a co-host's version made elsewhere and dated before it never
+     * came (Xavier, OSV chaosscon2027, 25 Nov). `World.calendar` picks the newest host version as they arrive. Asked
+     * on a signed-in socket only; no whole answer → asked again (5 tries, 4 s × n apart). An event with versions by
+     * others whose group's admin list (39001) never came asks for that list too (then they are judged).
+     */
+    fun askVersions(ds: Collection<String>) {
+        if (localOnly || stopped) return
+        val fresh = ds.filter { sh.belfry.core.model.EventLinks.D.matches(it) && versionsAsked.add(it) }
+        if (fresh.isEmpty()) return
+        launchSafely { readVersions(fresh) }
+    }
+
+    private suspend fun readVersions(ds: List<String>) {
+        val r = mainRelay ?: return
+        for (batch in ds.chunked(100)) {
+            versionAsks.add(batch)
+            var got: List<Event>? = null
+            for (n in 0..5) {
+                if (n > 0) kotlinx.coroutines.delay(4_000L * n)
+                got = r.queryAuthed(listOf(Filters.of(kinds = listOf(31922, 31923), limit = 1000, tags = mapOf("d" to batch))), 8_000, tries = 1)
+                if (got != null) break
+            }
+            if (got == null) { versionsAsked.removeAll(batch.toSet()); continue }
+            addToLog(got)
+            askMissingAdmins(batch)
+        }
+    }
+
+    private suspend fun askMissingAdmins(ds: List<String>) {
+        val r = groupsRelay ?: return
+        val ids = synchronized(logLock) {
+            val have = log.filter { it.kind == 39001 }.mapNotNull { it.tag("d") }.toSet()
+            val creators = HashMap<String, String>()
+            for (e in log.filter { it.kind == 9007 }.sortedBy { it.createdAt }) { val h = e.tag("h") ?: continue; if (h !in creators) creators[h] = e.pubkey }
+            ds.map { "ev-$it" }.filter { g ->
+                if (g in have || g in adminsAsked) return@filter false
+                val versions = log.filter { (it.kind == 31922 || it.kind == 31923) && it.tag("d") == g.removePrefix("ev-") }
+                val creator = creators[g] ?: versions.minByOrNull { it.createdAt }?.pubkey
+                versions.any { it.pubkey != creator }
+            }
+        }
+        if (ids.isEmpty()) return
+        adminsAsked.addAll(ids)
+        val got = r.queryAuthed(listOf(Filters.of(kinds = listOf(39001), tags = mapOf("d" to ids))), 6_000)
+        if (got == null) { adminsAsked.removeAll(ids.toSet()); return }
+        addToLog(got)
     }
 
     /** Closes the connections and stops the background work. The outbox stays in the store. */
@@ -1580,9 +1650,9 @@ class Session(
         val seen = store.get(K_GROUPS_SEEN)?.split(',')?.filter { it.isNotEmpty() }?.toMutableSet()
         if (seen == null) { store.set(K_GROUPS_SEEN, present.joinToString(",")); return }
         for (id in present - seen) {
-            val got = r.query(listOf(Filters.of(kinds = KINDS_GROUPS, limit = 2000, tags = mapOf("h" to listOf(id)))), 10_000)
-            // nothing back: maybe no answer in time; asked again after the next whole answer
-            if (!r.isAuthenticated || got.isEmpty()) continue
+            // only a whole answer on a signed-in socket (SPEC 19.91); none, or nothing back: asked again after the next whole answer
+            val got = r.queryAuthed(listOf(Filters.of(kinds = KINDS_GROUPS, limit = 2000, tags = mapOf("h" to listOf(id)))), 10_000) ?: continue
+            if (got.isEmpty()) continue
             addToLog(got)
             seen.add(id)
             store.set(K_GROUPS_SEEN, seen.joinToString(","))
@@ -2652,7 +2722,8 @@ class Session(
             requestFlush()
         }
         override fun addLocalEvents(events: List<Event>) = addToLog(events)
-        override suspend fun queryMain(filter: JsonObject): List<Event> = mainRelay?.query(listOf(filter)) ?: emptyList()
+        // (SPEC 19.91: on a signed-in socket; no whole answer = nothing this time, asked again at the next check)
+        override suspend fun queryMain(filter: JsonObject): List<Event> = mainRelay?.queryAuthed(listOf(filter)) ?: emptyList()
         override suspend fun fetchBytes(url: String): ByteArray = withContext(Dispatchers.IO) {
             http.newCall(Request.Builder().url(url).build()).execute().use { res ->
                 if (!res.isSuccessful) throw IOException("HTTP ${res.code}")

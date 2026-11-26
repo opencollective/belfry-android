@@ -108,6 +108,8 @@ internal fun EventCardView(e: CalEvent, api: ApiEvent?, modifier: Modifier = Mod
     val tks = if (e.isNew) world.tickets(e, api) else emptyList()
     val plain = !e.isNew || (tks.size == 1 && tks[0].implicit && !e.remote && !world.amGuest)
     val mine = if (e.isNew) world.myState(e, world.eventPeople(e), api) else null
+    // SPEC 19.92: every version of it, by #d (once per session)
+    androidx.compose.runtime.LaunchedEffect(e.d) { if (!e.remote && e.isNew) session.events.askVersions(listOf(e.d)) }
     val answered = if (e.isNew) mine != MyState.NONE && mine != MyState.HOST else e.rsvps[world.me] != null
     val label = if (e.isNew) mine?.label else e.rsvps[world.me]?.label
     val open = e.status != EventStatus.CANCELLED && !world.isPast(e, now)

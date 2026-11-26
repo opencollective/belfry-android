@@ -297,7 +297,7 @@ data class CalEvent(
     val end: Long?,
     /** Its own chat (`ev-<d>` for Belfry events, `ws-…` for the older ones). */
     val groupId: String,
-    /** Online meeting links (`r` tags, https only). */
+    /** Online meeting links (`r` tags, https only): "Join online". */
     val links: List<String>,
     /** The channels its card was sent in (messages with its `a` tag or its URL); not its own chat. May be empty. */
     val channels: List<String>,
@@ -333,6 +333,8 @@ data class CalEvent(
     val invited: List<String> = emptyList(),
     /** The channel a meeting was made from (its `channel` tag). */
     val madeIn: String? = null,
+    /** The event's own outside site, `["website", url]` (https only; SPEC 19.93, web 649c8cf): "Event website". */
+    val website: String? = null,
 ) {
     val going: Int get() = goingCount
     val author: String get() = ev.pubkey

@@ -57,6 +57,16 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
         return SlugCheck(body["free"].bool() ?: false, body.s("suggestion") ?: name, body.s("problem"))
     }
 
+    /**
+     * What the belfry reads from an event's own site (SPEC 19.93; `GET <api>/event-details?url=`, members and their
+     * agents): null when nothing usable came, it isn't allowed, or the belfry can't be reached.
+     */
+    suspend fun details(url: String): sh.belfry.core.model.EventDetails.Found? {
+        val (status, body) = try { api.signedFetch(signer, api.community.apiBase + "/event-details?url=" + encodeURIComponent(url)) } catch (e: Exception) { return null }
+        if (status !in 200..299) return null
+        return sh.belfry.core.model.EventDetails.read(body, url, sh.belfry.core.model.EventDetails.originOf(api.community.apiBase))
+    }
+
     /** A host sets the event's URL to /events/<slug>. Codes: `taken`, `invalid`, `not_host`. */
     suspend fun claimSlug(d: String, slug: String) {
         val (status, body) = api.signedFetch(signer, "$base/$d/slug", "PUT", buildJsonObject { put("slug", JsonPrimitive(slug)) })
@@ -261,6 +271,7 @@ class EventsApi(private val api: BelfryApi, private val signer: Signer) {
                 allDay = o["all_day"].bool() ?: false, start = o.s("start"), end = o.s("end"), tz = o.s("tz") ?: "",
                 location = (o.s("location") ?: "").take(300), online = o["online"].bool() ?: false,
                 links = o["links"].arr()?.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content?.takeIf { u -> u.startsWith("https://") } } ?: emptyList(),
+                website = o.s("website")?.takeIf { it.startsWith("https://") }?.take(2000),
                 cover = o.s("cover")?.takeIf { it.startsWith("https://") },
                 visibility = Visibility.of(o.s("visibility")),
                 status = if (o.s("status") == "cancelled") EventStatus.CANCELLED else EventStatus.SCHEDULED,

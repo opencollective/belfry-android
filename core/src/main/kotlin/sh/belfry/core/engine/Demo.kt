@@ -338,7 +338,7 @@ object Demo {
         val swap = EventForm(
             title = "Seed swap", description = "Bring seeds in **paper envelopes**, labelled. Take what you will sow.",
             start = swapStart, end = swapStart + 2 * h, tz = "UTC", location = "By the greenhouse", visibility = Visibility.PUBLIC, slug = SWAP_SLUG,
-            cover = cover("swap", "seedlings-2.jpg"),
+            cover = cover("swap", "seedlings-2.jpg"), website = "https://seedlibrary.example.org/swap",
         )
         EventActions.create(swap, SWAP_D, maya.pubkey, gr, mr).forEachIndexed { i, d -> post(maya, now - 3 * day + i, d) }
         lists("ev-$SWAP_D", now - 3 * day + 5, listOf(listOf("name", "Seed swap"), listOf("about", "Bring seeds in **paper envelopes**, labelled.")), listOf(maya), listOf(maya))

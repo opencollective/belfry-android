@@ -50,18 +50,18 @@ class OneShapeEventShotsTest : DemoShots() {
         assertTrue(has("event-faces") && has("event-hosted-by") && has("event-place"))
     }
 
-    /** one-shape/event-default-online: "Online · Jitsi", Join off until 10 minutes before. */
+    /** one-shape/event-default-online, as the Event form canvas has it since (SPEC 19.93): Join online, how to get the link. */
     @Test fun onlineJoinOff() {
         demoShot("os-event-online-off", act = { coverIn() }) { EventScreen(ev(Demo.PLAN_D).coord) }
-        assertTrue(has("event-online") && has("event-join-off") && !has("event-join"))
-        assertTrue(compose.onAllNodesWithText("Online · Jitsi").fetchSemanticsNodes().isNotEmpty())
+        assertTrue(has("event-online") && !has("event-join"))
+        assertTrue(compose.onAllNodesWithText("For people going: answer Going to get the link").fetchSemanticsNodes().isNotEmpty())
     }
 
-    /** A call happening now, no cover: the usual header, "Online · Google Meet", Join on. */
+    /** A call happening now, no cover, and I'm going: the usual header, Join online with Join on. */
     @Test fun onlineJoinOnNoCover() {
+        runBlocking { session.events.rsvp(ev(Demo.CALL_D), Rsvp.ACCEPTED) }
         demoShot("os-event-online-on") { EventScreen(ev(Demo.CALL_D).coord) }
         assertTrue(has("event-join") && !has("event-cover"))
-        assertTrue(compose.onAllNodesWithText("Online · Google Meet").fetchSemanticsNodes().isNotEmpty())
     }
 
     /** No cover, a place: the title block under the usual header (I host it; people ask to come, so it opens mid). */
@@ -82,7 +82,7 @@ class OneShapeEventShotsTest : DemoShots() {
 
     /** one-shape/event-full: where with Directions, the whole description, who comes, the answer. */
     @Test fun full() {
-        demoShot("os-event-full", act = { coverIn(); compose.onNodeWithTag("event-more-details").performClick() }) { EventScreen(swap.coord) }
+        demoShot("os-event-full", act = { coverIn(); compose.onNodeWithTag("event-handle").performClick() }) { EventScreen(swap.coord) }
         assertTrue(has("event-screen-full") && has("event-directions") && has("rsvp-accepted"))
         // the same top as mid: the cover with ‹ ••• and the title, no other header
         assertTrue(has("event-cover") && has("event-title") && !has("event-tiny-header"))

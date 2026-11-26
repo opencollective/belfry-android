@@ -111,7 +111,7 @@ object Meetings {
         title = e.title, description = e.description, allDay = e.allDay, start = e.start, end = e.end,
         startDate = if (e.allDay) e.ev.t("start").orEmpty() else "", endDate = if (e.allDay) e.ev.t("end") else null,
         tz = e.tz ?: zone, location = e.location.orEmpty(), online = e.links.firstOrNull().orEmpty(),
-        visibility = e.visibility, slug = e.slug.orEmpty(), cover = e.cover,
+        visibility = e.visibility, slug = e.slug.orEmpty(), cover = e.cover, website = e.website.orEmpty(),
     )
 }
 
