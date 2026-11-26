@@ -602,6 +602,10 @@ class Session(
             mail && peers.isEmpty() -> sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.NO_LIST) // no belfry key known yet
             else -> e?.peopleReady(if (mail) Enc3.peopleConv(peers, me) else conv, peers + me) ?: sh.belfry.core.enc.EncWrite.Hold(sh.belfry.core.enc.HoldReason.NOT_LISTED)
         }
+        // §17.2 / §25: unencrypted (a guest in it, or over 100 devices) only when it was never encrypted, from a complete
+        // read, never from this device's memory alone (a new device has none); else held with the reason
+        if (w is sh.belfry.core.enc.EncWrite.Clear && e != null && !e.neverEncrypted(conv))
+            w = sh.belfry.core.enc.EncWrite.Hold(if (guestIn) sh.belfry.core.enc.HoldReason.GUEST else sh.belfry.core.enc.HoldReason.TOO_MANY)
         w
     }
 

@@ -3420,6 +3420,8 @@ the screens of parts 4–6 (Who can read this, Ask for earlier messages, the dev
   with their words and Try again, never clear once encrypted, format 1 unchanged, mail out to the belfry key and mail
   in, the version-1 ports silent on format 3. The sealed v1 tests are unchanged.
 
+**Never encrypted, from a complete read (§17.2 / §25; the lead, 2026-11-26).** Before a people conversation goes unencrypted (a guest in it, or over 100 devices), `Enc3.neverEncrypted` reads every envelope and message for me (paged, after AUTH): if the read doesn't complete, if any alias stays unresolved (it may be this conversation: a new device can't open envelopes made before it), or if a key of the conversation is found, the message is held (GUEST / TOO_MANY), never sent unencrypted. This device's memory alone never decides it.
+
 ### 19.84 Encrypted conversations, format 3: the screens of people conversations (2026-11-24; Encrypted canvas encrypted/list, conversation, who-can-read, who-agent, laptop-who, state-fetching, state-held, not-before, email, email-who, not-large, edge-no-device, edge-no-device-group, edge-grew-100, edge-21st; collective-belfry docs/encrypted.md §1, §9, §11b, §17.5, §25; the web's `src/ui/WhoCanRead.tsx`, `Messages.tsx` on branch enc-v3)
 
 Part 4 of format 3 on Android: what people see of SPEC 19.83. Words: `core/engine/Enc3View.kt` `WhoText` (the web's, where

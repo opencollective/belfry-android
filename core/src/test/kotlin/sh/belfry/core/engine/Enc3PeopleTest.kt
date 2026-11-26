@@ -155,6 +155,8 @@ class Enc3PeopleTest {
             val ever = e3.everEncrypted(conv)
             var w = EncWrites.people(conv, EncWrites.Facts(false, false, format), ever, peers.any { it in guests })
             if (w is EncWrite.V3) w = e3.peopleReady(if (mail) Enc3.peopleConv(peers, me) else conv, peers + me)
+            // as Session.encWriteDm: unencrypted only when a complete read shows it was never encrypted
+            if (w is EncWrite.Clear && !e3.neverEncrypted(conv)) w = EncWrite.Hold(if (peers.any { it in guests }) HoldReason.GUEST else HoldReason.TOO_MANY)
             return w
         }
         val dm = DirectMessages(MemoryStore(), this)
@@ -365,6 +367,35 @@ class Enc3PeopleTest {
         b2.dm.send(conv(bob), "hi")
         assertEquals(EncWrite.Hold(HoldReason.FORK, bob.pubkey), DmSnapshot.enc3Hold(b2.snapshot().thread(conv(bob)).single()))
         assertTrue(a.queued.isEmpty() && b2.queued.isEmpty())
+    }
+
+    /**
+     * §17.2 / §25 (the lead, 2026-11-26): a fresh device has no memory of the conversation; it was encrypted from another
+     * device; now it has a guest. A complete read finds an envelope this device can't resolve: held, never unencrypted.
+     * With nothing encrypted on the relay, the same conversation with a guest goes unencrypted.
+     */
+    @Test fun aFreshDeviceHoldsAConversationEncryptedElsewhere() = runBlocking<Unit> {
+        val (a, _) = devices(listOf(aliceList, bobList))
+        a.dm.send(conv(bob), "from the phone")
+        a.publish()
+        // Alice signs in on a tablet: her list now has both; the tablet remembers nothing
+        val aliceTab = LocalSigner.random()
+        val aliceList2 = list(alice.pubkey, 2, aliceList, listOf(alicePhone.pubkey, aliceTab.pubkey))
+        relay += aliceList2
+        val tab = Device(alice, aliceTab)
+        tab.e3.offer(listOf(aliceList, aliceList2, bobList))
+        assertFalse(tab.e3.everEncrypted(conv(bob)), "nothing in this device's memory")
+        tab.guests = setOf(bob.pubkey)
+        tab.dm.send(conv(bob), "from the tablet")
+        assertEquals(HoldReason.GUEST, DmSnapshot.enc3Hold(tab.snapshot().thread(conv(bob)).single())?.reason)
+        assertTrue(tab.queued.isEmpty(), "nothing sent unencrypted")
+    }
+
+    @Test fun aConversationNeverEncryptedWithAGuestGoesUnencrypted() = runBlocking<Unit> {
+        val (a, _) = devices(listOf(aliceList, bobList))
+        a.guests = setOf(bob.pubkey)
+        a.dm.send(conv(bob), "hello guest")
+        assertTrue(a.queued.isNotEmpty() && a.queued.none { it.kind == Enc.MSG || it.kind == Enc.KEY }, "the complete read found nothing encrypted: no lock")
     }
 
     @Test fun onceEncryptedNeverClearAndReactionsOnHoldSayIt() = runBlocking<Unit> {

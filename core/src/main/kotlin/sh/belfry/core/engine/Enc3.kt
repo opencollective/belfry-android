@@ -340,6 +340,27 @@ class Enc3(
     }
 
     fun everEncrypted(conv: String): Boolean = synchronized(keys) { conv in convs }
+
+    /**
+     * §17.2 / §25 (the web's neverEncrypted; the lead, 2026-11-26): CONV was never encrypted, known from one COMPLETE read
+     * of every envelope and message for me (paged, after AUTH) with every alias resolved. This device's memory alone is
+     * not enough: a new device has none, and another device may have encrypted it. False when the read didn't complete,
+     * when any alias stays unresolved (it may be this conversation), or when a key of CONV is found. Only then may a
+     * people conversation go unencrypted (a guest in it, or over 100 devices).
+     */
+    suspend fun neverEncrypted(conv: String, pageMs: Long = 8_000): Boolean {
+        if (everEncrypted(conv)) return false
+        val got = ports.query(Filters.of(kinds = listOf(Enc.KEY, Enc.MSG), tags = mapOf("p" to listOf(me))), pageMs) ?: return false
+        if (!got.complete) return false
+        offer(got.events)
+        takeEnvelopes()
+        for (e in got.events) {
+            val d = Enc.one(e, "d") ?: continue
+            val k = keyByAlias(d) ?: return false // an alias I can't resolve may be this conversation
+            if (k.conv == conv) return false
+        }
+        return !everEncrypted(conv)
+    }
     fun firstKeyAt(conv: String): Long? = synchronized(keys) { convs[conv] }
 
     /** SPEC 19.88: the groups ever seen encrypted here (their ids). */
